@@ -1,0 +1,43 @@
+# Alternative to the WSL2 database setup.
+#
+# This machine has no Docker installed, so local development currently runs
+# PostgreSQL inside WSL2 Ubuntu (see scripts/db-start.ps1). This file is kept so
+# that switching to Docker Desktop later costs nothing: the connection string is
+# identical, so backend/.env needs no change.
+#
+#   docker compose up -d db
+#   docker compose down          # keeps data
+#   docker compose down -v       # DESTROYS data
+#
+# Only the database is containerised. The backend and both clients run on the
+# Windows host, where the hot-reload loop is faster.
+
+services:
+  db:
+    # Pinned to PostgreSQL 18 + PostGIS 3.6 to match the WSL2 setup exactly.
+    # A version mismatch between developers is a source of migration surprises.
+    image: postgis/postgis:18-3.6
+    container_name: ner-postgis
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ner
+      # Read from the host environment; never hardcode a password here.
+      # Set POSTGRES_PASSWORD in a local .env beside this file.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ner_logistics
+    ports:
+      # Bound to localhost only. Never expose a development database on 0.0.0.0.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - ner_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # Waits for the server to accept connections, so `depends_on` is meaningful.
+      test: ["CMD-SHELL", "pg_isready -U ner -d ner_logistics"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  ner_pgdata:
+    name: ner_pgdata

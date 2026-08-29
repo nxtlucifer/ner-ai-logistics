@@ -1,0 +1,20 @@
+[project]
+name = "ner-fleet-backend"
+version = "0.1.0"
+description = "Backend for the NER Smart Logistics and Accessibility Intelligence Platform (SIH26002)"
+requires-python = ">=3.11,<3.13"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-ra --strict-markers"
+markers = [
+    "requires_db: test needs a reachable PostgreSQL+PostGIS instance",
+    "migration: mutates schema state; must leave the database at head",
+]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["*/tests/*"]

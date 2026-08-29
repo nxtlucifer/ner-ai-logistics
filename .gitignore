@@ -1,0 +1,98 @@
+# ---------------------------------------------------------------------------
+# Secrets and environment
+# ---------------------------------------------------------------------------
+# .env files hold real credentials. Only .env.example is tracked.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.keystore
+secrets/
+credentials.json
+service-account*.json
+
+# ---------------------------------------------------------------------------
+# Python / backend
+# ---------------------------------------------------------------------------
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+
+# ---------------------------------------------------------------------------
+# Node / frontend / mobile
+# ---------------------------------------------------------------------------
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+manager-web/dist/
+manager-web/.vite/
+.expo/
+driver-app/.expo/
+driver-app/dist/
+driver-app/android/
+driver-app/ios/
+*.tsbuildinfo
+.eslintcache
+
+# ---------------------------------------------------------------------------
+# ML artefacts
+# ---------------------------------------------------------------------------
+# Trained models are versioned artefacts stored outside git - see
+# docs/AI_MODELS.md section 6. Never commit a model binary.
+ml/artifacts/
+ml/runs/
+*.pkl
+*.joblib
+*.onnx
+*.txt.model
+
+# Raw and generated datasets. data/README.md explains what belongs here.
+data/raw/
+data/processed/
+data/generated/
+*.parquet
+!data/**/.gitkeep
+
+# ---------------------------------------------------------------------------
+# Uploads - driver documents, truck photos, proof of delivery.
+# These are personal data. They must never enter version control.
+# ---------------------------------------------------------------------------
+uploads/
+media/
+backend/uploads/
+
+# ---------------------------------------------------------------------------
+# Editors and OS
+# ---------------------------------------------------------------------------
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------------------------------------------------------------------------
+# Logs and scratch
+# ---------------------------------------------------------------------------
+*.log
+logs/
+tmp/
+.scratch/
