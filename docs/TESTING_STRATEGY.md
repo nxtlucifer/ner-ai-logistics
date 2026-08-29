@@ -177,6 +177,13 @@ The clock-skew and offline-flush cases are the ones most likely to break silentl
 | **Provider selection: Supabase default, no silent local fallback** | **Running** |
 | **Credential redaction in logs and in `/ready` output** | **Running** |
 | **Row Level Security enabled on every table** | **Running** |
+| **Schema drift: ORM vs database via `compare_metadata`** | **Running** |
+| **FK, CHECK and partial-unique constraints (raw SQL)** | **Running** |
+| **Append-only `audit_logs` trigger** | **Running** |
+| **Derived `shipments.total_weight_kg` trigger** | **Running** |
+| **Geospatial: SRID, metre distance, isotropic `ST_DWithin`, GIST indexes** | **Running** |
+| **Trip state machine, including prohibited transitions** | **Running** |
+| **Pydantic contracts reject server-managed fields** | **Running** |
 | PostGIS availability test against the real database | **Running** |
 | Migration upgrade/downgrade test | **Running** |
 | Manager web `tsc --noEmit` + production build | **Running** |

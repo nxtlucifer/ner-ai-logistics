@@ -57,22 +57,34 @@ explicit opt-in; normal startup no longer needs `scripts\db-start.ps1`.
 
 ---
 
-## P2 — Data Model
+## P2 — Data Model ✅ COMPLETE
 
-**Objective** Implement the core domain schema.
-**Inputs** [DATA_MODEL.md](DATA_MODEL.md) §2–6.
-**Implementation** Enums; `users`, `drivers`, `driver_documents`, `trucks`, `truck_documents`,
-`truck_maintenance`, `driver_truck_assignments`, `audit_logs`. SQLAlchemy models, Alembic
-migration, seed script for development data.
+> **Scope changed from the original plan.** This phase originally stopped at identity and fleet,
+> deferring trips and GPS to P6. The revised delivery sequence (P3 manager CRUD → P4 driver
+> identity → P5 live GPS) contains no later schema phase, so P5 would have had no tables to build
+> on. P2 therefore lays down the whole operational spine in one migration. Recorded here rather
+> than changed silently, per [AGENTS.md](../AGENTS.md).
 
-Do **not** implement trips, GPS, payments or emergencies in this phase.
+**Objective** Implement the canonical domain schema.
+**Inputs** [DATA_MODEL.md](DATA_MODEL.md) §2–13.
+**Implementation** 17 enum types; 15 tables — `users`, `drivers`, `driver_documents`, `trucks`,
+`truck_documents`, `truck_maintenance`, `driver_truck_assignments`, `shipments`, `cargo_items`,
+`trips`, `trip_stops`, `trip_routes`, `trip_events`, `gps_points`, `audit_logs`. SQLAlchemy
+models, Pydantic contracts, trip state machine, Alembic migration `0002_core_domain`.
+
+Still **not** implemented: payments, payroll, deliveries, alerts, emergencies, road incidents and
+weather. Each arrives with the phase that uses it.
 
 **Tests** Migration up/down/up on a scratch database; the `current_load_kg <= max_capacity_kg`
 CHECK rejects direct SQL; both partial unique assignment indexes reject a second active row;
 `audit_logs` rejects UPDATE and DELETE from the application role; **every new table has
 RLS enabled** - on Supabase a table without it is world-readable through the Data API.
-**Exit gate** Migration is reversible; every constraint above is proven by a failing-write test;
-seed script produces a usable development dataset.
+**Exit gate** ✅ Migration upgrades, downgrades and re-upgrades cleanly against Supabase; ORM and
+database schema proven identical by `compare_metadata`; every constraint proven by a
+failing-write test; RLS enabled on all 15 tables with zero policies.
+
+A development seed script is **not** included and moves to P3, where the CRUD endpoints that would
+populate it exist.
 
 ---
 

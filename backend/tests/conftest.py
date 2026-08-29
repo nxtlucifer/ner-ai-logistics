@@ -10,6 +10,7 @@ from collections.abc import AsyncGenerator, Iterator
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import Connection
 
 from app.core.config import get_settings
 from app.core.event_loop import configure_event_loop_policy
@@ -49,6 +50,33 @@ async def client() -> AsyncGenerator[AsyncClient, None]:
         transport=ASGITransport(app=app), base_url="http://test"
     ) as ac:
         yield ac
+
+
+@pytest.fixture
+def db() -> Iterator["Connection"]:
+    """Synchronous connection inside a transaction that is always rolled back.
+
+    Integrity tests deliberately provoke constraint violations against the real
+    Supabase database. Wrapping each test in a rolled-back transaction means
+    they leave nothing behind, so the suite is safe to run repeatedly against a
+    shared development project.
+    """
+    from sqlalchemy import create_engine
+
+    settings = get_settings()
+    connect_args: dict[str, object] = {}
+    if settings.requires_ssl and "sslmode=" not in settings.effective_database_url:
+        connect_args["sslmode"] = "require"
+
+    engine = create_engine(settings.effective_database_url, connect_args=connect_args)
+    conn = engine.connect()
+    trans = conn.begin()
+    try:
+        yield conn
+    finally:
+        trans.rollback()
+        conn.close()
+        engine.dispose()
 
 
 @pytest.fixture

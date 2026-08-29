@@ -1,8 +1,11 @@
 # Data Model
 
-**Status: design specification.** Only the bootstrap migration described in §12 is implemented.
-Everything else is designed and deliberately not yet built. Tables are introduced phase by phase
-per [DEVELOPMENT_ROADMAP.md](DEVELOPMENT_ROADMAP.md).
+**Status: partially implemented.** Migrations `0001_bootstrap` and `0002_core_domain` are applied
+to Supabase — 15 tables covering the operational spine. The financial, alerting and environmental
+entities (`payments`, `expenses`, `payroll`, `deliveries`, `alerts`, `emergencies`,
+`road_incidents`, `weather_events`) remain design-only and arrive with the phases that use them.
+§13 states exactly what exists. Tables are introduced phase by phase per
+[DEVELOPMENT_ROADMAP.md](DEVELOPMENT_ROADMAP.md).
 
 ---
 
@@ -29,6 +32,24 @@ to driver documents and GPS traces.
 returns true metres directly. With `geometry` in 4326 the units are degrees, and a degree of
 longitude at 26°N is about 90 km versus 111 km for latitude — an easy and dangerous mistake in
 proximity checks used for safety logic.
+
+The cost of `geography` is a smaller function set and slower operations than a projected CRS.
+For what this system does — distance, proximity, `ST_DWithin`, route length — that trade is
+correct.
+
+> ### ⚠ PostGIS does not reject inverted coordinates
+>
+> Verified against PostGIS 3.3 on Supabase: `ST_GeogFromText('POINT(26.1445 91.7362)')` —
+> Guwahati with latitude and longitude swapped — **raises no error**. PostGIS reflects the
+> out-of-range latitude over the pole and stores `88.2638`, a plausible-looking point in the
+> Arctic Ocean about 7,000 km from Assam.
+>
+> **The database is therefore not a defence against latitude/longitude inversion.** The
+> `Coordinate` bounds in `app/schemas/common.py` are the only layer that catches it, which makes
+> them a safety control rather than input hygiene. Every coordinate entering the system must pass
+> through `Coordinate`; no endpoint may accept raw floats.
+>
+> Pinned by `tests/test_geospatial.py::test_postgis_silently_wraps_an_out_of_range_latitude`.
 
 ---
 
@@ -402,6 +423,36 @@ erDiagram
 ---
 
 ## 13. What Is Actually Implemented
+
+### Migration 0002 — the P2 operational spine
+
+Fifteen tables, implemented and tested against Supabase:
+
+`users` · `drivers` · `driver_documents` · `trucks` · `truck_documents` ·
+`truck_maintenance` · `driver_truck_assignments` · `shipments` · `cargo_items` ·
+`trips` · `trip_stops` · `trip_routes` · `trip_events` · `gps_points` · `audit_logs`
+
+Two entities were added beyond the original design in this document:
+
+- **`trip_stops`** — the ordered execution sequence for a trip. `shipments` carries the
+  *commercial* pickup and destination; `trip_stops` carries the *operational* sequence, which may
+  include rest, fuel and checkpoint stops. This is what Fleet Sentinel will later treat as an
+  approved stationary location.
+- **`trip_events`** — the append-only operational timeline (what happened on the road), distinct
+  from `audit_logs` (who changed which record, for compliance).
+
+Three database mechanisms enforce invariants that application code alone could not:
+
+| Mechanism | Guarantee |
+| --- | --- |
+| `trg_audit_logs_append_only` | `audit_logs` rejects UPDATE and DELETE. A trigger, not a GRANT, because the application connects as the table owner and an owner cannot be denied by privilege. |
+| `trg_cargo_items_recalc_weight` | `shipments.total_weight_kg` is derived from `cargo_items`. It is the value compared against truck capacity, so a client must not be able to declare it. |
+| `set_updated_at()` on 5 tables | `updated_at` cannot be forged by a client and is maintained for raw SQL too. Uses `now()` (transaction time), so all rows changed by one operation share a timestamp. |
+
+Still not implemented, deliberately: `road_incidents`, `weather_events`, `payments`, `expenses`,
+`payroll`, `deliveries`, `alerts`, `emergencies`. Each arrives with the phase that uses it.
+
+### Migration 0001 — bootstrap
 
 The bootstrap migration (`backend/alembic/versions/`) creates exactly three things,
 against **Supabase** (PostgreSQL 17.6, PostGIS 3.3):
