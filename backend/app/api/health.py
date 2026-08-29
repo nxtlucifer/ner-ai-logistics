@@ -34,6 +34,31 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+async def _check_postgis(session: Any) -> dict[str, Any]:
+    """Call a real PostGIS function, not just look for a catalogue row.
+
+    The function is tried unqualified first, then qualified as
+    `extensions.postgis_version()`.
+
+    The fallback is not defensive padding. Supabase installs PostGIS into the
+    `extensions` schema, so resolving it unqualified depends on the connecting
+    role having that schema on its search_path. The `postgres` role does; a
+    least-privilege application role - which docs/SECURITY.md calls for later -
+    may not. Without the fallback, tightening database permissions would silently
+    turn readiness red on a database whose PostGIS is perfectly healthy.
+    """
+    for statement in ("SELECT postgis_version()", "SELECT extensions.postgis_version()"):
+        try:
+            version = (await session.execute(text(statement))).scalar_one()
+            return {"ok": True, "detail": str(version)}
+        except Exception as exc:  # noqa: BLE001 - try the next resolution
+            logger.debug("PostGIS probe %r failed: %s", statement, exc)
+            await session.rollback()  # the failed statement poisons the transaction
+
+    logger.warning("PostGIS is not callable on this connection")
+    return {"ok": False, "detail": "PostGIS extension not available"}
+
+
 async def _check_database() -> tuple[dict[str, Any], dict[str, Any]]:
     """Probe the database and PostGIS.
 
@@ -49,17 +74,7 @@ async def _check_database() -> tuple[dict[str, Any], dict[str, Any]]:
             version = (await session.execute(text("SELECT version()"))).scalar_one()
             db_check = {"ok": True, "detail": str(version).split(" on ")[0]}
 
-            try:
-                postgis_version = (
-                    await session.execute(text("SELECT PostGIS_Version()"))
-                ).scalar_one()
-                postgis_check = {"ok": True, "detail": str(postgis_version)}
-            except Exception as exc:  # noqa: BLE001 - reported, not raised
-                logger.warning("PostGIS check failed: %s", exc)
-                postgis_check = {
-                    "ok": False,
-                    "detail": "PostGIS extension not available",
-                }
+            postgis_check = await _check_postgis(session)
     except Exception as exc:  # noqa: BLE001 - reported, not raised
         # The exception text can contain the connection URL including credentials,
         # so only the exception class and a short reason are surfaced.
