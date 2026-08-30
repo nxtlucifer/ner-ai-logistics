@@ -27,9 +27,22 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     id: Mapped[int] = mapped_column(sa.BigInteger, primary_key=True, autoincrement=True)
-    # NULL means the actor was the system or a scheduled job, not a person.
+    # RESTRICT, not SET NULL: an audit row pins its actor. SET NULL is executed
+    # as an UPDATE, which the append-only trigger blocks anyway - and nulling
+    # the actor on delete would let anyone able to delete a user anonymise their
+    # own trail, defeating the point of the trigger.
+    #
+    # NULL therefore means the action was taken by the system or a scheduler,
+    # never that a user was removed. Retention anonymises the users row instead;
+    # see docs/SECURITY.md section 10.
     actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
-        sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        sa.ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=True,
+        comment=(
+            "RESTRICT, not SET NULL: an audit row pins its actor. NULL means "
+            "the action was taken by the system or a scheduler, never that a "
+            "user was deleted. Retention anonymises the users row instead."
+        ),
     )
     action: Mapped[AuditAction] = mapped_column(pg_enum(AuditAction), nullable=False)
     entity_type: Mapped[str] = mapped_column(sa.String(64), nullable=False)

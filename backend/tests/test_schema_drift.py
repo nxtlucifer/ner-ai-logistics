@@ -96,6 +96,30 @@ def test_migration_enum_definitions_match_python_enums() -> None:
         )
 
 
+def test_database_is_at_head(db: Connection) -> None:
+    """Non-destructive companion to the opt-in migration tests.
+
+    Those drop every table, so they do not run by default. This one runs always
+    and catches the common failure they would otherwise be relied on for: a
+    migration added but never applied.
+    """
+    from pathlib import Path
+
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    backend_root = Path(__file__).resolve().parents[1]
+    cfg = Config(str(backend_root / "alembic.ini"))
+    cfg.set_main_option("script_location", str(backend_root / "alembic"))
+    expected = ScriptDirectory.from_config(cfg).get_current_head()
+
+    actual = db.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+    assert actual == expected, (
+        f"database is at {actual}, migrations head is {expected}. "
+        "Run: alembic upgrade head"
+    )
+
+
 def test_migration_table_list_matches_models() -> None:
     """The RLS loop iterates the migration list; it must cover every table."""
     import importlib.util

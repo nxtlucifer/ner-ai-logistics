@@ -124,8 +124,8 @@ class TestValueValidation:
 
     def test_licence_number_normalised(self) -> None:
         d = DriverCreate(
-            user_id=uuid.uuid4(),
             full_name="Bipul Das",
+            initial_password="an-initial-password",
             phone="9435012345",
             licence_number="as 01 2020 1234567",
             licence_expiry="2030-01-01",
@@ -135,8 +135,8 @@ class TestValueValidation:
     def test_bad_phone_rejected(self) -> None:
         with pytest.raises(ValidationError):
             DriverCreate(
-                user_id=uuid.uuid4(),
                 full_name="Bipul Das",
+                initial_password="an-initial-password",
                 phone="not-a-phone",
                 licence_number="AS0120201234567",
                 licence_expiry="2030-01-01",

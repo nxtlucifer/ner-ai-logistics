@@ -10,8 +10,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.auth import router as auth_router
+from app.api.fleet import assignments_router, drivers_router, trucks_router
 from app.api.health import router as health_router
 from app.core.config import get_settings
+from app.core.errors import register_exception_handlers
 from app.core.event_loop import running_loop_supports_psycopg
 from app.db.session import dispose_engine
 
@@ -71,7 +74,15 @@ def create_app() -> FastAPI:
         allow_headers=["Authorization", "Content-Type", "Accept"],
     )
 
+    # One error shape for every failure, and a containment boundary: psycopg
+    # embeds the connection DSN in its exceptions, so a raw 500 would leak it.
+    register_exception_handlers(app)
+
     app.include_router(health_router)
+    app.include_router(auth_router)
+    app.include_router(drivers_router)
+    app.include_router(trucks_router)
+    app.include_router(assignments_router)
     return app
 
 

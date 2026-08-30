@@ -88,26 +88,33 @@ populate it exist.
 
 ---
 
-## P3 — Core Backend
+## P3 — Auth, RBAC and Manager API ✅ COMPLETE
 
-**Objective** Authentication, RBAC, and CRUD for drivers, trucks and assignments.
-**Inputs** [API_CONTRACTS.md](API_CONTRACTS.md) §2–5, [SECURITY.md](SECURITY.md) §1–2.
-**Implementation** Argon2id hashing; JWT access + rotating refresh with reuse detection; RBAC
-dependency; the endpoint groups above; assignment transition that atomically ends the previous
-active assignment; file upload with magic-byte validation and EXIF stripping.
-**Tests** The full authorization matrix, including **object-level** access (a driver requesting
-another driver's record gets 404); token tampering rejected; upload validation; assignment
-atomicity under concurrency.
-**Exit gate** Authorization matrix passes for every implemented endpoint; no endpoint returns data
-outside the principal's scope; upload of a `.jpg` with executable magic bytes is rejected.
+**Objective** The first production service layer over the P2 schema.
+**Implementation** Local JWT auth behind a swappable `TokenVerifier`; Argon2id;
+opaque rotating refresh tokens with reuse detection (migration 0003);
+centralised permission-based RBAC; service layer for drivers, trucks and
+assignments; audit logging on every mutation; uniform error envelope; manager UI
+for login, drivers, trucks and assignments.
+**Tests** 268 backend tests, including the authorization matrix, privilege
+escalation attempts, object-level scoping, token forgery, assignment
+concurrency, and audit scrubbing.
+**Exit gate** ✅ P3 gates 1–26.
+
+Migration 0004 changed `audit_logs.actor_user_id` to RESTRICT — see
+[DATA_MODEL.md](DATA_MODEL.md) and [SECURITY.md](SECURITY.md) §10.
 
 ---
 
-## P4 — Manager Dashboard
+## P4 — Manager Dashboard (partially delivered in P3)
 
-**Objective** Real UI over the P3 API.
-**Implementation** Login; driver and truck list/detail/create/edit; document upload with expiry
-status; assignment screen with verification review; app shell, routing, error and loading states.
+Already shipped in P3: login, driver and truck list/create, assignment screen,
+app shell, routing, and loading/empty/error/success states throughout.
+
+**Objective** The remainder: driver and truck detail views, edit forms, document
+upload with expiry status, and manager review of flagged verifications.
+**Implementation** Document upload with magic-byte validation and EXIF stripping;
+detail pages; mismatch review queue.
 **Tests** Vitest component tests; MSW-stubbed API; Playwright login and CRUD; typecheck and build.
 **Exit gate** A manager can complete driver and truck lifecycle entirely through the UI. **No
 hardcoded or placeholder data anywhere in the rendered output.**

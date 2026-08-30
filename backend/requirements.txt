@@ -13,6 +13,14 @@ alembic==1.14.0
 psycopg[binary]==3.2.3
 geoalchemy2==0.16.0
 
+# Authentication.
+# argon2-cffi: Argon2id password hashing, per docs/SECURITY.md section 1.
+# pyjwt[crypto]: token signing/verification. The crypto extra is included now
+# so an RS256/JWKS verifier (Supabase Auth) can be added later without a
+# dependency change - see app/auth/verifier.py.
+argon2-cffi==23.1.0
+pyjwt[crypto]==2.10.1
+
 # Testing
 pytest==8.3.4
 pytest-asyncio==0.25.0

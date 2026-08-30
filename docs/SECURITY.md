@@ -27,7 +27,22 @@ incidental to the product — it is the product. The controls below are proporti
   for a lost phone is server-side revocation, not a short session.
 - Tokens are stored in `expo-secure-store` on mobile (Keychain / Keystore), never `AsyncStorage`.
 - Web uses in-memory access tokens with the refresh token in an `HttpOnly`, `Secure`, `SameSite=Strict`
-  cookie. No token in `localStorage`.
+  cookie. No token in `localStorage`. **Implemented** - the cookie is scoped to
+  `/api/auth`, and the web client never sees its own refresh token.
+
+> **Development gotcha, now enforced by configuration.** `SameSite` compares
+> registrable domains and ignores ports. `localhost:5173` -> `localhost:8000` is
+> same-site and the cookie flows; `localhost:5173` -> `127.0.0.1:8000` is
+> *cross-site* and the browser silently drops it, so sessions do not survive a
+> reload. `manager-web/.env` therefore uses `localhost`.
+
+> **Concurrent refreshes are a logout.** Rotation with reuse detection makes two
+> simultaneous refreshes indistinguishable from a replay, so the family is
+> revoked. The web client single-flights refresh (`refreshSession` in
+> `manager-web/src/api/client.ts`). Without it, two API calls expiring together -
+> or React StrictMode's double-invoked effects - log the user out.
+> **Known gap:** two browser *tabs* are separate JS contexts and can still race.
+> A `BroadcastChannel` lock is the fix; not implemented.
 
 ---
 
@@ -127,6 +142,32 @@ talk only to FastAPI. This is not merely convention: it is what keeps capacity
 rules, document enforcement and the Fleet Sentinel safety path unbypassable. A
 client holding a database key could write `trips` directly and route a truck onto
 a closed road.
+
+### RLS is NOT the backend authorization boundary
+
+Measured, not assumed: the backend connects to Supabase as the `postgres` role,
+which has **`rolbypassrls = true`**. Every RLS policy is therefore invisible to
+the application's own queries.
+
+```
+Manager web / Driver app
+        |  authenticated HTTP
+        v
+     FastAPI          <- app/core/permissions.py enforces authorization HERE
+        |  privileged connection (bypasses RLS)
+        v
+   PostgreSQL         <- RLS contains the Supabase Data API, nothing else
+```
+
+| Layer | Protects against |
+| --- | --- |
+| `app/core/permissions.py` | Every request that reaches FastAPI |
+| Row Level Security | Direct Data API access with the anon key |
+
+Conflating the two would produce policies that look like security while
+enforcing nothing on the path clients actually use. Pinned by
+`tests/test_rls_boundary.py`, which fails loudly if the backend role ever stops
+bypassing RLS — that would be a significant architecture change, not a detail.
 
 ### Row Level Security is mandatory on every table
 
@@ -256,7 +297,13 @@ The threat here is under-response and alert fatigue more than malicious abuse.
 | Audit logs | 2 years | Archived |
 | Emergency records | 5 years | Retained — safety evidence |
 | Weather/incident raw payloads | 1 year | Aggregated |
-| Deactivated driver account | 30-day grace | PII deleted, trip history anonymised |
+| Deactivated driver account | 30-day grace | PII **anonymised in place**, trip history retained |
+
+> **Users are never hard-deleted.** `audit_logs.actor_user_id` is `ON DELETE
+> RESTRICT` (migration 0004): an audit row pins its actor, so nobody can erase
+> who did something by deleting the user. Retention therefore anonymises the
+> `users` row with an UPDATE — which touches no audit record — rather than
+> issuing a DELETE that the constraint would refuse.
 
 Retention is enforced by a scheduled job, not by intention. Drivers can request their own data
 export and deletion, subject to legal retention on emergency and financial records.

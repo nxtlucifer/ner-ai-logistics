@@ -424,14 +424,30 @@ must permit inbound 8000. The Android emulator uses `10.0.2.2` instead. See
 Documented so the boundary is decided before anything is built. None of this is
 implemented.
 
-### Supabase Auth — *candidate, not yet adopted*
+### Supabase Auth — *evaluated in P3, deferred; the door is held open*
 
-Roles will be `MANAGER` and `DRIVER` with the permission split in
-[SECURITY.md](SECURITY.md) §2. Open question: Supabase Auth issues its own JWTs,
-and FastAPI already needs to authorise every request. Adopting it means FastAPI
-**verifies** Supabase-issued tokens rather than issuing its own. That is a real
-simplification for password reset and phone OTP, and it is the likely choice — but
-it must not become a second, parallel authorisation system. One authority only.
+**Decision: application-local JWT, behind a swappable verifier.**
+
+FastAPI issues and verifies its own tokens (Argon2id, 15-minute access token,
+opaque rotating refresh with reuse detection), exactly as
+[SECURITY.md](SECURITY.md) §1 specifies. Reasons:
+
+- `users.password_hash` already exists and is the natural home for credentials.
+  Supabase Auth would split identity across `auth.users` and our `users`.
+- Supabase Auth's structural advantage is letting RLS policies use `auth.uid()`.
+  That pays nothing here, because the backend role **bypasses RLS** — so
+  authorization has to live in FastAPI either way.
+- No external dependency in the request path during a demo.
+
+What Supabase Auth would still buy us is **phone OTP for drivers**, which is
+genuinely attractive for the driver app in P4. So token *verification* sits
+behind the `TokenVerifier` protocol in `backend/app/auth/verifier.py`. Adopting
+Supabase means adding one class and changing one line in the factory — no route,
+service or test changes.
+
+**What must not change either way:** roles and permissions are the
+application's own concern, decided from our `users` table. An identity provider
+says *who* is calling; it never says *what they may do*.
 
 ### Supabase Storage — *planned*
 

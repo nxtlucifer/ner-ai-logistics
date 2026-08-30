@@ -46,6 +46,10 @@ leave the documentation describing a system that no longer exists.
   validation, document enforcement, payments and emergency escalation are
   deterministic. No model may enter those decision paths.
 - **Delete migrations without approval.** Migrations are history. Add a new one.
+- **Make a destructive test run by default.** `tests/test_migrations.py` drops
+  every table; it is gated behind `RUN_DESTRUCTIVE_MIGRATION_TESTS=1` because an
+  ordinary `pytest` once wiped the development database. Any new test that can
+  destroy data must be gated the same way.
 - **Commit, push or deploy unless explicitly asked.**
 
 ---
@@ -99,6 +103,15 @@ Never label planned functionality as implemented.
   there is **no automatic fallback** — never add one. A local WSL2 PostgreSQL
   remains available for offline work via `DATABASE_PROVIDER=local` plus
   `scripts\db-start.ps1`.
+- **Authorization lives in FastAPI, never in RLS.** The backend connects as
+  `postgres`, which has `rolbypassrls = true` - measured, and pinned by
+  `tests/test_rls_boundary.py`. RLS contains the Supabase Data API; it enforces
+  nothing on the path clients actually use. Add permissions to
+  `app/core/permissions.py` and gate routes with `require_permission(...)`.
+  Never write `if user.role == ...` in a route.
+- **Never trust client-supplied identity.** Role and actor come from the signed
+  token and are re-read from the database on every request, so a demotion or
+  deactivation takes effect immediately rather than at token expiry.
 - **Row Level Security on every table, always.** Supabase publishes `public`
   through its Data API, so a table created without
   `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` is readable by anyone holding the
@@ -119,6 +132,10 @@ Never label planned functionality as implemented.
 
 ## Current state
 
-Foundation (P0–P1.5) is complete: backend, Supabase as primary database, both
-clients, and tests. No domain feature exists yet. Next phase is **P2 — Data
-Model**. See [docs/DEVELOPMENT_ROADMAP.md](docs/DEVELOPMENT_ROADMAP.md).
+P0–P3 complete: Supabase foundation, the canonical 16-table schema, local JWT
+auth with RBAC, manager CRUD for drivers/trucks/assignments, audit logging, and
+the manager UI over those APIs. 268 backend tests.
+
+No GPS, routing, fuel AI, weather or safety features exist. Next phase is
+**P4 — remaining manager dashboard**, then P5 driver app.
+See [docs/DEVELOPMENT_ROADMAP.md](docs/DEVELOPMENT_ROADMAP.md).

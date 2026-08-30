@@ -15,11 +15,14 @@ Smart India Hackathon · Problem Statement **SIH26002** · Software · Smart Aut
 | Local WSL2 PostgreSQL 18 + PostGIS 3.6 | Optional offline fallback, opt-in only |
 | Manager web (React 19 + TS + Vite 8 + Tailwind 4) | Running, reads real backend state |
 | Driver app (Expo SDK 57 + React Native 0.86 + TS) | Running, reads real backend state |
-| Backend test suite | Passing |
+| Auth: local JWT, Argon2id, rotating refresh with reuse detection | Implemented |
+| Manager API: drivers, trucks, assignments + audit logging | Implemented |
+| Manager UI: login, drivers, trucks, assignments | Implemented |
+| Backend test suite | 268 passing |
 
 **Not implemented:** GPS, routing, fuel AI, weather, road incidents, rerouting,
 Fleet Sentinel, SOS, payments, payroll, OCR, ML training, Supabase Auth, Supabase
-Storage. All are specified in [`docs/`](docs/) and scheduled in
+Storage, driver-app authentication. All are specified in [`docs/`](docs/) and scheduled in
 [docs/DEVELOPMENT_ROADMAP.md](docs/DEVELOPMENT_ROADMAP.md). Nothing in the UI
 pretends otherwise.
 
@@ -79,7 +82,17 @@ Serves on <http://127.0.0.1:8000> · API docs at <http://127.0.0.1:8000/docs>
 > every database call fails with a psycopg `InterfaceError`. `run.py` does that;
 > invoking uvicorn directly does not.
 
-### 2. Manager web
+### 2. Create a manager account (first time only)
+
+```powershell
+cd D:\Projects\ner-ai-logistics\backend
+.venv\Scripts\python.exe scripts\create_user.py --email you@example.com --name "Your Name"
+```
+
+The password is prompted for, never passed as an argument. Driver accounts are
+created from the Drivers page in the UI, not with this script.
+
+### 3. Manager web
 
 ```powershell
 cd D:\Projects\ner-ai-logistics\manager-web
@@ -88,7 +101,7 @@ npm run dev
 
 Opens on <http://localhost:5173>
 
-### 3. Driver app
+### 4. Driver app
 
 ```powershell
 cd D:\Projects\ner-ai-logistics\driver-app
@@ -222,6 +235,14 @@ npm run typecheck
 ```
 
 Backend tests run against whichever database `DATABASE_PROVIDER` selects.
+
+> **Migration tests are destructive and skipped by default.** They downgrade to
+> base, dropping every table and all data. Run them only against a database you
+> are willing to empty:
+>
+> ```powershell
+> $env:RUN_DESTRUCTIVE_MIGRATION_TESTS=1; .venv\Scripts\python.exe -m pytest tests	est_migrations.py
+> ```
 
 ---
 

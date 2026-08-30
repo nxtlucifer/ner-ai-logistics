@@ -80,7 +80,23 @@ Constraints must be proven at the database level, not just in Python:
 - PostGIS behaviour: `ST_DWithin` on `geography` returns metres; a 5 km radius near Guwahati matches
   correctly in both latitude and longitude directions (the specific bug that using `geometry` would
   cause).
-- Every migration is tested `upgrade` → `downgrade` → `upgrade` on a scratch database.
+- Every migration is tested `upgrade` → `downgrade` → `upgrade`.
+
+> **⚠ These migration tests are destructive and opt-in.** `alembic downgrade base`
+> issues `DROP TABLE ... CASCADE` on every domain table, so against the shared
+> Supabase development project it destroys all data — manager accounts, drivers,
+> trucks and any demo seed. That happened once during P3: an ordinary `pytest`
+> run silently emptied the development database.
+>
+> They now skip unless opted into:
+>
+> ```bash
+> RUN_DESTRUCTIVE_MIGRATION_TESTS=1 pytest tests/test_migrations.py
+> ```
+>
+> A non-destructive `test_database_is_at_head` runs on every ordinary invocation
+> and catches the common case those tests would otherwise be relied on for — a
+> migration written but never applied.
 
 ---
 
@@ -184,6 +200,14 @@ The clock-skew and offline-flush cases are the ones most likely to break silentl
 | **Geospatial: SRID, metre distance, isotropic `ST_DWithin`, GIST indexes** | **Running** |
 | **Trip state machine, including prohibited transitions** | **Running** |
 | **Pydantic contracts reject server-managed fields** | **Running** |
+| **Authorization matrix: role x endpoint x own/other** | **Running** |
+| **Privilege escalation: body role, header role, actor id, demotion mid-token** | **Running** |
+| **Token hardening: alg:none, wrong key, expired, refresh-as-access** | **Running** |
+| **Refresh rotation and reuse detection, cookie and body paths** | **Running** |
+| **Assignment concurrency under simultaneous requests** | **Running** |
+| **Audit coverage, scrubbing and immutability** | **Running** |
+| **RLS boundary: backend role bypasses RLS (pinned)** | **Running** |
+| Manager frontend component tests (Vitest) | **Not implemented** — UI states verified manually against the live API |
 | PostGIS availability test against the real database | **Running** |
 | Migration upgrade/downgrade test | **Running** |
 | Manager web `tsc --noEmit` + production build | **Running** |

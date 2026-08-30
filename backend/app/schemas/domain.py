@@ -33,8 +33,17 @@ PHONE_PATTERN = r"^\+?[0-9]{10,15}$"
 
 
 class DriverCreate(APIModel):
-    user_id: uuid.UUID
+    """Creates the login and the driver profile together, in one transaction.
+
+    Requiring a pre-existing user_id would force the manager through a two-step
+    flow and leave an orphan user behind whenever the second step failed.
+    """
+
     full_name: Annotated[str, Field(min_length=2, max_length=120)]
+    # Initial credential. The driver signs in with their phone plus this
+    # password; changing it is a P4 concern.
+    initial_password: Annotated[str, Field(min_length=8, max_length=200)]
+    email: Annotated[str, Field(max_length=255)] | None = None
     phone: Annotated[str, Field(pattern=PHONE_PATTERN)]
     licence_number: Annotated[str, Field(min_length=4, max_length=40)]
     licence_expiry: date

@@ -3,9 +3,25 @@
 Every migration must survive upgrade -> downgrade -> upgrade. A migration that
 cannot be rolled back is a migration that cannot be safely deployed.
 
-This test mutates schema state, so it must leave the database at head.
+DESTRUCTIVE - OPT-IN ONLY
+-------------------------
+`alembic downgrade base` executes `DROP TABLE ... CASCADE` on every domain
+table. Against the shared Supabase development project that destroys ALL data:
+manager accounts, drivers, trucks, assignments and any demo seed.
+
+That is exactly what happened once during P3 - a routine `pytest` run silently
+wiped the development database, and the loss was only noticed later. A test that
+can delete the demo the night before a deadline must not run by accident.
+
+These tests therefore skip unless RUN_DESTRUCTIVE_MIGRATION_TESTS=1 is set:
+
+    RUN_DESTRUCTIVE_MIGRATION_TESTS=1 pytest tests/test_migrations.py
+
+Run them deliberately, against a database you are willing to empty - after
+adding a migration, and in CI against a throwaway service container.
 """
 
+import os
 from pathlib import Path
 
 import pytest
@@ -15,7 +31,19 @@ from sqlalchemy import create_engine, inspect, text
 
 from app.core.config import get_settings
 
-pytestmark = [pytest.mark.requires_db, pytest.mark.migration]
+DESTRUCTIVE_OPT_IN = os.getenv("RUN_DESTRUCTIVE_MIGRATION_TESTS") == "1"
+
+pytestmark = [
+    pytest.mark.requires_db,
+    pytest.mark.migration,
+    pytest.mark.skipif(
+        not DESTRUCTIVE_OPT_IN,
+        reason=(
+            "Destructive: downgrades to base and drops every table. "
+            "Set RUN_DESTRUCTIVE_MIGRATION_TESTS=1 to run."
+        ),
+    ),
+]
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 

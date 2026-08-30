@@ -7,6 +7,7 @@ how a table silently disappears from a migration.
 """
 
 from app.models.audit import AuditLog
+from app.models.auth import RefreshToken
 from app.models.enums import (
     AssignmentStatus,
     AuditAction,
@@ -63,6 +64,8 @@ __all__ = [
     "GpsPoint",
     # Audit
     "AuditLog",
+    # Auth
+    "RefreshToken",
     # Enums
     "UserRole",
     "DriverStatus",
@@ -102,3 +105,9 @@ P2_TABLES: tuple[str, ...] = (
     "gps_points",
     "audit_logs",
 )
+
+# Added by migration 0003. Kept separate so the P2 lists stay a record of what
+# that migration created, while the RLS sweep covers everything.
+P3_TABLES: tuple[str, ...] = ("refresh_tokens",)
+
+ALL_APP_TABLES: tuple[str, ...] = P2_TABLES + P3_TABLES
