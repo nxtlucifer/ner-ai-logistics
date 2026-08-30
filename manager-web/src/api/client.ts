@@ -122,11 +122,69 @@ async function rawRequest(path: string, options: RequestOptions): Promise<Respon
  */
 let refreshInFlight: Promise<string | null> | null = null
 
+export const REFRESH_LOCK = 'ner-auth-refresh'
+
+/**
+ * Serialise refresh across TABS, not just within one.
+ *
+ * Single-flighting fixes duplicate refreshes inside one tab. It cannot help
+ * across tabs: two tabs are separate JavaScript contexts that share only the
+ * cookie. Both would present the SAME refresh token, the second would look like
+ * a replay, and reuse detection would revoke the family - logging the user out
+ * of every tab.
+ *
+ * The Web Locks API is exactly the right primitive: same-origin, cross-tab, and
+ * the lock is released automatically if the holding tab crashes or is closed,
+ * so a dead leader cannot wedge the others. Whoever waits then refreshes using
+ * the cookie the leader already rotated, which is a legitimate new rotation
+ * rather than a replay.
+ *
+ * Crucially this does NOT weaken reuse detection. The lock is scoped to one
+ * browser profile and one origin. An attacker replaying a stolen token from
+ * another browser, profile or machine never acquires it, reaches the server
+ * with a spent token, and still revokes the family. What is suppressed is only
+ * the false positive our own tabs were generating.
+ *
+ * No token crosses the lock. Waiting tabs re-refresh rather than receiving a
+ * broadcast token, so the access token never leaves the tab that obtained it.
+ */
+async function withRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
+  const locks = (
+    globalThis as { navigator?: { locks?: LockManager } }
+  ).navigator?.locks
+  if (!locks?.request) {
+    // Older browsers, or a non-DOM environment. Same-tab single-flight still
+    // applies; cross-tab falls back to the previous behaviour.
+    return fn()
+  }
+  // Tracked so a lock failure cannot cause a SECOND refresh. If `fn` already
+  // ran, its token was already rotated; re-running it would present a spent
+  // token and trip the very reuse detection this lock exists to avoid.
+  let started = false
+  const once = () => {
+    started = true
+    return fn()
+  }
+
+  try {
+    return (await locks.request(REFRESH_LOCK, once)) as T
+  } catch (error) {
+    // The lock manager itself failed, not the refresh. navigator.locks rejects
+    // in an insecure context and can reject while a page is being torn down.
+    // Falling through to an unlocked refresh loses cross-tab coordination;
+    // letting the rejection escape would instead reach the UI as an
+    // unrecognised error and sign the manager out for a reason that has nothing
+    // to do with their session.
+    if (!started) return fn()
+    throw error
+  }
+}
+
 /** Exchange the refresh cookie for a new access token. */
 export function refreshSession(): Promise<string | null> {
   if (refreshInFlight) return refreshInFlight
 
-  refreshInFlight = (async () => {
+  refreshInFlight = withRefreshLock(async () => {
     try {
       const response = await rawRequest('/api/auth/refresh', {
         method: 'POST',
@@ -139,12 +197,12 @@ export function refreshSession(): Promise<string | null> {
       return accessToken
     } catch {
       return null
-    } finally {
-      // Cleared only after the promise settles, so a caller arriving mid-flight
-      // joins this request instead of starting another.
-      refreshInFlight = null
     }
-  })()
+  }).finally(() => {
+    // Cleared only after the promise settles, so a caller arriving mid-flight
+    // joins this request instead of starting another.
+    refreshInFlight = null
+  })
 
   return refreshInFlight
 }

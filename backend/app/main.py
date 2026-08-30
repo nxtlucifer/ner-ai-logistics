@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.auth import router as auth_router
+from app.api.driver import router as driver_router
 from app.api.fleet import assignments_router, drivers_router, trucks_router
 from app.api.health import router as health_router
 from app.core.config import get_settings
@@ -83,6 +84,7 @@ def create_app() -> FastAPI:
     app.include_router(drivers_router)
     app.include_router(trucks_router)
     app.include_router(assignments_router)
+    app.include_router(driver_router)
     return app
 
 

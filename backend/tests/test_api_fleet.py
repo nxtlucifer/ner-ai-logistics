@@ -7,7 +7,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.enums import DriverStatus, TruckStatus, UserRole
+from app.models.enums import TruckStatus, UserRole
 from tests import factories
 from tests.conftest import auth_headers
 

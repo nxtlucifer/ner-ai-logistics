@@ -112,6 +112,10 @@ Never label planned functionality as implemented.
 - **Never trust client-supplied identity.** Role and actor come from the signed
   token and are re-read from the database on every request, so a demotion or
   deactivation takes effect immediately rather than at token expiry.
+- **Driver-scoped routes take no id.** `require_current_driver()` resolves the
+  driver from the token (`users.id -> drivers.user_id`). Never add a `driver_id`
+  path or body parameter that selects whose data is returned - that is the shape
+  of every IDOR.
 - **Row Level Security on every table, always.** Supabase publishes `public`
   through its Data API, so a table created without
   `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` is readable by anyone holding the
@@ -132,10 +136,12 @@ Never label planned functionality as implemented.
 
 ## Current state
 
-P0–P3 complete: Supabase foundation, the canonical 16-table schema, local JWT
-auth with RBAC, manager CRUD for drivers/trucks/assignments, audit logging, and
-the manager UI over those APIs. 268 backend tests.
+P0–P4 complete. The manager-to-driver loop is closed and certified end to end:
+a manager creates a driver and truck and assigns them; the driver signs in, sees
+their own assignment, and verifies the physical truck; the manager sees VERIFIED.
+
+296 backend tests, 10 manager frontend tests.
 
 No GPS, routing, fuel AI, weather or safety features exist. Next phase is
-**P4 — remaining manager dashboard**, then P5 driver app.
+**P5 — Live GPS + Trip Execution**.
 See [docs/DEVELOPMENT_ROADMAP.md](docs/DEVELOPMENT_ROADMAP.md).

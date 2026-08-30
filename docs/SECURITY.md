@@ -26,6 +26,16 @@ incidental to the product — it is the product. The controls below are proporti
   a safety problem, not just a UX one. Refresh tokens are long-lived and device-bound; the mitigation
   for a lost phone is server-side revocation, not a short session.
 - Tokens are stored in `expo-secure-store` on mobile (Keychain / Keystore), never `AsyncStorage`.
+  **Implemented in P4.** Only the refresh token is stored; the access token stays
+  in memory. On the Expo *web* target nothing is persisted and the driver signs
+  in again - `localStorage` would be readable by any XSS payload.
+
+> **The driver app never sends cookies** (`credentials: 'omit'`). During
+> development both apps talk to the same API host, and a shared cookie jar let
+> the driver app silently adopt the manager's session. The authorization
+> boundary caught it - `GET /api/driver/me` returned 403 because a manager has no
+> driver profile - but one application must not pick up another's session at
+> all. The driver app therefore supplies its token explicitly.
 - Web uses in-memory access tokens with the refresh token in an `HttpOnly`, `Secure`, `SameSite=Strict`
   cookie. No token in `localStorage`. **Implemented** - the cookie is scoped to
   `/api/auth`, and the web client never sees its own refresh token.
@@ -41,8 +51,17 @@ incidental to the product — it is the product. The controls below are proporti
 > revoked. The web client single-flights refresh (`refreshSession` in
 > `manager-web/src/api/client.ts`). Without it, two API calls expiring together -
 > or React StrictMode's double-invoked effects - log the user out.
-> **Known gap:** two browser *tabs* are separate JS contexts and can still race.
-> A `BroadcastChannel` lock is the fix; not implemented.
+> **Fixed in P4** using the Web Locks API (`navigator.locks`), which is
+> same-origin, cross-tab, and releases automatically if the holding tab dies.
+> Waiting tabs refresh afterwards using the cookie the leader already rotated -
+> a legitimate new rotation, not a replay.
+>
+> **Reuse detection is not weakened.** The lock is scoped to one browser profile
+> and one origin. An attacker replaying a stolen token from another browser,
+> profile or machine never acquires it, reaches the server with a spent token,
+> and still revokes the family. Only our own false positives are suppressed.
+> No token crosses the lock; waiting tabs re-refresh rather than receiving a
+> broadcast token. Covered by `manager-web/src/api/client.test.ts`.
 
 ---
 

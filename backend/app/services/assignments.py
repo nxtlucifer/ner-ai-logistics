@@ -24,12 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import (
-    BusinessRuleError,
-    ConflictError,
-    NotFoundError,
-    PermissionDeniedError,
-)
+from app.core.errors import BusinessRuleError, ConflictError, NotFoundError
 from app.models.enums import (
     AssignmentStatus,
     AuditAction,
@@ -39,7 +34,6 @@ from app.models.enums import (
 )
 from app.models.fleet import DriverTruckAssignment, Truck
 from app.models.identity import Driver, User
-from app.schemas.domain import AssignmentVerify
 from app.services import audit
 from app.services.pagination import clamp_limit
 
@@ -242,68 +236,10 @@ async def create(
     return assignment
 
 
-async def verify(
-    db: AsyncSession,
-    assignment_id: uuid.UUID,
-    payload: AssignmentVerify,
-    *,
-    actor: User,
-    ip: str | None = None,
-) -> DriverTruckAssignment:
-    """Driver confirms the physical truck matches the assignment.
-
-    A registration mismatch sets `mismatch_flagged` and alerts the manager - it
-    never blocks the driver. A driver stranded at a depot at 04:00 over a typo
-    is a worse outcome than a manager reviewing a flag.
-    """
-    assignment = await get(db, assignment_id, actor=actor)
-
-    # Only the assigned driver may verify. Managers have their own review path.
-    driver = (
-        await db.execute(select(Driver).where(Driver.id == assignment.driver_id))
-    ).scalar_one_or_none()
-    if driver is None or driver.user_id != actor.id:
-        raise PermissionDeniedError("Only the assigned driver may verify this truck.")
-
-    if assignment.verified_at is not None:
-        raise ConflictError("Assignment has already been verified.", code="ALREADY_VERIFIED")
-
-    truck = (
-        await db.execute(select(Truck).where(Truck.id == assignment.truck_id))
-    ).scalar_one()
-
-    before = audit.snapshot(assignment, AUDITED_FIELDS)
-
-    mismatch = False
-    if payload.reported_registration:
-        reported = payload.reported_registration.upper().replace(" ", "").replace("-", "")
-        mismatch = reported != truck.registration_number
-        assignment.reported_registration = reported
-
-    assignment.reported_odometer_km = payload.reported_odometer_km
-    assignment.reported_fuel_level_pct = payload.reported_fuel_level_pct
-    assignment.reported_damage_notes = payload.reported_damage_notes
-    assignment.verified_at = datetime.now(UTC)
-    assignment.mismatch_flagged = mismatch
-    assignment.status = (
-        AssignmentStatus.PENDING_VERIFICATION if mismatch else AssignmentStatus.ACTIVE
-    )
-
-    await db.flush()
-    await audit.record(
-        db,
-        action=AuditAction.STATUS_CHANGE,
-        entity_type="driver_truck_assignments",
-        entity_id=assignment.id,
-        actor_user_id=actor.id,
-        before=before,
-        after=audit.snapshot(assignment, AUDITED_FIELDS),
-        reason="mismatch flagged for review" if mismatch else "verified by driver",
-        ip_address=ip,
-    )
-    await db.commit()
-    await db.refresh(assignment)
-    return assignment
+# Truck verification lives in app/services/driver_self.py, which owns the whole
+# driver-scoped path (current assignment, idempotent retry, truck-operational
+# gate, row lock). This module briefly carried a second implementation of it and
+# the two had already drifted apart; one state transition gets one implementation.
 
 
 async def end(

@@ -346,6 +346,56 @@ conditions at escalation, with a separate `current` block for live values.
 
 ---
 
+## 13a. `/api/driver` — driver self-service *(implemented)*
+
+Every route is scoped to the authenticated driver by `require_current_driver`.
+**None accepts a driver id**, so there is nothing to enumerate: the subject comes
+from the token, not the URL.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/driver/me` | The signed-in driver's own profile |
+| GET | `/api/driver/me/assignment` | Current assignment, or `null` |
+| POST | `/api/driver/me/assignment/verify` | Confirm the physical truck |
+
+`GET /api/driver/me/assignment` returns **200 with a null body** when the driver
+has no assignment. Unassigned is a normal state, not an error, so the app renders
+an empty screen rather than special-casing a 404.
+
+Responses carry only what the app needs — no manager metadata, no salary, no
+other drivers, no document contents.
+
+**Verification semantics** (`POST .../verify`):
+
+| Situation | Result |
+| --- | --- |
+| First verification, registration matches | 200, `ACTIVE`, `verified_at` set |
+| First verification, registration differs | 200, `PENDING_VERIFICATION`, `mismatch_flagged` — the driver is never blocked |
+| Repeat with the **same** readings | 200, idempotent, `already_verified: true` |
+| Repeat with **different** readings | 409 `ALREADY_VERIFIED` — a correction is a manager review, not a silent overwrite |
+| Assignment ended | 404 — an ended assignment is not *current*, so there is nothing to verify |
+| Assignment superseded (stale screen) | 409 `ASSIGNMENT_SUPERSEDED` |
+| Truck retired or broken down | 409 `TRUCK_NOT_OPERATIONAL` |
+| Driver suspended, or no profile | 403 |
+
+The idempotent branch matters because the driver app runs on an unreliable
+network: a retry after a lost response must not become a conflict the driver
+cannot clear.
+
+`assignment_id` is optional in the body and can only ever **narrow** the request.
+The assignment is resolved from the authenticated driver regardless, and the id
+is compared against it to reject a stale screen — sending another driver's id
+cannot widen access, it simply fails.
+
+`POST /api/assignments/{id}/verify` is an **id-addressed alias** of this
+operation and delegates to the same service function. It is not a second
+implementation: there briefly were two, and they had already drifted — the alias
+answered a repeat with a flat 409 and never checked that the truck was still
+operational. The path id behaves exactly like the body's `assignment_id`: it can
+only narrow the request.
+
+---
+
 ## 14. WebSocket `/ws/fleet`
 
 Authenticated by access token in the connect query. Server → client events:

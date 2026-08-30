@@ -146,7 +146,7 @@ export default function AssignmentsPage() {
                   <th className="pb-2 font-medium">Driver</th>
                   <th className="pb-2 font-medium">Truck</th>
                   <th className="pb-2 font-medium">Status</th>
-                  <th className="pb-2 font-medium">Verified</th>
+                  <th className="pb-2 font-medium">Driver check</th>
                   <th className="pb-2" />
                 </tr>
               </thead>
@@ -161,17 +161,34 @@ export default function AssignmentsPage() {
                     </td>
                     <td className="py-3">
                       <StatusPill status={a.status} />
-                      {a.mismatch_flagged ? (
-                        <span className="ml-2 text-[11px] font-semibold text-amber-400">
-                          mismatch flagged
-                        </span>
-                      ) : null}
                     </td>
-                    <td className="py-3 text-xs text-slate-400">
+                    <td className="py-3">
+                      {/* The operational answer a manager actually wants: has
+                          the driver physically confirmed this truck? */}
                       {a.verified_at ? (
-                        new Date(a.verified_at).toLocaleString()
+                        a.mismatch_flagged ? (
+                          <div>
+                            <span className="inline-block rounded-full border border-amber-800 bg-amber-950 px-2 py-0.5 text-[11px] font-semibold text-amber-300">
+                              NEEDS REVIEW
+                            </span>
+                            <div className="mt-1 text-[11px] text-amber-400/80">
+                              driver reported a different registration
+                            </div>
+                          </div>
+                        ) : (
+                          <div>
+                            <span className="inline-block rounded-full border border-emerald-800 bg-emerald-950 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
+                              VERIFIED
+                            </span>
+                            <div className="mt-1 text-[11px] text-slate-500">
+                              {new Date(a.verified_at).toLocaleString()}
+                            </div>
+                          </div>
+                        )
                       ) : (
-                        <span className="text-slate-600">awaiting driver</span>
+                        <span className="inline-block rounded-full border border-slate-700 bg-slate-800 px-2 py-0.5 text-[11px] font-semibold text-slate-400">
+                          AWAITING DRIVER
+                        </span>
                       )}
                     </td>
                     <td className="py-3 text-right">

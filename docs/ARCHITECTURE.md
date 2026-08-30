@@ -439,8 +439,10 @@ opaque rotating refresh with reuse detection), exactly as
   authorization has to live in FastAPI either way.
 - No external dependency in the request path during a demo.
 
-What Supabase Auth would still buy us is **phone OTP for drivers**, which is
-genuinely attractive for the driver app in P4. So token *verification* sits
+**P4 revisited this and stayed with local JWT.** Drivers already receive a
+phone + password credential when a manager creates them, nothing in the product
+requires OTP, and adding an identity provider mid-project would have bought
+nothing P4 needed. Phone OTP remains the reason to reconsider later. So token *verification* sits
 behind the `TokenVerifier` protocol in `backend/app/auth/verifier.py`. Adopting
 Supabase means adding one class and changing one line in the factory — no route,
 service or test changes.

@@ -5,8 +5,7 @@ inspect `user.role` themselves - that pattern spreads authorization logic across
 every endpoint, where one missed check is invisible.
 """
 
-import uuid
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import Callable
 from typing import Annotated
 
 from fastapi import Depends, Request
@@ -18,8 +17,8 @@ from app.auth.verifier import InvalidToken, TokenVerifier, get_token_verifier
 from app.core.errors import AuthenticationError, PermissionDeniedError
 from app.core.permissions import has_permission
 from app.db.session import get_session
-from app.models.enums import UserRole
-from app.models.identity import User
+from app.models.enums import DriverStatus, UserRole
+from app.models.identity import Driver, User
 
 # auto_error=False so a missing header raises our own 401 envelope rather than
 # FastAPI's default shape, keeping every error response identical.
@@ -106,6 +105,51 @@ def require_role(*roles: UserRole) -> Callable[..., object]:
         return user
 
     return _dependency
+
+
+async def require_current_driver(user: CurrentUser, db: DbSession) -> Driver:
+    """Resolve the caller to their own driver record.
+
+        access token -> users.id -> drivers.user_id -> Driver
+
+    The client never supplies a driver id. Every driver-scoped endpoint takes
+    its subject from here, so there is no parameter an attacker could change to
+    act as somebody else - which is the whole shape of an IDOR.
+
+    Fails closed in every ambiguous case:
+
+      - caller is not a DRIVER            -> 403
+      - no driver profile for this user   -> 403, not 404: the account exists,
+                                             it is simply not a driver
+      - profile soft-deleted              -> 403
+      - driver suspended                  -> 403
+
+    `drivers.user_id` is UNIQUE, so the mapping cannot be ambiguous; a duplicate
+    is rejected by the database rather than silently picking a row.
+    """
+    if user.role is not UserRole.DRIVER:
+        raise PermissionDeniedError("This endpoint is for drivers only.")
+
+    driver = (
+        await db.execute(
+            select(Driver).where(
+                Driver.user_id == user.id, Driver.deleted_at.is_(None)
+            )
+        )
+    ).scalar_one_or_none()
+
+    if driver is None:
+        raise PermissionDeniedError(
+            "No active driver profile is linked to this account."
+        )
+
+    if driver.status is DriverStatus.SUSPENDED:
+        raise PermissionDeniedError("This driver profile is suspended.")
+
+    return driver
+
+
+CurrentDriver = Annotated[Driver, Depends(require_current_driver)]
 
 
 async def get_client_ip(request: Request) -> str | None:

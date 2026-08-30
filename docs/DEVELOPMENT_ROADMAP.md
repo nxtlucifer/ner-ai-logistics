@@ -106,34 +106,31 @@ Migration 0004 changed `audit_logs.actor_user_id` to RESTRICT — see
 
 ---
 
-## P4 — Manager Dashboard (partially delivered in P3)
+## P4 — Driver Identity + Assignment Verification ✅ COMPLETE
 
-Already shipped in P3: login, driver and truck list/create, assignment screen,
-app shell, routing, and loading/empty/error/success states throughout.
+**Objective** Close the manager-to-driver loop: a driver signs in, sees their own
+assignment, and confirms the physical truck.
 
-**Objective** The remainder: driver and truck detail views, edit forms, document
-upload with expiry status, and manager review of flagged verifications.
-**Implementation** Document upload with magic-byte validation and EXIF stripping;
-detail pages; mismatch review queue.
-**Tests** Vitest component tests; MSW-stubbed API; Playwright login and CRUD; typecheck and build.
-**Exit gate** A manager can complete driver and truck lifecycle entirely through the UI. **No
-hardcoded or placeholder data anywhere in the rendered output.**
+**Implementation** `require_current_driver()` resolves identity server-side from
+the token (`users.id -> drivers.user_id`); `/api/driver/me`,
+`/api/driver/me/assignment` and `/api/driver/me/assignment/verify`; driver login
+in the Expo app with `expo-secure-store` token storage; verification screen with
+every async state; manager sees VERIFIED / NEEDS REVIEW / AWAITING DRIVER.
+Cross-tab refresh coordination via the Web Locks API.
 
----
+**Tests** 35 driver-identity, IDOR and alias-parity tests, plus 12 Vitest tests
+covering refresh coordination. Certified end to end against Supabase.
 
-## P5 — Driver App
+**Exit gate** ✅ P4 gates 1–30.
 
-**Objective** Driver authentication and assignment acceptance.
-**Implementation** Phone login with `expo-secure-store` token storage; assigned truck view; truck
-verification (camera, odometer, fuel, damage notes); profile and documents. Location permission is
-requested **in this phase**, with the rationale screen from [SECURITY.md](SECURITY.md) §3.
-**Tests** RNTL component tests; secure-store usage asserted; typecheck.
-**Exit gate** A driver logs in on a real device, sees their assignment, and completes verification.
-Tokens are confirmed absent from `AsyncStorage`.
+**Deferred from the old P4 (manager dashboard):** driver and truck *detail*
+pages, edit forms, document upload with expiry status, and a manager review
+queue for flagged verifications. None blocks the demo chain; they arrive
+alongside the phases that need them.
 
 ---
 
-## P6 — Live GPS
+## P5 — Live GPS + Trip Execution
 
 **Objective** Phone GPS to manager map.
 **Inputs** [API_CONTRACTS.md](API_CONTRACTS.md) §8, [DATA_MODEL.md](DATA_MODEL.md) §8.
@@ -148,7 +145,7 @@ minutes then reconnect flushes every fix exactly once. Over-capacity assignment 
 
 ---
 
-## P7 — Routing
+## P6 — Routing
 
 **Objective** Three route options per trip.
 **Implementation** `RoutingProvider` interface first, then a concrete provider; `trip_routes`;
@@ -165,7 +162,7 @@ Provider is swappable by configuration — proven by running the suite against t
 
 ---
 
-## P8 — Weather and Incidents
+## P7 — Weather and Incidents
 
 **Objective** Environmental awareness.
 **Implementation** `road_incidents`, `weather_events`; weather provider behind an interface with
@@ -179,7 +176,7 @@ whose selected route passes within its radius — verified against hand-computed
 
 ---
 
-## P9 — Rerouting
+## P8 — Rerouting
 
 **Objective** Close the loop from incident to new route.
 **Implementation** Incident confirmed → affected trips → hard filter rejects blocked candidates →
@@ -193,7 +190,7 @@ cannot be selected by any code path.
 
 ---
 
-## P10 — Fuel AI
+## P9 — Fuel AI
 
 **Objective** A fuel estimate that beats its baseline.
 **Inputs** [AI_MODELS.md](AI_MODELS.md) §1.
@@ -209,7 +206,7 @@ file degrades cleanly to the baseline with no error.
 
 ---
 
-## P11 — Fleet Sentinel
+## P10 — Fleet Sentinel
 
 **Objective** The safety differentiator. **The most important phase in the project.**
 **Inputs** [ARCHITECTURE.md](ARCHITECTURE.md) Diagram F, [DATA_MODEL.md](DATA_MODEL.md) §11.
@@ -232,7 +229,7 @@ driver app. Scheduler health is itself monitored.
 
 ---
 
-## P12 — Payments and Proof of Delivery
+## P11 — Payments and Proof of Delivery
 
 **Objective** Close the trip lifecycle.
 **Implementation** `payments`, `expenses`, `payroll`, `deliveries`; status transitions; expense
@@ -244,7 +241,7 @@ and no endpoint accepts card, UPI or bank details.**
 
 ---
 
-## P13 — Integration
+## P12 — Integration
 
 **Objective** Prove the whole chain holds together.
 **Implementation** The Playwright E2E of the full demo narrative; failure-injection suite from
@@ -256,7 +253,7 @@ clean reset each time.
 
 ---
 
-## P14 — Demo Hardening
+## P13 — Demo Hardening
 
 **Objective** Make it survive the room.
 **Implementation** Pre-cache map tiles for the Jorhat–Guwahati corridor; decide WebSocket vs
@@ -270,19 +267,19 @@ seconds. Fallback recording exists.
 
 ## Sequencing Notes
 
-- **P2 → P3 → P6 is the critical path.** Nothing live works until GPS ingestion does.
-- **P7 is the schedule risk.** Timebox it; the provider interface makes retreat cheap.
-- **P11 is the highest-value phase.** If time runs short, cut scope from P10 or P12 — never P11.
-- **P10 is the phase most likely to tempt dishonesty.** Ship the baseline rather than a fabricated
+- **P2 → P3 → P4 → P5 is the critical path.** Nothing live works until GPS ingestion does.
+- **P6 (routing) is the schedule risk.** Timebox it; the provider interface makes retreat cheap.
+- **P10 (Fleet Sentinel) is the highest-value phase.** If time runs short, cut scope from P9 or P11 — never P10.
+- **P9 (Fuel AI) is the phase most likely to tempt dishonesty.** Ship the baseline rather than a fabricated
   metric. A baseline that is labelled a baseline is a better result than an invented accuracy
   figure, both ethically and in judging.
-- P4 and P5 can be interleaved with backend work only if the API contract for that endpoint group
-  is already fixed and tested.
+- Frontend work may be interleaved with backend work only if the API contract for that endpoint
+  group is already fixed and tested.
 
 ## Contingency
 
-If the schedule slips, cut in this order: P12 payments → P10 model (keep baseline) → P7 route B/C
-(keep primary + backup) → P8 weather (keep manual incidents).
+If the schedule slips, cut in this order: P11 payments → P9 model (keep baseline) → P6 route B/C
+(keep primary + backup) → P7 weather (keep manual incidents).
 
-**Never cut:** the capacity gate (P6), rerouting (P9), or Fleet Sentinel (P11). Those three are the
+**Never cut:** the capacity gate (P5), rerouting (P8), or Fleet Sentinel (P10). Those three are the
 project.

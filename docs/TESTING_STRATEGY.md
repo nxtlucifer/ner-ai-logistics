@@ -207,7 +207,13 @@ The clock-skew and offline-flush cases are the ones most likely to break silentl
 | **Assignment concurrency under simultaneous requests** | **Running** |
 | **Audit coverage, scrubbing and immutability** | **Running** |
 | **RLS boundary: backend role bypasses RLS (pinned)** | **Running** |
-| Manager frontend component tests (Vitest) | **Not implemented** — UI states verified manually against the live API |
+| **Driver identity binding and fail-closed cases** | **Running** |
+| **IDOR: a driver cannot read or verify another driver's assignment** | **Running** |
+| **Verification semantics: idempotent retry, stale screen, ended, superseded** | **Running** |
+| **Concurrent verification from multiple devices** | **Running** |
+| **Manager frontend: refresh single-flight and cross-tab lock (Vitest)** | **Running** |
+| Manager frontend component tests | **Not implemented** — UI states verified manually against the live API |
+| Driver app component tests | **Not implemented** — flows certified end to end against the live API |
 | PostGIS availability test against the real database | **Running** |
 | Migration upgrade/downgrade test | **Running** |
 | Manager web `tsc --noEmit` + production build | **Running** |

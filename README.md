@@ -6,7 +6,7 @@ Smart India Hackathon · Problem Statement **SIH26002** · Software · Smart Aut
 
 ---
 
-## Status: Foundation complete (P0 – P1.5)
+## Status: P0 – P4 complete
 
 | Component | State |
 | --- | --- |
@@ -18,11 +18,13 @@ Smart India Hackathon · Problem Statement **SIH26002** · Software · Smart Aut
 | Auth: local JWT, Argon2id, rotating refresh with reuse detection | Implemented |
 | Manager API: drivers, trucks, assignments + audit logging | Implemented |
 | Manager UI: login, drivers, trucks, assignments | Implemented |
-| Backend test suite | 268 passing |
+| Driver app: login, own assignment, truck verification | Implemented |
+| Backend test suite | 296 passing |
+| Manager frontend tests (Vitest) | 10 passing |
 
 **Not implemented:** GPS, routing, fuel AI, weather, road incidents, rerouting,
 Fleet Sentinel, SOS, payments, payroll, OCR, ML training, Supabase Auth, Supabase
-Storage, driver-app authentication. All are specified in [`docs/`](docs/) and scheduled in
+Storage. All are specified in [`docs/`](docs/) and scheduled in
 [docs/DEVELOPMENT_ROADMAP.md](docs/DEVELOPMENT_ROADMAP.md). Nothing in the UI
 pretends otherwise.
 
@@ -256,7 +258,7 @@ ml/             Offline model training. No trained model exists yet.
 data/           Datasets. Contents are git-ignored.
 docs/           Architecture and specifications. Read before changing structure.
 scripts/        Optional local-database tooling (db-start / db-stop).
-tests/          Cross-cutting end-to-end tests. Empty until phase P13.
+tests/          Cross-cutting end-to-end tests. Empty until phase P12.
 ```
 
 ---
@@ -313,6 +315,6 @@ Full posture, including known gaps, in [docs/SECURITY.md](docs/SECURITY.md).
 | [SECURITY.md](docs/SECURITY.md) | Auth, Supabase keys, privacy, retention, gaps |
 | [TESTING_STRATEGY.md](docs/TESTING_STRATEGY.md) | Test layers and what exists today |
 | [DEMO_PLAN.md](docs/DEMO_PLAN.md) | Three-minute demo narrative |
-| [DEVELOPMENT_ROADMAP.md](docs/DEVELOPMENT_ROADMAP.md) | Phases P0–P14 with exit gates |
+| [DEVELOPMENT_ROADMAP.md](docs/DEVELOPMENT_ROADMAP.md) | Phases P0–P13 with exit gates |
 
 Working on this with an AI agent? Read [AGENTS.md](AGENTS.md) first.

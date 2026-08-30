@@ -12,7 +12,12 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel
 
-from app.api.deps import DbSession, get_client_ip, require_permission
+from app.api.deps import (
+    CurrentDriver,
+    DbSession,
+    get_client_ip,
+    require_permission,
+)
 from app.core import permissions as perm
 from app.models.enums import DriverStatus, TruckStatus
 from app.models.identity import User
@@ -28,6 +33,7 @@ from app.schemas.domain import (
     TruckUpdate,
 )
 from app.services import assignments as assignment_service
+from app.services import driver_self
 from app.services import drivers as driver_service
 from app.services import trucks as truck_service
 
@@ -264,11 +270,26 @@ async def verify_assignment(
     assignment_id: uuid.UUID,
     payload: AssignmentVerify,
     db: DbSession,
+    driver: CurrentDriver,
     actor: Annotated[User, Depends(require_permission(perm.ASSIGNMENT_VERIFY_OWN))],
     ip: ClientIp,
 ) -> AssignmentRead:
-    assignment = await assignment_service.verify(
-        db, assignment_id, payload, actor=actor, ip=ip
+    """Id-addressed alias of `POST /api/driver/me/assignment/verify`.
+
+    Delegates to the same service function rather than reimplementing it. There
+    were briefly two implementations of this operation and they had already
+    drifted: this one accepted a repeat submission as a flat 409 with no
+    idempotent retry, and did not check that the truck was still operational.
+    Two code paths for one state transition is how a security guard comes to
+    exist on only one of them.
+
+    The path id can only NARROW the request. The assignment is resolved from the
+    authenticated driver, so another driver's id yields 404 (they have no
+    assignment of their own) or 409 (theirs is a different one) - never a write
+    to somebody else's row.
+    """
+    assignment, _truck, _already = await driver_self.verify_current_assignment(
+        db, driver, actor, payload, assignment_id=assignment_id, ip=ip
     )
     return AssignmentRead.model_validate(assignment)
 

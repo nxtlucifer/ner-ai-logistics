@@ -7,7 +7,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import ConflictError, NotFoundError, PermissionDeniedError
+from app.core.errors import ConflictError, NotFoundError
 from app.core.security import hash_password
 from app.models.enums import AuditAction, DriverStatus, UserRole
 from app.models.identity import Driver, User

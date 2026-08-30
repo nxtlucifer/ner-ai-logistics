@@ -9,7 +9,6 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
 from app.core.security import JWT_ALGORITHM, create_access_token
 from app.models.auth import RefreshToken
 from app.models.enums import UserRole
