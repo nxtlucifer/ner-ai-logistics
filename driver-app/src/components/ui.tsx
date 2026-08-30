@@ -142,7 +142,10 @@ export function errorMessage(error: unknown): { title: string; detail: string } 
       return { title: 'Not allowed', detail: error.message }
     }
     if (error.status === 404) {
-      return { title: 'Nothing to verify', detail: error.message }
+      // Generic on purpose. This message reaches trip, stop and location
+      // actions as well as verification, and "nothing to verify" is confusing
+      // copy for a driver who just tried to finish a stop.
+      return { title: 'Nothing to do', detail: error.message }
     }
     if (error.status === 409) {
       return { title: 'Cannot do that now', detail: error.message }

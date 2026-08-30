@@ -39,6 +39,27 @@ ASSIGNMENT_END: Final = "assignment:end"
 ASSIGNMENT_REVIEW: Final = "assignment:review"
 ASSIGNMENT_VERIFY_OWN: Final = "assignment:verify_own"
 
+SHIPMENT_READ: Final = "shipment:read"
+SHIPMENT_CREATE: Final = "shipment:create"
+
+TRIP_READ: Final = "trip:read"
+TRIP_CREATE: Final = "trip:create"
+TRIP_DISPATCH: Final = "trip:dispatch"
+TRIP_CANCEL: Final = "trip:cancel"
+TRIP_CLOSE: Final = "trip:close"
+
+# Driver-side execution. "own" is an object-level qualifier a permission string
+# cannot express - the binding to *which* trip is enforced in the service layer
+# from the authenticated driver, never from a request parameter.
+TRIP_EXECUTE_OWN: Final = "trip:execute_own"
+LOCATION_SUBMIT_OWN: Final = "location:submit_own"
+
+# Reading where the fleet is. Deliberately its own permission rather than
+# folded into trip:read: location is the most sensitive data the system holds
+# (docs/SECURITY.md section 3), and a future read-only role should be able to
+# see trip progress without seeing a driver's position.
+FLEET_LOCATION_READ: Final = "fleet:location_read"
+
 AUDIT_READ: Final = "audit:read"
 
 ALL_PERMISSIONS: Final[frozenset[str]] = frozenset(
@@ -48,6 +69,10 @@ ALL_PERMISSIONS: Final[frozenset[str]] = frozenset(
         TRUCK_READ, TRUCK_CREATE, TRUCK_UPDATE, TRUCK_RETIRE,
         ASSIGNMENT_READ, ASSIGNMENT_CREATE, ASSIGNMENT_END, ASSIGNMENT_REVIEW,
         ASSIGNMENT_VERIFY_OWN,
+        SHIPMENT_READ, SHIPMENT_CREATE,
+        TRIP_READ, TRIP_CREATE, TRIP_DISPATCH, TRIP_CANCEL, TRIP_CLOSE,
+        TRIP_EXECUTE_OWN, LOCATION_SUBMIT_OWN,
+        FLEET_LOCATION_READ,
         AUDIT_READ,
     }
 )
@@ -59,6 +84,9 @@ _MANAGER_PERMISSIONS: Final[frozenset[str]] = frozenset(
         DRIVER_READ, DRIVER_CREATE, DRIVER_UPDATE, DRIVER_DEACTIVATE,
         TRUCK_READ, TRUCK_CREATE, TRUCK_UPDATE, TRUCK_RETIRE,
         ASSIGNMENT_READ, ASSIGNMENT_CREATE, ASSIGNMENT_END, ASSIGNMENT_REVIEW,
+        SHIPMENT_READ, SHIPMENT_CREATE,
+        TRIP_READ, TRIP_CREATE, TRIP_DISPATCH, TRIP_CANCEL, TRIP_CLOSE,
+        FLEET_LOCATION_READ,
         AUDIT_READ,
     }
 )
@@ -66,12 +94,19 @@ _MANAGER_PERMISSIONS: Final[frozenset[str]] = frozenset(
 # A driver reads their own records and verifies their own assignment. Object
 # level scoping - "own" - is enforced in the service layer, because a permission
 # string cannot express whose row it is. See docs/SECURITY.md section 2.
+#
+# Note what is ABSENT: FLEET_LOCATION_READ and TRIP_READ. A driver executes
+# their own trip and submits their own position; they cannot read the fleet's
+# locations or another driver's trip. Location history is visible to managers
+# and admins only, never to other drivers - docs/SECURITY.md section 3.
 _DRIVER_PERMISSIONS: Final[frozenset[str]] = frozenset(
     {
         DRIVER_READ,
         TRUCK_READ,
         ASSIGNMENT_READ,
         ASSIGNMENT_VERIFY_OWN,
+        TRIP_EXECUTE_OWN,
+        LOCATION_SUBMIT_OWN,
     }
 )
 

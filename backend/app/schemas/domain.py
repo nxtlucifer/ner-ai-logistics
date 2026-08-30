@@ -299,6 +299,40 @@ class TripCreate(APIModel):
         return self
 
 
+class TripPlanTrip(APIModel):
+    """The trip half of an atomic plan.
+
+    `shipment_id` is absent, and that absence is the point: the shipment is
+    created in the same transaction and its id is not knowable to the client
+    when the request is written. Accepting one would reintroduce exactly the
+    two-step flow this endpoint exists to replace.
+    """
+
+    trip_code: Annotated[str, Field(min_length=3, max_length=32)]
+    truck_id: uuid.UUID
+    driver_id: uuid.UUID
+    stops: list[TripStopCreate] = []
+
+    @model_validator(mode="after")
+    def _stop_sequences_unique(self) -> "TripPlanTrip":
+        seqs = [s.sequence for s in self.stops]
+        if len(seqs) != len(set(seqs)):
+            raise ValueError("trip stop sequences must be unique within a trip")
+        return self
+
+
+class TripPlanCreate(APIModel):
+    """Plan a shipment and its trip in one request, so they are one transaction.
+
+    Two separate calls cannot be atomic across a network: the shipment commits,
+    the trip is refused by the capacity gate, and a cargo record nothing
+    references is left behind - one per retry. See app/services/trips.py plan().
+    """
+
+    shipment: ShipmentCreate
+    trip: TripPlanTrip
+
+
 class TripStatusUpdate(APIModel):
     """Status transitions are validated against app.domain.trip_state."""
 
@@ -331,20 +365,36 @@ class GpsFixIn(APIModel):
 
     `device_fix_id` is client-generated and makes the offline replay queue
     safely retryable: re-posting an unacknowledged batch cannot duplicate rows.
+
+    Note what is NOT here: driver_id, truck_id, trip_id, received_at. Every one
+    of those is decided by the server from the authenticated caller. A client
+    that could name the driver could write another driver's track.
     """
 
     device_fix_id: uuid.UUID
     location: Coordinate
     recorded_at: datetime
-    altitude_m: Decimal | None = None
+    altitude_m: Annotated[Decimal, Field(ge=-500, le=10_000)] | None = None
     speed_kmph: Annotated[Decimal, Field(ge=0, le=Decimal("200"))] | None = None
     heading_deg: Annotated[Decimal, Field(ge=0, lt=Decimal("360"))] | None = None
-    accuracy_m: Annotated[Decimal, Field(ge=0)] | None = None
+    # Bounded above as well as below. A fix with a 40 km error radius is not a
+    # position; the column is NUMERIC(7,2) and would overflow long before that.
+    accuracy_m: Annotated[Decimal, Field(ge=0, le=Decimal("20000"))] | None = None
     is_mock_location: bool = False
 
 
 class GpsBatchIn(APIModel):
-    trip_id: uuid.UUID
+    """A batch of fixes from one driver.
+
+    `trip_id` is optional and can only ever NARROW the request, exactly like
+    `assignment_id` on verification. The trip is resolved from the authenticated
+    driver regardless; sending an id is how a client says "these fixes belong to
+    the trip I was showing", and a mismatch is refused rather than silently
+    written to whatever trip is current now. Sending another driver's trip id
+    cannot widen access - it simply fails.
+    """
+
+    trip_id: uuid.UUID | None = None
     fixes: Annotated[list[GpsFixIn], Field(min_length=1, max_length=500)]
 
     @model_validator(mode="after")
@@ -356,7 +406,20 @@ class GpsBatchIn(APIModel):
 
 
 class GpsBatchAccepted(ReadModel):
+    """Per-fix disposition, not a single pass/fail.
+
+    One unusable fix in a reconnecting truck's backlog must not throw away the
+    other 499. Malformed input is still a 422 for the whole request - that is a
+    broken client - but a fix that is merely stale, futuristic or already stored
+    is counted and the rest are kept.
+    """
+
+    trip_id: uuid.UUID
     accepted: int
     duplicates_ignored: int
     rejected: int
+    #: Per-fix reasons for the `rejected` count, e.g. {"STALE": 2}.
+    rejected_reasons: dict[str, int] = {}
+    #: Advisory sanity signals. Never a rejection - see docs/SECURITY.md §8.
+    anomalies: list[str] = []
     server_time: datetime

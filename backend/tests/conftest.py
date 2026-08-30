@@ -23,6 +23,188 @@ from app.db import session as db_session
 configure_event_loop_policy()
 
 
+#: Advisory-lock key serialising whole pytest runs. Arbitrary but fixed; the
+#: only requirement is that nothing else in this database uses the same number.
+SUITE_LOCK_KEY = 0x4E45525F54535431  # "NER_TST1"
+
+#: How PostgreSQL splits a bigint advisory key across pg_locks. The single-bigint
+#: form stores the high half in `classid`, the low half in `objid`, and marks
+#: `objsubid = 1`; the two-int form uses 2. Checking only the low half would
+#: accept a DIFFERENT lock that happens to collide in 32 bits, which is exactly
+#: the kind of near-miss a safety check must not make.
+LOCK_CLASSID = (SUITE_LOCK_KEY >> 32) & 0xFFFFFFFF
+LOCK_OBJID = SUITE_LOCK_KEY & 0xFFFFFFFF
+LOCK_OBJSUBID = 1
+
+_LOCK_IDENTITY_SQL = """
+    SELECT pg_backend_pid() = :pid
+       AND EXISTS (
+           SELECT 1 FROM pg_locks
+            WHERE locktype  = 'advisory'
+              AND pid       = :pid
+              AND classid   = :classid
+              AND objid     = :objid
+              AND objsubid  = :objsubid
+              AND granted
+       )
+"""
+
+
+class SuiteLock:
+    """The one connection that owns the suite lock, and the proof that it does.
+
+    Module-level rather than fixture-local because `_cleanup_test_rows` has to
+    consult it, and that fixture runs on the async application session while
+    the lock lives on a dedicated synchronous connection.
+    """
+
+    conn: object | None = None
+    backend_pid: int | None = None
+
+    @classmethod
+    def is_held(cls) -> bool:
+        """Whether the dedicated connection still owns EXACTLY this lock.
+
+        Verifies the complete 64-bit identity - both halves, the subid, and
+        `granted` - on the recorded backend, and that we are still speaking to
+        that same backend. Anything less would pass while the lock was gone.
+        """
+        from sqlalchemy import text as _text
+
+        if cls.conn is None or cls.backend_pid is None:
+            return False
+        return bool(
+            cls.conn.execute(  # type: ignore[attr-defined]
+                _text(_LOCK_IDENTITY_SQL),
+                {
+                    "pid": cls.backend_pid,
+                    "classid": LOCK_CLASSID,
+                    "objid": LOCK_OBJID,
+                    "objsubid": LOCK_OBJSUBID,
+                },
+            ).scalar_one()
+        )
+
+    @classmethod
+    def assert_held(cls, when: str) -> None:
+        """Raise unless the lock is still ours.
+
+        Called before every global cleanup. If the connection holding the lock
+        was dropped mid-run - a pooler timeout, a network blip - the suite is no
+        longer isolated, and the very next thing it would do is
+        `DELETE FROM shipments WHERE reference_code LIKE 'STEST-%'` against a
+        database another run may now be using. Stopping here is strictly better
+        than tidying up someone else's fixtures.
+        """
+        if not cls.is_held():
+            raise RuntimeError(
+                f"Suite advisory lock is NOT held ({when}). The dedicated "
+                "connection lost it, so this run is no longer isolated and "
+                "global prefix cleanup must not proceed - it would delete "
+                "another run's fixtures. Re-run when the database is quiet."
+            )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def exclusive_suite_lock() -> Iterator[None]:
+    """Refuse to start while another pytest run holds this database.
+
+    `_cleanup_test_rows` below deletes by GLOBAL prefix - every `STEST-%`
+    shipment, every `TTEST-%` trip, every `AS__ZZ%` truck - not merely the rows
+    the finishing test made. Within one serial run that is correct and cheap.
+    Across two runs it is mutual destruction: run A creates a shipment, run B's
+    teardown deletes it, and run A's next insert dies with
+
+        ForeignKeyViolation: Key (shipment_id)=... is not present in "shipments"
+
+    That is not hypothetical. Two agents sharing this working tree produced a
+    full page of exactly those failures during the P6 audit, and they read as
+    product defects rather than as a collision - which cost real time to
+    diagnose. This fixture converts that silent corruption into a refusal to
+    start, with a message naming the actual cause.
+
+    `pg_try_advisory_lock` is session-scoped in PostgreSQL and held for as long
+    as the connection lives, so this takes ONE dedicated connection outside the
+    application pool and keeps it for the run. That works because the project
+    connects through Supabase's SESSION pooler (port 5432); on the transaction
+    pooler (6543) a session-level lock would not survive between statements,
+    which is one more reason README.md insists on the session pooler.
+
+    Preferred long-term fix is a per-run namespace so cleanup can only ever
+    remove its own rows. That is a wider change than this checkpoint should
+    carry: shipment and trip prefixes take a run id easily, but truck
+    registrations must satisfy REGISTRATION_PATTERN, which leaves almost no
+    room to encode one. A partial namespace would protect trips and shipments
+    while leaving trucks colliding - protection that looks complete and is not.
+    """
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.pool import NullPool
+
+    settings = get_settings()
+    connect_args: dict[str, object] = {}
+    if settings.requires_ssl and "sslmode=" not in settings.effective_database_url:
+        connect_args["sslmode"] = "require"
+
+    # NullPool, and one connection held in a local for the whole run. The lock
+    # belongs to a physical backend, not to the application: if this connection
+    # were ever returned to a pool and a later statement transparently opened a
+    # NEW one, the lock would be gone and nothing would say so. NullPool removes
+    # the pool that could do that, and `conn` is never closed until teardown.
+    engine = create_engine(
+        settings.effective_database_url,
+        connect_args=connect_args,
+        poolclass=NullPool,
+    )
+    # AUTOCOMMIT because this connection is consulted once per test, before every
+    # global cleanup. Under the default behaviour each of those reads would
+    # autobegin a transaction that nothing closes, leaving the lock holder
+    # sitting "idle in transaction" for the whole run and adding a round trip to
+    # end it. Session-level advisory locks are indifferent to transactions, so
+    # autocommit costs the lock nothing.
+    conn = engine.connect().execution_options(isolation_level="AUTOCOMMIT")
+    acquired = conn.execute(
+        text("SELECT pg_try_advisory_lock(:k)"), {"k": SUITE_LOCK_KEY}
+    ).scalar_one()
+
+    if not acquired:
+        conn.close()
+        engine.dispose()
+        pytest.exit(
+            "Another pytest run is already using this database. Test cleanup "
+            "deletes by global prefix, so two runs delete each other's fixtures "
+            "and fail with unrelated-looking ForeignKeyViolations. Wait for the "
+            "other run to finish. See docs/TESTING_STRATEGY.md.",
+            returncode=2,
+        )
+
+    # Which backend owns the lock. Recorded so every later check can prove the
+    # SAME physical connection still holds it - a silent reconnect would have
+    # released the lock somewhere in the middle while another run's
+    # `pg_try_advisory_lock` quietly succeeded.
+    backend_pid = conn.execute(text("SELECT pg_backend_pid()")).scalar_one()
+
+    SuiteLock.conn = conn
+    SuiteLock.backend_pid = backend_pid
+    SuiteLock.assert_held("at acquisition")
+
+    try:
+        yield
+    finally:
+        still_ours = SuiteLock.is_held()
+        SuiteLock.conn = None
+        SuiteLock.backend_pid = None
+        conn.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": SUITE_LOCK_KEY})
+        conn.close()
+        engine.dispose()
+        if not still_ours:
+            # Loud, not silent: this run was unprotected for some unknown part
+            # of its length, so its result cannot be trusted as isolated.
+            raise RuntimeError(
+                "The suite advisory lock was lost during the run - the "
+                "connection holding it was replaced. This run was not isolated."
+            )
+
+
 def _reset_engine_state() -> None:
     """Drop cached settings and the engine built from them.
 
@@ -150,9 +332,21 @@ async def _cleanup_test_rows() -> AsyncGenerator[None, None]:
     """Remove suite-created rows after every test.
 
     Autouse so a failing test cannot leave data that breaks the next one.
+
+    GUARDED. `factories.cleanup` deletes by GLOBAL prefix, so it is only safe
+    while this run provably owns the database. The check runs BEFORE the delete,
+    not after: if the connection holding the suite lock has been dropped - a
+    pooler timeout, a network blip on a link to Mumbai - then another run may
+    already have started, and the next statement would delete its fixtures.
+    Verifying afterwards would report the damage instead of preventing it.
+
+    The cost is one round trip per test. That is the correct price for a
+    statement whose blast radius is every `STEST-%` row in a shared database.
     """
     yield
     from tests import factories
+
+    SuiteLock.assert_held("before global test cleanup")
 
     async with db_session.get_sessionmaker()() as s:
         try:

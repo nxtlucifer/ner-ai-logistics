@@ -76,6 +76,28 @@ password), `403 ACCOUNT_DISABLED`, `429 TOO_MANY_ATTEMPTS`.
 
 ---
 
+
+### `client`: how the refresh token is delivered
+
+`POST /api/auth/login` and `POST /api/auth/refresh` accept a `client` field:
+
+```json
+{ "identifier": "…", "password": "…", "client": "web" }
+```
+
+| `client` | `refresh_token` in the response body | `Set-Cookie` |
+| --- | --- | --- |
+| `"web"` *(default)* | **absent — always `null`** | `ner_refresh`, `HttpOnly` |
+| `"mobile"` | present, for `expo-secure-store` | none |
+
+Defaults to `web`, which is the fail-safe direction: a caller that does not
+declare itself cannot read the token. An unrecognised value is a `422`.
+
+Nothing infers this from the `User-Agent`. Sniffing would let any caller request
+the token in the body by claiming to be a phone, and would make the
+confidentiality of a 30-day credential depend on a header anyone can set. See
+[SECURITY.md](SECURITY.md) §1.
+
 ## 3. `/api/drivers`
 
 | Method | Path | Perms | Notes |
@@ -140,14 +162,37 @@ Errors: `422 DOCUMENTS_INVALID` (truck documents expired), `409 ALREADY_VERIFIED
 
 ---
 
+### Current assignment invariant
+
+A driver holds **at most one current assignment**, and a truck has **at most one
+current driver**. "Current" is `ACTIVE` **or** `PENDING_VERIFICATION` — a
+reported registration mismatch moves an assignment to `PENDING_VERIFICATION` and
+the driver keeps the truck, so it is still current.
+
+Enforced by two partial unique indexes (`uq_current_assignment_driver`,
+`uq_current_assignment_truck`), widened in migration 0006 from an `ACTIVE`-only
+predicate that let a reassignment slip past an assignment awaiting review. The
+service-layer check produces a readable message; the **indexes** are the
+authority, because a SELECT-then-INSERT pre-check cannot survive two concurrent
+requests.
+
+---
+
 ## 6. `/api/shipments`
 
-| Method | Path | Perms |
-| --- | --- | --- |
-| GET / POST | `/api/shipments` | M A |
-| GET / PATCH | `/api/shipments/{id}` | M A |
-| POST | `/api/shipments/{id}/cargo` | M A |
-| DELETE | `/api/shipments/{id}/cargo/{item_id}` | M A |
+| Method | Path | Perms | Status |
+| --- | --- | --- | --- |
+| GET | `/api/shipments` | M A | **implemented** (P5) |
+| POST | `/api/shipments` | M A | **implemented** (P5) — creates the shipment and its cargo in one transaction |
+| GET / PATCH | `/api/shipments/{id}` | M A | planned |
+| POST | `/api/shipments/{id}/cargo` | M A | planned |
+| DELETE | `/api/shipments/{id}/cargo/{item_id}` | M A | planned |
+
+Coordinates cross the wire as a nested `{"lat": …, "lon": …}` object, not as
+sibling fields on the address. The `Coordinate` schema that shape binds to is the
+**only** defence against latitude/longitude inversion: PostGIS silently wraps an
+out-of-range latitude over the pole into a plausible-looking point rather than
+rejecting it (see `test_geospatial.py`).
 
 ```json
 // POST /api/shipments
@@ -164,79 +209,204 @@ Errors: `422 DOCUMENTS_INVALID` (truck documents expired), `409 ALREADY_VERIFIED
 
 ## 7. `/api/trips`
 
-| Method | Path | Perms | Notes |
+| Method | Path | Perms | Status |
 | --- | --- | --- | --- |
-| GET | `/api/trips` | M A, D(own) | `?status=ACTIVE,DELAYED` |
-| POST | `/api/trips` | M A | **Capacity gate** |
-| GET | `/api/trips/{id}` | M A, D(own) | Full detail |
-| POST | `/api/trips/{id}/dispatch` | M A | ASSIGNED → dispatched |
-| POST | `/api/trips/{id}/start` | D(own) | → ACTIVE |
-| POST | `/api/trips/{id}/cancel` | M A | Requires `reason` |
-| GET | `/api/trips/{id}/timeline` | M A, D(own) | Audit-derived event list |
+| GET | `/api/trips` | `trip:read` | **implemented** (P5) — `?trip_status=` |
+| POST | `/api/trips` | `trip:create` | **implemented** (P5) — creates DRAFT, capacity gate |
+| POST | `/api/trips/plan` | `trip:create` **and** `shipment:create` | **implemented** (P6) — shipment + trip in ONE transaction |
+| GET | `/api/trips/{id}` | `trip:read` | **implemented** (P5) — with stops |
+| POST | `/api/trips/{id}/dispatch` | `trip:dispatch` | **implemented** (P5) — DRAFT → ASSIGNED |
+| POST | `/api/trips/{id}/cancel` | `trip:cancel` | **implemented** (P5) |
+| POST | `/api/trips/{id}/close` | `trip:close` | **implemented** (P5) — DELIVERED → CLOSED |
+| GET | `/api/trips/{id}/track` | `fleet:location_read` | **implemented** (P5) — bounded history |
+| GET | `/api/trips/{id}/timeline` | `trip:read` | planned — reads `trip_events` |
 
-**POST `/api/trips`** — the deterministic gate:
+**Starting a trip is not here.** It is `POST /api/driver/me/trip/start`, in
+section 13a. A driver-scoped operation takes its subject from the token; putting
+a trip id in the path would create exactly the parameter an IDOR needs.
+
+### Trip state machine
+
+Legal transitions live in `app/domain/trip_state.py` and every status write goes
+through `trips.transition()`, which asserts against them before writing. An
+illegal move is `409 ILLEGAL_TRIP_TRANSITION`, never a silent write.
+
+| From | To | Actor | Preconditions | Side effects | Event |
+| --- | --- | --- | --- | --- | --- |
+| — | `DRAFT` | manager | shipment, driver, truck exist; capacity fits | stops created | `CREATED` |
+| `DRAFT` | `ASSIGNED` | manager | licence valid, truck operational, capacity fits, open driver↔truck assignment | `dispatched_at`, `assignment_id` | `ASSIGNED` |
+| `ASSIGNED` | `ACTIVE` | **driver (own)** | assignment open **and verified**, truck operational | `started_at`; driver and truck → `ON_TRIP` | `STARTED` |
+| `ACTIVE`/`DELAYED` | `DELIVERED` | **driver (own)** | every stop `COMPLETED` or `SKIPPED` | `delivered_at` (server clock); driver and truck released | `DELIVERED` |
+| `DELIVERED` | `CLOSED` | manager | — | `closed_at` | `CLOSED` |
+| `DRAFT`/`ASSIGNED`/`ACTIVE`/`DELAYED` | `CANCELLED` | manager | — | driver and truck released | `CANCELLED` |
+
+`COMPLETED → IN_PROGRESS` and every other resurrection is absent from the table
+and therefore prohibited. `DELAYED`, `INCIDENT`, `VERIFICATION_PENDING` and
+`MANAGER_REVIEW` exist in the enum and the transition map but have no endpoint
+yet — they arrive with the phases that raise them.
+
+Trip stops move `PENDING → ARRIVED → COMPLETED`, strictly in `sequence` order.
+The API exposes exactly one actionable stop at a time (`next_stop_id`), because a
+driver presented with several buttons will eventually press the wrong one.
+
+**POST `/api/trips`** — creates a DRAFT:
 ```json
-{ "shipment_id": "uuid", "truck_id": "uuid", "driver_id": "uuid",
-  "scheduled_start_at": "2026-09-10T04:30:00Z" }
+{ "trip_code": "TRP-2026-0042", "shipment_id": "uuid",
+  "truck_id": "uuid", "driver_id": "uuid", "stops": [] }
 ```
-Validation order, all before routing or ML is touched:
-1. Shipment exists and is `DRAFT`/`PLANNED` → else `409`
-2. Truck `AVAILABLE` → else `409 TRUCK_UNAVAILABLE`
-3. Driver `AVAILABLE`, licence valid → else `422 LICENCE_EXPIRED`
-4. Active assignment links this driver to this truck → else `422 NO_ACTIVE_ASSIGNMENT`
-5. Truck documents valid → else `422 DOCUMENTS_INVALID`
-6. **`shipment.total_weight_kg <= truck.max_capacity_kg`** → else `422 CAPACITY_EXCEEDED`
+`status` is absent by design: a client that could choose the initial status could
+skip the gates guarding the path into ACTIVE. When `stops` is empty the
+shipment's own pickup and destination become stops 0 and 1.
 
-Only after all six does the server request routes and fuel estimates.
+**POST `/api/trips/plan`** — creates a shipment and its trip **atomically**:
+```json
+{ "shipment": { "reference_code": "SHP-2026-0042", "client_name": "...",
+                "pickup_address": "...", "pickup": {"lat": 26.1445, "lon": 91.7362},
+                "destination_address": "...", "destination": {"lat": 26.7509, "lon": 94.2037},
+                "cargo_items": [ { "cargo_type": "GENERAL", "cargo_name": "Consignment",
+                                   "weight_kg": "9000", "quantity": 1 } ] },
+  "trip":     { "trip_code": "TRP-2026-0042", "truck_id": "uuid", "driver_id": "uuid" } }
+```
+Returns the same `TripRead` as `POST /api/trips`, `201`.
+
+`trip.shipment_id` is **absent, and that absence is the contract**: the shipment
+is created in the same transaction, so its id does not exist when the request is
+written. Requires **both** `shipment:create` and `trip:create`; a caller holding
+only one gets `403` and nothing is written.
+
+Why this endpoint exists: planning is one decision that touches two tables, and
+as two committed calls it is not atomic. The shipment committed, the capacity
+gate then refused the trip, and a cargo record nothing referenced was stranded —
+one more on every retry, since each attempt mints a fresh reference code. And
+`422 CAPACITY_EXCEEDED` is the refusal the planning form advertises, so managers
+meet it routinely. Every gate below applies unchanged; any failure rolls the
+shipment back with the trip. Pinned by `tests/test_shipment_trip_atomicity.py`.
+
+`POST /api/shipments` and `POST /api/trips` remain: creating a shipment with no
+trip is a legitimate deliberate act. What `plan` removes is doing it by accident.
+
+Gates, checked at **creation**:
+1. Shipment, driver and truck exist → else `404`
+2. Driver not suspended, licence valid → else `422 DRIVER_SUSPENDED` / `422 LICENCE_EXPIRED`
+3. Truck not retired, broken down or in maintenance → else `422 TRUCK_NOT_OPERATIONAL`
+4. **`shipment.total_weight_kg <= truck.max_capacity_kg`** → else `422 CAPACITY_EXCEEDED`
+
+Re-checked at **dispatch**, plus:
+
+5. An open driver↔truck assignment exists → else `409 NO_ACTIVE_ASSIGNMENT`
+
+Re-checking is not redundancy: a licence lapses, a truck breaks down and an
+assignment ends between planning a trip and dispatching it. Dispatch **never**
+creates a missing assignment to make itself succeed — a trip whose driver is not
+actually responsible for the truck is a paperwork fiction, and manufacturing the
+assignment would destroy the only record of who was.
+
+422 rather than 403 for the capacity and licence gates is deliberate: 403 means
+"you may not", 422 means "nobody may". No role can authorise an overloaded truck.
+
+Truck-document validation (`422 DOCUMENTS_INVALID`) and route/fuel estimation are
+still planned; neither is implemented, and the 201 response carries no `routes`
+array yet.
 
 ```json
 // 201
-{ "id": "uuid", "trip_code": "TRP-2026-0042", "status": "ASSIGNED",
-  "routes": [
-    { "id": "uuid", "kind": "PRIMARY", "distance_km": "308.40",
-      "estimated_duration_min": 442,
-      "estimated_fuel_litres": "78.20", "estimated_fuel_cost": "7429.00",
-      "fuel_estimate_source": "MODEL_V1",
-      "risk_score": 0.21, "risk_factors": ["monsoon_active"],
-      "geometry": { "type": "LineString", "coordinates": [[91.7362,26.1445], "..."] } },
-    { "id": "uuid", "kind": "FUEL_EFFICIENT", "estimated_fuel_litres": null,
-      "estimated_fuel_cost": null, "fuel_estimate_source": null, "...": "..." }
-  ] }
+{ "id": "uuid", "trip_code": "TRP-2026-0042", "status": "DRAFT",
+  "shipment_id": "uuid", "truck_id": "uuid", "driver_id": "uuid",
+  "dispatched_at": null, "started_at": null, "delivered_at": null,
+  "planned_eta": null, "current_eta": null, "delay_minutes": null }
 ```
-`estimated_fuel_*` being `null` is a legitimate response meaning the model was unavailable. Clients
-must render "unavailable", never `0` and never a guess. `fuel_estimate_source` tells the UI whether
-it is showing a model output or the km/l baseline.
+
+When routing arrives it will add a `routes` array. `estimated_fuel_*` being
+`null` will be a legitimate response meaning the model was unavailable: clients
+must render "unavailable", never `0` and never a guess, and
+`fuel_estimate_source` says whether a number came from the model or the km/l
+baseline.
 
 ---
 
-## 8. `/api/gps`
+## 8. Location telemetry
 
-| Method | Path | Perms | Notes |
-| --- | --- | --- | --- |
-| POST | `/api/gps/batch` | D(own) | Primary ingestion |
-| GET | `/api/gps/trips/{id}/track` | M A | History, `?from=&to=&simplify_m=` |
-| GET | `/api/gps/live` | M A | Latest fix per active trip |
+The paths planned here in P1 were `/api/gps/batch`, `/api/gps/live` and
+`/api/gps/trips/{id}/track`. P5 implements the same three operations at
+**driver-scoped and resource-scoped paths instead**, because the planned shape
+required the client to name its own trip:
 
-**POST `/api/gps/batch`**
+| Planned | Implemented (P5) | Perms |
+| --- | --- | --- |
+| `POST /api/gps/batch` | `POST /api/driver/me/location` | `location:submit_own` (DRIVER) |
+| `GET /api/gps/live` | `GET /api/fleet/active` | `fleet:location_read` |
+| `GET /api/gps/trips/{id}/track` | `GET /api/trips/{id}/track` | `fleet:location_read` |
+
+**POST `/api/driver/me/location`**
 ```json
 { "trip_id": "uuid",
-  "fixes": [ { "device_fix_id": "uuid", "lat": 26.1445, "lon": 91.7362,
-               "altitude_m": 55.2, "speed_kmph": 42.5, "heading_deg": 118.0,
-               "accuracy_m": 8.4, "recorded_at": "2026-09-10T05:12:33Z",
+  "fixes": [ { "device_fix_id": "uuid",
+               "location": { "lat": 26.1445, "lon": 91.7362 },
+               "altitude_m": "55.20", "speed_kmph": "42.50", "heading_deg": "118.00",
+               "accuracy_m": "8.40", "recorded_at": "2026-09-10T05:12:33Z",
                "is_mock_location": false } ] }
 ```
 ```json
 // 202
-{ "accepted": 12, "duplicates_ignored": 3, "rejected": 0, "server_time": "..." }
+{ "trip_id": "uuid", "accepted": 12, "duplicates_ignored": 3, "rejected": 1,
+  "rejected_reasons": { "STALE": 1 }, "anomalies": ["POOR_ACCURACY"],
+  "server_time": "..." }
 ```
+
+`trip_id` is **optional and narrowing-only** — the trip is resolved from the
+authenticated driver regardless, and a mismatch is `409 TRIP_SUPERSEDED`. There
+is no `driver_id`, `truck_id` or `user_id` in the contract at all: those are
+server-decided, and `extra="forbid"` turns an attempt to send one into a 422.
+
+Coordinates are the nested `{"lat", "lon"}` object, not sibling fields. That is
+the shape `Coordinate` validates, and its bounds are the only thing standing
+between an inverted pair and a plausible-looking point in the Arctic.
+
 Contract rules that make offline operation safe:
-- **Idempotent on `device_fix_id`.** Re-posting an unacknowledged batch is always safe; duplicates
-  are counted, not errored. Without this, a dropped ack on a hill road produces duplicate track
-  points and corrupts the Sentinel distance calculation.
-- Batches up to 500 fixes; backdated fixes accepted up to 24h.
-- `202` not `201` — accepted for processing; the WebSocket broadcast is asynchronous.
-- Rate limited per driver (see [SECURITY.md](SECURITY.md)).
-- `is_mock_location` is stored and surfaced to the manager. It is **not** used to auto-reject.
+- **Idempotent on `(trip_id, device_fix_id)`,** enforced by a unique index plus
+  `INSERT … ON CONFLICT DO NOTHING` — never a SELECT-then-INSERT, which two
+  concurrent uploads both pass. Duplicates are counted, not errored.
+- Batches of 1–500 fixes; backdated fixes accepted up to 24h; timestamps more
+  than 2 minutes in the future are rejected.
+- **Per-fix dispositions, not a per-batch verdict.** A reconnecting truck flushes
+  hundreds of fixes and one bad timestamp must not discard the rest. Malformed
+  input is still a 422 for the whole request — that is a broken client.
+- `202` not `201` — accepted for processing.
+- Collection is bound to an **in-progress trip**, enforced server-side. No trip,
+  or a trip not yet started, and the request is refused ([SECURITY.md](SECURITY.md) §3).
+- **No audit row per fix.** One `audit_logs` entry per GPS point would bury the
+  compliance trail under telemetry. GPS goes to `gps_points` and nowhere else.
+- `is_mock_location` and the computed anomaly flags are stored and surfaced. They
+  are **never** used to auto-reject a fix ([SECURITY.md](SECURITY.md) §8).
+
+**GET `/api/fleet/active`**
+```json
+{ "trips": [ { "trip_id": "uuid", "trip_code": "TRP-…", "trip_status": "ACTIVE",
+               "driver_name": "…", "registration_number": "AS01AB1234",
+               "position": { "location": { "lat": 26.1445, "lon": 91.7362 },
+                             "recorded_at": "…", "received_at": "…",
+                             "age_seconds": 12.4, "freshness": "LIVE",
+                             "speed_kmph": 42.5, "is_mock_location": false },
+               "freshness": "LIVE",
+               "next_stop_sequence": 1, "stops_done": 1, "stops_total": 2 } ],
+  "fresh_seconds": 90, "stale_seconds": 600, "server_time": "…" }
+```
+
+Freshness is `LIVE` | `STALE` | `NO_CONTACT` | `NO_LOCATION`, decided by the
+server and returned with the threshold behind it. `NO_LOCATION` means no fix has
+**ever** arrived, which is a different fact from a stale one and is rendered
+differently.
+
+`age_seconds` is measured from `received_at`, the **server** clock — a phone with
+a wrong or manipulated clock cannot make an old position look current. And
+"current location" is the newest observation by `recorded_at`, not the last row
+inserted: a reconnecting truck's backlog arrives newest-last.
+
+**GET `/api/trips/{id}/track`** returns a bounded window, newest first, capped at
+1000 points and defaulting to 500, with `truncated` set when the cap was hit.
+There is deliberately **no all-history mode**: an unrestricted GPS dump turns an
+authorised "where is this truck" read into a complete movement profile of a
+person.
 
 ---
 
@@ -357,10 +527,33 @@ from the token, not the URL.
 | GET | `/api/driver/me` | The signed-in driver's own profile |
 | GET | `/api/driver/me/assignment` | Current assignment, or `null` |
 | POST | `/api/driver/me/assignment/verify` | Confirm the physical truck |
+| GET | `/api/driver/me/trip` | Current trip with stops, or `null` |
+| POST | `/api/driver/me/trip/start` | ASSIGNED → ACTIVE |
+| POST | `/api/driver/me/trip/stops/{stop_id}/arrive` | PENDING → ARRIVED |
+| POST | `/api/driver/me/trip/stops/{stop_id}/complete` | ARRIVED → COMPLETED |
+| POST | `/api/driver/me/trip/complete` | ACTIVE/DELAYED → DELIVERED |
+| POST | `/api/driver/me/location` | Position fixes for the current trip |
+
+`stop_id` is the one id that appears in a driver path, and it is checked for
+membership of the driver's **own** trip. A stop belonging to another trip is a
+**404, not a 403** — confirming that the id exists would itself disclose
+something about a trip that is not theirs.
 
 `GET /api/driver/me/assignment` returns **200 with a null body** when the driver
 has no assignment. Unassigned is a normal state, not an error, so the app renders
-an empty screen rather than special-casing a 404.
+an empty screen rather than special-casing a 404. `GET /api/driver/me/trip`
+behaves the same way: a driver between trips is a normal state.
+
+**`GET /api/driver/me/trip`** carries everything the trip screen needs, all
+server-decided:
+
+| Field | Why the server decides it |
+| --- | --- |
+| `stops`, `next_stop_id` | Exactly one stop is actionable at a time, in `sequence` order |
+| `can_start`, `start_blocked_code`, `start_blocked_reason` | Computed by the **same function** `POST .../start` uses, so a control the app enables is one the server will honour |
+| `tracking_expected` | Whether the server will accept location for this trip at all |
+| `tracking` | Upload cadence and the freshness threshold — the app holds no copies, so what a phone uploads and what a manager calls "live" cannot drift apart |
+| `last_fix` | When a fix last **landed**, by the server clock, so the app reports what was delivered rather than what it queued |
 
 Responses carry only what the app needs — no manager metadata, no salary, no
 other drivers, no document contents.
@@ -417,6 +610,21 @@ polling gives the same state.
 ---
 
 ## 15. Implemented Today
+
+As of P5, the implemented surface is:
+
+| Area | Paths |
+| --- | --- |
+| System | `/health`, `/ready` |
+| Auth | `/api/auth/login`, `/refresh`, `/logout`, `/me` |
+| Manager CRUD | `/api/drivers*`, `/api/trucks*`, `/api/assignments*` |
+| Planning | `/api/shipments`, `/api/trips*` (create, dispatch, cancel, close) |
+| Driver self-service | `/api/driver/me*` — profile, assignment, trip, location |
+| Fleet location | `/api/fleet/active`, `/api/trips/{id}/track` |
+| Detail reads (P6) | `GET /api/drivers/{id}`, `GET /api/trucks/{id}`, `GET /api/trips/{id}` — the last now carries a `shipment` summary (client, reference, load, priority) so an operations screen does not need a second lookup for what a truck is carrying |
+
+Everything else in this document is a specification for a later phase and is not
+routed. The system endpoints:
 
 | Method | Path | Response |
 | --- | --- | --- |

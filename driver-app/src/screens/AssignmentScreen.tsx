@@ -1,9 +1,12 @@
 /**
  * The driver's current assignment, and truck verification.
  *
- * There is no map, no tracking indicator and no GPS status here. None of that
- * exists yet, and a decorative version would be indistinguishable from a
- * working one - which is exactly the sort of thing that gets believed.
+ * Checking the truck is a prerequisite for driving it: the backend refuses to
+ * start a trip on an unverified assignment, so this screen is the gate the Trip
+ * tab reports as blocked.
+ *
+ * Deliberately no map and no GPS status. Position belongs to a trip, not to an
+ * assignment, and it is shown on the Trip tab where it is real.
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -17,7 +20,6 @@ import {
 } from 'react-native'
 
 import { api, type CurrentAssignment } from '../api/client'
-import { useAuth } from '../auth/AuthProvider'
 import { Banner, Button, Field, Loading, Row, errorMessage } from '../components/ui'
 import { COLORS } from '../theme'
 
@@ -73,8 +75,6 @@ function parseReadings(input: { odometer: string; fuel: string }): ParsedReading
 }
 
 export default function AssignmentScreen() {
-  const { driver, logout } = useAuth()
-
   const [status, setStatus] = useState<Status>('loading')
   const [assignment, setAssignment] = useState<CurrentAssignment | null>(null)
   const [loadError, setLoadError] = useState<unknown>(null)
@@ -166,14 +166,6 @@ export default function AssignmentScreen() {
           />
         }
       >
-        <View style={styles.header}>
-          <View style={styles.headerText}>
-            <Text style={styles.name}>{driver?.full_name ?? 'Driver'}</Text>
-            <Text style={styles.licence}>{driver?.licence_number}</Text>
-          </View>
-          <Button label="Sign out" variant="secondary" onPress={() => void logout()} />
-        </View>
-
         {status === 'loading' ? (
           <Loading label="Loading your assignment…" />
         ) : status === 'error' ? (
@@ -291,8 +283,9 @@ export default function AssignmentScreen() {
             )}
 
             <Text style={styles.note}>
-              Location is not being shared. Trip tracking is not part of this
-              build.
+              {verified
+                ? 'This truck is checked. Location is shared only while a trip is running — see the Trip tab.'
+                : 'Check this truck before you can start a trip. Location is not being shared.'}
             </Text>
           </>
         )}
@@ -304,17 +297,6 @@ export default function AssignmentScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: COLORS.bg },
   container: { padding: 20, paddingBottom: 48 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 24,
-    gap: 12,
-  },
-  headerText: { flexShrink: 1 },
-  name: { color: COLORS.text, fontSize: 20, fontWeight: '700' },
-  licence: { color: COLORS.faint, fontSize: 12, marginTop: 2 },
-
   card: {
     backgroundColor: COLORS.card,
     borderWidth: 1,

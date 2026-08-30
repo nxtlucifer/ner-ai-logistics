@@ -18,7 +18,19 @@ These tests therefore skip unless RUN_DESTRUCTIVE_MIGRATION_TESTS=1 is set:
     RUN_DESTRUCTIVE_MIGRATION_TESTS=1 pytest tests/test_migrations.py
 
 Run them deliberately, against a database you are willing to empty - after
-adding a migration, and in CI against a throwaway service container.
+adding a migration, and in CI against a throwaway service container. The CI job
+that does this is .github/workflows/migrations.yml: it stands up a disposable
+postgis container, points DATABASE_PROVIDER at it, and runs these tests on every
+change under backend/alembic/. Rollback coverage therefore does not depend on
+anyone remembering to set an environment variable.
+
+TWO INTERLOCKS, NOT ONE
+-----------------------
+The opt-in flag is necessary but not sufficient. Someone setting it while their
+.env still points at Supabase - the obvious way to run these locally - would
+destroy the shared project, and the flag would have felt like the safety check.
+So the target must ALSO be a local, disposable host. Both conditions must hold;
+either one missing skips, and the skip reason says which.
 """
 
 import os
@@ -29,9 +41,24 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 
-from app.core.config import get_settings
+from app.core.config import LOCAL_HOSTS, _host_of, get_settings
 
 DESTRUCTIVE_OPT_IN = os.getenv("RUN_DESTRUCTIVE_MIGRATION_TESTS") == "1"
+
+
+def _target_is_disposable() -> bool:
+    """Whether the database Alembic would migrate is safe to empty.
+
+    Fails closed: any error reading the configuration counts as "not safe".
+    A test that drops every table must never proceed on a guess.
+    """
+    try:
+        return _host_of(get_settings().effective_migration_url) in LOCAL_HOSTS
+    except Exception:  # noqa: BLE001 - unreadable config is not a safe target
+        return False
+
+
+TARGET_IS_DISPOSABLE = _target_is_disposable()
 
 pytestmark = [
     pytest.mark.requires_db,
@@ -41,6 +68,15 @@ pytestmark = [
         reason=(
             "Destructive: downgrades to base and drops every table. "
             "Set RUN_DESTRUCTIVE_MIGRATION_TESTS=1 to run."
+        ),
+    ),
+    pytest.mark.skipif(
+        DESTRUCTIVE_OPT_IN and not TARGET_IS_DISPOSABLE,
+        reason=(
+            "REFUSED: RUN_DESTRUCTIVE_MIGRATION_TESTS=1 but the migration target "
+            "is not a local host. These tests DROP every table. Point "
+            "DATABASE_PROVIDER=local at a disposable database first - see "
+            "docker-compose.yml or .github/workflows/migrations.yml."
         ),
     ),
 ]

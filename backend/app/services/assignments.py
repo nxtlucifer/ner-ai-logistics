@@ -1,8 +1,15 @@
 """Driver/truck assignment service.
 
-Not simple CRUD: the invariants are "at most one active assignment per driver"
-and "at most one active assignment per truck", and those must survive concurrent
-requests.
+Not simple CRUD: the invariants are "at most one CURRENT assignment per driver"
+and "at most one CURRENT assignment per truck", and those must survive
+concurrent requests.
+
+"Current" means ACTIVE **or** PENDING_VERIFICATION. Both statuses mean the
+driver is responsible for that truck right now - PENDING_VERIFICATION is what a
+reported registration mismatch produces, and the driver keeps driving while a
+manager reviews it. Treating only ACTIVE as current is a real defect and was
+one: a reassignment slipped straight past an assignment awaiting review and left
+the driver holding two trucks at once.
 
 The concurrency story matters. A SELECT-then-INSERT pre-check cannot be correct
 on its own:
@@ -11,8 +18,10 @@ on its own:
     request B: SELECT -> no active assignment -> INSERT     <- both pass
 
 Both transactions see a clean pre-check and both insert. The authority is
-therefore the pair of partial unique indexes created in migration 0002
-(uq_active_assignment_driver / uq_active_assignment_truck). The pre-check exists
+therefore the pair of partial unique indexes created in migration 0002 and
+widened in 0006 (uq_current_assignment_driver / uq_current_assignment_truck -
+renamed there because "active" was exactly the word that was wrong). The
+pre-check exists
 only to produce a clear message in the uncontended case; the IntegrityError
 handler is what makes the contended case correct.
 """
@@ -42,7 +51,13 @@ AUDITED_FIELDS = (
     "mismatch_flagged", "ended_at",
 )
 
-ACTIVE_STATUSES = (AssignmentStatus.ACTIVE, AssignmentStatus.PENDING_VERIFICATION)
+#: Statuses in which a driver is still responsible for the truck. Both count
+#: as "current": PENDING_VERIFICATION is what a reported mismatch produces,
+#: and the driver keeps the vehicle while a manager reviews it.
+OPEN_STATUSES = (AssignmentStatus.ACTIVE, AssignmentStatus.PENDING_VERIFICATION)
+
+#: Backwards-compatible alias for the list filter.
+ACTIVE_STATUSES = OPEN_STATUSES
 
 
 async def get(
@@ -154,22 +169,39 @@ async def create(
 ) -> DriverTruckAssignment:
     """Assign a driver to a truck.
 
-    Any existing ACTIVE assignment for either party is ended first, in the same
-    transaction, so the partial unique indexes are never transiently violated.
+    Any existing CURRENT assignment for either party - ACTIVE or
+    PENDING_VERIFICATION - is ended first, in the same transaction, so the
+    partial unique indexes are never transiently violated.
     """
     driver = await _validate_driver(db, driver_id)
     truck = await _validate_truck(db, truck_id)
 
     # Already assigned to exactly this truck? Return a clear conflict rather
     # than silently creating a duplicate.
-    current = (
-        await db.execute(
-            select(DriverTruckAssignment).where(
-                DriverTruckAssignment.driver_id == driver_id,
-                DriverTruckAssignment.status == AssignmentStatus.ACTIVE,
+    #
+    # ACTIVE **or** PENDING_VERIFICATION. Both mean the driver is currently
+    # responsible for that truck - PENDING_VERIFICATION is what a registration
+    # mismatch produces, and the driver keeps the vehicle while a manager
+    # reviews it. Matching only ACTIVE here let a reassignment slip past an
+    # assignment awaiting review, leaving the driver holding two trucks at once:
+    # PENDING_VERIFICATION on the old one and ACTIVE on the new. P5 made that
+    # concrete - `trips.open_assignment_for()` accepts either status, so a trip
+    # on the abandoned truck stayed startable by a driver who had been moved.
+    held_by_driver = list(
+        (
+            await db.execute(
+                select(DriverTruckAssignment)
+                .where(
+                    DriverTruckAssignment.driver_id == driver_id,
+                    DriverTruckAssignment.status.in_(OPEN_STATUSES),
+                )
+                .order_by(DriverTruckAssignment.assigned_at.desc())
             )
         )
-    ).scalar_one_or_none()
+        .scalars()
+        .all()
+    )
+    current = held_by_driver[0] if held_by_driver else None
     if current is not None and current.truck_id == truck_id:
         raise ConflictError(
             "Driver is already assigned to this truck.",
@@ -179,23 +211,28 @@ async def create(
 
     now = datetime.now(UTC)
 
-    # End the driver's current assignment.
-    if current is not None:
-        current.status = AssignmentStatus.ENDED
-        current.ended_at = now
+    # End every open assignment the driver holds, not just the newest. A
+    # database that predates the widened unique indexes may carry more than one.
+    for held in held_by_driver:
+        held.status = AssignmentStatus.ENDED
+        held.ended_at = now
 
     # End whoever currently holds this truck.
-    truck_holder = (
-        await db.execute(
-            select(DriverTruckAssignment).where(
-                DriverTruckAssignment.truck_id == truck_id,
-                DriverTruckAssignment.status == AssignmentStatus.ACTIVE,
+    truck_holders = list(
+        (
+            await db.execute(
+                select(DriverTruckAssignment).where(
+                    DriverTruckAssignment.truck_id == truck_id,
+                    DriverTruckAssignment.status.in_(OPEN_STATUSES),
+                )
             )
         )
-    ).scalar_one_or_none()
-    if truck_holder is not None:
-        truck_holder.status = AssignmentStatus.ENDED
-        truck_holder.ended_at = now
+        .scalars()
+        .all()
+    )
+    for holder in truck_holders:
+        holder.status = AssignmentStatus.ENDED
+        holder.ended_at = now
 
     # Flush the endings before inserting, so the unique indexes see the
     # intermediate state in the right order.

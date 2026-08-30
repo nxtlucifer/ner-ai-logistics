@@ -1,8 +1,22 @@
 # Demo Plan
 
-**Status: plan for a future demo.** None of the flow below is implemented yet. This document exists
-now because it defines what "done" means — every MUST HAVE in
-[MVP_SCOPE.md](MVP_SCOPE.md) is justified by appearing here.
+**Status: partly implemented, mostly still a plan.** This document defines what "done" means —
+every MUST HAVE in [MVP_SCOPE.md](MVP_SCOPE.md) is justified by appearing here — so it deliberately
+describes the finished demo rather than today's build.
+
+As of P6, **implemented and certified end to end** (44 checks): the fleet overview and live map,
+shipment + trip planning with the capacity rejection at 0:20–0:40, dispatch, driver start, GPS
+ingestion, LIVE/STALE/NO_CONTACT freshness, and the observed trip track.
+
+**Not implemented, and therefore not demonstrable today:** route selection and the three-route
+comparison, ETA, fuel litres and cost, the landslide incident and automatic rerouting, weather,
+Fleet Sentinel timers, the stuck-truck workflow, and the SOS escalation that the narrative calls
+the differentiator. Those arrive in P7–P13.
+
+> The 0:20–0:40 beat — attempt 18,000 kg, be refused, correct to 13,500 kg — is real today and is
+> covered by certification, including the assertion that the refused attempt leaves **no orphan
+> shipment** behind. Before `POST /api/trips/plan` existed it would have stranded a committed cargo
+> record on stage, once per attempt.
 
 ---
 
@@ -70,6 +84,36 @@ discount the whole thing, and the honest explanation is more impressive than the
 
 Nothing on screen is fabricated UI. Every number rendered comes from an API response, and a `null`
 estimate renders as "unavailable" — including during the demo.
+
+### Status as of P6 — what can actually be shown
+
+| Element | Status |
+| --- | --- |
+| Manager creates driver, truck, assignment | ✅ implemented |
+| Driver signs in and verifies the physical truck | ✅ implemented |
+| Manager creates, dispatches, cancels, closes a trip | ✅ implemented |
+| Driver starts a trip, works stops, completes it | ✅ implemented |
+| Phone GPS → FastAPI → PostGIS → manager map | ✅ implemented (foreground only) |
+| Manager fleet map with live/stale/no-contact markers | ✅ implemented |
+| Observed trip track (GPS breadcrumb) | ✅ implemented |
+| **Physical Android GPS** | ⚠️ **NOT CERTIFIED** — no device, SDK or emulator available |
+| Routing / three route options | ❌ not implemented (P7) |
+| Weather, road incidents, rerouting | ❌ not implemented (P8–P9) |
+| Fuel AI | ❌ not implemented (P10) |
+| Fleet Sentinel, 60→30→SOS | ❌ not implemented (P11) |
+| Payments, payroll, proof of delivery | ❌ not implemented (P12) |
+
+Two things to say aloud rather than let a judge assume:
+
+- The breadcrumb on the map is labelled **"Observed trip track"**, not a route.
+  It is where the truck has been observed, not a planned path — routing does not
+  exist yet.
+- There is **no ETA** anywhere in the UI. An ETA without routing would be a
+  number with nothing behind it.
+
+Until a handset has been through the loop, the honest phrasing for GPS is: *"the
+ingestion path is certified end to end against the real API; native device
+capture has not been certified on hardware."*
 
 ---
 

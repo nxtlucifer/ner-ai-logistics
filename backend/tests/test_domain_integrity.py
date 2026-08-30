@@ -225,7 +225,7 @@ class TestUniqueConstraints:
             else:
                 with pytest.raises(IntegrityError) as exc:
                     db.execute(stmt, params)
-                assert "uq_active_assignment_driver" in str(exc.value)
+                assert "uq_current_assignment_driver" in str(exc.value)
 
     def test_one_active_assignment_per_truck(self, db: Connection) -> None:
         truck_id = _mk_truck(db)
@@ -244,7 +244,7 @@ class TestUniqueConstraints:
                 ),
                 {"d": _mk_driver(db), "t": truck_id},
             )
-        assert "uq_active_assignment_truck" in str(exc.value)
+        assert "uq_current_assignment_truck" in str(exc.value)
 
     def test_ended_assignments_do_not_block_a_new_one(self, db: Connection) -> None:
         """The partial index must permit full history."""

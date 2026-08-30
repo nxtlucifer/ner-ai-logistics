@@ -43,7 +43,18 @@ class Coordinate(APIModel):
     (26.1445 N, 91.7362 E); swapping them yields lat=91.7362, which fails the
     -90..90 bound and is rejected here rather than being stored as a point in
     the Arctic Ocean.
+
+    `allow_inf_nan=False` is not redundant with the bounds. Python's json module
+    parses the literals `NaN`, `Infinity` and `-Infinity` even though JSON does
+    not define them, so a client genuinely can send them. NaN happens to fail
+    the bounds too - every comparison with NaN is False - but relying on that is
+    relying on a side effect. Stating it makes the rejection the rule rather
+    than an accident, and gives a client an error that names the real problem.
     """
+
+    model_config = ConfigDict(
+        extra="forbid", str_strip_whitespace=True, allow_inf_nan=False
+    )
 
     lat: Annotated[float, Field(ge=-90.0, le=90.0, description="Latitude, WGS84")]
     lon: Annotated[float, Field(ge=-180.0, le=180.0, description="Longitude, WGS84")]

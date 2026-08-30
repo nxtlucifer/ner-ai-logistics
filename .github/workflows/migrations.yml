@@ -1,0 +1,110 @@
+# Migration rollback coverage, against a throwaway database.
+#
+# The destructive migration tests run `alembic downgrade base`, which drops every
+# domain table. They are opt-in locally and skipped by default, because the
+# development database is a SHARED Supabase project and a routine `pytest` run
+# wiped it once already.
+#
+# Skipped-by-default is the right local behaviour and the wrong permanent one: a
+# migration that cannot be rolled back is a migration that cannot be safely
+# deployed, and that property has to be checked somewhere. This job is that
+# somewhere. It stands up a disposable PostGIS container, points the application
+# at it, and runs exactly the tests that are skipped everywhere else.
+#
+# Nothing here can reach Supabase. DATABASE_PROVIDER is `local`, and the config
+# validator refuses a non-local host in that mode - so even a leaked production
+# URL in the environment could not be migrated by this job. The tests carry the
+# same check independently.
+
+name: Migration rollback
+
+on:
+  push:
+    paths:
+      - "backend/alembic/**"
+      - "backend/app/models/**"
+      - "backend/tests/test_migrations.py"
+      - ".github/workflows/migrations.yml"
+  pull_request:
+    paths:
+      - "backend/alembic/**"
+      - "backend/app/models/**"
+      - "backend/tests/test_migrations.py"
+      - ".github/workflows/migrations.yml"
+  # So rollback coverage is exercised even in a week when no migration changed.
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+
+    services:
+      postgis:
+        # Matches docker-compose.yml. A version difference between CI and
+        # development is a source of migration surprises that only appear in one
+        # of the two places.
+        image: postgis/postgis:18-3.6
+        env:
+          POSTGRES_USER: ner
+          POSTGRES_PASSWORD: ci-throwaway-not-a-secret
+          POSTGRES_DB: ner_logistics
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ner -d ner_logistics"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      APP_ENV: test
+      # Not a secret: this database exists for the length of one job, is bound to
+      # the runner, and is destroyed with it. Putting a real credential here
+      # would be the mistake.
+      SECRET_KEY: ci-only-signing-key-not-used-outside-this-job
+      DATABASE_PROVIDER: local
+      LOCAL_DATABASE_URL: postgresql+psycopg://ner:ci-throwaway-not-a-secret@localhost:5432/ner_logistics
+      RUN_DESTRUCTIVE_MIGRATION_TESTS: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Refuse to run against anything but the throwaway database
+        working-directory: backend
+        run: |
+          python - <<'PY'
+          from app.core.config import LOCAL_HOSTS, _host_of, get_settings
+          url = get_settings().effective_migration_url
+          host = _host_of(url)
+          assert host in LOCAL_HOSTS, f"migration target {host!r} is not disposable"
+          print(f"target host {host!r} is disposable - proceeding")
+          PY
+
+      - name: Migrate to head
+        working-directory: backend
+        run: python -m alembic upgrade head
+
+      - name: Rollback coverage
+        working-directory: backend
+        run: python -m pytest tests/test_migrations.py -v
+
+      - name: Schema drift after a full rollback cycle
+        working-directory: backend
+        # The rollback tests leave the database at head. Models and schema must
+        # still agree afterwards - a downgrade that "works" but rebuilds a
+        # different schema is not a working downgrade.
+        run: python -m pytest tests/test_schema_drift.py -v

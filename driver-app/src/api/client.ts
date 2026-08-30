@@ -173,7 +173,10 @@ export function refreshSession(): Promise<string | null> {
 
       const response = await rawRequest('/api/auth/refresh', {
         method: 'POST',
-        body: { refresh_token: stored },
+        // `client: 'mobile'` is what makes the server return the rotated token
+        // in the body. Web callers get an HttpOnly cookie instead and no token
+        // at all, which is why this must be declared rather than assumed.
+        body: { refresh_token: stored, client: 'mobile' },
         skipRefresh: true,
       })
       if (!response.ok) {
@@ -182,7 +185,7 @@ export function refreshSession(): Promise<string | null> {
       }
       const data = (await response.json()) as TokenResponse
       accessToken = data.access_token
-      await saveRefreshToken(data.refresh_token)
+      if (data.refresh_token) await saveRefreshToken(data.refresh_token)
       return accessToken
     } catch {
       return null
@@ -247,7 +250,12 @@ export interface AuthenticatedUser {
 
 export interface TokenResponse {
   access_token: string
-  refresh_token: string
+  /**
+   * Present only for the `mobile` contract, which this app declares.
+   * A web caller gets an HttpOnly cookie and `null` here - the long-lived
+   * credential is never handed to page JavaScript.
+   */
+  refresh_token: string | null
   expires_at: string
   user: AuthenticatedUser
 }
@@ -302,6 +310,96 @@ export interface ReadyResponse {
   }
 }
 
+// --- Trip and location types ----------------------------------------------
+
+export type TripStatus =
+  | 'DRAFT'
+  | 'ASSIGNED'
+  | 'VERIFICATION_PENDING'
+  | 'MANAGER_REVIEW'
+  | 'ACTIVE'
+  | 'DELAYED'
+  | 'INCIDENT'
+  | 'DELIVERED'
+  | 'CLOSED'
+  | 'CANCELLED'
+
+export type TripStopStatus = 'PENDING' | 'ARRIVED' | 'COMPLETED' | 'SKIPPED'
+
+export interface TripStop {
+  id: string
+  sequence: number
+  kind: string
+  status: TripStopStatus
+  name: string | null
+  address: string | null
+  planned_arrival_at: string | null
+  actual_arrival_at: string | null
+}
+
+export interface LastFix {
+  recorded_at: string
+  received_at: string
+  age_seconds: number
+  freshness: string
+}
+
+/**
+ * Upload cadence, decided by the server.
+ *
+ * Not a local constant. If the app picked its own interval it would eventually
+ * disagree with the threshold the manager's "LIVE" label uses, and every
+ * healthy truck would read as stale.
+ */
+export interface TrackingConfig {
+  moving_interval_seconds: number
+  stationary_interval_seconds: number
+  stationary_distance_m: number
+  batch_size: number
+  queue_limit: number
+  fresh_seconds: number
+}
+
+export interface CurrentTrip {
+  id: string
+  trip_code: string
+  status: TripStatus
+  dispatched_at: string | null
+  started_at: string | null
+  delivered_at: string | null
+  truck: TruckSummary
+  stops: TripStop[]
+  next_stop_id: string | null
+  can_start: boolean
+  start_blocked_code: string | null
+  start_blocked_reason: string | null
+  tracking_expected: boolean
+  tracking: TrackingConfig
+  last_fix: LastFix | null
+}
+
+/** One position fix. `device_fix_id` is what makes a retry safe. */
+export interface GpsFix {
+  device_fix_id: string
+  location: { lat: number; lon: number }
+  recorded_at: string
+  altitude_m?: string
+  speed_kmph?: string
+  heading_deg?: string
+  accuracy_m?: string
+  is_mock_location?: boolean
+}
+
+export interface GpsBatchAccepted {
+  trip_id: string
+  accepted: number
+  duplicates_ignored: number
+  rejected: number
+  rejected_reasons: Record<string, number>
+  anomalies: string[]
+  server_time: string
+}
+
 // --- Endpoints ------------------------------------------------------------
 
 export const api = {
@@ -310,11 +408,11 @@ export const api = {
   login: async (identifier: string, password: string): Promise<TokenResponse> => {
     const result = await request<TokenResponse>('/api/auth/login', {
       method: 'POST',
-      body: { identifier, password },
+      body: { identifier, password, client: 'mobile' },
       skipRefresh: true,
     })
     accessToken = result.access_token
-    await saveRefreshToken(result.refresh_token)
+    if (result.refresh_token) await saveRefreshToken(result.refresh_token)
     return result
   },
 
@@ -337,5 +435,37 @@ export const api = {
     request<VerifyResult>('/api/driver/me/assignment/verify', {
       method: 'POST',
       body: payload,
+    }),
+
+  // Trip execution. No trip id in any path: the server resolves the trip from
+  // the token. Where one is sent in a body it can only narrow the request.
+  myTrip: () => request<CurrentTrip | null>('/api/driver/me/trip'),
+  startTrip: (tripId: string) =>
+    request<CurrentTrip>('/api/driver/me/trip/start', {
+      method: 'POST',
+      body: { trip_id: tripId },
+    }),
+  arriveAtStop: (stopId: string) =>
+    request<CurrentTrip>(`/api/driver/me/trip/stops/${stopId}/arrive`, {
+      method: 'POST',
+    }),
+  completeStop: (stopId: string) =>
+    request<CurrentTrip>(`/api/driver/me/trip/stops/${stopId}/complete`, {
+      method: 'POST',
+    }),
+  completeTrip: (tripId: string) =>
+    request<CurrentTrip>('/api/driver/me/trip/complete', {
+      method: 'POST',
+      body: { trip_id: tripId },
+    }),
+
+  // Location upload gets its own timeout. It runs on a background cadence, so a
+  // long hang would stall the queue behind it; failing sooner and retrying is
+  // better than blocking the next batch.
+  sendLocation: (tripId: string, fixes: GpsFix[]) =>
+    request<GpsBatchAccepted>('/api/driver/me/location', {
+      method: 'POST',
+      body: { trip_id: tripId, fixes },
+      timeoutMs: 10_000,
     }),
 }

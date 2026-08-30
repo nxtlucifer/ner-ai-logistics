@@ -20,8 +20,10 @@ incidental to the product — it is the product. The controls below are proporti
 | Driver identifier | Phone + password | Drivers do not reliably have email |
 | Algorithm | HS256 with a 256-bit secret, or RS256 if a second service appears | Must be pinned; `alg: none` and algorithm confusion rejected explicitly |
 
-- Login is rate limited and returns an identical response and timing for unknown-user and
-  wrong-password, so the endpoint cannot enumerate valid phone numbers.
+- Login returns an identical response and comparable timing for unknown-user and
+  wrong-password, so the endpoint cannot enumerate valid phone numbers. **Implemented**
+  (`app/services/auth.py` verifies against a dummy Argon2 hash when no user matches).
+  Rate limiting is **specified but NOT implemented** — see section 6.
 - Drivers stay signed in for long periods by design — re-authenticating on a hill road at night is
   a safety problem, not just a UX one. Refresh tokens are long-lived and device-bound; the mitigation
   for a lost phone is server-side revocation, not a short session.
@@ -39,6 +41,38 @@ incidental to the product — it is the product. The controls below are proporti
 - Web uses in-memory access tokens with the refresh token in an `HttpOnly`, `Secure`, `SameSite=Strict`
   cookie. No token in `localStorage`. **Implemented** - the cookie is scoped to
   `/api/auth`, and the web client never sees its own refresh token.
+
+### The delivery contract is declared, not sniffed
+
+`POST /api/auth/login` and `/refresh` take a `client` field: `"web"` (the
+default) or `"mobile"`.
+
+| `client` | Refresh token delivery | Cookie set |
+| --- | --- | --- |
+| `web` | **Omitted from the response body entirely** | yes, `HttpOnly` |
+| `mobile` | Returned in the body, for `expo-secure-store` | no |
+
+**This was wrong until P6 and the fix is not cosmetic.** Both endpoints set the
+cookie correctly *and* returned the token in the body, to every caller. So the
+`HttpOnly` cookie was protecting a credential that had already been handed to
+page JavaScript: an XSS payload on the manager app could read a token good for
+**30 days** out of the login response, rather than the 15 minutes an access
+token is worth. The bullet above was true about the cookie and false about the
+outcome.
+
+Two design points:
+
+- **Declared, never inferred.** Nothing inspects the `User-Agent`. If delivery
+  were sniffed, any caller could ask for the token in the body simply by
+  claiming to be a phone, and the confidentiality of a long-lived credential
+  would rest on a header anyone can set.
+- **Defaults to `web`,** the more restrictive treatment. A client that forgets
+  to declare itself cannot read the token, rather than silently being handed
+  one. An unrecognised value is a 422, not a guess.
+
+Proven by `tests/test_auth.py`, which asserts against the **actual issued
+token** - the value in the cookie - rather than the presence of a field name, so
+the check cannot be satisfied by renaming something.
 
 > **Development gotcha, now enforced by configuration.** `SameSite` compares
 > registrable domains and ignores ports. `localhost:5173` -> `localhost:8000` is
@@ -98,15 +132,41 @@ Two rules that carry most of the weight:
 The most sensitive data we hold. Specific commitments:
 
 - **Collected only during an ACTIVE trip.** Trip ends → collection stops. This is enforced
-  server-side: `POST /api/gps/batch` for a non-active trip is rejected, so an app bug or a
-  tampered client cannot cause off-duty tracking.
+  server-side: `POST /api/driver/me/location` resolves the trip from the authenticated driver and
+  refuses unless it is in progress, so an app bug, a tampered client or a background task the app
+  failed to stop cannot cause off-duty tracking. *(Implemented P5; the endpoint was planned as
+  `POST /api/gps/batch` — see [API_CONTRACTS.md](API_CONTRACTS.md) §8 for why the path changed.)*
+- **The client never names its own subject.** `driver_id`, `truck_id`, `trip_id`-as-owner and
+  `user_id` are absent from the ingestion contract entirely, and `extra="forbid"` makes an attempt
+  to send one a 422 rather than a silently ignored field. Trip and driver come from the token.
 - The driver app shows a **persistent, non-dismissible indicator** while tracking, and the trip
-  screen states plainly that location is shared with the fleet manager.
+  screen states plainly that location is shared with the fleet manager. *(Implemented P5.)* The
+  indicator distinguishes capturing from delivering: it reads "Location active" only when the
+  server is accepting fixes, and switches to a failure state showing the queue depth when it is
+  not. A driver who believes they are being tracked while the queue is stalled is worse off than
+  one who knows they are not.
+- **Foreground only.** No background location permission is requested and no background task is
+  registered (`isAndroidBackgroundLocationEnabled` and `isIosBackgroundLocationEnabled` are both
+  false). Asking for access the product has no use for is both a worse consent conversation and a
+  larger thing to get wrong.
+- **Denial is a supported state.** Refusing the permission does not crash the app, does not retry
+  in a loop, and never causes fabricated coordinates. Every trip control keeps working; only the
+  position sharing stops, and the screen says so.
 - Consent is captured at onboarding, recorded with timestamp and version, and is re-shown when the
   policy changes.
 - **No third-party analytics or advertising SDKs in the driver app.** Location data goes to our
   backend and nowhere else.
-- Location history is visible to managers and admins only, never to other drivers.
+- Location history is visible to managers and admins only, never to other drivers. Enforced by a
+  dedicated permission, `fleet:location_read`, which the DRIVER role does not hold — deliberately
+  separate from `trip:read` so a future read-only role can see trip progress without seeing a
+  person's position. *(Implemented P5.)*
+- **No unbounded history endpoint.** `GET /api/trips/{id}/track` is capped and has no all-time
+  mode. An unrestricted GPS dump turns an authorised "where is this truck" read into a complete
+  movement profile of a person. *(Implemented P5.)*
+- **Position never enters the audit log or ordinary request logs.** GPS is written to `gps_points`
+  and nowhere else: one `audit_logs` row per fix would both bury the compliance trail and copy a
+  driver's movements into a table that is append-only and retained for two years. *(Implemented P5;
+  pinned by a test that asserts the audit table does not grow during ingestion.)*
 - Precise history is retained 90 days, then reduced to a simplified polyline plus aggregates
   (see §10).
 - Off-duty location is never collected, so there is no "personal movement" dataset to leak.
@@ -234,7 +294,22 @@ policies may be added deliberately - but the default stays deny.
 
 ## 6. Rate Limiting
 
-Per-principal, sliding window:
+> **STATUS: SPECIFIED, NOT IMPLEMENTED.** No rate limiting exists in the codebase as of
+> P5. The only occurrence of `429` in the backend is the status-code→name entry in
+> `app/core/errors.py`; there is no limiter, no middleware, no counter store, and no
+> rate-limiting dependency in `backend/requirements.txt`. Nothing in the system emits a
+> `429` today.
+>
+> This section is the **design** to be built, not a description of current behaviour.
+> The table below is a target. Until it ships, the login endpoint is protected only by
+> Argon2id's cost (~100 ms per attempt) and by timing equalisation — which defeats
+> *enumeration* but does not bound *guessing*.
+>
+> Accepted for the hackathon because the application is not publicly deployed: it runs on
+> a laptop against a development Supabase project, reachable only from the local network.
+> It **must** be implemented before any public deployment. Listed in section 12.
+
+Per-principal, sliding window — **target design**:
 
 | Endpoint | Limit | Rationale |
 | --- | --- | --- |
@@ -245,8 +320,11 @@ Per-principal, sliding window:
 | `POST /api/emergencies/{id}/respond` | **Effectively unlimited** | Never rate-limit a driver saying they need help |
 | `POST /api/incidents` (driver) | 10/hour | Limits report spam; confirmation is a manager action anyway |
 
-Limits are enforced on `429` with `Retry-After`. The driver app respects it with exponential
-backoff rather than hammering.
+Once built, limits will be enforced with `429` and `Retry-After`. The driver app is already
+ready for that half of the contract: `classifyUploadError` in
+`driver-app/src/tracking/useLocationTracking.ts` treats `429` as retryable and the tracker
+backs off exponentially rather than hammering — so the client behaviour is implemented and
+tested, and only the server side is outstanding.
 
 ---
 
@@ -354,3 +432,32 @@ Stated because pretending otherwise is worse than admitting it:
 - Single-tenant; no data isolation between transport companies.
 - No formal DPIA. If deployed commercially, one is required before onboarding real drivers.
 - MFA is not implemented for manager accounts. It should be before any production use.
+- **No rate limiting is implemented** (section 6 is a target design, not current behaviour).
+  Login resists enumeration but not sustained guessing; GPS ingest, reads and future uploads
+  are unbounded per principal. Required before any public deployment.
+- **Automated test accounts accumulate in the shared development database.** They cannot be
+  deleted — `audit_logs.actor_user_id` is RESTRICT, so an auditable actor is pinned by its own
+  trail — so cleanup deactivates them and deletes their refresh tokens instead. Retained rows
+  are inert by construction, not by assumption: verified 0 active and 0 usable tokens across
+  4,284 test-owned accounts. Ownership is the two repository-generated `.invalid` domains and
+  nothing else.
+
+> **Resolved P1 (2026-08-30): a shared test credential was live in the development project.**
+> `tests/factories.py` declared a fixed `TEST_PASSWORD` literal — which section 1's own rule and
+> AGENTS.md both forbid — and cleanup retained the accounts it created while leaving them
+> `is_active = true`. The result was **3,670 authenticating accounts, 13 with ADMIN and its full
+> permission set**, opened by a password published in a public repository, against a backend with
+> no rate limiting.
+>
+> It was contained only by the backend binding to localhost, which P7 ends: reaching a physical
+> Android handset means exposing the API on a LAN.
+>
+> Fixed by generating the suite password per process (`secrets.token_urlsafe(32)`) and by
+> deactivating retained accounts at cleanup. Proven dead: a previously valid ADMIN credential now
+> returns `401 UNAUTHENTICATED` with no access or refresh token issued, without the account being
+> reactivated to test it. The existing accounts were deactivated in bulk; the operation touched
+> only repository-owned `.invalid` identities, deleted nothing, and left every audit row intact.
+>
+> The literal remains in git history at and before `6b9e4ac`. It is dead — nothing creates
+> accounts with it and every account it opened is deactivated — but it cannot be removed without
+> rewriting history, which this project does not do.

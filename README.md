@@ -6,7 +6,7 @@ Smart India Hackathon · Problem Statement **SIH26002** · Software · Smart Aut
 
 ---
 
-## Status: P0 – P4 complete
+## Status: P0 – P6 complete
 
 | Component | State |
 | --- | --- |
@@ -19,14 +19,30 @@ Smart India Hackathon · Problem Statement **SIH26002** · Software · Smart Aut
 | Manager API: drivers, trucks, assignments + audit logging | Implemented |
 | Manager UI: login, drivers, trucks, assignments | Implemented |
 | Driver app: login, own assignment, truck verification | Implemented |
-| Backend test suite | 296 passing |
-| Manager frontend tests (Vitest) | 10 passing |
+| Shipments and trips: create, dispatch, cancel, close | Implemented |
+| Trip execution: start, stop arrive/complete, complete | Implemented |
+| GPS ingestion, idempotent on `(trip_id, device_fix_id)` | Implemented |
+| Driver foreground location tracking (`expo-location`) | Implemented |
+| Manager fleet map (MapLibre + OSM), live/stale/no-contact | Implemented |
+| Observed trip track (GPS breadcrumb) | Implemented |
+| **Physical Android GPS capture** | ⚠️ **NOT CERTIFIED** — no device or SDK available |
+| Atomic shipment + trip planning (`POST /api/trips/plan`) | Implemented |
+| Backend test suite | **415 passing, 5 skipped** (420 collected, 20m57s) |
+| Manager frontend tests (Vitest) | **38 passing** |
+| Driver frontend tests (Vitest) | **25 passing** |
+| End-to-end fleet certification | **44 checks passing** |
 
-**Not implemented:** GPS, routing, fuel AI, weather, road incidents, rerouting,
-Fleet Sentinel, SOS, payments, payroll, OCR, ML training, Supabase Auth, Supabase
-Storage. All are specified in [`docs/`](docs/) and scheduled in
+Every number above was measured on 2026-08-30, not estimated. The 5 skips are
+deliberate: four destructive migration tests gated behind
+`RUN_DESTRUCTIVE_MIGRATION_TESTS`, and one non-Windows event-loop test.
+
+**Not implemented:** routing, ETA, fuel AI, weather, road incidents, rerouting,
+Fleet Sentinel, the 60-minute stuck workflow, the 30-minute response escalation,
+SOS, payments, payroll, OCR, ML training, **API rate limiting**, Supabase Auth,
+Supabase Storage. All are specified in [`docs/`](docs/) and scheduled in
 [docs/DEVELOPMENT_ROADMAP.md](docs/DEVELOPMENT_ROADMAP.md). Nothing in the UI
-pretends otherwise.
+pretends otherwise — there is no ETA anywhere, because routing does not exist,
+and the map's GPS breadcrumb is labelled *Observed trip track*, never a route.
 
 ---
 

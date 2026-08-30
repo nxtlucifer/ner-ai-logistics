@@ -12,11 +12,18 @@ import { AuthProvider, useAuth } from './auth/AuthProvider'
 import { Button, LoadingState } from './components/ui'
 import AssignmentsPage from './pages/AssignmentsPage'
 import DriversPage from './pages/DriversPage'
+import FleetPage from './pages/FleetPage'
 import SystemPage from './pages/SystemPage'
+import TripsPage from './pages/TripsPage'
 import TrucksPage from './pages/TrucksPage'
 import LoginPage from './pages/LoginPage'
 
+// Fleet leads: it is the screen a dispatcher keeps open. A nav item whose
+// permission the current role lacks is not rendered at all - never shown
+// disabled, and never shown working and failing on click.
 const NAV = [
+  { to: '/fleet', label: 'Fleet', permission: 'fleet:location_read' },
+  { to: '/trips', label: 'Trips', permission: 'trip:read' },
   { to: '/drivers', label: 'Drivers', permission: 'driver:read' },
   { to: '/trucks', label: 'Trucks', permission: 'truck:read' },
   { to: '/assignments', label: 'Assignments', permission: 'assignment:read' },
@@ -73,11 +80,13 @@ function Shell() {
 
       <main className="mx-auto max-w-6xl px-6 py-8">
         <Routes>
+          <Route path="/fleet" element={<FleetPage />} />
+          <Route path="/trips" element={<TripsPage />} />
           <Route path="/drivers" element={<DriversPage />} />
           <Route path="/trucks" element={<TrucksPage />} />
           <Route path="/assignments" element={<AssignmentsPage />} />
           <Route path="/system" element={<SystemPage />} />
-          <Route path="*" element={<Navigate to="/drivers" replace />} />
+          <Route path="*" element={<Navigate to="/fleet" replace />} />
         </Routes>
       </main>
     </div>

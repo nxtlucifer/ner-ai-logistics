@@ -10,6 +10,7 @@ from app.core.errors import AuthenticationError
 from app.core.permissions import permissions_for
 from app.schemas.auth import (
     AuthenticatedUser,
+    ClientKind,
     LoginRequest,
     LogoutRequest,
     MeResponse,
@@ -58,6 +59,39 @@ def _resolve_refresh_token(request: Request, supplied: str | None) -> str:
     return token
 
 
+def _token_response(
+    response: Response, result: auth_service.AuthResult, client: ClientKind
+) -> TokenResponse:
+    """Issue credentials in the form the declared client can hold safely.
+
+    ONE function decides this, so the rule cannot be right on login and wrong on
+    refresh - which is the shape this bug had: both endpoints set the cookie
+    correctly AND also returned the token in the body, so the HttpOnly cookie
+    was protecting a secret that had already been handed to JavaScript.
+
+    web    - cookie only. `refresh_token` is omitted from the body entirely, so
+             an XSS payload has nothing to read. The cost is that a web client
+             cannot recover its session without the cookie, which is the point.
+    mobile - body only. There is no cookie jar we rely on; expo-secure-store
+             (Keystore/Keychain) is where it goes. The cookie is not set at all,
+             so nothing about this response depends on cookie handling.
+
+    The client DECLARES which it is. Nothing here inspects the User-Agent: the
+    confidentiality of a 30-day credential must not depend on a header any
+    caller can set.
+    """
+    body = TokenResponse(
+        access_token=result.access_token,
+        expires_at=result.expires_at,
+        user=AuthenticatedUser.model_validate(result.user),
+    )
+    if client == "mobile":
+        body.refresh_token = result.refresh_token
+    else:
+        _set_refresh_cookie(response, result.refresh_token)
+    return body
+
+
 @router.post("/login", response_model=TokenResponse, summary="Sign in")
 async def login(
     payload: LoginRequest,
@@ -73,15 +107,7 @@ async def login(
         user_agent=request.headers.get("user-agent"),
         ip_address=ip,
     )
-    _set_refresh_cookie(response, result.refresh_token)
-    # Also returned in the body for the mobile client, which stores it in
-    # expo-secure-store. The web client ignores it and uses the cookie.
-    return TokenResponse(
-        access_token=result.access_token,
-        refresh_token=result.refresh_token,
-        expires_at=result.expires_at,
-        user=AuthenticatedUser.model_validate(result.user),
-    )
+    return _token_response(response, result, payload.client)
 
 
 @router.post("/refresh", response_model=TokenResponse, summary="Rotate tokens")
@@ -98,13 +124,7 @@ async def refresh(
         user_agent=request.headers.get("user-agent"),
         ip_address=ip,
     )
-    _set_refresh_cookie(response, result.refresh_token)
-    return TokenResponse(
-        access_token=result.access_token,
-        refresh_token=result.refresh_token,
-        expires_at=result.expires_at,
-        user=AuthenticatedUser.model_validate(result.user),
-    )
+    return _token_response(response, result, payload.client)
 
 
 @router.post(

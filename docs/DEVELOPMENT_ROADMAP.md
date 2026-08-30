@@ -130,22 +130,97 @@ alongside the phases that need them.
 
 ---
 
-## P5 — Live GPS + Trip Execution
+## P5 — Live GPS + Trip Execution ✅ COMPLETE
 
-**Objective** Phone GPS to manager map.
-**Inputs** [API_CONTRACTS.md](API_CONTRACTS.md) §8, [DATA_MODEL.md](DATA_MODEL.md) §8.
-**Implementation** `shipments`, `cargo_items`, `trips`, `gps_points` tables; trip creation with the
-**capacity gate**; background location task with local SQLite buffering; `POST /api/gps/batch`
-idempotent on `device_fix_id`; WebSocket broadcast; MapLibre live map. **GPS replay harness** built
-here — it is a test client posting to the real API.
-**Tests** Idempotency (same fix twice → one row); offline buffering, ordered flush, restart
-survival; capacity gate rejects over-capacity with 422; map renders live position.
-**Exit gate** A phone moving produces a moving marker on the manager map. Airplane mode for 10
-minutes then reconnect flushes every fix exactly once. Over-capacity assignment is refused.
+**Objective** Turn the authenticated driver app into a real trip-execution client:
+manager dispatches → driver starts → position flows → stops progress → manager
+sees it → driver completes.
+
+**Implementation** Manager planning (`/api/shipments`, `/api/trips` with create,
+dispatch, cancel, close) and driver execution (`/api/driver/me/trip` with start,
+stop arrive/complete, complete) over the **existing** P2 schema — no new tables.
+Position ingestion at `POST /api/driver/me/location`, idempotent on
+`(trip_id, device_fix_id)` via the unique index and `ON CONFLICT DO NOTHING`.
+Manager visibility at `/api/fleet/active` and `/api/trips/{id}/track`, with
+server-decided freshness labels. Foreground `expo-location` tracking with a
+server-supplied cadence, a bounded queue and exponential backoff.
+
+**Deliberately not built.** No WebSocket broadcast: correct bounded polling is
+indistinguishable to a dispatcher, and a realtime subsystem would carry its own
+auth, reconnection and backpressure problems for no visible gain. No MapLibre map
+— that is P6, and a coordinate table that is honest beats a map that is
+decorative. No background location task and no SQLite buffer: foreground tracking
+with an in-memory bounded queue is the smallest thing that honours
+[SECURITY.md](SECURITY.md) §3, and a background permission we have no use for is
+a worse consent conversation and a larger thing to get wrong.
+
+**Defects found and fixed in this phase**
+- `trip_events.location` was NOT NULL in the database although migration 0002 and
+  the model both declared it nullable, so **no trip event could be recorded at
+  all**. Cause: one shared GeoAlchemy2 `Geography` instance across six columns,
+  which its column listener mutates — the first `nullable=False` column poisoned
+  the shared type for every later one. Invisible to the drift check because the
+  models were wrong identically. Fixed by migration 0005 and by making the type a
+  per-column factory.
+- The manager fleet query used `DISTINCT ON`, which read **every point of every
+  active trip** on each poll — 30,000 rows and 60–400 ms at 25 trips, degrading
+  with track length. Replaced with a LATERAL per-trip index lookup: 25 rows,
+  0.8 ms, and O(active trips) rather than O(total points).
+
+**Tests** 78 new backend tests across trip execution and telemetry, plus a 37-check
+end-to-end certification script (`scripts/certify_p5.py`) that drives the whole
+loop over real HTTP against Supabase and cleans up after itself.
+
+**Exit gate** ✅ Manager → driver → trip → position → stops → completion, proven
+end to end. Physical-device GPS is **NOT CERTIFIED** — see the native device
+status in the P5 report; Expo web is certified, native is not.
 
 ---
 
-## P6 — Routing
+## P6 — Map + Fleet Operations Dashboard ✅ COMPLETE
+
+**Objective** Make the fleet visible. P5 got position flowing from a phone into
+PostGIS and out through an API; P6 is the screen a dispatcher actually works
+from.
+
+**Implementation** MapLibre GL JS over OpenStreetMap raster tiles - no API key,
+no billing account, no vendor lock. One marker per active trip, coloured by the
+**server's** freshness label. A selection panel carrying only real API values:
+driver, truck, cargo, load, origin, destination, last contact, speed, GPS
+accuracy. Summary counts, freshness filters and search over registration, driver
+and trip code. The observed GPS breadcrumb rendered as a polyline. One polling
+loop (`useFleetPoll`) feeds map, list, counts and filters, so they cannot
+disagree with each other.
+
+**Two rules the screen keeps.** A truck that has never reported is listed and
+counted but **never plotted** - there is no coordinate for it, and putting one
+anywhere would show a dispatcher a truck in a place nobody observed it. And the
+camera moves only when the operator asks; a map that re-centres every ten
+seconds cannot be worked with.
+
+**Deliberately not built.** No ETA - routing does not exist until P7, and a
+number with nothing behind it is worse than a blank. No decorative "Reroute",
+"Weather" or "SOS" controls. The breadcrumb is labelled *Observed trip track*,
+never *route*.
+
+**Defects found and fixed in this phase** (see the P6 report for the full list):
+two lost-idempotency bugs in P5 trip execution, both on a driver's LAST action at
+a stop and at a trip; and the two findings the older P3 audit raised - the web
+refresh token was still being handed to page JavaScript, and the
+"one current assignment" invariant still excluded `PENDING_VERIFICATION`, which
+P5 had turned from untidy into unsafe.
+
+**Tests** 33 manager Vitest tests (fleet states, the never-plotted rule,
+filters, search, selection, polling discipline), 25 driver tracker tests, and
+the fleet certification extended to 43 checks.
+
+**Exit gate** ✅ A manager sees real trucks at real coordinates, with honest
+freshness. Physical-device GPS remains **NOT CERTIFIED** - no Android SDK,
+emulator or handset is available on this machine.
+
+---
+
+## P7 — Routing
 
 **Objective** Three route options per trip.
 **Implementation** `RoutingProvider` interface first, then a concrete provider; `trip_routes`;
@@ -162,7 +237,7 @@ Provider is swappable by configuration — proven by running the suite against t
 
 ---
 
-## P7 — Weather and Incidents
+## P8 — Weather and Incidents
 
 **Objective** Environmental awareness.
 **Implementation** `road_incidents`, `weather_events`; weather provider behind an interface with
@@ -176,7 +251,7 @@ whose selected route passes within its radius — verified against hand-computed
 
 ---
 
-## P8 — Rerouting
+## P9 — Rerouting
 
 **Objective** Close the loop from incident to new route.
 **Implementation** Incident confirmed → affected trips → hard filter rejects blocked candidates →
@@ -190,7 +265,7 @@ cannot be selected by any code path.
 
 ---
 
-## P9 — Fuel AI
+## P10 — Fuel AI
 
 **Objective** A fuel estimate that beats its baseline.
 **Inputs** [AI_MODELS.md](AI_MODELS.md) §1.
@@ -206,7 +281,7 @@ file degrades cleanly to the baseline with no error.
 
 ---
 
-## P10 — Fleet Sentinel
+## P11 — Fleet Sentinel
 
 **Objective** The safety differentiator. **The most important phase in the project.**
 **Inputs** [ARCHITECTURE.md](ARCHITECTURE.md) Diagram F, [DATA_MODEL.md](DATA_MODEL.md) §11.
@@ -229,7 +304,7 @@ driver app. Scheduler health is itself monitored.
 
 ---
 
-## P11 — Payments and Proof of Delivery
+## P12 — Payments and Proof of Delivery
 
 **Objective** Close the trip lifecycle.
 **Implementation** `payments`, `expenses`, `payroll`, `deliveries`; status transitions; expense
@@ -241,7 +316,7 @@ and no endpoint accepts card, UPI or bank details.**
 
 ---
 
-## P12 — Integration
+## P13 — Integration
 
 **Objective** Prove the whole chain holds together.
 **Implementation** The Playwright E2E of the full demo narrative; failure-injection suite from
@@ -253,7 +328,7 @@ clean reset each time.
 
 ---
 
-## P13 — Demo Hardening
+## P14 — Demo Hardening
 
 **Objective** Make it survive the room.
 **Implementation** Pre-cache map tiles for the Jorhat–Guwahati corridor; decide WebSocket vs

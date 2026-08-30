@@ -258,19 +258,30 @@ class DriverTruckAssignment(Base):
             "ended_at IS NULL OR ended_at >= assigned_at",
             name="ck_assignment_ended_after_assigned",
         ),
-        # At most one ACTIVE assignment per driver, and per truck. Expressed as
+        # At most one CURRENT assignment per driver, and per truck. Expressed as
         # partial unique indexes so history is retained in the same table.
+        #
+        # "Current" is ACTIVE **or** PENDING_VERIFICATION, and the distinction
+        # matters: a reported registration mismatch moves an assignment to
+        # PENDING_VERIFICATION and the driver keeps the truck, so it is still
+        # current. The original predicate covered only ACTIVE, which let a
+        # reassignment slip past an assignment awaiting review and leave one
+        # driver holding two trucks. Widened in migration 0006.
         sa.Index(
-            "uq_active_assignment_driver",
+            "uq_current_assignment_driver",
             "driver_id",
             unique=True,
-            postgresql_where=sa.text("status = 'ACTIVE'"),
+            postgresql_where=sa.text(
+                "status IN ('ACTIVE','PENDING_VERIFICATION')"
+            ),
         ),
         sa.Index(
-            "uq_active_assignment_truck",
+            "uq_current_assignment_truck",
             "truck_id",
             unique=True,
-            postgresql_where=sa.text("status = 'ACTIVE'"),
+            postgresql_where=sa.text(
+                "status IN ('ACTIVE','PENDING_VERIFICATION')"
+            ),
         ),
         sa.Index("ix_assignment_driver_time", "driver_id", sa.text("assigned_at DESC")),
         sa.Index("ix_assignment_truck_time", "truck_id", sa.text("assigned_at DESC")),

@@ -110,6 +110,22 @@ async def current_assignment(
     return row[0], row[1]
 
 
+async def truck_for(db: AsyncSession, truck_id: uuid.UUID) -> Truck:
+    """The truck a driver is working with.
+
+    No ownership check here on purpose: callers reach this only with a truck id
+    taken from the driver's OWN assignment or trip, never from a request. Adding
+    a redundant check would suggest this function is safe to call with a
+    client-supplied id, which it is not.
+    """
+    truck = (
+        await db.execute(select(Truck).where(Truck.id == truck_id))
+    ).scalar_one_or_none()
+    if truck is None:
+        raise NotFoundError("Truck not found.")
+    return truck
+
+
 def _readings_match(
     assignment: DriverTruckAssignment, payload: AssignmentVerify
 ) -> bool:

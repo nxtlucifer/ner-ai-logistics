@@ -115,8 +115,9 @@ export default function SystemPage() {
 
       <p className="text-xs leading-relaxed text-slate-600">
         SIH26002 — AI-Based Smart Logistics and Accessibility Intelligence Platform
-        for the North Eastern Region. No GPS, routing, fuel AI or safety features
-        are implemented yet.
+        for the North Eastern Region. Live GPS tracking and trip execution are
+        implemented. Routing, ETA, fuel AI, weather and the safety features are
+        not built yet, and nothing on these screens pretends otherwise.
       </p>
     </div>
   )

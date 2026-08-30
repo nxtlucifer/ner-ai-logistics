@@ -31,7 +31,14 @@ class TestLogin:
         body = r.json()
         assert body["token_type"] == "bearer"
         assert body["user"]["role"] == "MANAGER"
-        assert body["access_token"] and body["refresh_token"]
+        assert body["access_token"]
+
+        # A web login gets its refresh token in an HttpOnly cookie and NOT in
+        # the body. This assertion previously read `body["refresh_token"]` and
+        # so encoded the defect: the cookie was protecting a credential that had
+        # already been handed to page JavaScript.
+        assert body["refresh_token"] is None
+        assert api.cookies.get("ner_refresh"), "no refresh cookie was set"
 
     async def test_driver_logs_in_with_phone(
         self, api: AsyncClient, session: AsyncSession
@@ -102,7 +109,11 @@ class TestRefreshRotation:
         login = (
             await api.post(
                 "/api/auth/login",
-                json={"identifier": user.email, "password": factories.TEST_PASSWORD},
+                json={
+                "identifier": user.email,
+                "password": factories.TEST_PASSWORD,
+                "client": "mobile",
+            },
             )
         ).json()
 
@@ -126,7 +137,11 @@ class TestRefreshRotation:
         login = (
             await api.post(
                 "/api/auth/login",
-                json={"identifier": user.email, "password": factories.TEST_PASSWORD},
+                json={
+                "identifier": user.email,
+                "password": factories.TEST_PASSWORD,
+                "client": "mobile",
+            },
             )
         ).json()
 
@@ -168,6 +183,98 @@ class TestRefreshRotation:
         r = await api.post("/api/auth/refresh", json={})
         assert r.status_code == 200
 
+    async def test_web_response_body_never_carries_the_refresh_token(
+        self, api: AsyncClient, session: AsyncSession
+    ) -> None:
+        """The property, stated directly: page JavaScript cannot obtain it.
+
+        Asserted against the ACTUAL issued token - the value in the cookie -
+        rather than against the presence of a key, so it cannot be satisfied by
+        renaming a field. Covers login and refresh, because the delivery rule
+        being right on one and wrong on the other is exactly the shape this bug
+        had.
+        """
+        user = await factories.make_user(session)
+
+        login = await api.post(
+            "/api/auth/login",
+            json={"identifier": user.email, "password": factories.TEST_PASSWORD},
+        )
+        issued = api.cookies.get("ner_refresh")
+        assert issued, "web login did not set the refresh cookie"
+        assert issued not in login.text, (
+            "the refresh token appeared in the login response body"
+        )
+        assert login.json()["refresh_token"] is None
+
+        rotated = await api.post("/api/auth/refresh", json={})
+        assert rotated.status_code == 200
+        new_token = api.cookies.get("ner_refresh")
+        assert new_token and new_token != issued, "token was not rotated"
+        assert new_token not in rotated.text, (
+            "the rotated refresh token appeared in the refresh response body"
+        )
+        assert rotated.json()["refresh_token"] is None
+
+    async def test_mobile_contract_still_returns_the_token_in_the_body(
+        self, api: AsyncClient, session: AsyncSession
+    ) -> None:
+        """The Expo app has no cookie jar we rely on; it must still work.
+
+        And the two contracts must not blur: a mobile response sets no refresh
+        cookie at all, so nothing about it depends on cookie handling.
+        """
+        driver, user = await factories.make_driver(session)
+        api.cookies.clear()
+
+        r = await api.post(
+            "/api/auth/login",
+            json={
+                "identifier": user.phone,
+                "password": factories.TEST_PASSWORD,
+                "client": "mobile",
+            },
+        )
+        assert r.status_code == 200
+        assert r.json()["refresh_token"], "mobile client got no refresh token"
+        assert "set-cookie" not in {k.lower() for k in r.headers}, (
+            "the mobile contract set a refresh cookie"
+        )
+
+    async def test_client_kind_is_declared_not_sniffed(
+        self, api: AsyncClient, session: AsyncSession
+    ) -> None:
+        """A User-Agent must not be able to change how a credential is delivered.
+
+        If delivery were inferred from headers, any caller could ask for the
+        token in the body simply by claiming to be a phone.
+        """
+        user = await factories.make_user(session)
+        r = await api.post(
+            "/api/auth/login",
+            json={"identifier": user.email, "password": factories.TEST_PASSWORD},
+            headers={"User-Agent": "okhttp/4.12.0 Expo/57 Android/14"},
+        )
+        assert r.status_code == 200
+        assert r.json()["refresh_token"] is None, (
+            "a mobile-looking User-Agent changed the delivery contract"
+        )
+
+    async def test_an_unknown_client_kind_is_rejected(
+        self, api: AsyncClient, session: AsyncSession
+    ) -> None:
+        """Fail closed on an unrecognised value rather than guessing."""
+        user = await factories.make_user(session)
+        r = await api.post(
+            "/api/auth/login",
+            json={
+                "identifier": user.email,
+                "password": factories.TEST_PASSWORD,
+                "client": "desktop",
+            },
+        )
+        assert r.status_code == 422
+
     async def test_refresh_token_cookie_is_http_only(
         self, api: AsyncClient, session: AsyncSession
     ) -> None:
@@ -185,15 +292,22 @@ class TestRefreshRotation:
     async def test_reuse_detected_through_the_cookie_path(
         self, api: AsyncClient, session: AsyncSession
     ) -> None:
-        """A stolen cookie replayed after rotation must kill the family."""
+        """A stolen cookie replayed after rotation must kill the family.
+
+        The stolen value is taken from the COOKIE, not from the response body.
+        That is both how a cookie is actually stolen and the only way this test
+        can be honest now that a web login does not return the token: reading
+        `login["refresh_token"]` here would capture None, and the replay would
+        then be rejected merely for being an unknown token - passing even if
+        reuse detection were removed entirely.
+        """
         user = await factories.make_user(session)
-        login = (
-            await api.post(
-                "/api/auth/login",
-                json={"identifier": user.email, "password": factories.TEST_PASSWORD},
-            )
-        ).json()
-        stolen = login["refresh_token"]
+        await api.post(
+            "/api/auth/login",
+            json={"identifier": user.email, "password": factories.TEST_PASSWORD},
+        )
+        stolen = api.cookies.get("ner_refresh")
+        assert stolen, "web login did not set the refresh cookie"
 
         await api.post("/api/auth/refresh", json={})  # rotates, cookie updated
 
@@ -219,7 +333,11 @@ class TestRefreshRotation:
         login = (
             await api.post(
                 "/api/auth/login",
-                json={"identifier": user.email, "password": factories.TEST_PASSWORD},
+                json={
+                "identifier": user.email,
+                "password": factories.TEST_PASSWORD,
+                "client": "mobile",
+            },
             )
         ).json()
 
@@ -242,7 +360,11 @@ class TestLogout:
         login = (
             await api.post(
                 "/api/auth/login",
-                json={"identifier": user.email, "password": factories.TEST_PASSWORD},
+                json={
+                "identifier": user.email,
+                "password": factories.TEST_PASSWORD,
+                "client": "mobile",
+            },
             )
         ).json()
 

@@ -2,12 +2,30 @@
 
 import uuid
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import Field
 
 from app.models.enums import UserRole
 from app.schemas.common import APIModel, ReadModel
+
+#: How the caller will hold its refresh token. Declared by the client, never
+#: inferred.
+#:
+#: `web`    - the token goes into an HttpOnly cookie and is NEVER placed in the
+#:            response body, so no script on the page can read it.
+#: `mobile` - there is no cookie jar worth relying on, so the token is returned
+#:            in the body for expo-secure-store (Keystore/Keychain).
+#:
+#: Defaulting to `web` is the fail-safe direction: a client that forgets to
+#: declare itself gets the MORE restrictive treatment and simply cannot read the
+#: token, rather than silently being handed one.
+#:
+#: Declared rather than sniffed on purpose. User-Agent detection would make the
+#: confidentiality of a long-lived credential depend on a header any caller can
+#: set - and would leave the behaviour ambiguous for anything that looks like
+#: neither. See docs/SECURITY.md section 1.
+ClientKind = Literal["web", "mobile"]
 
 
 class LoginRequest(APIModel):
@@ -20,6 +38,7 @@ class LoginRequest(APIModel):
 
     identifier: Annotated[str, Field(min_length=3, max_length=255)]
     password: Annotated[str, Field(min_length=8, max_length=200)]
+    client: ClientKind = "web"
 
 
 class RefreshRequest(APIModel):
@@ -32,6 +51,7 @@ class RefreshRequest(APIModel):
     """
 
     refresh_token: Annotated[str, Field(min_length=16, max_length=512)] | None = None
+    client: ClientKind = "web"
 
 
 class LogoutRequest(APIModel):
@@ -47,8 +67,20 @@ class AuthenticatedUser(ReadModel):
 
 
 class TokenResponse(ReadModel):
+    """Issued credentials.
+
+    `refresh_token` is **absent for web callers**. It is a long-lived credential:
+    putting it in a response body hands it to any script running on the page, so
+    an XSS payload could exfiltrate a token good for 30 days rather than the 15
+    minutes an access token is worth. The HttpOnly cookie set alongside is what
+    the browser uses, and script cannot read it.
+
+    Present only when the caller declared `client: "mobile"`, which has no cookie
+    jar we rely on and stores it in the device keystore instead.
+    """
+
     access_token: str
-    refresh_token: str
+    refresh_token: str | None = None
     token_type: str = "bearer"
     expires_at: datetime
     user: AuthenticatedUser

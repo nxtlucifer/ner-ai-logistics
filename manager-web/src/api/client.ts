@@ -280,7 +280,12 @@ export interface AuthenticatedUser {
 
 export interface TokenResponse {
   access_token: string
-  refresh_token: string
+  /**
+   * Always null for this client. The refresh token lives in an HttpOnly cookie
+   * the browser attaches to /api/auth/* automatically; it is never placed in a
+   * response body, so an XSS payload has nothing to read.
+   */
+  refresh_token: null
   expires_at: string
   user: AuthenticatedUser
 }
@@ -331,6 +336,164 @@ export interface Page<T> {
   next_cursor: string | null
 }
 
+// --- Trips, shipments and fleet location ----------------------------------
+
+export type TripStatus =
+  | 'DRAFT'
+  | 'ASSIGNED'
+  | 'VERIFICATION_PENDING'
+  | 'MANAGER_REVIEW'
+  | 'ACTIVE'
+  | 'DELAYED'
+  | 'INCIDENT'
+  | 'DELIVERED'
+  | 'CLOSED'
+  | 'CANCELLED'
+
+export type TripStopStatus = 'PENDING' | 'ARRIVED' | 'COMPLETED' | 'SKIPPED'
+
+/**
+ * Freshness labels, decided by the SERVER.
+ *
+ * The threshold arrives with the data (`fresh_seconds`). A client that decided
+ * for itself what "live" meant would eventually disagree with the system, and a
+ * dispatcher would act on a green marker the backend does not consider current.
+ */
+export type Freshness = 'LIVE' | 'STALE' | 'NO_CONTACT' | 'NO_LOCATION'
+
+export interface Shipment {
+  id: string
+  reference_code: string
+  client_name: string
+  pickup_address: string
+  destination_address: string
+  total_weight_kg: string
+  priority: string
+  status: string
+  scheduled_pickup_at: string | null
+  expected_delivery_at: string | null
+  created_at: string
+}
+
+export interface Trip {
+  id: string
+  trip_code: string
+  shipment_id: string
+  truck_id: string
+  driver_id: string
+  status: TripStatus
+  selected_route_id: string | null
+  dispatched_at: string | null
+  started_at: string | null
+  delivered_at: string | null
+  planned_eta: string | null
+  current_eta: string | null
+  delay_minutes: number | null
+  created_at: string
+}
+
+export interface TripStop {
+  id: string
+  sequence: number
+  kind: string
+  status: TripStopStatus
+  name: string | null
+  address: string | null
+  planned_arrival_at: string | null
+  actual_arrival_at: string | null
+  actual_departure_at: string | null
+}
+
+/** What is on the truck. Derived by the database from cargo_items. */
+export interface ShipmentSummary {
+  id: string
+  reference_code: string
+  client_name: string
+  total_weight_kg: string
+  priority: string
+}
+
+export interface TripDetail extends Trip {
+  stops: TripStop[]
+  shipment: ShipmentSummary
+}
+
+export interface Position {
+  location: { lat: number; lon: number }
+  /** Device clock: when the truck was there. */
+  recorded_at: string
+  /** Server clock: when we learned of it. Freshness is measured from this. */
+  received_at: string
+  age_seconds: number
+  freshness: Freshness
+  speed_kmph: number | null
+  heading_deg: number | null
+  accuracy_m: number | null
+  is_mock_location: boolean
+}
+
+export interface FleetTrip {
+  trip_id: string
+  trip_code: string
+  trip_status: TripStatus
+  driver_id: string
+  driver_name: string
+  truck_id: string
+  registration_number: string
+  started_at: string | null
+  /** Null when no fix has ever arrived — not the same as a stale one. */
+  position: Position | null
+  freshness: Freshness
+  next_stop_sequence: number | null
+  next_stop_name: string | null
+  stops_done: number
+  stops_total: number
+}
+
+export interface FleetSnapshot {
+  trips: FleetTrip[]
+  fresh_seconds: number
+  stale_seconds: number
+  server_time: string
+}
+
+export interface TrackSnapshot {
+  trip_id: string
+  points: Position[]
+  truncated: boolean
+}
+
+export interface ShipmentCreate {
+  reference_code: string
+  client_name: string
+  pickup_address: string
+  pickup: { lat: number; lon: number }
+  destination_address: string
+  destination: { lat: number; lon: number }
+  cargo_items: {
+    cargo_type: string
+    cargo_name: string
+    weight_kg: string
+    quantity?: number
+  }[]
+}
+
+/**
+ * Plan a shipment and its trip together.
+ *
+ * The trip half carries no `shipment_id` — the server creates the shipment in
+ * the same transaction, so the id does not exist when this request is written.
+ * That absence is what makes the operation atomic rather than two calls.
+ */
+export interface TripPlanCreate {
+  shipment: ShipmentCreate
+  trip: {
+    trip_code: string
+    truck_id: string
+    driver_id: string
+  }
+}
+
 // --- Endpoints ------------------------------------------------------------
 
 export const api = {
@@ -352,6 +515,7 @@ export const api = {
     request<Driver>('/api/drivers', { method: 'POST', body }),
   updateDriver: (id: string, body: Record<string, unknown>) =>
     request<Driver>(`/api/drivers/${id}`, { method: 'PATCH', body }),
+  getDriver: (id: string) => request<Driver>(`/api/drivers/${id}`),
   deactivateDriver: (id: string) =>
     request<Driver>(`/api/drivers/${id}/deactivate`, { method: 'POST' }),
 
@@ -361,6 +525,7 @@ export const api = {
     request<Truck>('/api/trucks', { method: 'POST', body }),
   updateTruck: (id: string, body: Record<string, unknown>) =>
     request<Truck>(`/api/trucks/${id}`, { method: 'PATCH', body }),
+  getTruck: (id: string) => request<Truck>(`/api/trucks/${id}`),
   retireTruck: (id: string) =>
     request<Truck>(`/api/trucks/${id}/retire`, { method: 'POST' }),
 
@@ -375,6 +540,44 @@ export const api = {
     }),
   endAssignment: (id: string) =>
     request<Assignment>(`/api/assignments/${id}/end`, { method: 'POST' }),
+
+  listShipments: (params: { limit?: number } = {}) =>
+    request<Page<Shipment>>(`/api/shipments${toQuery(params)}`),
+  createShipment: (body: ShipmentCreate) =>
+    request<Shipment>('/api/shipments', { method: 'POST', body }),
+
+  listTrips: (params: { limit?: number; trip_status?: string } = {}) =>
+    request<Page<Trip>>(`/api/trips${toQuery(params)}`),
+  getTrip: (id: string) => request<TripDetail>(`/api/trips/${id}`),
+  createTrip: (body: {
+    trip_code: string
+    shipment_id: string
+    truck_id: string
+    driver_id: string
+  }) => request<Trip>('/api/trips', { method: 'POST', body }),
+  /**
+   * Plan a shipment and its trip in ONE request, so they are ONE transaction.
+   *
+   * Calling createShipment then createTrip cannot be atomic across a network:
+   * the shipment commits, the capacity gate refuses the trip, and a cargo
+   * record nothing references is stranded - one more on every retry. The
+   * server does both or neither.
+   */
+  planTrip: (body: TripPlanCreate) =>
+    request<Trip>('/api/trips/plan', { method: 'POST', body }),
+  dispatchTrip: (id: string) =>
+    request<Trip>(`/api/trips/${id}/dispatch`, { method: 'POST' }),
+  cancelTrip: (id: string) =>
+    request<Trip>(`/api/trips/${id}/cancel`, { method: 'POST' }),
+  closeTrip: (id: string) =>
+    request<Trip>(`/api/trips/${id}/close`, { method: 'POST' }),
+
+  // `signal` is threaded through so a poll can be cancelled on unmount rather
+  // than resolving into a component that is gone.
+  activeFleet: (signal?: AbortSignal) =>
+    request<FleetSnapshot>('/api/fleet/active', { signal }),
+  tripTrack: (id: string, limit = 200) =>
+    request<TrackSnapshot>(`/api/trips/${id}/track?limit=${limit}`),
 }
 
 function toQuery(params: Record<string, unknown>): string {

@@ -36,8 +36,38 @@ from app.models.enums import (
 
 # Spatial indexes are created explicitly in the migration, so GeoAlchemy2 must
 # not also emit its own.
-POINT = Geography(geometry_type="POINT", srid=4326, spatial_index=False)
-LINESTRING = Geography(geometry_type="LINESTRING", srid=4326, spatial_index=False)
+#
+# FACTORIES, NOT SHARED CONSTANTS. This is not a style preference.
+#
+# GeoAlchemy2 attaches a column listener that reconciles nullability between a
+# column and its type (geoalchemy2/admin/__init__.py):
+#
+#     if not getattr(column.type, "nullable", True):
+#         column.nullable = column.type.nullable   # the TYPE wins
+#     elif hasattr(column.type, "nullable"):
+#         column.type.nullable = column.nullable   # the COLUMN mutates the type
+#
+# With one shared `POINT` instance, the second branch lets the first column
+# declared `nullable=False` write that back onto the shared type. Every later
+# column then takes the first branch and is silently forced NOT NULL - whatever
+# its own declaration says.
+#
+# That is exactly what happened to `trip_events.location`: declared nullable,
+# created NOT NULL, and invisible to the drift check because the model and the
+# database were wrong in the same direction. The consequence was that no trip
+# event could be recorded without a position, which broke the entire operational
+# timeline. Fixed in migration 0005.
+#
+# A fresh instance per column makes the column declaration the single source of
+# truth again.
+
+
+def point() -> Geography:
+    return Geography(geometry_type="POINT", srid=4326, spatial_index=False)
+
+
+def linestring() -> Geography:
+    return Geography(geometry_type="LINESTRING", srid=4326, spatial_index=False)
 
 
 class Shipment(TimestampMixin, Base):
@@ -55,9 +85,9 @@ class Shipment(TimestampMixin, Base):
     client_contact: Mapped[str | None] = mapped_column(sa.String(60), nullable=True)
 
     pickup_address: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    pickup_location: Mapped[object] = mapped_column(POINT, nullable=False)
+    pickup_location: Mapped[object] = mapped_column(point(), nullable=False)
     destination_address: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    destination_location: Mapped[object] = mapped_column(POINT, nullable=False)
+    destination_location: Mapped[object] = mapped_column(point(), nullable=False)
 
     # Maintained from cargo_items by a trigger; never written by clients.
     total_weight_kg: Mapped[Decimal] = mapped_column(
@@ -269,7 +299,7 @@ class TripStop(Base):
     )
     name: Mapped[str | None] = mapped_column(sa.String(160), nullable=True)
     address: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
-    location: Mapped[object] = mapped_column(POINT, nullable=False)
+    location: Mapped[object] = mapped_column(point(), nullable=False)
     # Radius within which a truck counts as "at" this stop.
     geofence_radius_m: Mapped[int] = mapped_column(
         sa.Integer, nullable=False, server_default=sa.text("200")
@@ -320,7 +350,7 @@ class TripRoute(Base):
     state: Mapped[RouteState] = mapped_column(
         pg_enum(RouteState), nullable=False, server_default=RouteState.PROPOSED.value
     )
-    geometry: Mapped[object] = mapped_column(LINESTRING, nullable=False)
+    geometry: Mapped[object] = mapped_column(linestring(), nullable=False)
     distance_km: Mapped[Decimal | None] = mapped_column(
         sa.Numeric(8, 2), nullable=True
     )
@@ -396,7 +426,17 @@ class TripEvent(Base):
     # Semi-structured by nature: each event kind carries different detail. This
     # is the one legitimate JSONB use in the schema.
     payload: Mapped[dict | None] = mapped_column(postgresql.JSONB, nullable=True)
-    location: Mapped[object | None] = mapped_column(POINT, nullable=True)
+    # Nullable on purpose, and it took migration 0005 to make that true in the
+    # database - see the comment on point() above. Most events have no position:
+    # CREATED and ASSIGNED happen in an office, and CLOSED is a settlement fact.
+    location: Mapped[object | None] = mapped_column(
+        point(),
+        nullable=True,
+        comment=(
+            "Where the event happened, when that is known. NULL for lifecycle "
+            "events recorded away from the vehicle - CREATED, ASSIGNED, CLOSED."
+        ),
+    )
     actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
         sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -437,7 +477,7 @@ class GpsPoint(Base):
     truck_id: Mapped[uuid.UUID] = mapped_column(
         sa.ForeignKey("trucks.id", ondelete="RESTRICT"), nullable=False
     )
-    location: Mapped[object] = mapped_column(POINT, nullable=False)
+    location: Mapped[object] = mapped_column(point(), nullable=False)
     altitude_m: Mapped[Decimal | None] = mapped_column(sa.Numeric(7, 2), nullable=True)
     speed_kmph: Mapped[Decimal | None] = mapped_column(sa.Numeric(6, 2), nullable=True)
     heading_deg: Mapped[Decimal | None] = mapped_column(sa.Numeric(5, 2), nullable=True)

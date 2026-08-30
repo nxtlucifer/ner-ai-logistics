@@ -136,12 +136,32 @@ Never label planned functionality as implemented.
 
 ## Current state
 
-P0–P4 complete. The manager-to-driver loop is closed and certified end to end:
-a manager creates a driver and truck and assigns them; the driver signs in, sees
-their own assignment, and verifies the physical truck; the manager sees VERIFIED.
+P0–P6 complete. The full operational loop is closed and certified end to end: a
+manager creates a driver, truck and assignment; the driver signs in and verifies
+the physical truck; the manager plans a shipment and its trip **atomically** and
+dispatches it; the driver starts it and the phone streams GPS; the manager sees
+the truck LIVE on the fleet map with its observed track; the driver works the
+stops in order and completes; the manager closes.
 
-296 backend tests, 10 manager frontend tests.
+Measured 2026-08-30, not estimated:
 
-No GPS, routing, fuel AI, weather or safety features exist. Next phase is
-**P5 — Live GPS + Trip Execution**.
-See [docs/DEVELOPMENT_ROADMAP.md](docs/DEVELOPMENT_ROADMAP.md).
+| Suite | Result |
+| --- | --- |
+| Backend (`pytest`) | 415 passed, 5 skipped, 0 failed — 420 collected, 20m57s |
+| Manager web (Vitest) | 38 passed |
+| Driver app (Vitest) | 25 passed |
+| End-to-end fleet certification | 44 checks passed, 0 failed |
+
+**GPS exists.** Ingestion, idempotency, freshness, the driver tracking engine and
+the manager fleet map are implemented. What does **not** exist: routing, ETA,
+fuel AI, weather, road incidents, rerouting, Fleet Sentinel, SOS, payments,
+payroll, OCR, and API rate limiting. Physical Android GPS capture is **NOT
+CERTIFIED** — it has never been run on a real handset.
+
+Next phase is **P7 — Routing**. See
+[docs/DEVELOPMENT_ROADMAP.md](docs/DEVELOPMENT_ROADMAP.md).
+
+**One backend pytest run at a time.** `factories.cleanup` deletes by global
+prefix, so two concurrent runs delete each other's fixtures. A session advisory
+lock now refuses the second run rather than letting it corrupt the first — see
+[docs/TESTING_STRATEGY.md](docs/TESTING_STRATEGY.md).

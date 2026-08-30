@@ -82,17 +82,121 @@ Constraints must be proven at the database level, not just in Python:
   cause).
 - Every migration is tested `upgrade` → `downgrade` → `upgrade`.
 
+> **⚠ Run only ONE backend suite at a time against the shared project.**
+> `_cleanup_test_rows` in `conftest.py` is autouse and deletes **globally by
+> prefix** — `DELETE FROM shipments WHERE reference_code LIKE 'STEST-%'` and the
+> same for `TTEST-%` trips and `AS__ZZ%` trucks. Nothing scopes that to the rows
+> the finishing test created, because within one serial run nothing needs to.
+>
+> Two suites against the same Supabase project therefore destroy each other:
+> run A creates `STEST-…`, run B's teardown deletes every `STEST-%` row, and run
+> A's next insert dies with
+> `ForeignKeyViolation: Key (shipment_id)=… is not present in table "shipments"`.
+> This is not hypothetical — it produced a full page of spurious failures during
+> the P6 audit when two agents ran the suite concurrently, and it looks exactly
+> like a real product defect. The session pooler's **15-client** limit compounds
+> it, and that budget is shared with any running dev server.
+>
+> `scripts/certify_fleet.py` is safe to run alongside: its namespaces
+> (`P5CERT-`, `P5SHP-`, `AS88CT`, `p5cert.invalid`) are disjoint from the test
+> factories'. The collision is specifically **pytest against pytest**.
+>
+> **This is now enforced, not merely advised.** A session-scoped autouse fixture,
+> `exclusive_suite_lock`, takes a PostgreSQL session advisory lock on one
+> dedicated `NullPool` connection held for the whole run, and a second pytest
+> process is refused at startup with a message naming the collision — it runs no
+> test bodies and, critically, no cleanup. Ownership is re-asserted **before
+> every** global cleanup, not only at teardown: if the connection holding the
+> lock is ever dropped mid-run, the suite aborts rather than issuing a
+> prefix-wide `DELETE` while unprotected. The check verifies the complete 64-bit
+> key identity (`classid`, `objid`, `objsubid`, `granted`) on the recorded
+> backend pid, because matching only the low 32 bits would accept a different
+> lock that happened to collide.
+>
+> It works because the project connects through Supabase's **session** pooler
+> (port 5432). On the transaction pooler (6543) a session-level advisory lock
+> would not survive between statements — one more reason README.md insists on
+> the session pooler.
+>
+> A per-run prefix would be better still, so cleanup could only ever remove its
+> own rows. It is not done yet because truck registrations must satisfy
+> `REGISTRATION_PATTERN`, which leaves almost no room to encode a run id; a
+> partial namespace would protect trips and shipments while leaving trucks
+> colliding, which looks complete and is not.
+
+> **⚠ Test accounts are retained but deactivated, and the suite password is
+> generated per run.**
+>
+> Cleanup cannot delete users: `audit_logs.actor_user_id` is RESTRICT (0004), so
+> anyone who has done anything auditable — including one failed login — is pinned
+> by their own trail. That is the intended production behaviour and the suite
+> does not weaken it.
+>
+> It previously left those accounts **active**, with a password that was a
+> literal committed to this repository. Retention and usability had been
+> conflated. An audit of the shared development project found **3,670 live
+> accounts, 13 of them ADMIN**, that still authenticated with it and received a
+> full permission set — while the code comment beside them read "they are inert".
+> Harmless against a localhost bind; not harmless the moment the backend is
+> exposed on a LAN so a physical handset can reach it, which P7 requires.
+>
+> Two changes, both proven by `tests/test_test_account_hygiene.py`:
+>
+> - `TEST_PASSWORD = secrets.token_urlsafe(32)`, generated once per process,
+>   never committed, never logged. `scripts/certify_fleet.py` already worked this
+>   way; the suite now matches it.
+> - `factories.cleanup()` deletes refresh tokens and then sets `is_active = false`
+>   on the accounts it cannot delete. The audit trail keeps its actor; the actor
+>   keeps no way in.
+>
+> **Ownership is proven, never guessed.** The predicate is exactly the two
+> domains this repository generates — `@p3test.invalid` and `@p5cert.invalid`,
+> both RFC 6761 `.invalid`. Never a heuristic about names, roles or dates. Four
+> cases pin the boundary: `@ner.local` development accounts, unrelated `.invalid`
+> domains, unowned addresses, and **NULL-email** rows — drivers authenticate by
+> phone, and `email LIKE '…'` evaluates to NULL rather than false for them, so
+> they fall outside the `WHERE` by three-valued logic rather than by explicit
+> exclusion. A future rewrite using `NOT IN` or a negation would behave
+> differently and silently, which is why that case is tested rather than assumed.
+
 > **⚠ These migration tests are destructive and opt-in.** `alembic downgrade base`
 > issues `DROP TABLE ... CASCADE` on every domain table, so against the shared
 > Supabase development project it destroys all data — manager accounts, drivers,
 > trucks and any demo seed. That happened once during P3: an ordinary `pytest`
 > run silently emptied the development database.
 >
-> They now skip unless opted into:
+> **Two interlocks guard them, not one.** The opt-in flag alone is not enough:
+> setting it while `.env` still points at Supabase — the obvious way to try
+> running them locally — would destroy the shared project, and the flag would
+> have *felt* like the safety check. So the migration target must **also** be a
+> local host. Both must hold; either one missing skips, and the skip reason says
+> which:
 >
 > ```bash
+> # Skipped: not opted in.
+> pytest tests/test_migrations.py
+>
+> # REFUSED: opted in, but the target is Supabase.
 > RUN_DESTRUCTIVE_MIGRATION_TESTS=1 pytest tests/test_migrations.py
+>
+> # Runs: opted in, against a database you are willing to empty.
+> docker compose up -d db
+> DATABASE_PROVIDER=local RUN_DESTRUCTIVE_MIGRATION_TESTS=1 >   pytest tests/test_migrations.py
 > ```
+>
+> **Skipped-by-default is the right local behaviour and the wrong permanent
+> one.** A migration that cannot be rolled back cannot be safely deployed, and
+> that property has to be checked *somewhere*. Since P5 it is checked in CI:
+> `.github/workflows/migrations.yml` stands up a disposable PostGIS container,
+> points `DATABASE_PROVIDER=local` at it, and runs exactly the tests that are
+> skipped everywhere else — on any change under `backend/alembic/` or
+> `backend/app/models/`, and weekly regardless. It then re-runs the drift check,
+> because a downgrade that "works" but rebuilds a *different* schema is not a
+> working downgrade.
+>
+> Nothing in that job can reach Supabase: in `local` mode the config validator
+> rejects a non-local host outright, so even a leaked production URL in the
+> environment could not be migrated by it.
 >
 > A non-destructive `test_database_is_at_head` runs on every ordinary invocation
 > and catches the common case those tests would otherwise be relied on for — a
@@ -103,6 +207,32 @@ Constraints must be proven at the database level, not just in Python:
 ## 5. Frontend Tests (Vitest + Testing Library)
 
 - `tsc --noEmit` and a production build gate every change.
+
+### What the frontend suites actually cover (P6)
+
+**Manager** (`manager-web`, 38 tests): refresh-token coordination across tabs;
+the fleet polling loop's discipline — one request in flight, backoff on failure,
+abort on unmount, last-good data retained through a blip; and the fleet screen's
+states, filters, search, selection and detail panel. MapLibre needs WebGL, which
+jsdom does not have, so the map component is substituted with a stand-in that
+**records what it was asked to plot** — which is the thing under test.
+
+The load-bearing assertion there is a negative one: a truck that has never
+reported a position is listed and counted but **never plotted**. Inventing a
+coordinate for it would put a truck on a dispatcher's screen somewhere nobody
+observed it.
+
+**Driver** (`driver-app`, 25 tests): the location tracking engine. Its logic was
+extracted out of the React hook into `src/tracking/tracker.ts` — framework-free,
+with the Expo sensor reached only through a three-call adapter — precisely so it
+could be tested. A hook that owns its own timers, subscriptions and network
+calls can only be exercised with a simulator attached, which in practice means
+the bounded queue and the backoff are never exercised at all, and those are the
+parts that must not be wrong on a truck that has lost signal.
+
+Time is injected rather than slept through, so the backoff sequence is checked
+deterministically. Only the sensor is stood in for; the cadence rule, queue
+bounds and retry behaviour under test are the real ones.
 - Component tests for state rendering — especially that a `null` fuel estimate renders
   "unavailable" and **never** `0`, `—`, or a fabricated value. This is a correctness test, not a
   cosmetic one: it enforces the honesty rule from [AI_MODELS.md](AI_MODELS.md).
@@ -212,8 +342,13 @@ The clock-skew and offline-flush cases are the ones most likely to break silentl
 | **Verification semantics: idempotent retry, stale screen, ended, superseded** | **Running** |
 | **Concurrent verification from multiple devices** | **Running** |
 | **Manager frontend: refresh single-flight and cross-tab lock (Vitest)** | **Running** |
-| Manager frontend component tests | **Not implemented** — UI states verified manually against the live API |
-| Driver app component tests | **Not implemented** — flows certified end to end against the live API |
+| **Trip execution: start gates, ordered stops, idempotent retries, concurrency** | **Running** |
+| **GPS telemetry: idempotency, ordering, freshness, anomaly flags** | **Running** |
+| **Atomic shipment+trip planning: no orphan on refusal, no duplicate on retry** | **Running** |
+| **Suite isolation: advisory lock refuses a second concurrent pytest run** | **Running** |
+| **Manager frontend component tests (FleetPage, TripsPage)** | **Running** — 18 of the 38 |
+| **Driver tracking engine (bounded queue, backoff, cadence)** | **Running** — 25 tests |
+| Driver app *screen* component tests | **Not implemented** — screens certified end to end against the live API |
 | PostGIS availability test against the real database | **Running** |
 | Migration upgrade/downgrade test | **Running** |
 | Manager web `tsc --noEmit` + production build | **Running** |

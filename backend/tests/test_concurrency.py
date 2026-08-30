@@ -47,7 +47,7 @@ class TestAssignmentRaces:
 
         Both requests may return 201 - see the comment below - but the database
         must never hold two ACTIVE rows for the same truck. That is enforced by
-        uq_active_assignment_truck, and asserted directly here.
+        uq_current_assignment_truck, and asserted directly here.
         """
         manager = await factories.make_user(session, role=UserRole.MANAGER)
         headers = await auth_headers(api, manager.email, factories.TEST_PASSWORD)

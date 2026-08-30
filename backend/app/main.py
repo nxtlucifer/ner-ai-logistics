@@ -1,7 +1,9 @@
 """FastAPI application entrypoint.
 
-Mission 1 scope: configuration, database wiring, and the two system endpoints.
-No domain routes exist yet - see docs/DEVELOPMENT_ROADMAP.md.
+Routers are registered here and nowhere else, so the complete API surface is
+readable in one place. Each one owns its own authorization; there is no
+app-wide middleware granting or withholding access, because a gate you cannot
+see from the route is a gate nobody checks when adding the next route.
 """
 
 import logging
@@ -14,6 +16,7 @@ from app.api.auth import router as auth_router
 from app.api.driver import router as driver_router
 from app.api.fleet import assignments_router, drivers_router, trucks_router
 from app.api.health import router as health_router
+from app.api.trips import fleet_router, shipments_router, trips_router
 from app.core.config import get_settings
 from app.core.errors import register_exception_handlers
 from app.core.event_loop import running_loop_supports_psycopg
@@ -85,6 +88,9 @@ def create_app() -> FastAPI:
     app.include_router(trucks_router)
     app.include_router(assignments_router)
     app.include_router(driver_router)
+    app.include_router(shipments_router)
+    app.include_router(trips_router)
+    app.include_router(fleet_router)
     return app
 
 
