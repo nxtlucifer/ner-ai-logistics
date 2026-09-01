@@ -27,22 +27,34 @@ Smart India Hackathon · Problem Statement **SIH26002** · Software · Smart Aut
 | Observed trip track (GPS breadcrumb) | Implemented |
 | **Physical Android GPS capture** | ⚠️ **NOT CERTIFIED** — no device or SDK available |
 | Atomic shipment + trip planning (`POST /api/trips/plan`) | Implemented |
-| Backend test suite | **415 passing, 5 skipped** (420 collected, 20m57s) |
-| Manager frontend tests (Vitest) | **38 passing** |
+| Backend test suite | **510 passing, 5 skipped** (515 collected, 9m55s) |
+| Manager frontend tests (Vitest) | **45 passing** |
 | Driver frontend tests (Vitest) | **25 passing** |
 | End-to-end fleet certification | **44 checks passing** |
 
-Every number above was measured on 2026-08-30, not estimated. The 5 skips are
+Every number above was measured on 2026-08-31, not estimated, in a fresh
+interpreter with no backend source changed after the run began. The 5 skips are
 deliberate: four destructive migration tests gated behind
 `RUN_DESTRUCTIVE_MIGRATION_TESTS`, and one non-Windows event-loop test.
 
-**Not implemented:** routing, ETA, fuel AI, weather, road incidents, rerouting,
+**Partly implemented (uncommitted):** route planning via a provider abstraction
+(PRIMARY always, EMERGENCY_BACKUP when a genuinely different corridor exists,
+never FUEL_EFFICIENT); rate limiting on authentication endpoints only.
+
+**Partly implemented:** weather — sampled along a planned route and scored into a
+deterministic route-risk assessment (`GET /api/trips/{id}/routes/{route_id}/risk`).
+There is no standalone weather endpoint and no weather display; the risk score is
+the only consumer, and it reports which datasets it did **not** have.
+
+**Not implemented:** ETA, fuel AI, road incidents, automatic rerouting,
 Fleet Sentinel, the 60-minute stuck workflow, the 30-minute response escalation,
-SOS, payments, payroll, OCR, ML training, **API rate limiting**, Supabase Auth,
-Supabase Storage. All are specified in [`docs/`](docs/) and scheduled in
+SOS, payments, payroll, OCR, ML training, rate limiting outside auth, Supabase
+Auth, Supabase Storage. All are specified in [`docs/`](docs/) and scheduled in
 [docs/DEVELOPMENT_ROADMAP.md](docs/DEVELOPMENT_ROADMAP.md). Nothing in the UI
-pretends otherwise — there is no ETA anywhere, because routing does not exist,
-and the map's GPS breadcrumb is labelled *Observed trip track*, never a route.
+pretends otherwise — there is no ETA anywhere, because a duration returned by
+a routing provider is not an arrival estimate and nothing computes one; the
+map's GPS breadcrumb is labelled *Observed trip track*, and a planned route is
+drawn as a separate dashed layer beneath it so the two can never be confused.
 
 ---
 

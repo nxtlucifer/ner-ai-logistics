@@ -62,11 +62,20 @@ def create_app() -> FastAPI:
         version="0.1.0",
         description=(
             "Backend for the NER Smart Logistics and Accessibility Intelligence "
-            "Platform (SIH26002). Foundation phase: only /health and /ready are "
-            "implemented."
+            "Platform (SIH26002). Implemented: authentication, driver/truck/"
+            "assignment management, shipments and trips, driver self-service, "
+            "GPS telemetry ingestion, fleet location reads, route planning, and "
+            "deterministic route risk from weather sampled along the route. "
+            "Not implemented: ETA, incidents, fuel estimation, payments, alerts "
+            "and emergencies. See docs/API_CONTRACTS.md section 15."
         ),
         lifespan=lifespan,
+        # Both the human docs page and the machine-readable schema are
+        # development-only. Gating `docs_url` alone would still serve the full
+        # endpoint and schema inventory at /openapi.json in production, which is
+        # a free reconnaissance map of the API for an unauthenticated caller.
         docs_url="/docs" if settings.is_development else None,
+        openapi_url="/openapi.json" if settings.is_development else None,
         redoc_url=None,
     )
 

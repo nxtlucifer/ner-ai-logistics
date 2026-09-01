@@ -115,9 +115,14 @@ export default function SystemPage() {
 
       <p className="text-xs leading-relaxed text-slate-600">
         SIH26002 — AI-Based Smart Logistics and Accessibility Intelligence Platform
-        for the North Eastern Region. Live GPS tracking and trip execution are
-        implemented. Routing, ETA, fuel AI, weather and the safety features are
-        not built yet, and nothing on these screens pretends otherwise.
+        for the North Eastern Region. Live GPS tracking, trip execution and route
+        planning are implemented. A planned route is drawn as a dashed line
+        beneath the solid observed GPS track, so the two are never confused.
+        Weather is used to score route risk on the backend, but is not displayed
+        here yet. ETA, fuel AI, road incidents, automatic rerouting and the
+        safety features are not built yet. There is no arrival estimate anywhere: a
+        provider's duration is not an ETA, and nothing on these screens computes
+        one.
       </p>
     </div>
   )

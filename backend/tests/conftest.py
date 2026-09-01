@@ -25,6 +25,9 @@ configure_event_loop_policy()
 
 #: Advisory-lock key serialising whole pytest runs. Arbitrary but fixed; the
 #: only requirement is that nothing else in this database uses the same number.
+#: Newline for multi-line pytest.exit messages.
+_NL = chr(10)
+
 SUITE_LOCK_KEY = 0x4E45525F54535431  # "NER_TST1"
 
 #: How PostgreSQL splits a bigint advisory key across pg_locks. The single-bigint
@@ -167,13 +170,77 @@ def exclusive_suite_lock() -> Iterator[None]:
     ).scalar_one()
 
     if not acquired:
-        conn.close()
-        engine.dispose()
+        # Name the holder before giving up.
+        #
+        # "Wait for the other run to finish" is the wrong advice when there is
+        # no other run, and that case is real: a pytest process killed without
+        # teardown leaves its SERVER session alive behind Supabase's pooler,
+        # and a SESSION-level advisory lock survives on it indefinitely. The
+        # pooler does not recycle it, `pg_advisory_unlock_all()` only affects
+        # the calling session, and the machine shows zero pytest processes -
+        # so without this diagnostic the project looks permanently broken.
+        #
+        # Deliberately NOT auto-terminating. A legitimately running suite also
+        # sits `idle` between statements, so a heuristic here would eventually
+        # kill somebody's real run. This tells a human what to look at and lets
+        # them decide.
+        holder = None
+        try:
+            holder = conn.execute(
+                text(
+                    "SELECT l.pid, a.state, "
+                    "       date_trunc('second', now() - a.state_change) AS idle_for, "
+                    "       date_trunc('second', now() - a.backend_start) AS age "
+                    "FROM pg_locks l "
+                    "LEFT JOIN pg_stat_activity a ON a.pid = l.pid "
+                    "WHERE l.locktype = 'advisory' AND l.classid = :c "
+                    "  AND l.objid = :o AND l.objsubid = :s "
+                    "LIMIT 1"
+                ),
+                {"c": LOCK_CLASSID, "o": LOCK_OBJID, "s": LOCK_OBJSUBID},
+            ).first()
+        except Exception:  # noqa: BLE001 - diagnostics must never mask the exit
+            pass
+        finally:
+            conn.close()
+            engine.dispose()
+
+        if holder is None:
+            detail = "The holder could not be identified."
+        else:
+            detail = (
+                f"Held by backend pid={holder.pid}, state={holder.state!r}, "
+                f"idle for {holder.idle_for}, session age {holder.age}."
+            )
+            if holder.state == "idle":
+                detail = _NL.join(
+                    [
+                        detail,
+                        "",
+                        "If NO pytest process is running on this machine, "
+                        "that session is orphaned: its client died and the "
+                        "pooler kept the server session alive, so the lock "
+                        "leaked. Confirm there is no live run, then release "
+                        "it with",
+                        f"    SELECT pg_terminate_backend({holder.pid});",
+                        "which ends only that connection and changes no "
+                        "data.",
+                    ]
+                )
+
         pytest.exit(
-            "Another pytest run is already using this database. Test cleanup "
-            "deletes by global prefix, so two runs delete each other's fixtures "
-            "and fail with unrelated-looking ForeignKeyViolations. Wait for the "
-            "other run to finish. See docs/TESTING_STRATEGY.md.",
+            _NL.join(
+                [
+                    "Another pytest run is already using this database. "
+                    "Test cleanup deletes by global prefix, so two runs "
+                    "delete each other's fixtures and fail with "
+                    "unrelated-looking ForeignKeyViolations.",
+                    "",
+                    detail,
+                    "",
+                    "See docs/TESTING_STRATEGY.md.",
+                ]
+            ),
             returncode=2,
         )
 
@@ -231,8 +298,28 @@ def reset_settings_cache() -> Iterator[None]:
     and they dispose it properly.
     """
     get_settings.cache_clear()
+    _reset_rate_limits()
     yield
     get_settings.cache_clear()
+    _reset_rate_limits()
+
+
+def _reset_rate_limits() -> None:
+    """Clear auth rate-limit windows between tests.
+
+    The limiters are module-level, so without this they carry across tests and
+    the suite throttles itself - `auth_headers` logs in for nearly every API
+    test, and `test_auth.py` alone signs in nineteen times.
+
+    Resetting rather than disabling the feature: with `RATE_LIMIT_ENABLED=False`
+    the tests would exercise a code path that production does not have, and the
+    limiter would only ever be proven by its own unit tests. This way every
+    login in the suite runs through the real gate, and only the tests that mean
+    to exhaust it do.
+    """
+    from app.api.auth import reset_rate_limits
+
+    reset_rate_limits()
 
 
 @pytest_asyncio.fixture

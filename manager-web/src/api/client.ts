@@ -478,6 +478,38 @@ export interface ShipmentCreate {
   }[]
 }
 
+export type RouteKind = 'PRIMARY' | 'FUEL_EFFICIENT' | 'EMERGENCY_BACKUP'
+export type RouteState = 'PROPOSED' | 'SELECTED' | 'SUPERSEDED'
+
+/**
+ * A planned route.
+ *
+ * Note what is NOT here. There is no `estimated_fuel_litres`: no fuel model
+ * exists, and a permanently-null field invites a UI to render `0`. And
+ * `estimated_duration_min` is the provider's FREE-FLOW TRAVEL TIME, not an ETA
+ * — no departure time, traffic or stop dwell is accounted for, so it must never
+ * be shown as an arrival time.
+ */
+export interface TripRoute {
+  id: string
+  kind: RouteKind
+  state: RouteState
+  distance_km: string | null
+  estimated_duration_min: number | null
+  routing_provider: string | null
+  created_at: string
+  /** [[lat, lon], ...] in travel order. */
+  geometry: [number, number][]
+}
+
+export interface RoutePlanResult {
+  route: TripRoute
+  provider: string
+  /** True when the primary provider had to be skipped. Worth surfacing. */
+  used_fallback: boolean
+  providers_attempted: string[]
+}
+
 /**
  * Plan a shipment and its trip together.
  *
@@ -571,6 +603,24 @@ export const api = {
     request<Trip>(`/api/trips/${id}/cancel`, { method: 'POST' }),
   closeTrip: (id: string) =>
     request<Trip>(`/api/trips/${id}/close`, { method: 'POST' }),
+
+  listRoutes: (tripId: string) =>
+    request<TripRoute[]>(`/api/trips/${tripId}/routes`),
+  /**
+   * Insert a new route and supersede the previous one — never an update.
+   *
+   * Two failures are worth distinguishing in the UI:
+   *   503 ROUTING_UNAVAILABLE — every provider is down; retrying may work
+   *   422 NO_VIABLE_ROUTE     — a provider answered and no route exists
+   */
+  planRoute: (tripId: string) =>
+    request<RoutePlanResult>(`/api/trips/${tripId}/routes/recalculate`, {
+      method: 'POST',
+    }),
+  selectRoute: (tripId: string, routeId: string) =>
+    request<TripRoute>(`/api/trips/${tripId}/routes/${routeId}/select`, {
+      method: 'POST',
+    }),
 
   // `signal` is threaded through so a poll can be cancelled on unmount rather
   // than resolving into a component that is gone.

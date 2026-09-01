@@ -48,6 +48,10 @@ TRIP_DISPATCH: Final = "trip:dispatch"
 TRIP_CANCEL: Final = "trip:cancel"
 TRIP_CLOSE: Final = "trip:close"
 
+ROUTE_READ: Final = "route:read"
+ROUTE_PLAN: Final = "route:plan"
+ROUTE_SELECT: Final = "route:select"
+
 # Driver-side execution. "own" is an object-level qualifier a permission string
 # cannot express - the binding to *which* trip is enforced in the service layer
 # from the authenticated driver, never from a request parameter.
@@ -71,6 +75,7 @@ ALL_PERMISSIONS: Final[frozenset[str]] = frozenset(
         ASSIGNMENT_VERIFY_OWN,
         SHIPMENT_READ, SHIPMENT_CREATE,
         TRIP_READ, TRIP_CREATE, TRIP_DISPATCH, TRIP_CANCEL, TRIP_CLOSE,
+        ROUTE_READ, ROUTE_PLAN, ROUTE_SELECT,
         TRIP_EXECUTE_OWN, LOCATION_SUBMIT_OWN,
         FLEET_LOCATION_READ,
         AUDIT_READ,
@@ -86,6 +91,7 @@ _MANAGER_PERMISSIONS: Final[frozenset[str]] = frozenset(
         ASSIGNMENT_READ, ASSIGNMENT_CREATE, ASSIGNMENT_END, ASSIGNMENT_REVIEW,
         SHIPMENT_READ, SHIPMENT_CREATE,
         TRIP_READ, TRIP_CREATE, TRIP_DISPATCH, TRIP_CANCEL, TRIP_CLOSE,
+        ROUTE_READ, ROUTE_PLAN, ROUTE_SELECT,
         FLEET_LOCATION_READ,
         AUDIT_READ,
     }

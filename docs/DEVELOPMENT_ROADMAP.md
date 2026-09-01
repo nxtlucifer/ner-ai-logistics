@@ -220,7 +220,43 @@ emulator or handset is available on this machine.
 
 ---
 
-## P7 — Routing
+## P7 — Routing ⚠️ PARTIALLY COMPLETE
+
+**Delivered** (measured 2026-08-31, uncommitted at time of writing):
+
+- `RoutingProvider` protocol + `RoutingChain` (primary → fallback), normalised
+  `RouteCandidate`. An outage falls through; a *refusal* is terminal, because a second provider
+  will also fail to route an unroutable request.
+- OSRM provider, contract verified against the official v5.24 docs and then against the live
+  service: Guwahati → Jorhat returned 305.39 km / 221 min, matching the ~308 km this repo's own
+  DEMO_PLAN states independently.
+- `trip_routes` persistence with supersession, `GET /routes`, `POST /routes/recalculate`,
+  `POST /routes/{id}/select`, `route:read|plan|select` permissions.
+- Manager UI: planned route drawn dashed violet **beneath** the solid observed track, labelled
+  distinctly in the panel.
+- 47 backend tests + 7 UI tests. Provider stubbed at the interface throughout; `503
+  ROUTING_UNAVAILABLE` proven without crashing.
+
+**NOT delivered — the exit gate is not met:**
+
+- **Not three routes.** PRIMARY always; EMERGENCY_BACKUP only when the provider offers a
+  genuinely different corridor (2 km sampled separation). The live check returned **one** option
+  on the Guwahati–Jorhat corridor, which is the honest answer for NER roads rather than a defect.
+  **FUEL_EFFICIENT is not produced at all** and will not be until a fuel model exists — ranking by
+  consumption without one would be a fabricated feature.
+- **No elevation/gradient enrichment.**
+- **Not rendered on the driver app** — manager only.
+- **No route scoring.** Four of its five inputs (fuel proxy, road penalty, risk, weather) do not
+  exist, and with one candidate there is nothing to rank.
+- The keyless fallback is the public OSRM demo server, whose policy grants no quality guarantee
+  and allows withdrawal without notice. `ROUTING_PRIMARY_URL` accepts any OSRM-compatible endpoint
+  that needs no credential - a self-hosted instance, for example - and **is unset**, so in the
+  default configuration the chain has exactly one provider: the public demo server.
+  There is deliberately **no `ROUTING_PRIMARY_KEY` setting**, and no keyed provider. A key belongs
+  to a provider class that knows where that vendor puts its credential; a setting that accepted a
+  key and sent it nowhere would be worse than its absence, because routing would keep working
+  through the keyless fallback and look like the key was in use. Using a provider with a real
+  service level is therefore **NOT IMPLEMENTED**, not merely unconfigured.
 
 **Objective** Three route options per trip.
 **Implementation** `RoutingProvider` interface first, then a concrete provider; `trip_routes`;

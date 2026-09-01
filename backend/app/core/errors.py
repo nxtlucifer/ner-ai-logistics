@@ -80,6 +80,37 @@ class PermissionDeniedError(APIError):
     code = "FORBIDDEN"
 
 
+class ServiceUnavailableError(APIError):
+    """An external dependency this request needed is down.
+
+    Distinct from BusinessRuleError on purpose. 422 says "nobody may do this"
+    and a retry will not help; 503 says "the thing we depend on is unreachable"
+    and a retry very well might. Collapsing the two would tell a manager a trip
+    is unroutable when the routing provider is merely having a bad minute.
+    """
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    code = "SERVICE_UNAVAILABLE"
+
+
+class RateLimitedError(APIError):
+    """Too many attempts against a limited endpoint.
+
+    Carries `retry_after` so the handler can set the header. The message is
+    deliberately identical whether or not the identifier exists - the login
+    endpoint spends real effort not being an enumeration oracle, and a limiter
+    that said "too many attempts for this account" would hand back exactly the
+    signal that effort removes.
+    """
+
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    code = "RATE_LIMITED"
+
+    def __init__(self, message: str, *, retry_after: int, **kwargs: Any) -> None:
+        super().__init__(message, **kwargs)
+        self.retry_after = retry_after
+
+
 def _envelope(
     code: str, message: str, request: Request, details: dict[str, Any] | None = None
 ) -> dict[str, Any]:
@@ -102,6 +133,11 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
         if exc.status_code == status.HTTP_401_UNAUTHORIZED:
             response.headers["WWW-Authenticate"] = "Bearer"
+        if isinstance(exc, RateLimitedError):
+            # Without this a client has no way to know how long to wait, and
+            # the reasonable ones back off blindly while the unreasonable ones
+            # keep the window permanently occupied.
+            response.headers["Retry-After"] = str(exc.retry_after)
         return response
 
     @app.exception_handler(RequestValidationError)

@@ -41,7 +41,9 @@ from app.models.enums import (
     TruckStatus,
     UserRole,
 )
+from app.domain.trip_state import COMMITS_DRIVER_TO_TRUCK, TERMINAL_STATES
 from app.models.fleet import DriverTruckAssignment, Truck
+from app.models.operations import Trip
 from app.models.identity import Driver, User
 from app.services import audit
 from app.services.pagination import clamp_limit
@@ -55,6 +57,74 @@ AUDITED_FIELDS = (
 #: as "current": PENDING_VERIFICATION is what a reported mismatch produces,
 #: and the driver keeps the vehicle while a manager reviews it.
 OPEN_STATUSES = (AssignmentStatus.ACTIVE, AssignmentStatus.PENDING_VERIFICATION)
+
+
+async def _refuse_if_a_trip_is_underway(
+    db: AsyncSession, assignment_ids: list[uuid.UUID]
+) -> None:
+    """Refuse to end an assignment a trip is still standing on.
+
+    Ending an assignment frees the driver's slot in the partial unique indexes
+    from migration 0006. If it can be freed while a trip on that pairing is
+    underway, the one-current-assignment invariant stops meaning anything: the
+    driver is paired to a second truck while the fleet map still shows them
+    executing a trip on the first, and both facts are true in the database at
+    once.
+
+    Called from BOTH paths that end an assignment. `end()` is the obvious one.
+    `create()` is the one that matters: it ends the driver's open assignments
+    inline rather than calling `end()`, so guarding only the explicit endpoint
+    would have left a bypass that is shorter, not longer - one POST, and the
+    word "end" never appears in it.
+
+    LOCKS THE CANDIDATE TRIPS, and locks every NON-TERMINAL one rather than
+    only the ones that currently block. Without the lock this is advisory only,
+    because the driver's own start path locks the Trip row and flips it to
+    ACTIVE (app/services/driver_trips.py -> `_own_trip_for_update`):
+
+        start()  locks trip T (ASSIGNED), sets ACTIVE, not yet committed
+        end()    reads T, still sees ASSIGNED under READ COMMITTED, allows
+        start()  commits
+
+    - and the assignment is ENDED under a trip that is now ACTIVE, which is the
+    exact state this function exists to prevent, reached by a narrower door.
+
+    Locking only the *blocking* statuses would not help: the row `start()`
+    holds is ASSIGNED, which is not one of them. Locking every non-terminal
+    trip means this statement waits on that transaction, then re-reads the
+    committed status and refuses. Terminal trips are excluded because a CLOSED
+    or CANCELLED trip can never transition again, so there is nothing to race.
+    """
+    if not assignment_ids:
+        return
+    candidates = (
+        await db.execute(
+            select(Trip.id, Trip.trip_code, Trip.status)
+            .where(
+                Trip.assignment_id.in_(assignment_ids),
+                Trip.status.not_in(tuple(TERMINAL_STATES)),
+            )
+            .with_for_update()
+        )
+    ).all()
+
+    blocking = next(
+        (row for row in candidates if row.status in COMMITS_DRIVER_TO_TRUCK), None
+    )
+    if blocking is None:
+        return
+
+    trip_id, trip_code, trip_status = blocking
+    raise ConflictError(
+        "This driver is part-way through a trip on this truck. Close or "
+        "cancel the trip before changing the assignment.",
+        code="ASSIGNMENT_HAS_LIVE_TRIP",
+        details={
+            "trip_id": str(trip_id),
+            "trip_code": trip_code,
+            "trip_status": trip_status.value,
+        },
+    )
 
 #: Backwards-compatible alias for the list filter.
 ACTIVE_STATUSES = OPEN_STATUSES
@@ -211,13 +281,8 @@ async def create(
 
     now = datetime.now(UTC)
 
-    # End every open assignment the driver holds, not just the newest. A
-    # database that predates the widened unique indexes may carry more than one.
-    for held in held_by_driver:
-        held.status = AssignmentStatus.ENDED
-        held.ended_at = now
-
-    # End whoever currently holds this truck.
+    # Whoever currently holds the incoming truck. Read BEFORE anything is
+    # written, so the guard below can see every pairing this call would end.
     truck_holders = list(
         (
             await db.execute(
@@ -230,6 +295,22 @@ async def create(
         .scalars()
         .all()
     )
+
+    # Refuse before writing anything if a trip is underway on any pairing this
+    # call is about to end - the driver's, or the incoming truck's current
+    # holder. Reassigning a driver mid-trip, or handing their truck to someone
+    # else mid-trip, both leave a live trip whose assignment has been closed
+    # underneath it.
+    await _refuse_if_a_trip_is_underway(
+        db, [a.id for a in held_by_driver] + [a.id for a in truck_holders]
+    )
+
+    # End every open assignment the driver holds, not just the newest. A
+    # database that predates the widened unique indexes may carry more than one.
+    for held in held_by_driver:
+        held.status = AssignmentStatus.ENDED
+        held.ended_at = now
+
     for holder in truck_holders:
         holder.status = AssignmentStatus.ENDED
         holder.ended_at = now
@@ -291,6 +372,10 @@ async def end(
 
     if assignment.status is AssignmentStatus.ENDED:
         raise ConflictError("Assignment has already ended.", code="ALREADY_ENDED")
+
+    # Checked after ALREADY_ENDED so re-ending a finished assignment keeps
+    # answering the more specific thing.
+    await _refuse_if_a_trip_is_underway(db, [assignment.id])
 
     before = audit.snapshot(assignment, AUDITED_FIELDS)
     assignment.status = AssignmentStatus.ENDED

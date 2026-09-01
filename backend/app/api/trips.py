@@ -22,8 +22,11 @@ from app.core import permissions as perm
 from app.core.errors import PermissionDeniedError
 from app.core.permissions import has_permission
 from app.domain import telemetry_policy as policy
+from app.domain.routing import parse_wkt_linestring
 from app.models.enums import (
     CargoPriority,
+    RouteKind,
+    RouteState,
     TripStatus,
     TripStopKind,
     TripStopStatus,
@@ -37,6 +40,8 @@ from app.schemas.domain import (
     TripPlanCreate,
     TripRead,
 )
+from app.services import route_risk as route_risk_service
+from app.services import routes as route_service
 from app.services import shipments as shipment_service
 from app.services import telemetry
 from app.services import trips as trip_service
@@ -282,6 +287,215 @@ async def close_trip(
 ) -> TripRead:
     return TripRead.model_validate(
         await trip_service.close(db, trip_id, actor=actor, ip=ip)
+    )
+
+
+# --- Routes ---------------------------------------------------------------
+
+
+class TripRouteRead(ReadModel):
+    """One planned route.
+
+    `estimated_fuel_litres` is absent from this contract entirely rather than
+    returned as null, because no fuel model exists and a field that is always
+    null invites a client to render `0`. It appears when there is something to
+    put in it - see docs/AI_MODELS.md section 0.
+
+    `estimated_duration_min` is the provider's free-flow travel time. It is NOT
+    an ETA: no departure time, traffic or stop dwell is accounted for, and the
+    UI must not present it as an arrival time.
+    """
+
+    id: uuid.UUID
+    kind: RouteKind
+    state: RouteState
+    distance_km: Decimal | None
+    estimated_duration_min: int | None
+    routing_provider: str | None
+    created_at: datetime
+    #: [[lat, lon], ...] in travel order, ready for the map.
+    geometry: list[list[float]]
+
+
+class RiskComponentRead(ReadModel):
+    """One named contribution to a route's risk score."""
+
+    code: str
+    label: str
+    points: int
+    detail: str
+
+
+class RouteRiskRead(ReadModel):
+    """A route's risk, with its evidence AND its gaps.
+
+    `score` alone would be dishonest. A dispatcher shown a bare number assumes
+    it is complete; `inputs` and `unavailable` say which datasets went into it
+    and which do not exist, so a partial answer reads as partial.
+
+    This is a deterministic weighted rule with published constants
+    (app/domain/route_risk.py), NOT a model. There is deliberately no
+    `confidence` or `model_version` field, because either would imply training
+    and validation that have not happened.
+
+    `reason_codes` are codes rather than sentences so the driver app can render
+    them in Hindi or Assamese from local translation files - a sentence built
+    here would arrive on the phone untranslatable.
+    """
+
+    score: int
+    band: str
+    components: list[RiskComponentRead]
+    #: factor name -> "AVAILABLE" / "NOT_AVAILABLE"
+    inputs: dict[str, str]
+    unavailable: list[str]
+    reason_codes: list[str]
+    observations_used: int
+    observations_stale: int
+    assessed_at: datetime
+
+
+class RoutePlanResult(ReadModel):
+    route: TripRouteRead
+    #: Which provider answered, and whether the primary had to be skipped. A
+    #: manager looking at a fallback route will ask both.
+    provider: str
+    used_fallback: bool
+    providers_attempted: list[str]
+    #: True when a genuinely different corridor was also stored as
+    #: EMERGENCY_BACKUP. False on a single-road corridor, which is ordinary.
+    backup_planned: bool
+
+
+def _route_read(row, geometry_wkt: str) -> TripRouteRead:
+    # WKT is lon-lat; the API speaks lat-lon everywhere else. The swap lives in
+    # `parse_wkt_linestring` next to its inverse `to_wkt`, so there is exactly
+    # one place to check the ordering rather than a second copy here.
+    points = [[lat, lon] for lat, lon in parse_wkt_linestring(geometry_wkt)]
+    return TripRouteRead(
+        id=row.id,
+        kind=row.kind,
+        state=row.state,
+        distance_km=row.distance_km,
+        estimated_duration_min=row.estimated_duration_min,
+        routing_provider=row.routing_provider,
+        created_at=row.created_at,
+        geometry=points,
+    )
+
+
+@trips_router.get(
+    "/{trip_id}/routes",
+    response_model=list[TripRouteRead],
+    summary="Routes planned for a trip",
+)
+async def list_routes(
+    trip_id: uuid.UUID,
+    db: DbSession,
+    actor: Annotated[User, Depends(require_permission(perm.ROUTE_READ))],
+) -> list[TripRouteRead]:
+    """Newest first, including SUPERSEDED rows.
+
+    History is included deliberately: what a driver was previously told to do is
+    evidence in an incident review, and hiding it here would make the API look
+    like rerouting overwrites.
+    """
+    await trip_service.get(db, trip_id)  # 404 before disclosing anything
+    rows = await route_service.list_for_trip(db, trip_id)
+    return [_route_read(r, await route_service.geometry_wkt(db, r.id)) for r in rows]
+
+
+@trips_router.post(
+    "/{trip_id}/routes/recalculate",
+    response_model=RoutePlanResult,
+    status_code=status.HTTP_201_CREATED,
+    summary="Plan a route for a trip",
+)
+async def recalculate_route(
+    trip_id: uuid.UUID,
+    db: DbSession,
+    actor: Annotated[User, Depends(require_permission(perm.ROUTE_PLAN))],
+    ip: ClientIp,
+) -> RoutePlanResult:
+    """Insert a new route and supersede the previous one. Never an update.
+
+    Errors follow docs/API_CONTRACTS.md section 9:
+      503 ROUTING_UNAVAILABLE - every provider is unreachable; retrying may work
+      422 NO_VIABLE_ROUTE     - a provider answered and no route exists
+    Those are different answers and must stay distinguishable to the manager.
+    """
+    result = await route_service.plan(db, trip_id, actor=actor, ip=ip)
+    return RoutePlanResult(
+        route=_route_read(
+            result.route, await route_service.geometry_wkt(db, result.route.id)
+        ),
+        provider=result.provider,
+        used_fallback=result.used_fallback,
+        providers_attempted=list(result.attempted),
+        backup_planned=result.backup_planned,
+    )
+
+
+@trips_router.post(
+    "/{trip_id}/routes/{route_id}/select",
+    response_model=TripRouteRead,
+    summary="Select one of a trip's routes",
+)
+async def select_route(
+    trip_id: uuid.UUID,
+    route_id: uuid.UUID,
+    db: DbSession,
+    actor: Annotated[User, Depends(require_permission(perm.ROUTE_SELECT))],
+    ip: ClientIp,
+) -> TripRouteRead:
+    """`route_id` is scoped by `trip_id`, so another trip's route is a 404."""
+    row = await route_service.select_route(
+        db, trip_id, route_id, actor=actor, ip=ip
+    )
+    return _route_read(row, await route_service.geometry_wkt(db, row.id))
+
+
+@trips_router.get(
+    "/{trip_id}/routes/{route_id}/risk",
+    response_model=RouteRiskRead,
+    summary="Assess a route against current conditions",
+)
+async def route_risk(
+    trip_id: uuid.UUID,
+    route_id: uuid.UUID,
+    db: DbSession,
+    actor: Annotated[User, Depends(require_permission(perm.ROUTE_READ))],
+) -> RouteRiskRead:
+    """Weather sampled along the route, scored by a deterministic rule.
+
+    Read-only and NOT persisted. A risk score is a statement about *now*;
+    storing one would leave a number that looks current long after it stopped
+    being true, which is the same failure as a stale GPS fix rendered as LIVE.
+
+    A weather outage does not fail this request. The assessment returns with
+    `inputs.weather = NOT_AVAILABLE` and a `WEATHER_UNAVAILABLE` reason code,
+    because distance and duration are still real evidence and showing nothing
+    at all would be a worse answer than showing a partial one.
+    """
+    await trip_service.get(db, trip_id)  # 404 before disclosing anything
+    await route_service.ensure_belongs_to_trip(db, trip_id, route_id)
+
+    risk = await route_risk_service.assess_route(db, route_id)
+    return RouteRiskRead(
+        score=risk.score,
+        band=risk.band,
+        components=[
+            RiskComponentRead(
+                code=c.code, label=c.label, points=c.points, detail=c.detail
+            )
+            for c in risk.components
+        ],
+        inputs=risk.inputs,
+        unavailable=list(risk.unavailable),
+        reason_codes=list(risk.reason_codes),
+        observations_used=risk.observations_used,
+        observations_stale=risk.observations_stale,
+        assessed_at=risk.assessed_at,
     )
 
 

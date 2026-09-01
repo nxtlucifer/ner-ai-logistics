@@ -1,7 +1,17 @@
 # API Contracts
 
-**Status: design specification.** Only `/health` and `/ready` are implemented. Everything under
-`/api/*` below is a contract to build against, not running code.
+**Status: part specification, part record of what is running.** That banner used to read "only
+`/health` and `/ready` are implemented", which stopped being true several phases ago and made this
+document untrustworthy to read.
+
+**Section 15 is the authority on what exists.** It lists the implemented surface in one place and
+is checked against the routers mounted in `backend/app/main.py`.
+
+In summary: sections 2-8, 9 (except `/api/routes/preview`), 13a and 15 are **implemented and
+covered by the backend test suite**. Sections 10, 11, 12, 13 and 14 - weather, incidents, fuel,
+payments, alerts, emergencies and the fleet WebSocket - are **not routed at all**; they are
+contracts for a later phase. Tables that mix the two carry an explicit `Status` column. Anything
+below without an "implemented" marker is not running code.
 
 ---
 
@@ -137,11 +147,26 @@ what the truck is already carrying.
 | Method | Path | Perms | Notes |
 | --- | --- | --- | --- |
 | GET | `/api/assignments` | M A | Filter by driver/truck/status |
-| POST | `/api/assignments` | M A | Ends any current active assignment atomically |
+| POST | `/api/assignments` | M A | Ends any current assignment atomically — unless a trip is underway |
 | GET | `/api/assignments/{id}` | M A, D(self) | |
 | POST | `/api/assignments/{id}/verify` | D(self) | Driver submits photo + readings |
 | POST | `/api/assignments/{id}/review` | M A | Resolve a flagged mismatch |
-| POST | `/api/assignments/{id}/end` | M A | |
+| POST | `/api/assignments/{id}/end` | M A | `409 ALREADY_ENDED`, `409 ASSIGNMENT_HAS_LIVE_TRIP` |
+
+**An assignment cannot be ended while its trip is underway.** Ending frees the driver's slot in
+the partial unique indexes, so if it were allowed mid-trip the one-current-assignment invariant
+would stop meaning anything: the driver would be paired to a second truck while the fleet map
+still showed them executing a trip on the first, and both would be true at once.
+
+"Underway" is `app/domain/trip_state.py::COMMITS_DRIVER_TO_TRUCK` — `ACTIVE`, `DELAYED`,
+`INCIDENT`, `DELIVERED`. The line sits at `ACTIVE` on purpose: before it the pairing is a plan and
+moving a driver is ordinary dispatch work, from it onward the pairing is a fact about where a
+person physically is. `DELIVERED` is included because the trip is not closed yet.
+
+Both routes that end an assignment enforce it — `/end`, and `POST /api/assignments`, which ends
+the driver's current pairing inline. Guarding only the first would leave a one-call bypass.
+Refusal is `409 ASSIGNMENT_HAS_LIVE_TRIP` with the blocking `trip_id`, `trip_code` and
+`trip_status` in `details`. The escape hatch is the ordinary one: close or cancel the trip.
 
 **POST `/api/assignments/{id}/verify`** (multipart)
 ```
@@ -412,16 +437,108 @@ person.
 
 ## 9. `/api/routes`
 
-| Method | Path | Perms |
-| --- | --- | --- |
-| POST | `/api/routes/preview` | M A |
-| POST | `/api/trips/{id}/routes/recalculate` | M A, S |
-| POST | `/api/trips/{id}/routes/{route_id}/select` | M A |
+| Method | Path | Perms | Status |
+| --- | --- | --- | --- |
+| GET | `/api/trips/{id}/routes` | `route:read` | **implemented** (P7) — includes SUPERSEDED |
+| POST | `/api/trips/{id}/routes/recalculate` | `route:plan` | **implemented** (P7) |
+| POST | `/api/trips/{id}/routes/{route_id}/select` | `route:select` | **implemented** (P7) |
+| POST | `/api/routes/preview` | M A | planned — candidates without a trip |
+| GET | `/api/trips/{id}/routes/{route_id}/risk` | `route:read` | **implemented** (P8) — deterministic route risk V1 |
 
-`preview` computes candidates without persisting a trip. `recalculate` inserts new `trip_routes`
-rows and marks superseded ones — it never mutates history.
-Errors: `503 ROUTING_UNAVAILABLE`, `422 NO_VIABLE_ROUTE` (every candidate crossed an `IMPASSABLE`
-incident — a real and important answer in NER, not a failure).
+### Route risk (`GET /api/trips/{id}/routes/{route_id}/risk`)
+
+Weather sampled at five points along the route geometry, scored by a **deterministic weighted
+rule with published constants** (`app/domain/route_risk.py`). It is **not** a model. There is no
+`confidence`, no `model_version` and no `predicted_delay` field, because there is no training
+data, no validation split and no metrics — and a test asserts those fields stay absent.
+
+The response carries its own gaps. `inputs` maps every factor a complete assessment would want
+to `AVAILABLE` or `NOT_AVAILABLE`, and `unavailable` lists the absent ones, so
+`landslide: NOT_AVAILABLE` is visible beside the score. A bare number would be read as complete.
+
+```json
+// 200
+{ "score": 37, "band": "MODERATE",
+  "components": [
+    { "code": "RAIN_EXPOSURE", "label": "Rain exposure", "points": 18,
+      "detail": "peak 9.0 mm/h across 3 of 5 sampled points" },
+    { "code": "DURATION_EXPOSURE", "label": "Travel duration", "points": 15,
+      "detail": "360 min on the road" },
+    { "code": "DISTANCE_EXPOSURE", "label": "Distance", "points": 4,
+      "detail": "305 km" } ],
+  "inputs": { "distance": "AVAILABLE", "duration": "AVAILABLE", "weather": "AVAILABLE",
+               "landslide": "NOT_AVAILABLE", "road_quality": "NOT_AVAILABLE" },
+  "unavailable": ["landslide", "road_quality", "truck_restrictions", "fuel_model"],
+  "reason_codes": ["HEAVY_RAIN_ON_ROUTE"],
+  "observations_used": 5, "observations_stale": 0,
+  "assessed_at": "2026-08-31T09:00:00Z" }
+```
+
+The components sum to the score — asserted by test, so the breakdown is an explanation rather
+than decoration.
+
+`reason_codes` are **codes, not sentences**, so the driver app can render Hindi or Assamese from
+local translation files with no LLM in the loop. A sentence composed here would arrive on the
+phone untranslatable.
+
+**Stale observations are never scored.** A reading past the freshness window is counted in
+`observations_stale` and excluded from the score — a stale calm reading must not dilute live
+heavy rain.
+
+**A weather outage is not a request failure.** The endpoint answers 200 with
+`weather: NOT_AVAILABLE` and `WEATHER_UNAVAILABLE`; distance and duration are still evidence.
+
+Nothing is persisted. A risk score describes *now*, and a stored one would look current long
+after it stopped being true. `route_id` is scoped by `trip_id`, so another trip's route is 404.
+
+`recalculate` inserts new `trip_routes` rows and marks superseded ones — it never mutates
+history. Route history is evidence in an incident review.
+
+Errors: `503 ROUTING_UNAVAILABLE` (every provider unreachable; a retry may succeed) and
+`422 NO_VIABLE_ROUTE` (a provider answered and no route exists). Those are deliberately
+different: collapsing them would tell a manager a trip is unroutable when the provider is
+merely having a bad minute.
+
+**`PRIMARY` always; `EMERGENCY_BACKUP` conditionally; `FUEL_EFFICIENT` never.**
+
+`PRIMARY` is written whenever a provider answers. `EMERGENCY_BACKUP` is written only when the
+provider returns an alternative that is a **genuinely different corridor** — judged by sampled
+point-to-point separation (2 km), not by comparing total distances, because two routes can
+share a length and go different ways. Providers routinely offer an "alternative" that leaves
+the highway for a few hundred metres and rejoins it; storing that would put a choice in front
+of a dispatcher that is not a choice. On most NER corridors there is one sensible road and no
+alternative comes back at all — `backup_planned: false` is the ordinary answer, not a failure.
+
+`FUEL_EFFICIENT` is **never** produced. Ranking by consumption needs a fuel model, and none
+exists (`ml/` is a README). Relabelling the primary route would be a fabricated feature
+indistinguishable from a working one — `docs/AI_MODELS.md` §0.
+
+`estimated_fuel_litres` is **absent from the response contract**, not returned as null — a
+permanently-null field invites a client to render `0`, and `docs/AI_MODELS.md` §0 forbids
+stating a number that came from no evaluation.
+
+`estimated_duration_min` is the provider's **free-flow travel time, not an ETA.** No departure
+time, traffic or stop dwell is accounted for. The UI must not present it as an arrival time.
+
+**Provider chain.** `primary → fallback`, normalised to one internal shape so no business logic
+depends on a provider's response format. A provider *outage* falls through to the next; a
+provider *refusal* is terminal, because a second provider will also fail to route from an
+unroutable point and trying it spends another timeout to reach the same answer. The keyless
+fallback is the public OSRM demo server, whose own policy states it gives no quality guarantee
+and that access "shall be withdrawn at any time" — so it is a fallback, not something to demo on
+alone.
+
+`ROUTING_PRIMARY_URL` accepts any OSRM-compatible endpoint that needs no credential — a
+self-hosted instance, for example. **There is deliberately no key setting.** A provider that
+requires one needs its own class against `RoutingProvider`, because where a credential goes
+differs per vendor; a setting that accepted a key and sent it nowhere would let someone configure
+it, watch routing work through the fallback, and believe the key was in use. When such a provider
+is added its credential is a **backend** secret and must never take a `VITE_` or `EXPO_PUBLIC_`
+prefix, since those are inlined into client bundles.
+
+Geometry is requested at OSRM's `overview=simplified`. Measured against the live service on the
+Guwahati–Jorhat corridor, `full` returns 5,213 points (~121 KB of JSON per route, fetched on every
+trip selection) where `simplified` returns 52 (~1.2 KB) with **identical** distance and duration.
 
 ---
 
@@ -611,7 +728,7 @@ polling gives the same state.
 
 ## 15. Implemented Today
 
-As of P5, the implemented surface is:
+As of P7, the implemented surface is:
 
 | Area | Paths |
 | --- | --- |
@@ -622,6 +739,9 @@ As of P5, the implemented surface is:
 | Driver self-service | `/api/driver/me*` — profile, assignment, trip, location |
 | Fleet location | `/api/fleet/active`, `/api/trips/{id}/track` |
 | Detail reads (P6) | `GET /api/drivers/{id}`, `GET /api/trucks/{id}`, `GET /api/trips/{id}` — the last now carries a `shipment` summary (client, reference, load, priority) so an operations screen does not need a second lookup for what a truck is carrying |
+| Route planning (P7) | `GET /api/trips/{id}/routes`, `POST /api/trips/{id}/routes/recalculate`, `POST /api/trips/{id}/routes/{route_id}/select` — see §9. `POST /api/routes/preview` is **not** implemented |
+| Route risk (P8) | `GET /api/trips/{id}/routes/{route_id}/risk` — deterministic weighted rule over weather sampled along the route. Reports which datasets it did **not** have. Not a model |
+| Rate limiting (P7) | `/api/auth/login` and `/api/auth/refresh` only, per route, in-process — see `backend/app/core/rate_limit.py` |
 
 Everything else in this document is a specification for a later phase and is not
 routed. The system endpoints:

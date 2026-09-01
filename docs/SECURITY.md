@@ -23,7 +23,8 @@ incidental to the product — it is the product. The controls below are proporti
 - Login returns an identical response and comparable timing for unknown-user and
   wrong-password, so the endpoint cannot enumerate valid phone numbers. **Implemented**
   (`app/services/auth.py` verifies against a dummy Argon2 hash when no user matches).
-  Rate limiting is **specified but NOT implemented** — see section 6.
+  Rate limiting is **PARTIALLY IMPLEMENTED** — authentication endpoints only,
+  and nothing else. See section 6 for what is and is not covered.
 - Drivers stay signed in for long periods by design — re-authenticating on a hill road at night is
   a safety problem, not just a UX one. Refresh tokens are long-lived and device-bound; the mitigation
   for a lost phone is server-side revocation, not a short session.
@@ -294,22 +295,62 @@ policies may be added deliberately - but the default stays deny.
 
 ## 6. Rate Limiting
 
-> **STATUS: SPECIFIED, NOT IMPLEMENTED.** No rate limiting exists in the codebase as of
-> P5. The only occurrence of `429` in the backend is the status-code→name entry in
-> `app/core/errors.py`; there is no limiter, no middleware, no counter store, and no
-> rate-limiting dependency in `backend/requirements.txt`. Nothing in the system emits a
-> `429` today.
+> **STATUS: PARTIALLY IMPLEMENTED — authentication endpoints only.**
 >
-> This section is the **design** to be built, not a description of current behaviour.
-> The table below is a target. Until it ships, the login endpoint is protected only by
-> Argon2id's cost (~100 ms per attempt) and by timing equalisation — which defeats
-> *enumeration* but does not bound *guessing*.
+> **Implemented** (`app/core/rate_limit.py`, applied in `app/api/auth.py`):
 >
-> Accepted for the hackathon because the application is not publicly deployed: it runs on
-> a laptop against a development Supabase project, reachable only from the local network.
-> It **must** be implemented before any public deployment. Listed in section 12.
+> | Endpoint | Limit | Key |
+> | --- | --- | --- |
+> | `POST /api/auth/login` | 20 / 60s **and** 10 / 60s | client address **and** identifier |
+> | `POST /api/auth/refresh` | 60 / 60s | client address |
+>
+> Refusals are `429 RATE_LIMITED` with `Retry-After`, in the standard error envelope.
+> Both login limits are checked **before** the password is verified, so a limited caller
+> does not get Argon2 run on their behalf and does not get their question answered. The
+> message is identical for existing and non-existent identifiers, so the limiter does not
+> reintroduce the enumeration oracle section 1 removes.
+>
+> **A successful login clears the per-IDENTIFIER budget only — never the per-IP one.**
+> Failures against one account are what the identifier limit counts, and a driver who
+> mistypes twice should not spend the rest of the window near lockout. The per-IP budget
+> is different: it counts attempts across *every* account reached from one address, and a
+> success on one account says nothing about the failures against the others. An earlier
+> version cleared both, which meant anyone holding a single valid credential — their own
+> driver account — could spray without bound: nineteen guesses at nineteen accounts, one
+> login of their own to zero the counter, repeat. The per-identifier limit cannot see that
+> attack, because no single account is ever guessed twice. Fixed 2026-08-31; pinned by
+> `TestLoginRateLimit::test_a_success_does_not_clear_the_cross_account_budget`.
+>
+> The cost is stated rather than hidden: twenty successful logins a minute from one shared
+> address will begin meeting 429. That is `LOGIN_RATE_LIMIT_PER_IP` doing what it says, and
+> it is raised by changing the setting — not by making the limit resettable on demand by
+> any caller who can authenticate.
+>
+> **Three design decisions worth stating:**
+>
+> *Per route, not middleware.* `app/main.py` requires that no app-wide middleware grants
+> or withholds access, because a gate invisible from the route is a gate nobody checks
+> when adding the next one. It is also the concrete way this feature breaks the product:
+> a truck flushing an offline backlog posts many batches at once, and a global policy
+> would throttle the telemetry the fleet map depends on. `tests/test_rate_limit.py` pins
+> that GPS ingestion is never limited.
+>
+> *Keyed on the TCP peer, not `X-Forwarded-For`.* That header is what `get_client_ip`
+> records for audit, and it is client-controlled; a limit keyed on it would be reset by
+> editing one header — worse than no limit, because it would look like a control. The
+> cost is stated rather than hidden: behind a reverse proxy every request appears to come
+> from the proxy, and only the per-identifier limit would still bite. Deploying behind a
+> proxy requires replacing the peer address with a value the proxy is trusted to set.
+>
+> *In-process state.* It does not survive a restart and is not shared between workers, so
+> a multi-process deployment enforces per worker. That is correct for the single uvicorn
+> process this project runs; anything larger needs shared state, and the module's
+> interface is narrow enough to swap.
+>
+> **Still NOT implemented:** file uploads, read endpoints, incidents, and emergencies —
+> the endpoints below that do not yet exist. Those rows remain a target design.
 
-Per-principal, sliding window — **target design**:
+Per-principal — implemented for auth, **target design** for the rest:
 
 | Endpoint | Limit | Rationale |
 | --- | --- | --- |
@@ -432,9 +473,13 @@ Stated because pretending otherwise is worse than admitting it:
 - Single-tenant; no data isolation between transport companies.
 - No formal DPIA. If deployed commercially, one is required before onboarding real drivers.
 - MFA is not implemented for manager accounts. It should be before any production use.
-- **No rate limiting is implemented** (section 6 is a target design, not current behaviour).
-  Login resists enumeration but not sustained guessing; GPS ingest, reads and future uploads
-  are unbounded per principal. Required before any public deployment.
+- **Rate limiting covers authentication only.** `login` and `refresh` are bounded per client
+  address and per identifier (section 6). Read endpoints and future uploads remain unbounded
+  per principal. GPS ingestion is unbounded **by design** — a reconnecting truck must be able
+  to flush its backlog — which means a compromised driver token can still write telemetry
+  freely; bounding that needs a per-trip quota, not a per-IP limit.
+- **Rate-limit state is in-process.** It resets on restart and is not shared across workers,
+  so a multi-process deployment enforces the limit per worker rather than globally.
 - **Automated test accounts accumulate in the shared development database.** They cannot be
   deleted — `audit_logs.actor_user_id` is RESTRICT, so an auditable actor is pinned by its own
   trail — so cleanup deactivates them and deletes their refresh tokens instead. Retained rows

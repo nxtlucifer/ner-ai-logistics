@@ -69,6 +69,16 @@ export interface FleetMapProps {
   onSelect: (tripId: string) => void
   /** Observed GPS breadcrumb for the selected trip, newest first. */
   track: Position[]
+  /**
+   * The PLANNED route for the selected trip, as [lat, lon] in travel order.
+   *
+   * Drawn deliberately unlike the observed track: dashed, in a different
+   * colour, and underneath it. One is where a provider says the truck should
+   * go; the other is where the truck has actually been. Rendering them alike
+   * would let a dispatcher read a plan as an observation — which is the same
+   * class of mistake as plotting a truck that has never reported.
+   */
+  plannedRoute?: [number, number][]
 }
 
 interface MarkerHandle {
@@ -141,6 +151,7 @@ export default function FleetMap({
   selectedTripId,
   onSelect,
   track,
+  plannedRoute,
 }: FleetMapProps) {
   const container = useRef<HTMLDivElement | null>(null)
   const map = useRef<MapLibreMap | null>(null)
@@ -167,6 +178,29 @@ export default function FleetMap({
     instance.addControl(new NavigationControl({}), 'top-right')
     instance.on('load', () => {
       ready.current = true
+      // Planned route FIRST, so it sits beneath the observed track. Where the
+      // two diverge, what actually happened stays on top.
+      instance.addSource('planned-route', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+      instance.addLayer({
+        id: 'planned-route',
+        type: 'line',
+        source: 'planned-route',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          // Dashed and violet against the observed track's solid sky blue.
+          // Distinguishable without relying on colour alone, which matters for
+          // a dispatcher who may be colour-blind and is why the dash is here
+          // rather than a second shade.
+          'line-color': '#a78bfa',
+          'line-width': 4,
+          'line-opacity': 0.7,
+          'line-dasharray': [2, 2],
+        },
+      })
+
       instance.addSource('observed-track', {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] },
@@ -261,6 +295,33 @@ export default function FleetMap({
         : { type: 'FeatureCollection', features: [] },
     )
   }, [track])
+
+  // The PLANNED route for the selected trip. Same shape as above, different
+  // source, so the two can never be confused for one another in the data.
+  useEffect(() => {
+    const instance = map.current
+    if (!instance || !ready.current) return
+    const source = instance.getSource('planned-route') as
+      | GeoJSONSource
+      | undefined
+    if (!source) return
+
+    // Already in travel order from the API; only the lat/lon pair is flipped,
+    // because GeoJSON is [lon, lat].
+    const coordinates = (plannedRoute ?? []).map(
+      ([lat, lon]) => [lon, lat] as [number, number],
+    )
+
+    source.setData(
+      coordinates.length >= 2
+        ? {
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates },
+            properties: {},
+          }
+        : { type: 'FeatureCollection', features: [] },
+    )
+  }, [plannedRoute])
 
   // Camera follows SELECTION, which is an operator action - never a poll.
   useEffect(() => {

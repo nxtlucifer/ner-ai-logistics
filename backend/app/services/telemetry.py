@@ -25,7 +25,6 @@ Three properties this module is responsible for:
                 cannot make an old position look current.
 """
 
-import math
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -37,6 +36,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain import telemetry_policy as policy
+from app.domain.routing import haversine_m
 from app.models.enums import TripStatus
 from app.models.fleet import Truck
 from app.models.identity import Driver
@@ -44,28 +44,10 @@ from app.models.operations import GpsPoint, Trip, TripStop
 from app.schemas.domain import GpsFixIn
 from app.services.shipments import SRID
 
-EARTH_RADIUS_M = 6_371_000.0
-
 #: Hard ceiling on a single track page. The privacy limit, not a perf one:
 #: an unrestricted GPS dump turns an authorised "where is this truck" read into
 #: a complete movement profile of a person. See docs/SECURITY.md section 3.
 MAX_TRACK_POINTS = 1000
-
-
-def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """Great-circle distance in metres.
-
-    Computed in Python rather than with ST_Distance because this is used per
-    fix during ingestion, and a database round trip per point would make the
-    plausibility check cost more than the insert it guards. The error against a
-    geodesic is well under a percent at these distances - irrelevant for a
-    threshold of "faster than 200 km/h".
-    """
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    dp = math.radians(lat2 - lat1)
-    dl = math.radians(lon2 - lon1)
-    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
-    return 2 * EARTH_RADIUS_M * math.asin(math.sqrt(a))
 
 
 @dataclass

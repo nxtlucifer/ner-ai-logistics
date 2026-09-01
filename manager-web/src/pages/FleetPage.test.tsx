@@ -26,17 +26,26 @@ import {
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { api, type FleetSnapshot, type FleetTrip, type Freshness } from '../api/client'
+import {
+  ApiError,
+  api,
+  type FleetSnapshot,
+  type FleetTrip,
+  type Freshness,
+} from '../api/client'
 
 // Records what it was handed instead of drawing it.
 const plotted = vi.fn()
+const plannedRouteSpy = vi.fn()
 vi.mock('../components/FleetMap', () => ({
   default: (props: {
     trips: FleetTrip[]
     selectedTripId: string | null
     onSelect: (id: string) => void
+    plannedRoute?: [number, number][]
   }) => {
     plotted(props.trips.filter((t) => t.position).map((t) => t.trip_code))
+    plannedRouteSpy(props.plannedRoute)
     return (
       <div data-testid="map">
         {props.trips
@@ -205,6 +214,11 @@ describe('FleetPage', () => {
       points: [position(12, 'LIVE'), position(30, 'LIVE')],
       truncated: false,
     })
+    // Selecting a trip reads its planned routes alongside the other detail
+    // calls. Empty by default: most of these tests are about the observed
+    // track and the map's honesty, and a trip with no planned route is the
+    // ordinary case anyway.
+    vi.spyOn(api, 'listRoutes').mockResolvedValue([])
   })
 
   afterEach(() => {
@@ -353,8 +367,11 @@ describe('FleetPage', () => {
 
     await user.click(screen.getByTestId('marker-TRP-LIVE'))
 
-    // Routing does not exist until P7. Calling a GPS breadcrumb a "route"
-    // would claim a feature that has not been built.
+    // Route planning now exists, which makes this assertion matter MORE, not
+    // less: the observed GPS breadcrumb and a planned route are two different
+    // things on the same map, and labelling the breadcrumb a "route" would
+    // claim the truck went where it was told rather than where it was seen.
+    // Still no ETA anywhere - a provider duration is not an arrival estimate.
     await screen.findByText(/observed trip track/i)
     expect(screen.queryByText(/^route$/i)).toBeNull()
     expect(screen.queryByText(/\beta\b/i)).toBeNull()
@@ -435,5 +452,174 @@ describe('FleetPage', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  /**
+   * Routing UI (P7).
+   *
+   * The property under test is the distinction: a PLANNED route and an OBSERVED
+   * track must never be presented as the same kind of thing. One is a provider's
+   * opinion about where a truck should go; the other is evidence of where it has
+   * been. A dispatcher who confuses them acts on a plan believing it is a fact.
+   */
+  const ROUTE = {
+    id: 'r1',
+    kind: 'PRIMARY' as const,
+    state: 'PROPOSED' as const,
+    distance_km: '308.00',
+    estimated_duration_min: 360,
+    routing_provider: 'osrm',
+    created_at: new Date().toISOString(),
+    geometry: [
+      [26.1445, 91.7362],
+      [26.4, 92.9],
+      [26.7509, 94.2037],
+    ] as [number, number][],
+  }
+
+  it('shows no planned route until one is planned', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'activeFleet').mockResolvedValue(snapshot([LIVE]))
+    const planRoute = vi.spyOn(api, 'planRoute')
+
+    render(<FleetPage />)
+    await screen.findByText('TRP-LIVE')
+    await user.click(screen.getByTestId('marker-TRP-LIVE'))
+
+    await screen.findByText(/no route planned for this trip yet/i)
+    // Planning calls a third party and writes a row. It must not happen just
+    // because someone clicked a truck to look at it.
+    expect(planRoute).not.toHaveBeenCalled()
+  })
+
+  it('plans a route on request and renders it as PLANNED, not observed', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'activeFleet').mockResolvedValue(snapshot([LIVE]))
+    const planRoute = vi.spyOn(api, 'planRoute').mockResolvedValue({
+      route: ROUTE,
+      provider: 'osrm',
+      used_fallback: false,
+      providers_attempted: ['osrm'],
+    })
+
+    render(<FleetPage />)
+    await screen.findByText('TRP-LIVE')
+    await user.click(screen.getByTestId('marker-TRP-LIVE'))
+    await screen.findByText(/no route planned/i)
+
+    await user.click(screen.getByRole('button', { name: /^plan route$/i }))
+
+    await waitFor(() => expect(planRoute).toHaveBeenCalledTimes(1))
+    await screen.findByText('308 km')
+
+    // Both sections exist and are labelled distinctly.
+    expect(screen.getByText(/planned route/i)).toBeDefined()
+    expect(screen.getByText(/observed trip track/i)).toBeDefined()
+  })
+
+  it('never calls the travel time an ETA', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'activeFleet').mockResolvedValue(snapshot([LIVE]))
+    vi.spyOn(api, 'listRoutes').mockResolvedValue([ROUTE])
+
+    render(<FleetPage />)
+    await screen.findByText('TRP-LIVE')
+    await user.click(screen.getByTestId('marker-TRP-LIVE'))
+
+    await screen.findByText(/free-flow travel time/i)
+    // The denial has to be present, because a duration beside a live map reads
+    // as an arrival time unless something says otherwise.
+    expect(screen.getByText(/not an ETA/i)).toBeDefined()
+    expect(screen.queryByText(/^ETA$/)).toBeNull()
+    expect(screen.queryByText(/arriv(es|al)/i)).toBeNull()
+  })
+
+  it('shows no fuel figure, because no fuel model exists', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'activeFleet').mockResolvedValue(snapshot([LIVE]))
+    vi.spyOn(api, 'listRoutes').mockResolvedValue([ROUTE])
+
+    render(<FleetPage />)
+    await screen.findByText('TRP-LIVE')
+    await user.click(screen.getByTestId('marker-TRP-LIVE'))
+    await screen.findByText(/free-flow travel time/i)
+
+    // Not "0 litres", not "unavailable litres" - no fuel number at all.
+    expect(screen.queryByText(/litres/i)).toBeNull()
+    expect(screen.queryByText(/\bfuel\b(?!\s*model)/i)).toBeDefined()
+  })
+
+  it('surfaces a provider outage instead of drawing nothing silently', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'activeFleet').mockResolvedValue(snapshot([LIVE]))
+    vi.spyOn(api, 'planRoute').mockRejectedValue(
+      new ApiError(
+        503,
+        {
+          error: {
+            code: 'ROUTING_UNAVAILABLE',
+            message: 'No routing provider is reachable right now.',
+          },
+        },
+        'fallback',
+      ),
+    )
+
+    render(<FleetPage />)
+    await screen.findByText('TRP-LIVE')
+    await user.click(screen.getByTestId('marker-TRP-LIVE'))
+    await screen.findByText(/no route planned/i)
+
+    await user.click(screen.getByRole('button', { name: /^plan route$/i }))
+
+    await screen.findByText(/no routing provider is reachable/i)
+  })
+
+  it('distinguishes an unroutable trip from a provider outage', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'activeFleet').mockResolvedValue(snapshot([LIVE]))
+    vi.spyOn(api, 'planRoute').mockRejectedValue(
+      new ApiError(
+        422,
+        {
+          error: {
+            code: 'NO_VIABLE_ROUTE',
+            message: "No route could be found between this trip's stops.",
+          },
+        },
+        'fallback',
+      ),
+    )
+
+    render(<FleetPage />)
+    await screen.findByText('TRP-LIVE')
+    await user.click(screen.getByTestId('marker-TRP-LIVE'))
+    await screen.findByText(/no route planned/i)
+
+    await user.click(screen.getByRole('button', { name: /^plan route$/i }))
+
+    // A different sentence from the outage case. "Cannot be routed" and "the
+    // provider is down" are different facts and a manager acts on them
+    // differently.
+    await screen.findByText(/no route could be found/i)
+  })
+
+  it('passes the planned geometry to the map as lat-lon pairs', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'activeFleet').mockResolvedValue(snapshot([LIVE]))
+    vi.spyOn(api, 'listRoutes').mockResolvedValue([ROUTE])
+
+    render(<FleetPage />)
+    await screen.findByText('TRP-LIVE')
+    await user.click(screen.getByTestId('marker-TRP-LIVE'))
+    await screen.findByText(/free-flow travel time/i)
+
+    await waitFor(() => {
+      const last = plannedRouteSpy.mock.calls.at(-1)?.[0]
+      expect(last).toBeDefined()
+      // Guwahati first: latitude ~26, longitude ~91. An inversion here draws
+      // the corridor in the wrong hemisphere.
+      expect(last[0]).toEqual([26.1445, 91.7362])
+    })
   })
 })

@@ -7,7 +7,8 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.enums import TruckStatus, UserRole
+from app.models.enums import TripStatus, TruckStatus, UserRole
+from app.models.fleet import DriverTruckAssignment
 from tests import factories
 from tests.conftest import auth_headers
 
@@ -422,6 +423,123 @@ class TestAssignmentWorkflow:
         assert r.status_code == 409
         assert r.json()["error"]["code"] == "ASSIGNMENT_UNCHANGED"
 
+    async def test_ending_an_assignment_sets_ended_at(
+        self, api: AsyncClient, manager_headers: dict, session: AsyncSession
+    ) -> None:
+        """`POST /api/assignments/{id}/end` had no direct test until now.
+
+        It is reached indirectly by reassignment (which ends the previous one),
+        but the explicit manager-initiated end - its permission, its conflict
+        behaviour and its effect on the current-assignment slot - was never
+        exercised through the endpoint itself.
+        """
+        driver, _ = await factories.make_driver(session)
+        truck = await factories.make_truck(session)
+        created = (
+            await api.post(
+                "/api/assignments",
+                headers=manager_headers,
+                json={"driver_id": str(driver.id), "truck_id": str(truck.id)},
+            )
+        ).json()
+
+        r = await api.post(
+            f"/api/assignments/{created['id']}/end", headers=manager_headers
+        )
+
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "ENDED"
+        assert r.json()["ended_at"] is not None
+
+    async def test_ending_twice_is_409_not_a_silent_success(
+        self, api: AsyncClient, manager_headers: dict, session: AsyncSession
+    ) -> None:
+        """Not idempotent, deliberately.
+
+        A second end would write a second audit row and move `ended_at`,
+        rewriting when the pairing actually stopped - which is evidence in an
+        incident review.
+        """
+        driver, _ = await factories.make_driver(session)
+        truck = await factories.make_truck(session)
+        created = (
+            await api.post(
+                "/api/assignments",
+                headers=manager_headers,
+                json={"driver_id": str(driver.id), "truck_id": str(truck.id)},
+            )
+        ).json()
+        await api.post(f"/api/assignments/{created['id']}/end", headers=manager_headers)
+
+        again = await api.post(
+            f"/api/assignments/{created['id']}/end", headers=manager_headers
+        )
+
+        assert again.status_code == 409
+        assert again.json()["error"]["code"] == "ALREADY_ENDED"
+
+    async def test_ending_an_unknown_assignment_is_404(
+        self, api: AsyncClient, manager_headers: dict
+    ) -> None:
+        r = await api.post(
+            f"/api/assignments/{uuid.uuid4()}/end", headers=manager_headers
+        )
+        assert r.status_code == 404
+
+    async def test_a_driver_may_not_end_an_assignment(
+        self, api: AsyncClient, manager_headers: dict, session: AsyncSession
+    ) -> None:
+        """`assignment:end` is a manager/admin permission.
+
+        A driver ending their own pairing would let them release themselves
+        from a truck mid-shift with no manager involved.
+        """
+        driver, driver_user = await factories.make_driver(session)
+        truck = await factories.make_truck(session)
+        created = (
+            await api.post(
+                "/api/assignments",
+                headers=manager_headers,
+                json={"driver_id": str(driver.id), "truck_id": str(truck.id)},
+            )
+        ).json()
+        driver_headers = await auth_headers(
+            api, driver_user.phone, factories.TEST_PASSWORD
+        )
+
+        r = await api.post(
+            f"/api/assignments/{created['id']}/end", headers=driver_headers
+        )
+
+        assert r.status_code == 403
+
+    async def test_ending_frees_the_current_assignment_slot(
+        self, api: AsyncClient, manager_headers: dict, session: AsyncSession
+    ) -> None:
+        """The partial unique index from migration 0006 permits one CURRENT
+        assignment per driver. Ending must release that slot, or a driver whose
+        pairing ended could never be assigned again."""
+        driver, _ = await factories.make_driver(session)
+        first_truck = await factories.make_truck(session)
+        second_truck = await factories.make_truck(session)
+        created = (
+            await api.post(
+                "/api/assignments",
+                headers=manager_headers,
+                json={"driver_id": str(driver.id), "truck_id": str(first_truck.id)},
+            )
+        ).json()
+        await api.post(f"/api/assignments/{created['id']}/end", headers=manager_headers)
+
+        r = await api.post(
+            "/api/assignments",
+            headers=manager_headers,
+            json={"driver_id": str(driver.id), "truck_id": str(second_truck.id)},
+        )
+
+        assert r.status_code == 201, r.text
+        assert r.json()["status"] == "ACTIVE"
+
     async def test_driver_verifies_own_assignment(
         self, api: AsyncClient, manager_headers: dict, session: AsyncSession
     ) -> None:
@@ -498,3 +616,197 @@ class TestAssignmentWorkflow:
             json={"reported_registration": truck.registration_number},
         )
         assert r.status_code == 404  # not even visible to them
+
+
+class TestAssignmentEndVersusLiveTrip:
+    """A driver must not be released from a truck while a trip is still on it.
+
+    The one-current-assignment invariant (migration 0006's partial unique
+    indexes) says a driver holds one truck at a time. Ending an assignment
+    frees that slot. If the assignment can be ended while its trip is still
+    running, the invariant stops meaning anything: the driver is reassigned to
+    a second truck while the fleet map still shows them executing a trip on the
+    first. Both facts are then true in the database at once.
+
+    There are TWO ways to reach it and both are covered here, because a guard
+    on only one of them would be a fix in name only:
+
+        1. POST /api/assignments/{id}/end        - explicit
+        2. POST /api/assignments (reassignment)  - `create()` ends the driver's
+           open assignments inline, so this reaches the same state in ONE call
+           and without anyone naming the word "end"
+
+    "Live" means the trip has STARTED and has not finished -
+    `app/domain/trip_state.py::COMMITS_DRIVER_TO_TRUCK`
+    (ACTIVE, DELAYED, INCIDENT, DELIVERED).
+
+    The boundary is deliberate and sits at ACTIVE, not at "non-terminal":
+
+      before ACTIVE  DRAFT / ASSIGNED / VERIFICATION_PENDING / MANAGER_REVIEW
+                     mean the driver has not started. Moving a driver at the
+                     planning stage is ordinary dispatch work and must stay
+                     allowed, or a mis-planned trip would pin a driver to a
+                     truck until someone cancelled it.
+
+      ACTIVE onward  the driver is with that truck. DELIVERED is included
+                     because the trip is not closed yet and the pairing is
+                     still the record of who was driving what.
+
+    The escape hatch is the ordinary one: close or cancel the trip first.
+    """
+
+    async def _driver_on_a_trip(self, api, manager_headers, session, status):
+        driver, _ = await factories.make_driver(session)
+        truck = await factories.make_truck(session)
+        created = (
+            await api.post(
+                "/api/assignments",
+                headers=manager_headers,
+                json={"driver_id": str(driver.id), "truck_id": str(truck.id)},
+            )
+        ).json()
+        assignment = await session.get(
+            DriverTruckAssignment, uuid.UUID(created["id"])
+        )
+        trip = await factories.make_trip(
+            session, driver, truck, assignment=assignment, status=status
+        )
+        return driver, truck, created, trip
+
+    async def test_an_active_trip_blocks_ending_its_assignment(
+        self, api: AsyncClient, manager_headers: dict, session: AsyncSession
+    ) -> None:
+        driver, truck, created, trip = await self._driver_on_a_trip(
+            api, manager_headers, session, TripStatus.ACTIVE
+        )
+
+        r = await api.post(
+            f"/api/assignments/{created['id']}/end", headers=manager_headers
+        )
+
+        assert r.status_code == 409, r.text
+        assert r.json()["error"]["code"] == "ASSIGNMENT_HAS_LIVE_TRIP"
+
+        still = (
+            await api.get(f"/api/assignments/{created['id']}", headers=manager_headers)
+        ).json()
+        assert still["status"] == "ACTIVE", "the assignment was ended anyway"
+        assert still["ended_at"] is None
+
+        trip_after = (
+            await api.get(f"/api/trips/{trip.id}", headers=manager_headers)
+        ).json()
+        assert trip_after["status"] == TripStatus.ACTIVE.value
+
+    async def test_a_refused_end_does_not_free_the_driver_for_a_second_truck(
+        self, api: AsyncClient, manager_headers: dict, session: AsyncSession
+    ) -> None:
+        """The consequence the guard exists to prevent."""
+        driver, _truck, created, _trip = await self._driver_on_a_trip(
+            api, manager_headers, session, TripStatus.ACTIVE
+        )
+        await api.post(f"/api/assignments/{created['id']}/end", headers=manager_headers)
+
+        second_truck = await factories.make_truck(session)
+        r = await api.post(
+            "/api/assignments",
+            headers=manager_headers,
+            json={"driver_id": str(driver.id), "truck_id": str(second_truck.id)},
+        )
+
+        assert r.status_code == 409, (
+            "the driver was paired to a second truck while still executing a "
+            f"trip on the first (got {r.status_code})"
+        )
+        assert r.json()["error"]["code"] == "ASSIGNMENT_HAS_LIVE_TRIP"
+
+    async def test_reassignment_cannot_end_a_live_assignment_in_one_call(
+        self, api: AsyncClient, manager_headers: dict, session: AsyncSession
+    ) -> None:
+        """The second path, which never mentions "end" at all.
+
+        `create()` ends the driver's open assignments inline. Without a guard
+        there, blocking the explicit endpoint would only make the bypass
+        shorter.
+        """
+        driver, _truck, _created, _trip = await self._driver_on_a_trip(
+            api, manager_headers, session, TripStatus.ACTIVE
+        )
+        second_truck = await factories.make_truck(session)
+
+        r = await api.post(
+            "/api/assignments",
+            headers=manager_headers,
+            json={"driver_id": str(driver.id), "truck_id": str(second_truck.id)},
+        )
+
+        assert r.status_code == 409, r.text
+        assert r.json()["error"]["code"] == "ASSIGNMENT_HAS_LIVE_TRIP"
+
+    async def test_a_closed_trip_does_not_block_ending(
+        self, api: AsyncClient, manager_headers: dict, session: AsyncSession
+    ) -> None:
+        """The guard must not make assignments impossible to close after the
+        work is legitimately finished."""
+        _driver, _truck, created, _trip = await self._driver_on_a_trip(
+            api, manager_headers, session, TripStatus.CLOSED
+        )
+
+        r = await api.post(
+            f"/api/assignments/{created['id']}/end", headers=manager_headers
+        )
+
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "ENDED"
+
+    async def test_a_cancelled_trip_does_not_block_ending(
+        self, api: AsyncClient, manager_headers: dict, session: AsyncSession
+    ) -> None:
+        _driver, _truck, created, _trip = await self._driver_on_a_trip(
+            api, manager_headers, session, TripStatus.CANCELLED
+        )
+
+        r = await api.post(
+            f"/api/assignments/{created['id']}/end", headers=manager_headers
+        )
+
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "ENDED"
+
+    async def test_a_delivered_but_unclosed_trip_still_blocks(
+        self, api: AsyncClient, manager_headers: dict, session: AsyncSession
+    ) -> None:
+        """DELIVERED is not terminal. The paperwork is not done, the trip still
+        references the pairing, and CLOSED is one ordinary call away."""
+        _driver, _truck, created, _trip = await self._driver_on_a_trip(
+            api, manager_headers, session, TripStatus.DELIVERED
+        )
+
+        r = await api.post(
+            f"/api/assignments/{created['id']}/end", headers=manager_headers
+        )
+
+        assert r.status_code == 409, r.text
+        assert r.json()["error"]["code"] == "ASSIGNMENT_HAS_LIVE_TRIP"
+
+    async def test_a_planned_but_unstarted_trip_does_not_block_reassignment(
+        self, api: AsyncClient, manager_headers: dict, session: AsyncSession
+    ) -> None:
+        """The other side of the boundary, pinned so it cannot drift.
+
+        A trip that is merely ASSIGNED has not started. Blocking reassignment
+        here would mean a trip planned onto the wrong truck pins the driver
+        until a manager cancels it - a worse failure than the one being fixed.
+        """
+        driver, _truck, _created, _trip = await self._driver_on_a_trip(
+            api, manager_headers, session, TripStatus.ASSIGNED
+        )
+        second_truck = await factories.make_truck(session)
+
+        r = await api.post(
+            "/api/assignments",
+            headers=manager_headers,
+            json={"driver_id": str(driver.id), "truck_id": str(second_truck.id)},
+        )
+
+        assert r.status_code == 201, r.text

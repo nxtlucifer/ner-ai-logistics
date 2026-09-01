@@ -153,13 +153,30 @@ Measured 2026-08-30, not estimated:
 | End-to-end fleet certification | 44 checks passed, 0 failed |
 
 **GPS exists.** Ingestion, idempotency, freshness, the driver tracking engine and
-the manager fleet map are implemented. What does **not** exist: routing, ETA,
-fuel AI, weather, road incidents, rerouting, Fleet Sentinel, SOS, payments,
-payroll, OCR, and API rate limiting. Physical Android GPS capture is **NOT
-CERTIFIED** — it has never been run on a real handset.
+the manager fleet map are implemented.
 
-Next phase is **P7 — Routing**. See
-[docs/DEVELOPMENT_ROADMAP.md](docs/DEVELOPMENT_ROADMAP.md).
+**Routing partly exists — uncommitted, P7 exit gate NOT met.** A provider
+abstraction with a primary→fallback chain, an OSRM provider verified against the
+live service (305.39 km Guwahati→Jorhat), persistence into `trip_routes` with
+supersession, and a manager UI drawing the planned route distinctly from the
+observed track. It is **not** three routes: PRIMARY always, EMERGENCY_BACKUP only
+for a genuinely different corridor, **FUEL_EFFICIENT never** — that needs a fuel
+model. No ETA, no elevation, no driver-app rendering, no scoring.
+
+**Rate limiting partly exists — uncommitted.** Authentication endpoints only.
+
+**Route risk V1 exists — uncommitted.** Weather is sampled at five points along a
+planned route and scored by a deterministic weighted rule with published constants
+(`app/domain/route_risk.py`). It is **not** a model: no confidence, no version, no
+prediction, and a test keeps those fields absent. It reports the datasets it lacks
+(landslide, road quality, truck restrictions, fuel) rather than hiding them.
+
+What does **not** exist at all: ETA, fuel AI, road incidents, automatic
+rerouting, Fleet Sentinel, SOS, payments, payroll, OCR, and rate limiting outside
+auth. Physical Android GPS capture is **NOT CERTIFIED** — it has never been run
+on a real handset.
+
+See [docs/DEVELOPMENT_ROADMAP.md](docs/DEVELOPMENT_ROADMAP.md).
 
 **One backend pytest run at a time.** `factories.cleanup` deletes by global
 prefix, so two concurrent runs delete each other's fixtures. A session advisory

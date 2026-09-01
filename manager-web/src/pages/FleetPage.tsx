@@ -15,8 +15,20 @@
  * disagree with the system a dispatcher is acting on.
  *
  * Nothing is invented. A truck that has never reported is listed and counted
- * but not plotted; there is no ETA, because routing does not exist yet; and
- * every field in the detail panel is a value the API returned.
+ * but not plotted, and every field in the detail panel is a value the API
+ * returned.
+ *
+ * PLANNED ROUTE vs OBSERVED TRACK. Since P7 the map can draw both, and they are
+ * deliberately not alike: the planned route is a dashed violet line beneath a
+ * solid sky-blue observed track, and the panel labels them in matching colours.
+ * One is where a routing provider says the truck should go; the other is where
+ * it has actually been. Rendering them alike would let a dispatcher read a plan
+ * as an observation.
+ *
+ * Still no ETA. The provider gives a free-flow travel time, which accounts for
+ * no departure time, no traffic and no dwell at stops - so it is labelled as
+ * what it is and never presented as an arrival time. No fuel figure either:
+ * there is no fuel model, and NULL means unavailable, never zero.
  */
 
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -28,6 +40,7 @@ import {
   type Freshness,
   type Position,
   type TripDetail,
+  type TripRoute,
   type Truck,
 } from '../api/client'
 const FleetMap = lazy(() => import('../components/FleetMap'))
@@ -95,6 +108,8 @@ interface Selection {
   truck: Truck | null
   track: Position[]
   trackTruncated: boolean
+  /** Routes already planned for this trip, newest first, history included. */
+  routes: TripRoute[]
   isLoading: boolean
   error: unknown
 }
@@ -105,6 +120,7 @@ const EMPTY_SELECTION: Selection = {
   truck: null,
   track: [],
   trackTruncated: false,
+  routes: [],
   isLoading: false,
   error: null,
 }
@@ -134,12 +150,18 @@ function useSelectionDetail(row: FleetTrip | null): Selection {
 
     void (async () => {
       try {
-        // In parallel: four small reads, none of them polled.
-        const [trip, driver, truck, track] = await Promise.all([
+        // In parallel: five small reads, none of them polled.
+        //
+        // Routes are fetched rather than planned. Planning calls a third party
+        // and writes a row; doing that merely because someone clicked a truck
+        // would spend a provider budget on idle curiosity. It is an explicit
+        // action below.
+        const [trip, driver, truck, track, routes] = await Promise.all([
           api.getTrip(tripId),
           api.getDriver(driverId),
           api.getTruck(truckId),
           api.tripTrack(tripId, 200),
+          api.listRoutes(tripId),
         ])
         // Guards a slow earlier selection resolving after a newer one.
         if (id !== requestId.current) return
@@ -149,6 +171,7 @@ function useSelectionDetail(row: FleetTrip | null): Selection {
           truck,
           track: track.points,
           trackTruncated: track.truncated,
+          routes,
           isLoading: false,
           error: null,
         })
@@ -177,6 +200,53 @@ export default function FleetPage() {
     [trips, selectedTripId],
   )
   const detail = useSelectionDetail(selectedRow)
+
+  // Route planning is an explicit action, held separately from the selection
+  // read: it calls a third-party provider and writes a row, so it must not
+  // happen merely because a dispatcher clicked a truck to look at it.
+  // Both carry the trip they belong to, rather than being cleared by an effect
+  // when the selection changes. A result tagged with its own trip simply stops
+  // matching, so the previous trip's route can never be drawn over the next
+  // one - and there is no render pass spent resetting state that the next
+  // comparison would have ignored anyway.
+  const [planned, setPlanned] = useState<{ tripId: string; route: TripRoute } | null>(
+    null,
+  )
+  const [planError, setPlanError] = useState<{ tripId: string; error: unknown } | null>(
+    null,
+  )
+  const [isPlanning, setIsPlanning] = useState(false)
+
+  const plannedHere =
+    planned && planned.tripId === selectedTripId ? planned.route : null
+  const planErrorHere =
+    planError && planError.tripId === selectedTripId ? planError.error : null
+
+  // Whatever is current for this trip: a route just planned, else the newest
+  // non-superseded one already stored.
+  const activeRoute =
+    plannedHere ??
+    detail.routes.find((r) => r.state === 'SELECTED') ??
+    detail.routes.find((r) => r.state === 'PROPOSED') ??
+    null
+
+  async function planRoute() {
+    if (!selectedTripId || isPlanning) return
+    // Captured now: the operator may select a different truck while the
+    // provider is still thinking, and the answer belongs to the trip it was
+    // asked about, not to whatever is on screen when it arrives.
+    const tripId = selectedTripId
+    setIsPlanning(true)
+    setPlanError(null)
+    try {
+      const result = await api.planRoute(tripId)
+      setPlanned({ tripId, route: result.route })
+    } catch (error) {
+      setPlanError({ tripId, error })
+    } finally {
+      setIsPlanning(false)
+    }
+  }
 
   // No effect clears a stale selection. A trip that finishes leaves the active
   // fleet, `selectedRow` resolves to null, and every consumer - panel, map
@@ -306,6 +376,7 @@ export default function FleetPage() {
               selectedTripId={selectedTripId}
               onSelect={select}
               track={detail.track}
+              plannedRoute={activeRoute?.geometry}
             />
           </Suspense>
 
@@ -562,12 +633,78 @@ export default function FleetPage() {
                     )}
                   </div>
 
+                  {/* PLANNED route, immediately above the OBSERVED track so
+                      the distinction is visible in the panel and not only in
+                      the map legend. One is where a provider says the truck
+                      should go; the other is where it has actually been. */}
                   <div>
-                    <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-violet-400">
+                      Planned route
+                    </h3>
+                    {activeRoute ? (
+                      <>
+                        <Detail
+                          label="Distance"
+                          value={
+                            activeRoute.distance_km
+                              ? `${Number(activeRoute.distance_km).toLocaleString()} km`
+                              : 'unavailable'
+                          }
+                        />
+                        <Detail
+                          label="Free-flow travel time"
+                          value={
+                            activeRoute.estimated_duration_min === null
+                              ? 'unavailable'
+                              : `${Math.floor(activeRoute.estimated_duration_min / 60)}h ${
+                                  activeRoute.estimated_duration_min % 60
+                                }m`
+                          }
+                        />
+                        <Detail
+                          label="Provider"
+                          value={activeRoute.routing_provider ?? 'unknown'}
+                        />
+                        {/* Said plainly, because a duration beside a live map
+                            reads as an arrival time unless it is denied. */}
+                        <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                          Travel time is the routing provider's free-flow
+                          estimate. It is <strong>not an ETA</strong> — it
+                          accounts for no departure time, no traffic and no time
+                          spent at stops. No fuel estimate is shown because no
+                          fuel model exists yet.
+                        </p>
+                      </>
+                    ) : planErrorHere ? (
+                      <ErrorState error={planErrorHere} onRetry={() => void planRoute()} />
+                    ) : (
+                      <p className="text-xs text-slate-500">
+                        No route planned for this trip yet.
+                      </p>
+                    )}
+                    <div className="mt-3">
+                      <Button
+                        variant="secondary"
+                        busy={isPlanning}
+                        disabled={isPlanning}
+                        onClick={() => void planRoute()}
+                      >
+                        {isPlanning
+                          ? 'Planning…'
+                          : activeRoute
+                            ? 'Re-plan route'
+                            : 'Plan route'}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-sky-400">
                       Observed trip track
                     </h3>
-                    {/* NOT "route". Routing does not exist until P7; this is
-                        only where the truck has actually been observed. */}
+                    {/* NOT "route" - this is only where the truck has actually
+                        been observed. The planned route is the block above, and
+                        the two are drawn differently on the map. */}
                     <p className="text-xs text-slate-500">
                       {detail.track.length === 0
                         ? 'No positions recorded yet.'

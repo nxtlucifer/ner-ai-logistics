@@ -89,6 +89,83 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
+    # --- Rate limiting (authentication endpoints only) ---
+    #
+    # Applied per route as a dependency, never as global middleware, so GPS
+    # ingestion cannot be caught by it - see app/core/rate_limit.py.
+    #
+    # Defaults are generous enough that a person fumbling a password on a hill
+    # road at night is not locked out, and tight enough that Argon2's ~100 ms
+    # cost is no longer the only thing standing between an exposed login
+    # endpoint and unlimited guessing.
+    RATE_LIMIT_ENABLED: bool = True
+    #: Attempts per window, per client address, across all identifiers.
+    LOGIN_RATE_LIMIT_PER_IP: int = 20
+    #: Attempts per window for one identifier, from anywhere. Lower, because
+    #: this is the limit a distributed attack on a single account meets.
+    LOGIN_RATE_LIMIT_PER_IDENTIFIER: int = 10
+    #: Refresh is a legitimate background operation - two tabs, an app resuming,
+    #: a token expiring mid-task - so this bounds abuse without tripping on
+    #: ordinary use.
+    REFRESH_RATE_LIMIT_PER_IP: int = 60
+    RATE_LIMIT_WINDOW_SECONDS: int = 60
+
+    # --- Routing providers ---
+    #
+    # The chain is primary -> fallback. The fallback is a keyless OSRM endpoint
+    # so routing works with no credential at all; the primary slot is for a
+    # provider with an actual service level, because the public OSRM demo server
+    # states plainly that it gives no quality guarantee and that access "shall be
+    # withdrawn at any time and without giving a reason" - which is not something
+    # to discover during a demo.
+    #
+    # There is deliberately NO ROUTING_PRIMARY_KEY setting. A keyed provider
+    # needs a provider class that knows where that provider puts its
+    # credential - a header, a query parameter, a bearer token - and those
+    # differ per vendor. A setting that accepted a key and then sent it nowhere
+    # would be worse than its absence: someone would configure it, see routing
+    # work through the keyless fallback, and believe the key was in use.
+    #
+    # The abstraction is the point: adding a keyed provider means writing one
+    # class against `RoutingProvider` and adding it to `build_chain`. When that
+    # happens the credential is a BACKEND secret and must never take a VITE_ or
+    # EXPO_PUBLIC_ prefix, since those are inlined into client bundles.
+    #
+    # ROUTING_PRIMARY_URL works today for any OSRM-compatible endpoint that
+    # needs no credential - a self-hosted instance, for example.
+    ROUTING_PRIMARY_URL: str | None = None
+    ROUTING_FALLBACK_URL: str = "https://router.project-osrm.org"
+    ROUTING_TIMEOUT_SECONDS: float = 8.0
+    #: ON by default, and the comment here previously said "off by default"
+    #: while the value said True - the kind of contradiction that makes a
+    #: config file untrustworthy to read. The value is the correct one: route
+    #: planning is a feature of the product, not an opt-in.
+    #:
+    #: A test run does not depend on anyone's uptime regardless, because the
+    #: tests replace the provider chain rather than reaching the network (see
+    #: tests/test_route_api.py). Setting this to False is for an offline demo,
+    #: and it makes /routes/recalculate answer 422 ROUTING_DISABLED rather than
+    #: hang against an unreachable provider.
+    ROUTING_ENABLED: bool = True
+
+    # --- Weather provider ---
+    #
+    # Open-Meteo needs NO API key for non-commercial use, so there is no
+    # WEATHER_PROVIDER_KEY here for the same reason there is no
+    # ROUTING_PRIMARY_KEY: a setting that accepted a credential and sent it
+    # nowhere would be worse than its absence. Commercial use would need a
+    # keyed provider class, and that key would be a BACKEND secret - never a
+    # VITE_ or EXPO_PUBLIC_ prefix, which are inlined into client bundles.
+    WEATHER_PROVIDER_URL: str = "https://api.open-meteo.com"
+    #: Shorter than routing's 8 s. Route risk fans out to several requests, and
+    #: a dispatcher waiting on a risk panel is a worse experience than one told
+    #: promptly that conditions are unknown.
+    WEATHER_TIMEOUT_SECONDS: float = 6.0
+    #: Off makes route risk return with weather NOT_AVAILABLE rather than
+    #: reaching the network - for an offline demo, and for tests that must not
+    #: depend on anyone's uptime.
+    WEATHER_ENABLED: bool = True
+
     # --- Database provider ---
     DATABASE_PROVIDER: DatabaseProvider = "supabase"
 
