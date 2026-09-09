@@ -23,6 +23,7 @@
  */
 
 import type { LocationAdapter, Sample, Subscription } from './adapter'
+import { MemoryQueueStore, type QueueStore } from './queueStore'
 
 export type PermissionState =
   | 'unknown'
@@ -53,6 +54,8 @@ export interface TrackerConfig {
   queueLimit: number
 }
 
+export type PersistenceState = 'memory' | 'durable' | 'degraded'
+
 export interface TrackerState {
   permission: PermissionState
   isTracking: boolean
@@ -61,6 +64,44 @@ export interface TrackerState {
   lastAcceptedAt: Date | null
   droppedCount: number
   lastError: string | null
+  /**
+   * The most recent fix this tracker KEPT, for drawing on the map.
+   *
+   * Null until a real fix arrives, and it stays null when permission is
+   * denied or location is unavailable - there is no fallback, no last-resort
+   * depot coordinate, nothing derived from the route. A marker on a driver's
+   * map is a claim about where the truck is, and the only thing entitled to
+   * make it is a fix from the device.
+   *
+   * It updates on KEPT samples rather than on every sample: that is already
+   * throttled to the configured cadence, it is the position the fleet manager
+   * is also being shown, and emitting at raw GPS rate would re-render the map
+   * several times a second for sub-metre changes.
+   *
+   * `accuracyM` is whatever the platform reported, or null when it reported
+   * nothing - never a default, because a made-up accuracy circle is a made-up
+   * claim about certainty.
+   */
+  lastPosition: {
+    lat: number
+    lon: number
+    accuracyM: number | null
+    speedKmh?: number | null
+    /** Device clock, milliseconds. The UI ages it to decide LIVE vs stale. */
+    at: number
+  } | null
+  /**
+   * Whether the unsent queue would survive the app being killed.
+   *
+   * `memory`   no durable store was provided; the queue is lost on restart.
+   * `durable`  the store is working and the queue is being written through.
+   * `degraded` a durable store was provided and is FAILING. Tracking and
+   *            uploading continue from memory - a full disk must not stop a
+   *            truck being tracked - but the queue is no longer durable, and a
+   *            screen that kept claiming it was would be lying to a dispatcher
+   *            about what happens if the phone reboots in a valley.
+   */
+  persistence: PersistenceState
 }
 
 export interface UploadOutcome {
@@ -77,6 +118,15 @@ export interface TrackerDeps {
   classify: (error: unknown) => UploadOutcome
   now: () => number
   newId: () => string
+  /**
+   * Where the unsent queue lives between launches.
+   *
+   * Optional, and its absence is a supported configuration rather than a
+   * missing dependency: without one the tracker behaves exactly as it did
+   * before and reports `persistence: 'memory'`. Supplying one is what makes a
+   * queue survive the OS killing the app mid-trip.
+   */
+  queueStore?: QueueStore
 }
 
 export const BACKOFF_BASE_MS = 2_000
@@ -149,6 +199,8 @@ export class LocationTracker {
     lastAcceptedAt: null,
     droppedCount: 0,
     lastError: null,
+    lastPosition: null,
+    persistence: 'memory',
   }
 
   private queue: GpsFix[] = []
@@ -160,10 +212,83 @@ export class LocationTracker {
   private stopped = true
   private listeners = new Set<(state: TrackerState) => void>()
 
+  private readonly store: QueueStore
+  private readonly durable: boolean
+  /** Serialises writes so two saves cannot interleave into a torn file. */
+  private writing: Promise<void> = Promise.resolve()
+
   constructor(
     private readonly deps: TrackerDeps,
     private readonly config: TrackerConfig,
-  ) {}
+  ) {
+    this.durable = deps.queueStore !== undefined
+    this.store = deps.queueStore ?? new MemoryQueueStore()
+    this.state = { ...this.state, persistence: this.durable ? 'durable' : 'memory' }
+  }
+
+  /**
+   * Write the queue through to the store, without blocking the caller.
+   *
+   * Chained rather than awaited at the call sites: a fix arriving must reach
+   * the in-memory queue immediately, because a phone that stutters on a slow
+   * write must not drop a position while it waits. The chain guarantees the
+   * LAST write wins and that two saves never interleave.
+   *
+   * A rejection degrades the state and is otherwise swallowed. Storage failing
+   * is not a reason to stop tracking a truck - it is a reason to stop claiming
+   * the queue is durable.
+   */
+  private persist(): void {
+    if (!this.durable) return
+    const snapshot = [...this.queue]
+    this.writing = this.writing
+      .then(() => this.store.save(snapshot))
+      .then(() => {
+        if (this.state.persistence === 'degraded') {
+          this.emit({ persistence: 'durable' })
+        }
+      })
+      .catch(() => {
+        if (this.state.persistence !== 'degraded') {
+          this.emit({ persistence: 'degraded' })
+        }
+      })
+  }
+
+  /**
+   * Reload anything left unsent by a previous run.
+   *
+   * Safe to replay: the server deduplicates on (trip_id, device_fix_id) with
+   * ON CONFLICT DO NOTHING, so a batch that was actually delivered before the
+   * app died is absorbed rather than duplicated. That is what makes
+   * "persist before sending, clear after" unnecessary - re-sending is cheap
+   * and losing positions is not.
+   *
+   * Restored fixes go in FRONT of anything collected since, because they are
+   * older and the queue replays chronologically.
+   */
+  async hydrate(): Promise<void> {
+    if (!this.durable) return
+    let restored: GpsFix[] = []
+    try {
+      restored = await this.store.load()
+    } catch {
+      this.emit({ persistence: 'degraded' })
+      return
+    }
+    if (restored.length === 0) return
+
+    const known = new Set(this.queue.map((f) => f.device_fix_id))
+    const merged = [
+      ...restored.filter((f) => !known.has(f.device_fix_id)),
+      ...this.queue,
+    ]
+    // The bound applies to a restored queue exactly as it does to a live one,
+    // and drops the same end: a store written by an older build with a larger
+    // limit must not be able to reintroduce an unbounded queue.
+    this.queue = merged.slice(Math.max(0, merged.length - this.config.queueLimit))
+    this.emit({ queueDepth: this.queue.length })
+  }
 
   getState(): TrackerState {
     return this.state
@@ -271,6 +396,18 @@ export class LocationTracker {
 
     this.lastKept = { ...here, at: sample.timestamp }
     this.queue.push(toFix(sample, this.deps.newId()))
+    // Publish the position for the map. Same fix, same moment, same cadence as
+    // the one being queued for the server - so the driver's marker and the
+    // dispatcher's marker cannot disagree about where this truck is.
+    this.emit({
+      lastPosition: {
+        lat: sample.lat,
+        lon: sample.lon,
+        accuracyM: sample.accuracyM ?? null,
+        speedKmh: sample.speedMs !== null && !isNaN(sample.speedMs) && sample.speedMs >= 0 ? Math.round(sample.speedMs * 3.6) : null,
+        at: sample.timestamp,
+      },
+    })
 
     let dropped = this.state.droppedCount
     if (this.queue.length > this.config.queueLimit) {
@@ -282,6 +419,7 @@ export class LocationTracker {
       dropped += overflow
     }
     this.emit({ queueDepth: this.queue.length, droppedCount: dropped })
+    this.persist()
   }
 
   /**
@@ -312,6 +450,11 @@ export class LocationTracker {
         lastError: null,
         queueDepth: this.queue.length,
       })
+      // Only AFTER the server accepted them. Removing a batch from the store
+      // before it is acknowledged is how positions vanish when the app dies
+      // mid-request: the queue would come back already missing fixes that
+      // never landed.
+      this.persist()
     } catch (error) {
       const outcome = this.deps.classify(error)
       if (outcome.retryable) {
@@ -329,6 +472,9 @@ export class LocationTracker {
         lastError: outcome.message,
         queueDepth: this.queue.length,
       })
+      // The batch went back on (retryable) or was discarded (not), and either
+      // way the store must match what is now in memory.
+      this.persist()
     } finally {
       this.flushing = false
     }
@@ -359,5 +505,14 @@ export class LocationTracker {
       uploadState: 'idle',
       queueDepth: 0,
     })
+    // The store is cleared for the same reason the in-memory queue is: the
+    // server refuses location for a trip that is no longer in progress, so a
+    // persisted queue would come back on the next launch and retry forever
+    // against an endpoint that will never accept it.
+    if (this.durable) {
+      this.writing = this.writing.then(() => this.store.clear()).catch(() => {
+        this.emit({ persistence: 'degraded' })
+      })
+    }
   }
 }

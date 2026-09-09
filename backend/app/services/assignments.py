@@ -104,6 +104,15 @@ async def _refuse_if_a_trip_is_underway(
                 Trip.assignment_id.in_(assignment_ids),
                 Trip.status.not_in(tuple(TERMINAL_STATES)),
             )
+            # Deterministic lock order WITHIN the table. A driver may hold
+            # more than one non-terminal trip - nothing forbids it, and
+            # ix_trips_active is not unique - so this can lock a SET of
+            # rows. `drivers.deactivate()` locks an overlapping set for the
+            # same driver. Two transactions taking the same rows in
+            # different orders deadlock on row order alone, even though
+            # both agree on the users-then-trips table order. Sorting by a
+            # stable key makes the sequence identical on both sides.
+            .order_by(Trip.id)
             .with_for_update()
         )
     ).all()

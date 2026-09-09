@@ -12,15 +12,15 @@ import { useResource } from '../hooks/useResource'
 type RowState = 'ok' | 'bad' | 'unknown'
 
 const DOT: Record<RowState, string> = {
-  ok: 'bg-emerald-500',
-  bad: 'bg-red-500',
-  unknown: 'bg-slate-400',
+  ok: 'bg-ok-strong',
+  bad: 'bg-danger-strong',
+  unknown: 'bg-muted',
 }
 
 const TEXT: Record<RowState, string> = {
-  ok: 'text-emerald-400',
-  bad: 'text-red-400',
-  unknown: 'text-slate-400',
+  ok: 'text-ok',
+  bad: 'text-danger',
+  unknown: 'text-muted',
 }
 
 function Row({
@@ -35,11 +35,11 @@ function Row({
   detail?: string | null
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-slate-800 py-4 last:border-b-0">
+    <div className="flex items-start justify-between gap-4 border-b border-line py-4 last:border-b-0">
       <div className="min-w-0">
-        <div className="text-sm font-medium text-slate-300">{label}</div>
+        <div className="text-sm font-medium text-ink">{label}</div>
         {detail ? (
-          <div className="mt-1 truncate font-mono text-xs text-slate-500">
+          <div className="mt-1 truncate font-mono text-xs text-muted">
             {detail}
           </div>
         ) : null}
@@ -63,8 +63,8 @@ export default function SystemPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-bold text-slate-100">System</h1>
-        <p className="text-xs text-slate-500">
+        <h1 className="text-xl font-bold text-ink">System</h1>
+        <p className="text-xs text-muted">
           Live backend and database health. Nothing on this page is hardcoded.
         </p>
       </div>
@@ -113,14 +113,20 @@ export default function SystemPage() {
         ) : null}
       </Card>
 
-      <p className="text-xs leading-relaxed text-slate-600">
+      <p className="text-xs leading-relaxed text-muted">
         SIH26002 — AI-Based Smart Logistics and Accessibility Intelligence Platform
         for the North Eastern Region. Live GPS tracking, trip execution and route
         planning are implemented. A planned route is drawn as a dashed line
         beneath the solid observed GPS track, so the two are never confused.
-        Weather is used to score route risk on the backend, but is not displayed
-        here yet. ETA, fuel AI, road incidents, automatic rerouting and the
-        safety features are not built yet. There is no arrival estimate anywhere: a
+        Route risk — scored from distance, duration and current weather along the
+        corridor by a deterministic rule, not a model — is shown on Fleet, and a
+        lower-risk alternative is proposed there with its cost in minutes and
+        kilometres. A person accepts or rejects it: <strong>automatic</strong>{' '}
+        rerouting is not built, and nothing here changes a route on its own.
+        Landslide risk is not built — the historical inventory it needs is a bulk
+        GIS download and the live sources surveyed publish no road-reopening feed,
+        so the engine would have nothing honest to score. ETA, fuel AI and road
+        incidents are not built. There is no arrival estimate anywhere: a
         provider's duration is not an ETA, and nothing on these screens computes
         one.
       </p>

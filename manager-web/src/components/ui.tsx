@@ -20,6 +20,13 @@ interface ButtonProps {
   variant?: 'primary' | 'secondary' | 'danger'
   disabled?: boolean
   busy?: boolean
+  /** Extra classes, appended last so a caller can override size or width. */
+  className?: string
+  /**
+   * Native tooltip. Used to carry WHY a control is disabled - a greyed button
+   * with no explanation is only marginally better than one that throws.
+   */
+  title?: string
 }
 
 export function Button({
@@ -29,14 +36,18 @@ export function Button({
   variant = 'primary',
   disabled = false,
   busy = false,
+  className = '',
+  title,
 }: ButtonProps) {
+  // Terrain: the primary action is green, never blue. Blue in this product
+  // means "route" or "focus" and nothing else.
   const styles = {
     primary:
-      'bg-emerald-600 text-white hover:bg-emerald-500 disabled:bg-emerald-900 disabled:text-emerald-500',
+      'bg-primary text-white shadow-[var(--shadow-card)] hover:bg-primary-hover active:bg-primary-hover disabled:bg-soft disabled:text-muted disabled:shadow-none',
     secondary:
-      'border border-slate-600 text-slate-200 hover:bg-slate-800 disabled:opacity-40',
+      'border border-line bg-surface text-ink shadow-[var(--shadow-card)] hover:bg-soft hover:border-outline active:bg-soft disabled:opacity-40 disabled:shadow-none',
     danger:
-      'border border-red-800 text-red-300 hover:bg-red-950 disabled:opacity-40',
+      'border border-danger/30 text-danger hover:bg-danger-soft disabled:opacity-40',
   }[variant]
 
   return (
@@ -47,7 +58,8 @@ export function Button({
       // second click during an in-flight assignment creates a duplicate request.
       disabled={disabled || busy}
       aria-busy={busy}
-      className={`inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed ${styles}`}
+      title={title}
+      className={`inline-flex items-center justify-center gap-2 min-h-11 rounded-[var(--radius-control)] px-4 py-2 text-sm font-semibold transition-colors duration-150 disabled:cursor-not-allowed ${styles} ${className}`}
     >
       {busy ? <Spinner /> : null}
       {children}
@@ -93,9 +105,9 @@ export function Field({
 }: FieldProps) {
   return (
     <label className="block">
-      <span className="text-xs font-medium text-slate-300">
+      <span className="text-xs font-medium text-ink">
         {label}
-        {required ? <span className="ml-0.5 text-red-400">*</span> : null}
+        {required ? <span className="ml-0.5 text-danger">*</span> : null}
       </span>
       <input
         name={name}
@@ -106,16 +118,20 @@ export function Field({
         autoComplete={autoComplete}
         aria-invalid={Boolean(error)}
         onChange={(e) => onChange(e.target.value)}
-        className={`mt-1 w-full rounded-md border bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:ring-1 ${
+        // Inputs carry `border-outline`, not `border-line`: a box you may type
+        // into needs more weight than a rule dividing two cards, and on the
+        // warm canvas the lighter line all but disappeared. Focus is route
+        // blue — Terrain reserves blue for route and focus.
+        className={`mt-1 w-full rounded-[var(--radius-control)] border bg-surface px-3 py-2 text-sm text-ink transition-colors placeholder:text-muted focus:ring-1 ${
           error
-            ? 'border-red-700 focus:border-red-500 focus:ring-red-500'
-            : 'border-slate-700 focus:border-emerald-600 focus:ring-emerald-600'
+            ? 'border-danger focus:border-danger focus:ring-danger'
+            : 'border-outline focus:border-route focus:ring-route'
         }`}
       />
       {error ? (
-        <span className="mt-1 block text-xs text-red-400">{error}</span>
+        <span className="mt-1 block text-xs text-danger">{error}</span>
       ) : hint ? (
-        <span className="mt-1 block text-xs text-slate-500">{hint}</span>
+        <span className="mt-1 block text-xs text-muted">{hint}</span>
       ) : null}
     </label>
   )
@@ -123,22 +139,32 @@ export function Field({
 
 // --- Status ---------------------------------------------------------------
 
+/**
+ * ON_TRIP is route blue, not green.
+ *
+ * Under the Terrain palette `primary` and `ok` are the same green, so the old
+ * `ON_TRIP: primary-soft` rendered a moving truck identically to an idle
+ * available one — the single most consequential pair on the fleet page to be
+ * unable to tell apart at a glance. Blue is the correct answer rather than
+ * merely a free one: a truck ON_TRIP is a truck on a route, and route is
+ * exactly what blue means everywhere else in this product.
+ */
 const STATUS_TONE: Record<string, string> = {
-  AVAILABLE: 'bg-emerald-950 text-emerald-300 border-emerald-800',
-  ACTIVE: 'bg-emerald-950 text-emerald-300 border-emerald-800',
-  ON_TRIP: 'bg-sky-950 text-sky-300 border-sky-800',
-  MAINTENANCE: 'bg-amber-950 text-amber-300 border-amber-800',
-  PENDING_VERIFICATION: 'bg-amber-950 text-amber-300 border-amber-800',
-  OFF_DUTY: 'bg-slate-800 text-slate-300 border-slate-700',
-  ENDED: 'bg-slate-800 text-slate-400 border-slate-700',
-  BREAKDOWN: 'bg-red-950 text-red-300 border-red-800',
-  SUSPENDED: 'bg-red-950 text-red-300 border-red-800',
-  RETIRED: 'bg-slate-800 text-slate-500 border-slate-700',
-  REJECTED: 'bg-red-950 text-red-300 border-red-800',
+  AVAILABLE: 'bg-ok-soft text-ok border-ok/30',
+  ACTIVE: 'bg-ok-soft text-ok border-ok/30',
+  ON_TRIP: 'bg-route-soft text-route border-route/30',
+  MAINTENANCE: 'bg-warning-soft text-warning border-warning/30',
+  PENDING_VERIFICATION: 'bg-warning-soft text-warning border-warning/30',
+  OFF_DUTY: 'bg-soft text-ink border-line',
+  ENDED: 'bg-soft text-muted border-line',
+  BREAKDOWN: 'bg-danger-soft text-danger border-danger/30',
+  SUSPENDED: 'bg-danger-soft text-danger border-danger/30',
+  RETIRED: 'bg-soft text-muted border-line',
+  REJECTED: 'bg-danger-soft text-danger border-danger/30',
 }
 
 export function StatusPill({ status }: { status: string }) {
-  const tone = STATUS_TONE[status] ?? 'bg-slate-800 text-slate-300 border-slate-700'
+  const tone = STATUS_TONE[status] ?? 'bg-soft text-ink border-line'
   return (
     <span
       className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-semibold tracking-wide ${tone}`}
@@ -154,7 +180,7 @@ export function LoadingState({ label = 'Loading…' }: { label?: string }) {
   return (
     <div
       role="status"
-      className="flex items-center justify-center gap-2 py-12 text-sm text-slate-400"
+      className="flex items-center justify-center gap-2 py-12 text-sm text-muted"
     >
       <Spinner />
       {label}
@@ -173,9 +199,9 @@ export function EmptyState({
 }) {
   return (
     <div className="py-12 text-center">
-      <p className="text-sm font-medium text-slate-300">{title}</p>
+      <p className="text-sm font-medium text-ink">{title}</p>
       {description ? (
-        <p className="mx-auto mt-1 max-w-md text-xs text-slate-500">{description}</p>
+        <p className="mx-auto mt-1 max-w-md text-xs text-muted">{description}</p>
       ) : null}
       {action ? <div className="mt-4">{action}</div> : null}
     </div>
@@ -223,10 +249,10 @@ export function ErrorState({
   return (
     <div
       role="alert"
-      className="rounded-lg border border-red-900 bg-red-950/50 px-4 py-3"
+      className="rounded-lg border border-danger/30 bg-danger-soft/50 px-4 py-3"
     >
-      <p className="text-sm font-semibold text-red-300">{title}</p>
-      <p className="mt-1 text-xs text-red-200/80">{detail}</p>
+      <p className="text-sm font-semibold text-danger">{title}</p>
+      <p className="mt-1 text-xs text-danger/80">{detail}</p>
       {onRetry && retryable ? (
         <div className="mt-3">
           <Button variant="secondary" onClick={onRetry}>
@@ -248,11 +274,11 @@ export function Card({
   children: ReactNode
 }) {
   return (
-    <section className="rounded-xl border border-slate-800 bg-slate-900/60">
+    <section className="min-w-0 rounded-[var(--radius-card)] border border-line bg-surface shadow-[var(--shadow-card)]">
       {title || action ? (
-        <header className="flex items-center justify-between border-b border-slate-800 px-5 py-3">
+        <header className="flex items-center justify-between border-b border-line px-5 py-3">
           {title ? (
-            <h2 className="text-sm font-semibold text-slate-200">{title}</h2>
+            <h2 className="text-sm font-semibold text-ink">{title}</h2>
           ) : (
             <span />
           )}

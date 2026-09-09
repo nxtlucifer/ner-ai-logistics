@@ -21,7 +21,12 @@ from app.services import routes as route_service
 from tests import factories
 from tests.conftest import auth_headers
 
-pytestmark = pytest.mark.requires_db
+# LS-7: this suite tests packaging/selection/journey behaviour, not the
+# hazard policy. `clear_hazard_evidence` supplies a source that really
+# answered, so these exercise what they mean to. Absence-of-evidence
+# behaviour lives in tests/test_route_eligibility.py and
+# tests/test_route_selection_hazard_api.py.
+pytestmark = [pytest.mark.requires_db, pytest.mark.usefixtures("clear_hazard_evidence")]
 
 GEOMETRY = [(26.1445, 91.7362), (26.4, 92.9), (26.7509, 94.2037)]
 
@@ -57,7 +62,9 @@ class _StubChain:
             duration_s=21_600.0,
         )
 
-    async def route_options(self, origin, destination, *, kind, limit=1):  # noqa: ANN001
+    async def route_options(
+        self, origin, destination, *, kind, limit=1, detailed=False
+    ):  # noqa: ANN001
         self.calls += 1
         if self._raises is not None:
             raise self._raises
@@ -484,7 +491,9 @@ class TestProviderCallDoesNotHoldTheDatabase:
         observed: dict = {}
 
         class _WatchingChain(_StubChain):
-            async def route_options(self, origin, destination, *, kind, limit=1):  # noqa: ANN001
+            async def route_options(
+                self, origin, destination, *, kind, limit=1, detailed=False
+            ):  # noqa: ANN001
                 # Sampled at exactly the moment plan() is awaiting the provider.
                 observed["checked_out"] = db_session.get_engine().pool.checkedout()
                 return await super().route_options(

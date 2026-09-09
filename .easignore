@@ -1,0 +1,82 @@
+# What EAS Build may NOT upload.
+#
+# THIS FILE HAS TO BE AT THE REPOSITORY ROOT, not next to eas.json.
+#
+# `eas build` with EAS_NO_VCS=1 archives from the repository root, so a
+# .easignore inside driver-app/ is read too late to exclude anything above it.
+# The first attempts uploaded a 1,020 MB archive that included .runtime/ - the
+# local Postgres data directory, the demo server logs, and the synthetic login
+# files. That is why this file exists at this level.
+#
+# EVERY DIRECTORY PATTERN IS ANCHORED WITH A LEADING SLASH, DELIBERATELY.
+#
+# These are gitignore patterns: an unanchored `i18n/` matches a directory of
+# that name at ANY depth. The first version of this file wrote `i18n/`, meaning
+# the repo's translation directory, and it also excluded
+# `driver-app/src/i18n/` - so the build got all the way to Metro and failed
+# with "Unable to resolve module ../i18n/language". A leading slash pins each
+# pattern to the repository root, which is what was meant every time.
+#
+# .easignore REPLACES .gitignore for the archive; it does not add to it. So
+# every exclusion has to be named here, including the obvious ones.
+
+# Archive inspection for Terrain Command found agent chat exports, telemetry,
+# local tool configuration and memory files outside the Expo app were still
+# included. This app has no workspace dependencies: allow only its directory
+# at the repository root, including when new local tooling folders appear.
+/*
+# NO TRAILING SLASH ON THIS NEGATION, AND THAT IS THE WHOLE BUG.
+#
+# `/*` ignores the `driver-app` DIRECTORY ENTRY itself. A negation written
+# `!/driver-app/` only ever matches a path spelled with a trailing slash, so the
+# directory entry stayed ignored, the archiver pruned it without descending, and
+# EAS uploaded an 80-BYTE archive - build 6c856cb0 died in 6.5 s with
+# "Unknown error. See logs of the Build complete hook".
+#
+# Adding `!/driver-app/**` does NOT rescue it: the parent directory node is
+# still ignored, so the walker never reaches anything to re-include.
+# Reproduced against the same `ignore` npm package the archiver uses.
+!/driver-app
+
+# The local demo runtime: Postgres data and binaries, server logs, and the
+# synthetic account files. None of it builds anything and none of it may leave
+# this machine.
+/.runtime/
+/logs/
+
+# Nothing outside the Expo app is needed to build the Expo app.
+/backend/
+/ml/
+/data/
+/design-system/
+/manager-web/
+/tests/
+/docs/
+/i18n/
+/.github/
+/.git/
+
+# Dependencies and build output. The EAS builder installs its own.
+node_modules/
+/driver-app/.expo/
+/driver-app/dist/
+/driver-app/web-build/
+/driver-app/android/
+/driver-app/ios/
+
+# Credentials and keys, restated rather than inherited.
+.env
+.env.*
+!.env.example
+*.keystore
+*.jks
+*.p8
+*.p12
+*.pem
+*.key
+credentials.json
+service-account*.json
+secrets/
+*.log
+*.db
+*.sqlite*

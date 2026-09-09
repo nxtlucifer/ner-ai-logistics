@@ -105,17 +105,33 @@ the check cannot be satisfied by renaming something.
 Role-based, enforced **server-side on every request**. Client-side role checks are cosmetic and are
 never the control.
 
-| Resource | ADMIN | MANAGER | DRIVER |
-| --- | --- | --- | --- |
-| Drivers / trucks CRUD | full | full except salary fields | read own profile |
-| Assignments | full | create, review | verify own |
-| Shipments / trips | full | full | read own, start/complete own |
-| GPS ingestion | — | — | **own active trip only** |
-| GPS history | full | full | own trips only |
-| Routes / incidents | full | full | read; report incidents |
-| Payments / payroll | full | trip payments only | own payroll read-only |
-| Emergencies | full | view, resolve | **respond to own only** |
-| Audit logs | read | read scoped | none |
+| Resource | ADMIN | MANAGER | DRIVER | AUTHORISED_REVIEWER |
+| --- | --- | --- | --- | --- |
+| Drivers / trucks CRUD | full | full except salary fields | read own profile | — |
+| Assignments | full | create, review | verify own | — |
+| Shipments / trips | full | full | read own, start/complete own | read |
+| GPS ingestion | — | — | **own active trip only** | — |
+| GPS history | full | full | own trips only | **—** |
+| Routes / incidents | full | full | read; report incidents | read |
+| Route selection | full | full | — | **NONE — deliberate** |
+| Review authorisation | full | **NONE — deliberate** | — | issue, revoke |
+| Payments / payroll | full | trip payments only | own payroll read-only | — |
+| Emergencies | full | view, resolve | **respond to own only** | — |
+| Audit logs | read | read scoped | none | none |
+
+**AUTHORISED_REVIEWER exists to separate two decisions (LS-11).** Accepting that a
+corridor's hazard evidence is incomplete, and acting on that acceptance, are
+different acts. The role holds `route:review_authorize` and NOT `route:select`;
+MANAGER holds the reverse. Neither can complete the flow alone.
+
+It also does NOT hold `fleet:location_read`: judging hazard evidence on a
+corridor does not require knowing where any driver is, and location is the most
+sensitive data the system holds (section 3).
+
+ADMIN holds both permissions through `ALL_PERMISSIONS`, so the separation cannot
+rest on the role sets alone — `reviewer_user_id != actor.id` is enforced in the
+consumption statement itself, and the test that proves it uses an ADMIN
+deliberately.
 
 Two rules that carry most of the weight:
 
@@ -486,6 +502,40 @@ Stated because pretending otherwise is worse than admitting it:
   are inert by construction, not by assumption: verified 0 active and 0 usable tokens across
   4,284 test-owned accounts. Ownership is the two repository-generated `.invalid` domains and
   nothing else.
+  **That measurement is from 2026-08-30 and is stale.** The count has since been reported at
+  **19,827**, and the shared project has not been inspected since the incident below. Whether
+  those accounts are currently active is unverified — see
+  [the incident record's read-only queries](INCIDENT_2026-09-06_SHARED_DB_WRITE.md#6-read-only-queries-that-would-settle-what-is-currently-unknown).
+
+> **Open (2026-09-06): the test suite wrote to, and deleted from, the shared database.**
+>
+> Isolation from the shared project was procedural. `backend/.env` is
+> `DATABASE_PROVIDER=supabase`, and the only thing pointing the suite elsewhere was a
+> PowerShell script a caller had to remember to dot-source. Bash had no armed path at all.
+>
+> Three unarmed runs executed **105 tests** against the shared project. The writes are the
+> lesser half: `factories.cleanup` was autouse and deleted **by global prefix** — every
+> `TTEST-%` trip, every `STEST-%` shipment, every `AS__ZZ%` truck, every
+> `%@p3test.invalid` driver and refresh token, and `UPDATE users SET is_active = false`
+> across the whole marker domain — once per test, committed. Two of the three runs created
+> no rows at all and still ran that teardown 46 times.
+>
+> **The target is now enforced rather than documented.** `tests/db_target.py` vetoes every
+> connection whose final parameters are not
+> `postgresql+psycopg://127.0.0.1:55432/ner_logistics_test`, on SQLAlchemy's `do_connect`
+> event — before a socket opens, on every engine in the process. `DATABASE_PROVIDER=local`
+> is not consulted and would not be sufficient. There is **no environment-variable
+> override**; the `ALLOW_SHARED_DB_TESTS=1` escape hatch an earlier fix introduced has been
+> removed, and a test asserts that setting it changes nothing.
+>
+> **Cleanup is now scoped to recorded ids**, so it can only remove rows this run created.
+>
+> **Shared impact is not fully known and no remediation is proposed.** The rows those runs
+> created cannot be told apart from any other run's: identifiers are random, nothing
+> recorded them, and a prefix plus a timestamp is not ownership. Deleting on that basis
+> would be a guess. The full assessment, the evidence behind it, and the read-only queries
+> that would settle what remains open are in
+> [docs/INCIDENT_2026-09-06_SHARED_DB_WRITE.md](INCIDENT_2026-09-06_SHARED_DB_WRITE.md).
 
 > **Resolved P1 (2026-08-30): a shared test credential was live in the development project.**
 > `tests/factories.py` declared a fixed `TEST_PASSWORD` literal — which section 1's own rule and

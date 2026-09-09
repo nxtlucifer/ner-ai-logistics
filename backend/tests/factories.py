@@ -4,7 +4,8 @@ Rows are created through the real async session, not the rolled-back sync
 `db` fixture, because API tests exercise the application's own sessions and must
 see committed data.
 
-Cleanup deletes in foreign-key order, and stops short of two things on purpose:
+Cleanup deletes only what this process created - see OWNED - in foreign-key
+order, and stops short of two things on purpose:
 
   - `audit_logs` is never deleted; the append-only trigger rejects DELETE.
   - `users` are never deleted; audit_logs.actor_user_id is RESTRICT, so a user
@@ -46,9 +47,21 @@ from app.models.identity import Driver, User
 from app.models.operations import CargoItem, Shipment, Trip, TripStop
 from app.schemas.common import Coordinate
 from app.services.shipments import point
+from tests import db_target
 
-# Everything created by the suite carries this marker so cleanup can find it
-# without touching real development data.
+# Arming the veto here as well as in conftest, because this module is the one
+# that WRITES. A suite start is not the only way in: `from tests import
+# factories` in a scratch script, a REPL, or a helper somebody runs to reset
+# fixtures reaches these functions and this cleanup with no conftest loaded at
+# all. Idempotent, so importing both costs nothing.
+db_target.install()
+
+# Domain for every address the suite generates. RFC 6761 reserves `.invalid`, so
+# these can never be delivered to and never collide with a real account.
+#
+# It is a LABEL, not a permission: cleanup no longer selects on it. A human
+# reading the database can see which rows came from a test; nothing deletes a row
+# because it looks like one.
 TEST_MARKER = "p3test.invalid"
 
 #: Password for every account this suite creates. Generated per PROCESS, never
@@ -70,10 +83,83 @@ TEST_MARKER = "p3test.invalid"
 #: this brings the suite into line with it.
 TEST_PASSWORD = secrets.token_urlsafe(32)
 
-# Trips and shipments carry their own prefixes: they are not linked to a user by
-# email, so cleanup finds them by code.
+# Trips and shipments carry their own prefixes so a human reading the database
+# can tell suite rows apart. Cleanup does NOT use them - see OWNED below.
 TEST_TRIP_PREFIX = "TTEST-"
 TEST_SHIPMENT_PREFIX = "STEST-"
+
+#: Exactly the rows this process created, per table, in creation order.
+#:
+#: Cleanup used to delete by GLOBAL prefix: every `TTEST-%` trip, every `STEST-%`
+#: shipment, every `AS__ZZ%` truck, every `%@p3test.invalid` user - regardless of
+#: who made them. That is what turned one misconfigured run into a shared-database
+#: incident with an unbounded blast radius, and it is why the reported "36 rows
+#: created in a two-hour window" could not be turned into an attribution: a prefix
+#: plus a timestamp says a row looks like a test row, not that this run made it.
+#:
+#: A prefix is a naming convention. This is ownership. Nothing reaches the delete
+#: unless this process put its id here, so a run cannot remove another run's
+#: fixtures, cannot remove rows that predate it, and cannot remove a real record
+#: that happens to match a pattern.
+OWNED: dict[str, list[uuid.UUID]] = {}
+
+#: Tables `cleanup` knows how to remove, in the order it removes them. Rows in
+#: any other table are left to CASCADE from these, or are append-only.
+OWNED_TABLES = frozenset(
+    {"trips", "shipments", "driver_truck_assignments", "drivers", "trucks", "users"}
+)
+
+
+def _own(table: str, row_id: uuid.UUID) -> None:
+    """Record a row this run created, so cleanup may remove exactly it."""
+    OWNED.setdefault(table, []).append(row_id)
+
+
+_tracking_installed = False
+
+
+def install_ownership_tracking() -> None:
+    """Record every row the ORM inserts, whichever session inserts it.
+
+    Calling `_own` from each factory was the obvious design and it was wrong in
+    a way worth writing down: several tests do not use the factories to make
+    their trips. They POST to `/api/trips`, so the row is created by the
+    application's own session inside the request, and no factory ever sees it.
+    Those trips then pinned factory shipments with RESTRICT and cleanup failed
+    on rows it could not identify - the same shape of blindness as the prefix
+    delete, arrived at from the other direction.
+
+    An `after_flush` listener on `Session` catches all of them, because every
+    row the application creates goes through the ORM. It is the write-side
+    counterpart of the connection veto in `db_target`: one place all writers
+    pass through, rather than a rule each writer has to remember.
+
+    Deliberately NOT triggered by `session.execute(text("INSERT ..."))`. Raw SQL
+    is how the tests simulate another process's rows, and that distinction is
+    what those tests measure.
+    """
+    global _tracking_installed
+    if _tracking_installed:
+        return
+    _tracking_installed = True
+
+    from sqlalchemy import event
+    from sqlalchemy.orm import Session
+
+    @event.listens_for(Session, "after_flush")
+    def _record_inserts(session: Session, flush_context: object) -> None:  # noqa: ARG001
+        # After the flush, so server-generated primary keys are populated.
+        for obj in session.new:
+            table = getattr(obj, "__table__", None)
+            if table is None or table.name not in OWNED_TABLES:
+                continue
+            row_id = getattr(obj, "id", None)
+            if row_id is not None:
+                _own(table.name, row_id)
+
+
+install_ownership_tracking()
+
 
 # Real NER coordinates, so a latitude/longitude inversion in the code under test
 # produces a recognisably wrong answer rather than merely a different number.
@@ -126,7 +212,16 @@ async def make_driver(
     status: DriverStatus = DriverStatus.AVAILABLE,
     licence_expiry: date | None = None,
     password: str = TEST_PASSWORD,
+    is_active: bool = True,
 ) -> tuple[Driver, User]:
+    """A driver and the login behind them.
+
+    `is_active` is the LOGIN flag, not the driver's operational status - the two
+    are independent columns and are exactly what the dispatchability tests need
+    to drive apart. A driver row can read AVAILABLE while the account behind it
+    cannot sign in; that combination is a bug to be caught, not one to be made
+    unreachable by the factory.
+    """
     phone = unique_phone()
     user = User(
         email=unique_email("driver"),
@@ -134,6 +229,7 @@ async def make_driver(
         password_hash=hash_password(password),
         role=UserRole.DRIVER,
         display_name="Test Driver",
+        is_active=is_active,
     )
     db.add(user)
     await db.flush()
@@ -269,42 +365,52 @@ async def make_trip(
     return trip
 
 
-async def cleanup(db: AsyncSession) -> None:
-    """Remove everything the suite created, in foreign-key order."""
-    marker = f"%@{TEST_MARKER}"
+async def _by_id(db: AsyncSession, sql: str, table: str) -> None:
+    """Run `sql` for the ids this run owns in `table`, or not at all.
 
+    Skipping the empty case is not only an optimisation: `= ANY(:ids)` with an
+    empty Python list gives psycopg no element type to infer, and the statement
+    fails rather than matching nothing.
+    """
+    ids = OWNED.get(table)
+    if not ids:
+        return
+    await db.execute(text(sql), {"ids": ids})
+
+
+async def cleanup(db: AsyncSession) -> None:
+    """Remove the rows THIS RUN created, in foreign-key order.
+
+    Every statement is keyed on ids from `OWNED`. A row this process did not
+    create cannot be reached by any of them, whatever it is called - so a
+    concurrent run's fixtures, a pre-existing `TTEST-` trip and a real record
+    that happens to match a pattern all survive, and cleanup no longer has to
+    be trusted, only read.
+
+    The ledger is cleared only after the commit. If a delete raises - a
+    constraint this run did not expect - the ids stay recorded and the next
+    teardown attempts them again, rather than the failure quietly widening into
+    "rows we can no longer identify".
+    """
     # Trips first: they RESTRICT the delete of shipments, drivers and trucks.
     # Deleting a trip CASCADEs to its stops, routes, events and gps_points, so
     # telemetry created by the P5 tests goes with it.
-    await db.execute(
-        text("DELETE FROM trips WHERE trip_code LIKE :p"),
-        {"p": f"{TEST_TRIP_PREFIX}%"},
-    )
+    await _by_id(db, "DELETE FROM trips WHERE id = ANY(:ids)", "trips")
     # Cargo items CASCADE from shipments.
-    await db.execute(
-        text("DELETE FROM shipments WHERE reference_code LIKE :p"),
-        {"p": f"{TEST_SHIPMENT_PREFIX}%"},
-    )
+    await _by_id(db, "DELETE FROM shipments WHERE id = ANY(:ids)", "shipments")
 
     # Assignments reference drivers and trucks with RESTRICT.
-    await db.execute(
-        text(
-            "DELETE FROM driver_truck_assignments a USING drivers d, users u "
-            "WHERE a.driver_id = d.id AND d.user_id = u.id AND u.email LIKE :m"
-        ),
-        {"m": marker},
+    await _by_id(
+        db,
+        "DELETE FROM driver_truck_assignments WHERE id = ANY(:ids)",
+        "driver_truck_assignments",
     )
-    await db.execute(
-        text(
-            "DELETE FROM drivers d USING users u "
-            "WHERE d.user_id = u.id AND u.email LIKE :m"
-        ),
-        {"m": marker},
-    )
-    await db.execute(
-        text("DELETE FROM refresh_tokens r USING users u "
-             "WHERE r.user_id = u.id AND u.email LIKE :m"),
-        {"m": marker},
+    await _by_id(db, "DELETE FROM drivers WHERE id = ANY(:ids)", "drivers")
+    # Refresh tokens are minted by the login endpoint, not by a factory, so they
+    # are owned transitively: a token belongs to this run exactly when the user
+    # it authenticates does.
+    await _by_id(
+        db, "DELETE FROM refresh_tokens WHERE user_id = ANY(:ids)", "users"
     )
     # Users are deliberately NOT deleted. audit_logs.actor_user_id is RESTRICT
     # (migration 0004): an audit row pins its actor, so a user who has done
@@ -317,16 +423,11 @@ async def cleanup(db: AsyncSession) -> None:
     # deleted above and is_active false, a retained account has no way in: the
     # password path fails on the is_active check in app/api/deps.py and the token
     # path has nothing to present. The audit trail keeps its actor either way.
-    #
-    # Scoped to the marker domain, which is RFC 6761 `.invalid` and can only
-    # have been produced by unique_email() in this file - so this can never
-    # reach a real development account.
-    await db.execute(
-        text("UPDATE users SET is_active = false WHERE email LIKE :m AND is_active"),
-        {"m": marker},
+    await _by_id(
+        db,
+        "UPDATE users SET is_active = false WHERE id = ANY(:ids) AND is_active",
+        "users",
     )
-    # Trucks carry no marker of their own; the registration prefix identifies them.
-    await db.execute(
-        text("DELETE FROM trucks WHERE registration_number LIKE 'AS__ZZ%'")
-    )
+    await _by_id(db, "DELETE FROM trucks WHERE id = ANY(:ids)", "trucks")
     await db.commit()
+    OWNED.clear()

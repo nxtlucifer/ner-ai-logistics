@@ -1,0 +1,81 @@
+# Deployment descriptor for the hosted intelligence plane.
+#
+# Render is used here because it deploys a Dockerfile from a repository with no
+# CLI and no local credentials - the whole blocker at the time this was written.
+# Nothing in the application is Render-specific: the same image runs on Fly,
+# Railway, Cloud Run or any host that sets $PORT.
+#
+# TO DEPLOY
+#
+#   1. Push this repository to GitHub.
+#   2. Render -> New -> Blueprint -> point at this file.
+#   3. Fill the four values marked `sync: false` in the dashboard. They are
+#      secrets and are deliberately not in this file.
+#   4. Copy the resulting https URL into:
+#        manager-web/.env.production   VITE_INTELLIGENCE_BASE_URL
+#        driver-app/eas.json           EXPO_PUBLIC_INTELLIGENCE_BASE_URL
+#      Both clients refuse anything that is not a public https origin, so a
+#      copy-paste error fails the build rather than the demo.
+#
+# WHAT THIS SERVICE IS NOT
+#
+# It is not the system of record. Supabase remains authoritative for auth,
+# trips, fleet, assignments, GPS and authorization. This service reads that
+# database to answer questions about routes and returns evidence-backed
+# assessments. If it is down, the clients report accessibility as UNASSESSED and
+# every other workflow keeps working - which is the property that makes hosting
+# it a smaller risk than embedding it.
+
+services:
+  - type: web
+    name: ner-intelligence
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    region: singapore # Closest offered region to the North East.
+    # `/health` is the LIVENESS probe and carries no prefix - the system router
+    # is mounted at the root while the application routers are under /api.
+    # Deliberately not `/ready`: that one opens a database connection, so a
+    # brief Supabase hiccup would make the platform kill and restart a process
+    # that was fine.
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: production
+
+      # Callers hold a Supabase session. Verified against the project JWKS;
+      # the role behind it is still read from our own users table.
+      - key: AUTH_PROVIDER
+        value: supabase
+      - key: SUPABASE_URL
+        value: https://znaveeefzgfxsblsobdb.supabase.co
+
+      - key: DATABASE_PROVIDER
+        value: supabase
+
+      # Sized for Supabase's session pooler, which allows 15 clients per
+      # project across every connected service. A larger pool here starves the
+      # rest of the project rather than making this one faster.
+      - key: DB_POOL_SIZE
+        value: "3"
+      - key: DB_MAX_OVERFLOW
+        value: "2"
+      - key: DB_REQUIRE_SSL
+        value: "true"
+
+      # The manager web origin, comma-separated. The driver APK is native and
+      # is not subject to CORS, so it does not belong here.
+      - key: CORS_ORIGINS
+        sync: false
+
+      # Secrets. Never in this file - it is committed.
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+      # Only needed if this service also serves the AI endpoints. The driver's
+      # assistant currently goes to the gemini-ai Edge Function instead, which
+      # already holds this key server-side, so leave unset unless that changes.
+      - key: GEMINI_API_KEY
+        sync: false

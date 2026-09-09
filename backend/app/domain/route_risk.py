@@ -40,6 +40,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Final
 
+from typing import TYPE_CHECKING
+
 from app.domain.weather import FRESHNESS_CURRENT, WeatherObservation
 
 # --- Factor availability --------------------------------------------------
@@ -51,6 +53,37 @@ NOT_AVAILABLE: Final[str] = "NOT_AVAILABLE"
 #: system can currently supply it. Listing the absent ones explicitly is the
 #: point: it is the difference between "risk 37" and "risk 37, computed without
 #: any landslide data".
+if TYPE_CHECKING:  # pragma: no cover - typing only, no runtime import
+    from app.domain.landslide import LandslideAssessment
+    from app.domain.fuel_model import FuelEstimate
+
+#: Points each landslide severity contributes to a route's score.
+#:
+#: LS-3: step 1b wired the landslide DATA STATUS through but scored nothing, so
+#: a corridor with an official road closure on it produced the same number as a
+#: clear one - and `route_recommendation._sort_key` ranks on that number, so
+#: the closed road won whenever it was marginally quicker.
+#:
+#: The weights are deliberately ordered rather than large. CRITICAL is the
+#: heaviest single contribution in this engine, enough to outrank any
+#: plausible distance or duration saving, but it is NOT 100: a score is an
+#: ordinal for comparing routes, and REFUSING a route is a separate decision
+#: that belongs to the recommendation policy, not to a number that can lose a
+#: comparison narrowly. The same argument monsoon_risk makes about passability.
+#:
+#: UNKNOWN is small and non-zero ON PURPOSE. A corridor nobody has checked must
+#: not tie with one that was checked and found clear - otherwise ranking
+#: silently prefers the unexamined road whenever it is slightly quicker - but
+#: absence of data is not evidence of danger either, so it must not approach
+#: the weight of a reported incident.
+LANDSLIDE_POINTS: Final[dict[str, int]] = {
+    "CRITICAL": 45,
+    "HIGH": 30,
+    "CAUTION": 12,
+    "UNKNOWN": 5,
+    "LOW": 0,
+}
+
 FACTOR_DISTANCE: Final[str] = "distance"
 FACTOR_DURATION: Final[str] = "duration"
 FACTOR_WEATHER: Final[str] = "weather"
@@ -62,17 +95,14 @@ FACTOR_HISTORICAL_INCIDENTS: Final[str] = "historical_incidents"
 FACTOR_ELEVATION: Final[str] = "elevation"
 FACTOR_FUEL: Final[str] = "fuel_model"
 
-#: Factors no data source in this system supplies. Hard-coded rather than
-#: computed, because each one becomes AVAILABLE only when a real dataset is
-#: wired in - and that change should be a visible edit here, not an accident.
 UNAVAILABLE_FACTORS: Final[tuple[str, ...]] = (
-    FACTOR_LANDSLIDE,
+    # FACTOR_LANDSLIDE and FACTOR_FUEL are COMPUTED dynamically
+    # based on provider and physics availability.
     FACTOR_FLOOD,
     FACTOR_ROAD_QUALITY,
     FACTOR_TRUCK_RESTRICTIONS,
     FACTOR_HISTORICAL_INCIDENTS,
     FACTOR_ELEVATION,
-    FACTOR_FUEL,
 )
 
 # --- Reason codes ---------------------------------------------------------
@@ -124,6 +154,25 @@ BAND_HIGH: Final[str] = "HIGH"
 BAND_MODERATE_AT: Final[int] = 30
 BAND_HIGH_AT: Final[int] = 60
 
+#: Component codes that describe CONDITIONS ON THE ROAD, as opposed to how long
+#: the truck will be out in them.
+#:
+#: Named here rather than inline in `condition_points`, so that adding a
+#: component forces a decision about which side of the line it falls on. An
+#: inline tuple is how a visibility or flood component would end up silently
+#: excluded from the reroute trigger - the same shape of gap as a status
+#: missing from a filter set.
+CONDITION_COMPONENT_CODES: Final[frozenset[str]] = frozenset(
+    {"RAIN_EXPOSURE", "WIND_EXPOSURE"}
+)
+
+#: The exposure side of the same line. Kept beside it so the two are read
+#: together and their union can be checked against the components actually
+#: emitted - see tests/test_route_risk.py.
+EXPOSURE_COMPONENT_CODES: Final[frozenset[str]] = frozenset(
+    {"DURATION_EXPOSURE", "DISTANCE_EXPOSURE"}
+)
+
 
 @dataclass(frozen=True)
 class RiskComponent:
@@ -156,11 +205,43 @@ class RouteRisk:
     reason_codes: tuple[str, ...]
     observations_used: int
     observations_stale: int
+    #: The landslide assessment this score was built from, carried so that
+    #: eligibility can be DERIVED wherever a RouteRisk travels, rather than
+    #: making every caller remember to pass it - a refusal that depends on
+    #: being remembered is one that will eventually be forgotten.
+    #:
+    #: Defaulted so this stayed a BACKWARD-COMPATIBLE addition. Adding it as a
+    #: required field broke 33 existing construction sites with
+    #: `TypeError: missing 1 required positional argument`, which is what a
+    #: required field on a widely-built dataclass does.
+    landslide: "LandslideAssessment | None" = None
+    fuel: "FuelEstimate | None" = None
     assessed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @property
     def weather_available(self) -> bool:
         return self.inputs.get(FACTOR_WEATHER) == AVAILABLE
+
+    @property
+    def condition_points(self) -> int:
+        """Points from the CONDITIONS on the road, excluding exposure.
+
+        `score` deliberately mixes two different things: what the weather is
+        doing (up to 70 points) and how long the truck will be out in it (up to
+        30). That mix is right for choosing between two routes, where a longer
+        detour genuinely costs more time on the road.
+
+        It is the wrong basis for "has this road gone bad", because exposure is
+        a property of the journey rather than of the storm sitting on it. A
+        cloudburst does not become acceptable because the trip is short. This
+        property is that question asked separately - see
+        `app/domain/reroute.py`.
+        """
+        return sum(
+            c.points
+            for c in self.components
+            if c.code in CONDITION_COMPONENT_CODES
+        )
 
 
 def _band(score: int) -> str:
@@ -252,6 +333,8 @@ def assess(
     distance_km: float,
     duration_min: float,
     observations: list[WeatherObservation] | None = None,
+    landslide: "LandslideAssessment | None" = None,
+    fuel: "FuelEstimate | None" = None,
     now: datetime | None = None,
 ) -> RouteRisk:
     """Score one route from the evidence available for it.
@@ -317,12 +400,39 @@ def assess(
         if distance_km >= DISTANCE_REFERENCE_KM:
             codes.append(REASON_LONG_DISTANCE)
 
+    # Landslide availability follows the PROVIDER's data status, never the
+    # incident count. `None` means the caller did not consult a provider at
+    # all, which is the same absence of evidence as an unconfigured one - and
+    # in neither case may this become a low score.
+    landslide_known = landslide is not None and landslide.is_known
+    if landslide is not None:
+        codes.extend(landslide.reason_codes)
+        points = LANDSLIDE_POINTS.get(landslide.risk.value, 0)
+        if points:
+            components.append(
+                RiskComponent(
+                    code="LANDSLIDE_EXPOSURE",
+                    label="Landslide",
+                    points=points,
+                    detail=(
+                        "no landslide data for this corridor"
+                        if not landslide_known
+                        else f"{landslide.risk.value.lower()} exposure, "
+                        f"{landslide.on_route_count} incident(s) on route"
+                    ),
+                )
+            )
+
     score = min(100, sum(c.points for c in components))
 
+    landslide_known = landslide is not None and landslide.is_known
+    fuel_known = fuel is not None and fuel.is_available
     inputs = {
         FACTOR_DISTANCE: AVAILABLE,
         FACTOR_DURATION: AVAILABLE,
         FACTOR_WEATHER: AVAILABLE if weather_ok else NOT_AVAILABLE,
+        FACTOR_LANDSLIDE: AVAILABLE if landslide_known else NOT_AVAILABLE,
+        FACTOR_FUEL: AVAILABLE if fuel_known else NOT_AVAILABLE,
     }
     for factor in UNAVAILABLE_FACTORS:
         inputs[factor] = NOT_AVAILABLE
@@ -336,6 +446,8 @@ def assess(
             name for name, state in inputs.items() if state == NOT_AVAILABLE
         ),
         reason_codes=tuple(dict.fromkeys(codes)),
+        landslide=landslide,
+        fuel=fuel,
         observations_used=len(current),
         observations_stale=stale_count,
         assessed_at=moment,

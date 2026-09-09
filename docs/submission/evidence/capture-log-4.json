@@ -1,0 +1,23 @@
+[
+  {
+    "step": 41,
+    "name": "recheck-baseline-live",
+    "note": "Running, for comparison.",
+    "panel": "33 km Continue",
+    "file": "D:\\Projects\\ner-ai-logistics\\docs\\submission\\evidence\\41-recheck-baseline-live.png"
+  },
+  {
+    "step": 42,
+    "name": "contact-lost-hold-FIXED",
+    "note": "Polling blocked past the freshness window. The screen now has its own tick, so the cached LIVE label is aged out instead of frozen on screen.",
+    "panel": "Guidance paused No recent contact with the server, so your position cannot be confirmed. The route is still shown.",
+    "file": "D:\\Projects\\ner-ai-logistics\\docs\\submission\\evidence\\42-contact-lost-hold-FIXED.png"
+  },
+  {
+    "step": 43,
+    "name": "permission-revoked-after-live-fix-FIXED",
+    "note": "Was running (\"31 km Continue\") on a fix the SERVER still calls LIVE for 90s. Permission revoked, no reload: the app asks the platform rather than trusting its cached flag.",
+    "panel": "Guidance paused Location is off. Turn it on to see turn-by-turn directions. The route is still shown.",
+    "file": "D:\\Projects\\ner-ai-logistics\\docs\\submission\\evidence\\43-permission-revoked-after-live-fix-FIXED.png"
+  }
+]

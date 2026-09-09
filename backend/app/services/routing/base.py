@@ -54,6 +54,7 @@ class RoutingProvider(Protocol):
         *,
         kind: RouteKind,
         limit: int = 1,
+        detailed: bool = False,
     ) -> list[RouteCandidate]: ...
 
 
@@ -135,14 +136,21 @@ class RoutingChain:
         *,
         kind: RouteKind,
         limit: int = 1,
+        detailed: bool = False,
     ) -> "ChainOptions":
+        """`detailed=True` asks for turn instructions and full geometry.
+
+        Passed straight through: whether a route can drive navigation is a
+        property of the provider answer that produced it, not something this
+        layer can add afterwards.
+        """
         attempts: list[ChainAttempt] = []
         last: RoutingError | None = None
 
         for provider in self._providers:
             try:
                 candidates = await provider.route_options(
-                    origin, destination, kind=kind, limit=limit
+                    origin, destination, kind=kind, limit=limit, detailed=detailed
                 )
             except RoutingRejected:
                 # Terminal by design - see the class docstring.

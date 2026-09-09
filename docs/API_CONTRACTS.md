@@ -443,7 +443,15 @@ person.
 | POST | `/api/trips/{id}/routes/recalculate` | `route:plan` | **implemented** (P7) |
 | POST | `/api/trips/{id}/routes/{route_id}/select` | `route:select` | **implemented** (P7) |
 | POST | `/api/routes/preview` | M A | planned — candidates without a trip |
+| GET | `/api/trips/{id}/routes/{route_id}/review-authorization` | `route:read` | **implemented** (LS-11) — the live authorisation, or null |
+| POST | `/api/trips/{id}/routes/{route_id}/review-authorization` | `route:review_authorize` | **implemented** (LS-11) — authorise ONE selection |
+| DELETE | `/api/trips/{id}/routes/{route_id}/review-authorization/{auth_id}` | `route:review_authorize` | **implemented** (LS-11) — revoke an unspent one |
 | GET | `/api/trips/{id}/routes/{route_id}/risk` | `route:read` | **implemented** (P8) — deterministic route risk V1 |
+| GET | `/api/trips/{id}/routes/recommendation` | `route:read` | **implemented** — Explainable Route Recommendation V1 |
+| GET | `/api/trips/{id}/reroute` | `route:read` | **implemented** — reroute assessment V1 |
+| POST | `/api/trips/{id}/reroute/accept` | `route:select` | **implemented** — the ONLY way a moving trip's route changes |
+| GET | `/api/driver/me/trip/offline-package` | driver (own trip) | **implemented** — offline corridor package V1 |
+| GET | `/api/driver/me/trip/navigation` | driver (own trip) | **implemented** (LS-12 G2.1) — turn instructions for the current route |
 
 ### Route risk (`GET /api/trips/{id}/routes/{route_id}/risk`)
 
@@ -491,8 +499,21 @@ heavy rain.
 Nothing is persisted. A risk score describes *now*, and a stored one would look current long
 after it stopped being true. `route_id` is scoped by `trip_id`, so another trip's route is 404.
 
-`recalculate` inserts new `trip_routes` rows and marks superseded ones — it never mutates
-history. Route history is evidence in an incident review.
+`recalculate` inserts new `trip_routes` rows and marks obsolete **unselected** ones
+SUPERSEDED — it never mutates history. Route history is evidence in an incident review.
+
+**Planning does not change the route a trip is following (LS-10).** The row
+`trips.selected_route_id` points at is left alone, because `SUPERSEDED` is terminal here —
+`select` refuses it and the recommendation drops it from candidates — and asking a provider
+what else exists is not consent to take a moving truck off its road. Only `select` (before
+departure) or `reroute/accept` (in transit) changes the assignment.
+
+Every route in `GET /api/trips/{id}/routes` therefore carries **`is_current`**: true for the
+row `trips.selected_route_id` names, and it is the field a client must use. It is NOT the same
+as `state == "SELECTED"` — trips written before this fix still point at a row reading
+`SUPERSEDED`, and the driver is following it. Those rows report `is_current: true` with their
+real `state`; they are shown honestly and are still refused for re-selection
+(`422 ROUTE_SUPERSEDED`). No read endpoint rewrites them.
 
 Errors: `503 ROUTING_UNAVAILABLE` (every provider unreachable; a retry may succeed) and
 `422 NO_VIABLE_ROUTE` (a provider answered and no route exists). Those are deliberately
@@ -541,6 +562,313 @@ Guwahati–Jorhat corridor, `full` returns 5,213 points (~121 KB of JSON per rou
 trip selection) where `simplified` returns 52 (~1.2 KB) with **identical** distance and duration.
 
 ---
+
+Each candidate in the recommendation carries **`eligibility`** — `ELIGIBLE`,
+`REQUIRES_REVIEW`, `REJECTED` or `NOT_ASSESSED` — decided by the server from that route's own
+hazard evidence. `risk.reason_codes` says *why*; this says *what*. A client must never
+re-derive it: a client holding a copy of the eligibility rule is a client asserting its own
+eligibility.
+
+### Review authorisation (LS-11)
+
+With no landslide source connected every route assesses UNKNOWN, so
+`select` and `reroute/accept` refuse with `ROUTE_SELECTION_REQUIRES_REVIEW`.
+An **authorised reviewer** may accept that specific, incomplete evidence so that
+**one** selection may proceed.
+
+    POST .../review-authorization      body: { "rationale": "..." }   -> 201
+
+`rationale` is the ONLY field a client sends. The trip, route, evidence digest
+and snapshot, policy and evidence versions, basis, and the issue/expiry times
+are all computed server-side from the route's own assessment — there is no field
+by which a caller can assert what it is authorising.
+
+`select` and `reroute/accept` then take an optional `authorization_id`
+(query parameter and body field respectively). It **only ever relaxes
+REQUIRES_REVIEW**. It cannot reach:
+
+| State | Why not |
+| --- | --- |
+| `REJECTED` | a verified closure. No role, rationale or policy overrides a road an authority has shut |
+| `NOT_ASSESSED` | an integration failure in this application, not uncertainty about a road. It must be fixed, not approved |
+| HIGH evidence | out of the approved scope — only assessed `HAZARD_DATA_UNKNOWN` is authorisable today |
+
+Spending it is a single conditional UPDATE inside the selection's own
+transaction, under the trip row lock, after the route has been re-read. It is
+refused (`ROUTE_REVIEW_AUTHORIZATION_INVALID`) if expired, already used,
+revoked, issued by the person now selecting, or if the route's lifecycle state
+or its evidence digest changed since issue. A failed selection rolls the
+consumption back with it, so an authorisation is never spent on a mutation that
+did not happen.
+
+**It does not change what the evidence says.** After a consumed authorisation
+the route still reports `landslide: NOT_AVAILABLE` and
+`LANDSLIDE_DATA_NOT_CONFIGURED`. What is recorded is that a named person
+accepted incomplete evidence at a particular time — never that the road was
+checked. UI wording must reflect that: "Hazard data incomplete — authorized for
+this selection", never "safe" or "verified".
+
+Two-person control: `AUTHORISED_REVIEWER` holds `route:review_authorize` and
+deliberately NOT `route:select`. ADMIN holds both through `ALL_PERMISSIONS`, so
+`reviewer_user_id != consumer` is ALSO enforced explicitly at consumption.
+
+### Route recommendation (`GET /api/trips/{id}/routes/recommendation`)
+
+Every live route on the trip scored against current conditions, then compared. Superseded and
+blocked routes are excluded: history is evidence, but advice is about what to do next.
+
+**Explainable Route Recommendation V1** (`app/domain/route_recommendation.py`) — a published
+comparison rule over deterministic inputs. Not a model, and `version` says so; a test pins the
+string.
+
+The rule: the baseline is `PRIMARY`, and a switch is advised only when a comparable alternative
+is lower by `MIN_RISK_MARGIN_POINTS` (10). Below that the gap is noise on inputs this coarse and
+a detour is not free — but the figures are still returned, because a manager overruling the rule
+deserves the numbers the rule used.
+
+```json
+// 200
+{ "recommended_route_id": "…b2", "baseline_route_id": "…p1", "comparable": true,
+  "reason_codes": ["LOWER_RISK_ALTERNATIVE", "ALTERNATIVE_IS_SLOWER", "ALTERNATIVE_IS_LONGER"],
+  "tradeoff": { "duration_delta_min": 23.0, "distance_delta_km": 21.0, "risk_delta_points": -33 },
+  "candidates": [ { "route_id": "…p1", "kind": "PRIMARY", "distance_km": 305.0,
+                    "estimated_duration_min": 221, "risk": { "…": "as above" } } ],
+  "unavailable_inputs": ["flood", "landslide", "road_quality", "truck_restrictions"],
+  "margin_points": 10, "version": "explainable-route-recommendation-v1" }
+```
+
+Read **`comparable` first.** False means the answer does not rest on a like-for-like comparison.
+
+**No percentages, anywhere.** Deltas are in points, minutes and kilometres — the units the
+inputs arrived in. "33 points lower" is checkable against the components that produced it;
+"54% safer" is a claim about probability of harm and nothing here measures that. A test asserts
+`%`, `confidence`, `probability`, `predicted` and `model_version` never reach the wire.
+
+**A single corridor is a truthful answer, not a degraded one.** One route yields
+`ONLY_ONE_ROUTE_AVAILABLE`, `comparable: false`, `tradeoff: null`. No backup is invented.
+
+**Asymmetric evidence refuses to recommend.** The failure a naive comparison walks into: weather
+only ever ADDS points, so a route the provider failed on scores lower purely from the missing
+factor — and it fails most readily in a storm, which is exactly when it matters. When the
+available-input sets differ the comparison is declined with `RISK_INPUTS_NOT_COMPARABLE` and the
+baseline is kept.
+
+**NULL stays NULL.** A route with no duration estimate reports a `null` delta, never 0, and
+sorts last among equals rather than first.
+
+Cost: `MAX_CANDIDATE_ROUTES` (2) × `ROUTE_SAMPLES` (5) = at most ten weather requests per call.
+A considered read, not a feed. **A client must not poll it.** The database connection is released
+before any provider call — asserted from inside the stub.
+
+### Reroute (`GET /api/trips/{id}/reroute`, `POST /api/trips/{id}/reroute/accept`)
+
+Three outcomes, and the third is the one that matters:
+
+| outcome | meaning |
+| --- | --- |
+| `NO_ACTION` | the road is not bad enough to reconsider |
+| `ALERT_ONLY` | it IS bad, and there is **nothing better to offer** |
+| `PROPOSE` | it is bad, and a genuinely better road exists |
+
+`ALERT_ONLY` exists because much of the North East is a single corridor. A system that only
+knows how to propose alternatives falls silent in exactly the situation that matters most;
+"this road has deteriorated and there is no better option" is what makes a dispatcher phone the
+driver. `proposed_route_id` is `null` there **on purpose** — returning the least-bad alternative
+would read as advice to take it.
+
+`DETERIORATION_FLOOR` is imported from `route_risk.BAND_HIGH_AT` rather than repeated, so "we
+reconsider once it reads HIGH" stays one number. The floor is necessary, not tidy: without it
+every marginally-better parallel road becomes an interruption, and proposals that arrive when
+nothing is wrong are the ones that get dismissed unread.
+
+The comparison is **not re-invented** — it is `route_recommendation.recommend` with an explicit
+baseline of the route the truck is ON, not the `PRIMARY`. A trip already rerouted once must not
+be compared against the road it left.
+
+```json
+// GET 200
+{ "outcome": "PROPOSE", "selected_route_id": "…p1", "selected_risk_score": 85,
+  "selected_risk_band": "HIGH", "proposed_route_id": "…b2",
+  "reason_codes": ["SELECTED_ROUTE_DETERIORATED", "BETTER_ROUTE_AVAILABLE"],
+  "comparison": { "…": "a RouteRecommendation" },
+  "unavailable_inputs": ["landslide"], "floor_points": 60, "margin_points": 10,
+  "version": "reroute-assessment-v1" }
+```
+
+**Nothing reroutes itself.** There is no scheduler, no background task that applies a proposal,
+and no code path from the assessment to a write. A test issues three consecutive assessments and
+asserts `selected_route_id` and the trip's event count are unchanged. A driver on a hill road at
+night whose map silently changes has been given an instruction nobody issued.
+
+**No model writes trip state.** `POST .../reroute/accept` accepts exactly
+`{from_route_id, to_route_id}` — asserted by test on `model_fields`. There is no free text and
+nothing derived from a language model on the write path.
+
+`from_route_id` must match what the trip currently has selected. A manager acting on a page
+rendered before someone else rerouted the same trip would otherwise move it off a road they
+never saw; that is `409 ROUTE_SUPERSEDED` telling them to reload, not a silent overwrite. Two
+managers accepting simultaneously get exactly one 200 and one 409, and exactly one
+`ROUTE_CHANGED` event — measured with two independent app instances, not argued.
+
+**One transaction.** `routes.apply_selection` deliberately does not commit, so the route change,
+the demotion of the route being left, `trips.selected_route_id`, the timeline event and the
+audit row all land together. A test monkeypatches the event write to fail and asserts the trip
+stays on its original route.
+
+The route left behind is demoted to `PROPOSED`, **not** `SUPERSEDED`. Weather is not permanent:
+a corridor abandoned this afternoon may be right this evening, and marking it dead would make a
+reroute a one-way door.
+
+A trip that is not in transit is refused with `409 TRIP_NOT_IN_TRANSIT` — changing a route
+before departure is ordinary planning and belongs on the select endpoint, where nobody has to be
+told a journey changed mid-way.
+
+**A declined proposal is not recorded.** No `trip_event_kind` value honestly means "a manager
+was offered a safer road and stayed", and misusing one would be a lie in the audit trail. The
+migration is prepared and deliberately **not applied** —
+`docs/migrations/PENDING_reroute_decision_events.sql`.
+
+### Navigation package (`GET /api/driver/me/trip/navigation`)
+
+Turn instructions for the corridor this driver's trip currently follows. Subject taken from the
+token; no trip id in the path, so there is no parameter in which to ask for another driver's
+guidance.
+
+404 only when there is no current trip, matching the offline package. Having a trip whose route
+cannot drive guidance is a **200 with `available: false`** and a reason code — that is a state the
+map renders, not an error it should retry.
+
+**`geometry` is returned even when `available` is false.** Losing directions is not losing the
+road, and a map that blanks because maneuvers are missing has turned a degraded feature into a
+broken screen.
+
+| field | meaning |
+| --- | --- |
+| `route_id`, `route_revision` | which corridor these instructions describe. A client compares both before drawing a cached package |
+| `available`, `reason_codes` | whether guidance can be driven, and why not |
+| `geometry` | `[[lat, lon], ...]` in travel order |
+| `maneuvers` | ordered provider instructions — see below |
+| `distance_m`, `duration_s` | provider totals. `duration_s` is **free-flow**, never an arrival time |
+| `provider`, `provider_route_id` | traces a displayed instruction back to what produced it |
+| `captured_at` | when the package was assembled. Separate from route approval and from GPS freshness |
+| `coordinate_format`, `distance_unit`, `duration_unit` | declared, not inferred from field names |
+
+#### `distance_from_start_m` is the field a next-turn panel needs
+
+The one contract detail worth reading twice.
+
+OSRM's `step.distance` is *"the distance of travel from the maneuver to the subsequent step's
+maneuver"* — it measures **forward**. It is therefore **not** the answer to "how far until I
+turn", and a panel that renders it as one is wrong by exactly one step.
+
+Verified against the provider rather than argued from documentation: a 5,942 m Guwahati route
+returns 17 steps whose distances sum to 5,942.5 m with a final `arrive` step of **0.0 m**. A
+backward-measured step could be neither. The demo corridor agrees — 19 maneuvers whose
+`step_distance_m` sum to 305,393 m against a route distance of 305,393 m.
+
+So each maneuver carries both:
+
+| field | measures |
+| --- | --- |
+| `distance_from_start_m` | along the route, from its start to this maneuver |
+| `step_distance_m` | from this maneuver to the **next** one; `0.0` at arrival |
+
+Distance to the next turn is `distance_from_start_m - distance_already_travelled`, using the
+`progress.travelled_distance_km` the trip poll already carries. That is remaining path length,
+needs no step arithmetic on the client, and has no off-by-one available to get wrong.
+
+Measured on the demo corridor at 79.2 km travelled: the correct distance to the next maneuver is
+**42,867 m**; that maneuver's own `step_distance_m` is **4,918 m**.
+
+#### Availability reasons
+
+| code | meaning |
+| --- | --- |
+| `NO_SELECTED_ROUTE` | no corridor is assigned, or the selection is SUPERSEDED. Not dispatched — a different state from cannot guide |
+| `GUIDANCE_NOT_AVAILABLE` | the route carries no stored maneuvers. **Never** "this road has no turns" |
+| `GUIDANCE_INCONSISTENT_WITH_ROUTE` | stored maneuvers do not address this geometry, or run backwards. Refused rather than drawn — directions for another road render perfectly and are wrong |
+| `DURATION_IS_FREE_FLOW_NOT_AN_ETA` | travels beside every `duration_s` |
+
+Parsing is all-or-nothing. Half a set of directions runs out mid-journey and reads as an
+arrival, which is worse than none. Rows written before `step_distance_m` was renamed from
+`distance_m` still parse: the name was wrong, the number never was.
+
+#### Planning a route that can be navigated
+
+`POST /api/trips/{id}/routes/recalculate?detailed=true` asks the provider for full geometry and
+turn-by-turn steps **in one response**, and stores the maneuvers alongside the geometry they
+describe. That single-response property is what makes it impossible for a route to carry
+directions for a different road.
+
+`detailed` is **off by default**, and that is a cost decision: full geometry plus steps is 5,213
+points against 52 for the simplified overview, and most plans are comparisons that are never
+driven.
+
+Planning does not select. A detailed candidate goes through the same assessment and acceptance
+as any other route — on the demo corridor that meant a `422 ROUTE_SELECTION_REQUIRES_REVIEW`,
+a reviewer authorisation under `HAZARD_DATA_UNKNOWN`, and a different account spending it.
+
+### Offline corridor package (`GET /api/driver/me/trip/offline-package`)
+
+The driver's own current trip, packaged to survive losing the network. Subject taken from the
+token; no trip id in the path.
+
+404 when there is no current trip — unlike `GET /api/driver/me/trip`, which answers `null`
+because between-trips is a normal screen. Asking to *download* a journey that does not exist is
+a request that cannot be satisfied, and `null` would leave the app guessing whether to retry.
+
+Three things are kept apart, because conflating them is how this feature gets overclaimed:
+
+| | status |
+| --- | --- |
+| offline **route** | **built** — the corridor already chosen, its geometry, stops and estimates |
+| offline **routing** | **not built, not claimed** — computing a NEW route needs a road graph on the device |
+| offline **basemap** | **blocked on licence** — see below |
+
+`basemap` is `BUNDLED_NONE` with reason `BASEMAP_NOT_BUNDLED_LICENCE`. The OSM Foundation tile
+usage policy prohibits prefetch and "download area for offline use" against
+`tile.openstreetmap.org`, which is the tile source this project uses. Bulk-caching it would be a
+policy violation dressed up as a feature. The gap is **declared**, so a driver is told at the
+depot rather than discovering it in a valley.
+
+`risk` is a **snapshot** stamped with `risk_captured_at`, never presented as live. The app must
+render it against that timestamp and let it age on screen using the device clock alone. A
+weather panel still reading LIGHT RAIN ten hours into a signal blackout is the failure the field
+exists to prevent.
+
+A weather outage does **not** block the download: the route is the part that cannot be
+recomputed on the roadside.
+
+`backup_route` is `null` with `NO_DISTINCT_BACKUP_CORRIDOR` on a single-road corridor. Handing a
+driver an escape road that does not exist, at the moment they most need one, is the worst thing
+this endpoint could do.
+
+`package_hash` covers only the durable parts — identity, stops, route geometry — so a device can
+ask "has the corridor changed" without the answer flipping every time the weather does. A test
+asserts a changed risk score leaves the hash alone.
+
+### Route progress (on `GET /api/driver/me/trip`)
+
+`progress` is `null` only when the trip has no selected route — progress along a corridor nobody
+chose is not a degraded answer, there is no corridor. Every other gap, including having no
+position at all, is expressed inside the object through its reason codes, so the app has one
+shape to render rather than two.
+
+Measured by **projecting the last observed fix onto the planned line**. The planned route and
+the observed track are different objects; `off_route_m` is the distance between them and is the
+number that says whether the rest mean anything. When off-route the figures still return, WITH
+`VEHICLE_OFF_PLANNED_ROUTE` — withholding them would leave a dispatcher with less than they had.
+
+**There is no ETA, and the naming is part of the guarantee.** A provider's `duration` is a
+free-flow estimate over a road graph; it knows nothing about this load, the driver's break or a
+checkpoint queue. What ships is `remaining_at_planned_pace_min` beside
+`planned_average_speed_kmph` and `REMAINING_TIME_ASSUMES_PLANNED_PACE`. A test walks the object's
+field names and rejects any containing `eta`, `arrival`, `arrives`, `due_at` or `arrive`.
+
+No provider duration means `null`, never a guess from a default speed — an invented speed
+produces a figure indistinguishable on screen from a measured one. No position means `null`, not
+zero: a truck with no fix has not arrived.
+
 
 ## 10. `/api/weather` and `/api/incidents`
 
@@ -645,6 +973,8 @@ from the token, not the URL.
 | GET | `/api/driver/me/assignment` | Current assignment, or `null` |
 | POST | `/api/driver/me/assignment/verify` | Confirm the physical truck |
 | GET | `/api/driver/me/trip` | Current trip with stops, or `null` |
+| GET | `/api/driver/me/trip/places` | Roadside services from a local OSM corridor snapshot |
+| POST | `/api/driver/me/trip/accept` | Records the driver's acknowledgment. **No status change** |
 | POST | `/api/driver/me/trip/start` | ASSIGNED → ACTIVE |
 | POST | `/api/driver/me/trip/stops/{stop_id}/arrive` | PENDING → ARRIVED |
 | POST | `/api/driver/me/trip/stops/{stop_id}/complete` | ARRIVED → COMPLETED |
@@ -671,9 +1001,104 @@ server-decided:
 | `tracking_expected` | Whether the server will accept location for this trip at all |
 | `tracking` | Upload cadence and the freshness threshold — the app holds no copies, so what a phone uploads and what a manager calls "live" cannot drift apart |
 | `last_fix` | When a fix last **landed**, by the server clock, so the app reports what was delivered rather than what it queued |
+| `selected_route_id` | **Which** route the driver is on, or `null` when none is selected. Added LS-12 for the driver map |
+| `driver_accepted_at` | When **this** driver acknowledged the job, or `null`. Added LS-12 G1A. Not a start gate |
 
 Responses carry only what the app needs — no manager metadata, no salary, no
 other drivers, no document contents.
+
+**`selected_route_id` carries the route IDENTITY, never the geometry** (LS-12).
+This payload is re-read every ten seconds by the driver's poll, and a route
+polyline is tens of kilobytes that changes only when a manager selects or
+reroutes — sending it on every poll to detect a rare change is the wrong trade.
+So the id travels here and the geometry is fetched from
+`GET /api/driver/me/trip/offline-package`, exactly when the id moves.
+
+It is also what lets a client PROVE that the map, the stops and the progress
+figures it is showing all describe the same approved route, rather than three
+reads that happened to interleave with a reroute. The driver map refuses to
+draw a cached corridor whose `selected_route.route_id` does not equal this
+value: a package from before a reroute is not a stale version of the current
+route, it is a different road.
+
+### Trip acceptance (`POST /api/driver/me/trip/accept`) — LS-12 G1A
+
+The driver acknowledges a dispatched job. **This is not a lifecycle
+transition**: the trip stays `ASSIGNED`, `started_at` stays null, and driver
+and truck stay available to the planner. Starting travel remains
+`POST /api/driver/me/trip/start`, unchanged, under the same `can_start` gate.
+
+Relabelling `start` as "Accept" was rejected deliberately. A driver who has
+accepted a job at the depot has not begun travelling, and a dispatcher reading
+`ACTIVE` would believe a truck was moving that is still parked.
+
+| Property | Behaviour |
+| --- | --- |
+| Subject | From the token. `trip_id` in the body can only NARROW; a mismatch is `409 TRIP_SUPERSEDED` |
+| Idempotency | Accepting twice returns the first acceptance unchanged and writes **one** `ACCEPTED` timeline event. Concurrent taps serialise on the trip row lock |
+| Terminal trips | `409 TRIP_NOT_ACCEPTABLE` for DELIVERED / CLOSED / CANCELLED — a stale screen, not a retry |
+| Not a gate | `can_start`, route eligibility, the hazard refusal and the review authorisation do not read it. Accepting a blocked trip leaves it blocked |
+| Atomicity | The stamp, the timeline event and the audit row commit together or not at all |
+
+**Acceptance cannot be inherited.** `trips.driver_accepted_by` records which
+driver gave it, and `driver_accepted_at` is reported only when that matches the
+driver asking. A trip handed to a different driver therefore reads as
+unaccepted for them, with no reassignment path needing to remember to clear
+anything.
+
+### Roadside services (`GET /api/driver/me/trip/places`) — LS-12 G1B
+
+Mapped roadside services for the authenticated driver's own trip. Categories:
+`EMERGENCY`, `TYRES`, `HOTEL`, `REST`.
+
+**Served from a local snapshot; the app never calls Overpass.** The Overpass
+commons guidance asks that public instances not back a general application, and
+a driver app querying on every map pan is exactly that. A one-off bounded
+developer query built `app/services/places/data/corridor_snapshot.json`, and
+the request path reads that file — `app/services/places/` contains no network
+call at all, so "changing category issues no external request" is true by
+construction rather than by discipline.
+
+**`LIVE SOURCE NOT CONFIGURED.`** `source.is_live` is `false` and the app must
+not describe the result as a live availability feed.
+
+| Guarantee | How |
+| --- | --- |
+| Bounded | Box validated on construction: max 5° per side, no inversion. A 22° box is `422 BUSINESS_RULE_VIOLATION`. Results capped at 60 |
+| Driver-scoped | Subject from the token. `anchor=ROUTE_CORRIDOR` reads the driver's OWN route server-side — a caller cannot supply geometry |
+| Honest counts | `raw_records` 720, `unique_places` 702, `merged_duplicates` 18 all travel with the response |
+
+**Four distinct states.** Collapsing them into "no results" is the defect
+`state` exists to prevent:
+
+| `state` | Meaning |
+| --- | --- |
+| `AVAILABLE`, non-empty | Results |
+| `AVAILABLE`, empty | Searched; nothing of that kind is **mapped** here. Not "no help exists" |
+| `OUTSIDE_COVERAGE` | The area is outside the snapshot. **Nothing was searched** |
+| `UNAVAILABLE` | The snapshot could not be read. Says nothing about the road |
+
+**Deduplication.** OSM often maps one place twice — a node for the point and a
+way for the building. Records are merged only on *same category + same name +
+within 150 m*: name alone would merge four Maruti Suzuki dealers up to 48 km
+apart, and distance alone would merge a hospital with the police station across
+the road. Unnamed records are never merged (two unnamed lay-bys are two places
+to stop). The survivor keeps the most tags, so a merge never loses a phone
+number only one of the pair had.
+
+**Along-route is not the bounding box.** `anchor=ROUTE_CORRIDOR` filters by
+distance to the route **polyline**, per segment. The corridor has 52 vertices
+over 305 km, so a vertex-radius test would reject a tyre shop sitting on the
+highway between two recorded points — the midpoint of the demo route is under
+1 m from the line and over 100 km from the nearest vertex.
+
+**Distances are straight-line only.** `straight_line_m` is great-circle from
+the search anchor, or `null`. No road distance and no travel time is computed
+anywhere in this feature — a business across a river is 200 m away and 20 km to
+reach. Absent facts (`phone`, `opening_hours`, `hgv`, `max_height`, …) are
+`null` and must render as "not provided": 677 of 720 records have no phone and
+701 have no opening hours. Missing hours must never become "open now", and a
+lay-by with no `hgv` tag is unknown, not permitted.
 
 **Verification semantics** (`POST .../verify`):
 
@@ -706,6 +1131,62 @@ only narrow the request.
 
 ---
 
+## 13b. `/api/geocoding` — address search *(implemented, never executed)*
+
+Behind the server so the browser never holds a Google credential. Gated on
+`trip:create`: address search is a billed external call, and an endpoint any
+signed-in account could drive is a way to spend the owner's quota from a
+driver's phone. A DRIVER receives 403 — verified against the running server.
+
+| Method | Path | Permission | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/geocoding/suggest` | `trip:create` | `q` (min 3 chars), `session_token` |
+| GET | `/api/geocoding/details` | `trip:create` | `place_id`, `session_token` |
+
+`suggest` always answers 200. `available: false` means NO PROVIDER IS
+CONFIGURED and the list is empty because nobody looked — deliberately distinct
+from an empty list after a real search, because the client shows different words
+for each. `error` non-null means a configured provider refused (quota, disabled
+API, rejected key), which is retryable.
+
+`details` answers 503 `GEOCODING_UNAVAILABLE` when no provider is configured.
+It returned 500 `INTERNAL_ERROR` in the first version; that was a defect, found
+against the running server and fixed.
+
+Only `id,displayName,formattedAddress,location` are ever requested from Google.
+That field mask is the retention boundary and a test pins it: fields never
+fetched cannot be stored by accident.
+
+**Status: no `GOOGLE_PLACES_API_KEY` is configured on the demo machine, so this
+has never made a real call to Google.**
+
+## 13c. `/api/ai` — local language model *(implemented, never executed)*
+
+One model, three surfaces. Driver-scoped and takes NO id: the trip whose facts
+reach the model comes from the signed-in driver's token, so there is no
+parameter that could select whose trip is described.
+
+| Method | Path | Auth | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/ai/status` | current driver | Checked live, never cached |
+| POST | `/api/ai/ask` | current driver | `mode`: `assistant` \| `safety` \| `translate` |
+
+Refusals, each a different action for the driver:
+
+| Status | Code | Meaning |
+| --- | --- | --- |
+| 429 | `AI_BUSY` | Something else is generating. One at a time, deliberately not a queue. |
+| 503 | `AI_UNAVAILABLE` | No model server, no model, or it refused. |
+| 422 | `TRANSLATION_UNAVAILABLE` | The installed model cannot do that language pair. |
+
+No conversation is stored and no answer is persisted. Nothing this endpoint
+returns can change a route, a trip or a hazard decision — see
+[docs/AI_MODELS.md](AI_MODELS.md) section 8.
+
+**Status: no model runtime is installed on the demo machine.** `/status` returns
+`available: false` and `/ask` returns 503 — both verified against the running
+server. No token has ever been generated.
+
 ## 14. WebSocket `/ws/fleet`
 
 Authenticated by access token in the connect query. Server → client events:
@@ -728,7 +1209,7 @@ polling gives the same state.
 
 ## 15. Implemented Today
 
-As of P7, the implemented surface is:
+As of the route-intelligence work (P7-P11), the implemented surface is:
 
 | Area | Paths |
 | --- | --- |
@@ -741,6 +1222,10 @@ As of P7, the implemented surface is:
 | Detail reads (P6) | `GET /api/drivers/{id}`, `GET /api/trucks/{id}`, `GET /api/trips/{id}` — the last now carries a `shipment` summary (client, reference, load, priority) so an operations screen does not need a second lookup for what a truck is carrying |
 | Route planning (P7) | `GET /api/trips/{id}/routes`, `POST /api/trips/{id}/routes/recalculate`, `POST /api/trips/{id}/routes/{route_id}/select` — see §9. `POST /api/routes/preview` is **not** implemented |
 | Route risk (P8) | `GET /api/trips/{id}/routes/{route_id}/risk` — deterministic weighted rule over weather sampled along the route. Reports which datasets it did **not** have. Not a model |
+| Route recommendation | `GET /api/trips/{id}/routes/recommendation` — compares this trip's live routes and advises one, in points/minutes/km. Refuses to recommend when the candidates were scored on different evidence. No percentages. Not a model |
+| Reroute | `GET /api/trips/{id}/reroute`, `POST /api/trips/{id}/reroute/accept` — three outcomes including `ALERT_ONLY`. The POST is the **only** way a moving trip's route changes, and nothing applies a proposal on its own |
+| Offline corridor | `GET /api/driver/me/trip/offline-package` — the journey packaged to survive losing the network. Declares `basemap: BUNDLED_NONE`; the OSM tile policy prohibits prefetching tiles for offline use |
+| Route progress | `progress` on `GET /api/driver/me/trip` — the observed fix projected onto the planned line, with `off_route_m`. Deliberately carries **no ETA** |
 | Rate limiting (P7) | `/api/auth/login` and `/api/auth/refresh` only, per route, in-process — see `backend/app/core/rate_limit.py` |
 
 Everything else in this document is a specification for a later phase and is not

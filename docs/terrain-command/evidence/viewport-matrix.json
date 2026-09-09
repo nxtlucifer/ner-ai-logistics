@@ -1,0 +1,277 @@
+{
+  "generated": "2026-09-07T08:55:54.170Z",
+  "scope": "Local manager web, Chrome headless, layout-reflow emulation of browser zoom",
+  "cells": [
+    {
+      "page": "fleet",
+      "size": "1366x768",
+      "zoom": "100%",
+      "layoutWidth": 1366,
+      "documentScrollWidth": 1366,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "dispatch",
+      "size": "1366x768",
+      "zoom": "100%",
+      "layoutWidth": 1366,
+      "documentScrollWidth": 1366,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "review",
+      "size": "1366x768",
+      "zoom": "100%",
+      "layoutWidth": 1366,
+      "documentScrollWidth": 1366,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "fleet",
+      "size": "1366x768",
+      "zoom": "125%",
+      "layoutWidth": 1093,
+      "documentScrollWidth": 1093,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "dispatch",
+      "size": "1366x768",
+      "zoom": "125%",
+      "layoutWidth": 1093,
+      "documentScrollWidth": 1093,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "review",
+      "size": "1366x768",
+      "zoom": "125%",
+      "layoutWidth": 1093,
+      "documentScrollWidth": 1093,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "fleet",
+      "size": "1366x768",
+      "zoom": "150%",
+      "layoutWidth": 911,
+      "documentScrollWidth": 911,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "dispatch",
+      "size": "1366x768",
+      "zoom": "150%",
+      "layoutWidth": 911,
+      "documentScrollWidth": 911,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "review",
+      "size": "1366x768",
+      "zoom": "150%",
+      "layoutWidth": 911,
+      "documentScrollWidth": 911,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "fleet",
+      "size": "1366x768",
+      "zoom": "200%",
+      "layoutWidth": 683,
+      "documentScrollWidth": 683,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "dispatch",
+      "size": "1366x768",
+      "zoom": "200%",
+      "layoutWidth": 683,
+      "documentScrollWidth": 683,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "review",
+      "size": "1366x768",
+      "zoom": "200%",
+      "layoutWidth": 683,
+      "documentScrollWidth": 683,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "fleet",
+      "size": "1440x900",
+      "zoom": "100%",
+      "layoutWidth": 1440,
+      "documentScrollWidth": 1440,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "dispatch",
+      "size": "1440x900",
+      "zoom": "100%",
+      "layoutWidth": 1440,
+      "documentScrollWidth": 1440,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "review",
+      "size": "1440x900",
+      "zoom": "100%",
+      "layoutWidth": 1440,
+      "documentScrollWidth": 1440,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "fleet",
+      "size": "1440x900",
+      "zoom": "125%",
+      "layoutWidth": 1152,
+      "documentScrollWidth": 1152,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "dispatch",
+      "size": "1440x900",
+      "zoom": "125%",
+      "layoutWidth": 1152,
+      "documentScrollWidth": 1152,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "review",
+      "size": "1440x900",
+      "zoom": "125%",
+      "layoutWidth": 1152,
+      "documentScrollWidth": 1152,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "fleet",
+      "size": "1440x900",
+      "zoom": "150%",
+      "layoutWidth": 960,
+      "documentScrollWidth": 960,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "dispatch",
+      "size": "1440x900",
+      "zoom": "150%",
+      "layoutWidth": 960,
+      "documentScrollWidth": 960,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "review",
+      "size": "1440x900",
+      "zoom": "150%",
+      "layoutWidth": 960,
+      "documentScrollWidth": 960,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "fleet",
+      "size": "1440x900",
+      "zoom": "200%",
+      "layoutWidth": 720,
+      "documentScrollWidth": 720,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "dispatch",
+      "size": "1440x900",
+      "zoom": "200%",
+      "layoutWidth": 720,
+      "documentScrollWidth": 720,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "review",
+      "size": "1440x900",
+      "zoom": "200%",
+      "layoutWidth": 720,
+      "documentScrollWidth": 720,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "fleet",
+      "size": "tablet-834",
+      "zoom": "100%",
+      "layoutWidth": 834,
+      "documentScrollWidth": 834,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "dispatch",
+      "size": "tablet-834",
+      "zoom": "100%",
+      "layoutWidth": 834,
+      "documentScrollWidth": 834,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "review",
+      "size": "tablet-834",
+      "zoom": "100%",
+      "layoutWidth": 834,
+      "documentScrollWidth": 834,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "fleet",
+      "size": "mobile-390",
+      "zoom": "100%",
+      "layoutWidth": 390,
+      "documentScrollWidth": 390,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "dispatch",
+      "size": "mobile-390",
+      "zoom": "100%",
+      "layoutWidth": 390,
+      "documentScrollWidth": 390,
+      "status": "PASS",
+      "offenders": []
+    },
+    {
+      "page": "review",
+      "size": "mobile-390",
+      "zoom": "100%",
+      "layoutWidth": 390,
+      "documentScrollWidth": 390,
+      "status": "PASS",
+      "offenders": []
+    }
+  ],
+  "status": "PASS"
+}

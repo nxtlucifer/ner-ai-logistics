@@ -17,6 +17,9 @@
 
 import Constants from 'expo-constants'
 
+import { supabaseApi } from './supabaseApi'
+import { configurationProblem } from './supabaseClient'
+
 import {
   clearRefreshToken,
   loadRefreshToken,
@@ -32,6 +35,9 @@ import {
  * configuration. An explicit EXPO_PUBLIC_API_BASE_URL always wins.
  */
 function resolveBaseUrl(): string {
+  if (process.env.EXPO_PUBLIC_BACKEND === 'supabase') {
+    return process.env.EXPO_PUBLIC_SUPABASE_URL ?? ''
+  }
   const explicit = process.env.EXPO_PUBLIC_API_BASE_URL
   if (explicit) return explicit
 
@@ -41,7 +47,7 @@ function resolveBaseUrl(): string {
 
   const host = hostUri?.split(':')[0]
   if (host) return `http://${host}:8000`
-  return 'http://localhost:8000'
+  return ''
 }
 
 export const API_BASE_URL = resolveBaseUrl()
@@ -111,6 +117,15 @@ interface RequestOptions {
   skipRefresh?: boolean
   /** Override for a request that is legitimately slower. */
   timeoutMs?: number
+  /**
+   * Caller-owned cancellation, chained onto the timeout controller below.
+   *
+   * The timeout is about the SERVER being slow; this is about the driver no
+   * longer wanting the answer. Both have to be able to abort the same fetch,
+   * which is why the caller's signal is forwarded rather than replacing the
+   * internal one.
+   */
+  signal?: AbortSignal
 }
 
 async function rawRequest(path: string, options: RequestOptions): Promise<Response> {
@@ -123,6 +138,15 @@ async function rawRequest(path: string, options: RequestOptions): Promise<Respon
     () => controller.abort(),
     options.timeoutMs ?? REQUEST_TIMEOUT_MS,
   )
+  // An already-aborted signal must abort immediately: a caller that cancels
+  // between deciding to retry and the fetch starting would otherwise get one
+  // request it can no longer stop.
+  if (options.signal) {
+    if (options.signal.aborted) controller.abort()
+    else options.signal.addEventListener('abort', () => controller.abort(), {
+      once: true,
+    })
+  }
 
   try {
     return await fetch(`${API_BASE_URL}${path}`, {
@@ -360,6 +384,32 @@ export interface TrackingConfig {
   fresh_seconds: number
 }
 
+/**
+ * How far along the PLANNED corridor the truck is.
+ *
+ * Measured by projecting the last observed fix onto the planned line, which is
+ * why `off_route_m` is here: the planned route and the observed track are
+ * different things, and the distance between them says whether the rest of
+ * these numbers mean anything.
+ *
+ * THERE IS NO ETA. `remaining_at_planned_pace_min` is the remaining distance
+ * at the average speed the routing provider's own figures imply - the name
+ * says what it assumes and `REMAINING_TIME_ASSUMES_PLANNED_PACE` travels with
+ * it. Every value is null rather than zero when it cannot be computed: a truck
+ * with no fix has not arrived.
+ */
+export interface RouteProgress {
+  fraction_complete: number | null
+  travelled_distance_km: number | null
+  remaining_distance_km: number | null
+  off_route_m: number | null
+  on_route: boolean | null
+  remaining_at_planned_pace_min: number | null
+  planned_average_speed_kmph: number | null
+  reason_codes: string[]
+  version: string
+}
+
 export interface CurrentTrip {
   id: string
   trip_code: string
@@ -376,6 +426,266 @@ export interface CurrentTrip {
   tracking_expected: boolean
   tracking: TrackingConfig
   last_fix: LastFix | null
+  /** Null only when the trip has no selected route at all. */
+  progress: RouteProgress | null
+  /**
+   * WHICH route the driver is on. Null when none is selected yet.
+   *
+   * The geometry is deliberately not on this payload - see the backend note on
+   * `CurrentTrip.selected_route_id`. This id is what the map watches: it
+   * changes exactly when a manager selects or reroutes, and that is the only
+   * moment the corridor needs re-fetching. It is also how the map, the steps
+   * and the progress figures are proven to describe the same approved route.
+   */
+  selected_route_id: string | null
+  /**
+   * When THIS driver acknowledged the job, or null if they have not.
+   *
+   * Drives the main page's action: **Accept trip** while null, **Resume
+   * navigation** once set. The app opens the Map page only after the server
+   * returns a non-null value here, so the redirect follows a persisted fact
+   * rather than an optimistic local boolean.
+   *
+   * Not a start gate - `can_start` is still the only thing that says whether
+   * travel may begin. And it is per-driver: a reassigned trip reports null
+   * here for its new driver, so nobody inherits somebody else's acceptance.
+   */
+  driver_accepted_at: string | null
+  shipment?: { total_weight_kg?: string | number | null } | null
+  driver?: { full_name?: string | null } | null
+}
+
+/** The four service kinds the map offers. Matches the backend enum. */
+export type PlaceCategory = 'EMERGENCY' | 'TYRES' | 'HOTEL' | 'REST'
+
+/**
+ * What the search was centred on, so the screen can say so out loud.
+ *
+ * With GPS denied there is no driver position, and the anchor must never be
+ * silently faked. `TRIP_ORIGIN` and `MAP_AREA` are honest substitutes and the
+ * UI labels whichever one produced what is on screen.
+ */
+export type SearchAnchor =
+  | 'DRIVER_POSITION'
+  | 'ROUTE_CORRIDOR'
+  | 'TRIP_ORIGIN'
+  | 'MAP_AREA'
+
+/**
+ * Whether anybody could look, distinct from what they found.
+ *
+ * `AVAILABLE` with an empty list means nothing of that kind is MAPPED here.
+ * `OUTSIDE_COVERAGE` means the area was never searched. `UNAVAILABLE` means
+ * the lookup failed. Rendering all three as "no results" is the defect this
+ * field exists to prevent.
+ */
+export type PlacesState =
+  | 'AVAILABLE'
+  | 'OUTSIDE_COVERAGE'
+  | 'UNAVAILABLE'
+  | 'NOT_CONFIGURED'
+
+/** Every field independently null. Null means nobody recorded it. */
+export interface PlaceContact {
+  phone: string | null
+  opening_hours: string | null
+  operator: string | null
+}
+
+/** Access as MAPPED. A missing value is unknown, never permitted. */
+export interface PlaceAccess {
+  hgv: string | null
+  max_height: string | null
+  access: string | null
+  fee: string | null
+  toilets: string | null
+  lit: string | null
+}
+
+export interface Place {
+  provider_id: string
+  category: PlaceCategory
+  name: string | null
+  lat: number
+  lon: number
+  contact: PlaceContact
+  access: PlaceAccess
+  /**
+   * APPROXIMATE STRAIGHT-LINE metres, or null.
+   *
+   * Never a driving distance and never to be rendered as one: a shop across a
+   * river is 200 m away and 20 km to reach. No road distance or travel time is
+   * computed anywhere in this feature.
+   */
+  straight_line_m: number | null
+  /**
+   * Every source element behind this record.
+   *
+   * More than one means several mapped elements were judged to be the same
+   * place - LIKELY, not certainly. The ids travel so the judgement can be
+   * checked rather than trusted.
+   */
+  provider_ids: string[]
+  /** Fields where merged elements disagreed. Shown as disputed, not hidden. */
+  conflicts: Record<string, string[]>
+}
+
+export interface PlaceSource {
+  name: string
+  attribution: string
+  licence: string
+  retrieved_at: string
+  coverage_description: string
+  limits: string
+  /** False for the corridor snapshot. Not a live availability feed. */
+  is_live: boolean
+  raw_records: number
+  unique_places: number
+  merged_duplicates: number
+}
+
+export interface PlacesResponse {
+  state: PlacesState
+  anchor: SearchAnchor
+  places: Place[]
+  source: PlaceSource | null
+  truncated: boolean
+  error: string | null
+}
+
+export interface PlacesQuery {
+  category: PlaceCategory
+  south: number
+  west: number
+  north: number
+  east: number
+  anchor: SearchAnchor
+  anchorLat?: number
+  anchorLon?: number
+  limit?: number
+}
+
+/** One corridor, as coordinates the phone can draw with no network. */
+export interface OfflineRoute {
+  route_id: string
+  kind: string
+  distance_km: number | null
+  estimated_duration_min: number | null
+  /** [[lat, lon], ...] in travel order. */
+  geometry: [number, number][]
+}
+
+export interface OfflineStop {
+  stop_id: string
+  sequence: number
+  kind: string
+  name: string | null
+  address: string | null
+  lat: number | null
+  lon: number | null
+}
+
+export interface OfflineRisk {
+  score: number
+  band: string
+  unavailable: string[]
+  reason_codes: string[]
+}
+
+/**
+ * The whole journey, downloaded so it survives losing the network.
+ *
+ * WHAT IT IS AND IS NOT. It carries the route already chosen - geometry, stops,
+ * estimates - so a phone in a valley has the journey in front of it. It is NOT
+ * a routing engine: computing a NEW route offline needs a road graph on the
+ * device and does not exist. A driver following a known road needs the road.
+ *
+ * `basemap` is `BUNDLED_NONE`. That is a licence answer, not a missing feature:
+ * the OSM Foundation tile policy prohibits prefetching tiles for offline use,
+ * and bulk-caching them would be a policy violation dressed up as a feature.
+ * The gap is declared so a driver is told now rather than discovering it in a
+ * valley.
+ *
+ * `risk` is a SNAPSHOT taken at `risk_captured_at`, never live. It must be
+ * rendered against that timestamp and allowed to go stale on screen using the
+ * device clock alone - a weather panel still reading LIGHT RAIN ten hours into
+ * a blackout is the failure the field exists to prevent.
+ *
+ * `package_hash` covers only the durable parts, so "has the corridor changed"
+ * can be asked without the answer flipping every time the weather does.
+ */
+export interface OfflinePackage {
+  trip_id: string
+  trip_code: string
+  captured_at: string
+  selected_route: OfflineRoute | null
+  backup_route: OfflineRoute | null
+  stops: OfflineStop[]
+  risk: OfflineRisk | null
+  risk_captured_at: string | null
+  basemap: string
+  reason_codes: string[]
+  package_hash: string
+  version: string
+}
+
+/**
+ * One turn instruction, positioned along the route it belongs to.
+ *
+ * `distance_from_start_m` is the field a next-turn panel needs: distance along
+ * this route from its beginning to this maneuver. Distance to the turn is that
+ * minus how far the truck has travelled.
+ *
+ * `step_distance_m` is NOT that. It measures FORWARD - from this maneuver to
+ * the next one - because that is what OSRM's `step.distance` means. Rendering
+ * it as "in X m, turn left" is wrong by exactly one step. It is exposed for leg
+ * display and labelled here so the mistake is harder to make than to avoid.
+ */
+export interface NavigationManeuver {
+  type: string
+  modifier: string | null
+  lat: number
+  lon: number
+  geometry_index: number
+  distance_from_start_m: number
+  step_distance_m: number
+  /** Free-flow provider seconds for that leg. Not an ETA. */
+  duration_s: number | null
+  name: string | null
+  exit: number | null
+}
+
+/**
+ * Turn instructions for the corridor this driver's trip currently follows.
+ *
+ * `available` is false whenever guidance cannot be driven, with `reason_codes`
+ * saying why. `geometry` is still populated in that case: losing directions is
+ * not losing the road, and a map that blanks because maneuvers are missing has
+ * turned a degraded feature into a broken screen.
+ *
+ * `route_id` and `route_revision` bind the package to one corridor. Both are
+ * checked before anything is drawn - directions from a superseded route render
+ * perfectly and point somewhere the driver is no longer going.
+ */
+export interface NavigationPackage {
+  trip_id: string
+  trip_code: string
+  route_id: string | null
+  route_revision: string | null
+  available: boolean
+  reason_codes: string[]
+  geometry: number[][]
+  maneuvers: NavigationManeuver[]
+  distance_m: number | null
+  /** Provider free-flow duration. NOT an arrival time. */
+  duration_s: number | null
+  provider: string | null
+  provider_route_id: string | null
+  captured_at: string
+  coordinate_format: string
+  distance_unit: string
+  duration_unit: string
+  version: string
 }
 
 /** One position fix. `device_fix_id` is what makes a retry safe. */
@@ -402,7 +712,80 @@ export interface GpsBatchAccepted {
 
 // --- Endpoints ------------------------------------------------------------
 
-export const api = {
+// --- Local AI -------------------------------------------------------------
+
+/**
+ * Whether a model is actually reachable, checked live by the server.
+ *
+ * `available: false` is a first-class state, not an error. The three AI
+ * surfaces all still work without it - they fall back to the bundled guide,
+ * the deterministic assistant and the reviewed phrase pack - and they are
+ * required to say which of the two the driver is reading.
+ */
+export interface AiStatus {
+  /**
+   * A generated answer is expected. NOT "a key is configured" - see the Edge
+   * handler: with both provider quotas spent, key-presence reported available
+   * while every answer came from the offline assistant.
+   */
+  available: boolean
+  /**
+   * Finer detail behind `available`. Optional because a client may be talking
+   * to an older deployment of the function that predates the field.
+   */
+  state?: 'OFFLINE' | 'CONFIGURED' | 'USABLE' | 'QUOTA_EXHAUSTED' | 'FALLBACK'
+  provider: string | null
+  model: string | null
+  /** Why not, in words a driver can act on. */
+  detail: string | null
+  /** Language codes the demo is prepared to translate between. */
+  languages: Record<string, string>
+}
+
+export interface AiAnswer {
+  answer: string
+  /**
+   * True only when a model actually produced this text.
+   *
+   * NOT "always true from this endpoint", which is what this comment used to
+   * say and what led the UI to label every answer as model-written. The hosted
+   * function answers `false` whenever it falls back to its deterministic
+   * offline assistant - a provider timeout, a 429, or a reply it could not use
+   * - and when a provider's free-tier quota is spent that is EVERY answer.
+   */
+  generated: boolean
+  model: string | null
+  /** When the trip facts behind the answer were read. Null for translation. */
+  facts_as_of: string | null
+  /**
+   * Why the assistant answered the way it did, when it has something to say -
+   * a quota exhaustion, a timeout, a filter that fired. Present on fallback
+   * and refusal answers, null on a clean generated one.
+   */
+  disclaimer?: string | null
+}
+
+const restApi = {
+  /** Is a local model there right now. Cheap; safe to call on screen focus. */
+  aiStatus: (signal?: AbortSignal) => request<AiStatus>('/api/ai/status', { signal }),
+
+  /**
+   * One question, one answer. No history is sent and none is stored.
+   *
+   * The trip context is resolved SERVER-side from the signed-in driver's
+   * token - there is no trip id to pass, and therefore none to tamper with.
+   */
+  aiAsk: (
+    body: {
+      mode: 'assistant' | 'safety' | 'translate'
+      question: string
+      guidance?: string
+      source_language?: string
+      target_language?: string
+    },
+    signal?: AbortSignal,
+  ) => request<AiAnswer>('/api/ai/ask', { method: 'POST', body, signal }),
+
   ready: () => request<ReadyResponse>('/ready'),
 
   login: async (identifier: string, password: string): Promise<TokenResponse> => {
@@ -440,6 +823,71 @@ export const api = {
   // Trip execution. No trip id in any path: the server resolves the trip from
   // the token. Where one is sent in a body it can only narrow the request.
   myTrip: () => request<CurrentTrip | null>('/api/driver/me/trip'),
+
+  /**
+   * Download the whole journey for offline use.
+   *
+   * 404 when there is no current trip - unlike `myTrip`, which answers null
+   * because between-trips is a normal screen. Asking to download a journey
+   * that does not exist is a request that cannot be satisfied, and null would
+   * leave the app guessing whether to retry.
+   */
+  offlinePackage: () =>
+    request<OfflinePackage>('/api/driver/me/trip/offline-package'),
+
+  /**
+   * Turn instructions for this driver's own current route.
+   *
+   * 404 only when there is no current trip, matching `offlinePackage`. Having a
+   * trip whose route cannot drive guidance is a 200 with `available: false` -
+   * that is a state the map renders, not an error it should retry.
+   */
+  navigationPackage: () =>
+    request<NavigationPackage>('/api/driver/me/trip/navigation'),
+
+  /**
+   * Roadside services near this driver's own trip.
+   *
+   * Served from a local corridor snapshot on the backend - no request leaves
+   * the server, so changing category or panning the map issues no external
+   * lookup. Called only from an explicit action, never from the trip poll.
+   */
+  places: (query: PlacesQuery) =>
+    request<PlacesResponse>(
+      '/api/driver/me/trip/places?' +
+        new URLSearchParams({
+          category: query.category,
+          south: String(query.south),
+          west: String(query.west),
+          north: String(query.north),
+          east: String(query.east),
+          anchor: query.anchor,
+          ...(query.anchorLat !== undefined && query.anchorLon !== undefined
+            ? {
+                anchor_lat: String(query.anchorLat),
+                anchor_lon: String(query.anchorLon),
+              }
+            : {}),
+          limit: String(query.limit ?? 40),
+        }).toString(),
+    ),
+
+  /**
+   * Acknowledge the dispatched job. This does NOT start travel.
+   *
+   * The server records who accepted and when, and returns the trip with
+   * `driver_accepted_at` set. The app opens the Map page only after seeing
+   * that value come back - never from a local flag - so a failed or refused
+   * acceptance leaves the driver on the main page with the real reason.
+   *
+   * Idempotent server-side: a double tap or a retry after a lost response
+   * returns the first acceptance unchanged.
+   */
+  acceptTrip: (tripId: string) =>
+    request<CurrentTrip>('/api/driver/me/trip/accept', {
+      method: 'POST',
+      body: { trip_id: tripId },
+    }),
   startTrip: (tripId: string) =>
     request<CurrentTrip>('/api/driver/me/trip/start', {
       method: 'POST',
@@ -469,3 +917,74 @@ export const api = {
       timeoutMs: 10_000,
     }),
 }
+
+// ---------------------------------------------------------------------------
+// Transport selection
+// ---------------------------------------------------------------------------
+
+/**
+ * Which backend this build talks to. Decided ONCE, at module load, from
+ * EXPLICIT configuration.
+ *
+ * `local` is a deliberate choice, never a consequence. An earlier version chose
+ * REST whenever `isSupabaseConfigured()` was false, which meant a cloud release
+ * with a typo in its URL silently fell back to dialling a laptop on a private
+ * LAN - the exact failure this migration exists to remove, reintroduced by the
+ * error path. A broken cloud configuration is now an ERROR, not a fallback:
+ * every operation throws `ConfigurationError` and NO REST request is ever made.
+ *
+ * ALL OR NOTHING within cloud mode too. An operation that is not migrated yet
+ * throws `NotMigratedError` naming itself rather than routing back to the
+ * laptop, so a driver on mobile data cannot end up with most of the app working
+ * and one screen hanging forever with nothing saying why.
+ *
+ * ONE REFRESH LOOP. Only one of these objects is ever used, so supabase-js's
+ * auto-refresh timer and `refreshSession()` above are never both live against
+ * the same identity.
+ */
+export type BackendMode = 'supabase' | 'local'
+
+export class ConfigurationError extends Error {
+  readonly code = 'CONFIGURATION_ERROR'
+  constructor(problem: string) {
+    super(`Backend is misconfigured: ${problem}`)
+    this.name = 'ConfigurationError'
+  }
+}
+
+/**
+ * `EXPO_PUBLIC_BACKEND` decides it outright. Without it, the presence of ANY
+ * Supabase variable means cloud was intended - so a half-set cloud build is
+ * diagnosed rather than quietly demoted to REST.
+ */
+export function resolveBackendMode(): BackendMode {
+  const declared = process.env.EXPO_PUBLIC_BACKEND
+  if (declared === 'supabase' || declared === 'local') return declared
+  return process.env.EXPO_PUBLIC_SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+    ? 'supabase'
+    : 'local'
+}
+
+export const backendMode: BackendMode = resolveBackendMode()
+
+/** Every operation refuses, identically, with the reason. */
+function misconfiguredApi(problem: string): typeof restApi {
+  const refuse = () => {
+    throw new ConfigurationError(problem)
+  }
+  return new Proxy({} as typeof restApi, { get: () => refuse })
+}
+
+export const configurationProblemMessage: string | null =
+  backendMode === 'supabase' ? configurationProblem() : null
+
+export const usingSupabase = backendMode === 'supabase' && configurationProblemMessage === null
+
+export const api = (backendMode === 'local'
+  ? restApi
+  : configurationProblemMessage !== null
+    ? misconfiguredApi(configurationProblemMessage)
+    : (supabaseApi as unknown as typeof restApi)) as typeof restApi
+
+/** The REST implementation, for tests and for the explicit local profile. */
+export { restApi }

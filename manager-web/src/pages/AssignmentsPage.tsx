@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { api } from '../api/client'
+import { api, unavailableReason } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
 import {
   Button,
@@ -23,6 +23,7 @@ export default function AssignmentsPage() {
 
   const assign = useMutation((d: string, t: string) => api.createAssignment(d, t))
   const end = useMutation((id: string) => api.endAssignment(id))
+  const endBlocked = unavailableReason('endAssignment')
 
   const driverName = (id: string) =>
     drivers.data?.items.find((d) => d.id === id)?.full_name ?? id.slice(0, 8)
@@ -50,8 +51,8 @@ export default function AssignmentsPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-bold text-slate-100">Assignments</h1>
-        <p className="text-xs text-slate-500">
+        <h1 className="text-xl font-bold text-ink">Assignments</h1>
+        <p className="text-xs text-muted">
           A driver holds one truck at a time, and a truck one driver — enforced by
           the database, not just here.
         </p>
@@ -73,11 +74,11 @@ export default function AssignmentsPage() {
             <>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block">
-                  <span className="text-xs font-medium text-slate-300">Driver</span>
+                  <span className="text-xs font-medium text-ink">Driver</span>
                   <select
                     value={driverId}
                     onChange={(e) => setDriverId(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-emerald-600 focus:outline-none"
+                    className="mt-1 w-full rounded-[var(--radius-control)] border border-outline bg-surface px-3 py-2 text-sm text-ink focus:border-route focus:ring-1 focus:ring-route"
                   >
                     <option value="">Select a driver…</option>
                     {drivers.data?.items.map((d) => (
@@ -89,11 +90,11 @@ export default function AssignmentsPage() {
                 </label>
 
                 <label className="block">
-                  <span className="text-xs font-medium text-slate-300">Truck</span>
+                  <span className="text-xs font-medium text-ink">Truck</span>
                   <select
                     value={truckId}
                     onChange={(e) => setTruckId(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-emerald-600 focus:outline-none"
+                    className="mt-1 w-full rounded-[var(--radius-control)] border border-outline bg-surface px-3 py-2 text-sm text-ink focus:border-route focus:ring-1 focus:ring-route"
                   >
                     <option value="">Select a truck…</option>
                     {trucks.data?.items.map((t) => (
@@ -141,7 +142,7 @@ export default function AssignmentsPage() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="text-xs uppercase tracking-wide text-slate-500">
+              <thead className="text-xs uppercase tracking-wide text-muted">
                 <tr>
                   <th className="pb-2 font-medium">Driver</th>
                   <th className="pb-2 font-medium">Truck</th>
@@ -150,13 +151,13 @@ export default function AssignmentsPage() {
                   <th className="pb-2" />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800">
+              <tbody className="divide-y divide-line">
                 {assignments.data?.map((a) => (
                   <tr key={a.id}>
-                    <td className="py-3 font-medium text-slate-200">
+                    <td className="py-3 font-medium text-ink">
                       {driverName(a.driver_id)}
                     </td>
-                    <td className="py-3 font-mono text-slate-300">
+                    <td className="py-3 font-mono text-ink">
                       {truckReg(a.truck_id)}
                     </td>
                     <td className="py-3">
@@ -168,25 +169,25 @@ export default function AssignmentsPage() {
                       {a.verified_at ? (
                         a.mismatch_flagged ? (
                           <div>
-                            <span className="inline-block rounded-full border border-amber-800 bg-amber-950 px-2 py-0.5 text-[11px] font-semibold text-amber-300">
+                            <span className="inline-block rounded-full border border-warning/30 bg-warning-soft px-2 py-0.5 text-[11px] font-semibold text-warning">
                               NEEDS REVIEW
                             </span>
-                            <div className="mt-1 text-[11px] text-amber-400/80">
+                            <div className="mt-1 text-[11px] text-warning/80">
                               driver reported a different registration
                             </div>
                           </div>
                         ) : (
                           <div>
-                            <span className="inline-block rounded-full border border-emerald-800 bg-emerald-950 px-2 py-0.5 text-[11px] font-semibold text-emerald-300">
+                            <span className="inline-block rounded-full border border-ok/30 bg-ok-soft px-2 py-0.5 text-[11px] font-semibold text-ok">
                               VERIFIED
                             </span>
-                            <div className="mt-1 text-[11px] text-slate-500">
+                            <div className="mt-1 text-[11px] text-muted">
                               {new Date(a.verified_at).toLocaleString()}
                             </div>
                           </div>
                         )
                       ) : (
-                        <span className="inline-block rounded-full border border-slate-700 bg-slate-800 px-2 py-0.5 text-[11px] font-semibold text-slate-400">
+                        <span className="inline-block rounded-full border border-line bg-soft px-2 py-0.5 text-[11px] font-semibold text-muted">
                           AWAITING DRIVER
                         </span>
                       )}
@@ -197,6 +198,8 @@ export default function AssignmentsPage() {
                           variant="danger"
                           onClick={() => handleEnd(a.id)}
                           busy={end.isSubmitting}
+                          disabled={endBlocked !== null}
+                          title={endBlocked ?? undefined}
                         >
                           End
                         </Button>

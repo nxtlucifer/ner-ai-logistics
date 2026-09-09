@@ -13,16 +13,19 @@
  *
  * They are separate because they fail for different reasons and a manager needs
  * to know which one failed. Creating the trip re-checks capacity; dispatching
- * re-checks the licence, the truck's condition and the driver/truck assignment,
- * because all of those can change between planning and dispatch.
+ * re-checks the licence, the truck's condition, the driver/truck assignment and
+ * that the driver's login still works, because all of those can change between
+ * planning and dispatch. The last one matters most: a trip dispatched to a
+ * driver who cannot sign in can never be started, and holds a truck while it
+ * cannot be.
  *
  * The form creates the shipment and the trip together, since a shipment with no
  * trip is not useful here, but each call's error is surfaced on its own.
  */
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
-import { api, type Trip } from '../api/client'
+import { api, type Trip, unavailableReason } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
 import {
   Button,
@@ -34,35 +37,41 @@ import {
   StatusPill,
 } from '../components/ui'
 import { useMutation, useResource } from '../hooks/useResource'
+import TripRouteReview from '../components/TripRouteReview'
+import AddressPicker, {
+  EMPTY_ENDPOINT,
+  type EndpointValue,
+} from '../components/AddressPicker'
 
 /** Guwahati. A sensible starting point for a region the operators work in. */
-const DEFAULT_PICKUP = { lat: '26.1445', lon: '91.7362' }
-/** Jorhat. */
-const DEFAULT_DESTINATION = { lat: '26.7509', lon: '94.2037' }
-
-interface CoordinateInput {
-  lat: string
-  lon: string
-}
-
 /**
- * Parse a typed coordinate.
+ * Parse a confirmed endpoint.
  *
- * Rejected here as well as at the server because PostGIS would WRAP an
- * out-of-range latitude over the pole into a plausible-looking point rather
- * than refusing it. A manager who transposes lat and lon should be told, not
- * shown a truck in the Arctic.
+ * THERE ARE NO DEFAULT COORDINATES ANY MORE. A depot's latitude pre-filled into
+ * every trip is right once and silently wrong afterwards, and this form's whole
+ * failure mode was a manager changing the address and shipping the default. An
+ * endpoint with no `source` has not been located, and that is refused here
+ * rather than substituted.
+ *
+ * The range check stays for the Advanced path, which is now the only way a
+ * coordinate can be typed. It catches a transposed lat/lon rather than folding
+ * an out-of-range latitude over the pole into a plausible-looking point.
  */
-function parseCoordinate(
-  input: CoordinateInput,
+function parseEndpoint(
+  input: EndpointValue,
   label: string,
 ): { value?: { lat: number; lon: number }; error?: string } {
+  if (input.source === null) {
+    return {
+      error: `${label} has no location yet. Pick a suggestion, or choose the point on the map.`,
+    }
+  }
   const lat = Number(input.lat)
   const lon = Number(input.lon)
-  if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+  if (input.lat.trim() === '' || !Number.isFinite(lat) || lat < -90 || lat > 90) {
     return { error: `${label} latitude must be between -90 and 90.` }
   }
-  if (!Number.isFinite(lon) || lon < -180 || lon > 180) {
+  if (input.lon.trim() === '' || !Number.isFinite(lon) || lon < -180 || lon > 180) {
     return { error: `${label} longitude must be between -180 and 180.` }
   }
   return { value: { lat, lon } }
@@ -75,14 +84,12 @@ export default function TripsPage() {
   const drivers = useResource(() => api.listDrivers({ limit: 100 }), [])
   const trucks = useResource(() => api.listTrucks({ limit: 100 }), [])
 
+  const [reviewTrip, setReviewTrip] = useState<Trip | null>(null)
+  const draftAttempt = useRef<{ intent: string; stamp: string } | null>(null)
   const [client, setClient] = useState('')
   const [weight, setWeight] = useState('1000')
-  const [pickupAddress, setPickupAddress] = useState('')
-  const [pickup, setPickup] = useState<CoordinateInput>(DEFAULT_PICKUP)
-  const [destinationAddress, setDestinationAddress] = useState('')
-  const [destination, setDestination] = useState<CoordinateInput>(
-    DEFAULT_DESTINATION,
-  )
+  const [pickup, setPickup] = useState<EndpointValue>(EMPTY_ENDPOINT)
+  const [destination, setDestination] = useState<EndpointValue>(EMPTY_ENDPOINT)
   const [driverId, setDriverId] = useState('')
   const [truckId, setTruckId] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
@@ -94,11 +101,16 @@ export default function TripsPage() {
   const dispatchTrip = useMutation((id: string) => api.dispatchTrip(id))
   const cancelTrip = useMutation((id: string) => api.cancelTrip(id))
   const closeTrip = useMutation((id: string) => api.closeTrip(id))
+  // Guarded state transitions with no hosted implementation yet. Disabled with
+  // the reason rather than throwing on click - and deliberately NOT wired as an
+  // ad-hoc `trips.status` write, which would bypass the transition guards.
+  const cancelBlocked = unavailableReason('cancelTrip')
+  const closeBlocked = unavailableReason('closeTrip')
 
   const create = useMutation(async () => {
-    const pickupPoint = parseCoordinate(pickup, 'Pickup')
+    const pickupPoint = parseEndpoint(pickup, 'Pickup')
     if (pickupPoint.error) throw new Error(pickupPoint.error)
-    const destinationPoint = parseCoordinate(destination, 'Destination')
+    const destinationPoint = parseEndpoint(destination, 'Destination')
     if (destinationPoint.error) throw new Error(destinationPoint.error)
 
     // ONE request, because this is ONE transaction.
@@ -110,14 +122,18 @@ export default function TripsPage() {
     // is regenerated per attempt, so every correction left another one behind -
     // and an overloaded truck is the failure this very form advertises, so
     // managers hit it routinely rather than exceptionally.
-    const stamp = Date.now().toString(36).toUpperCase()
+    // Retry the same intent with the same server idempotency identifiers.
+    // A lost response may already have committed the draft.
+    const intent = JSON.stringify([client.trim(), pickup, destination, weight.trim(), truckId, driverId])
+    if (draftAttempt.current?.intent !== intent) draftAttempt.current = { intent, stamp: crypto.randomUUID().slice(0, 18).toUpperCase() }
+    const stamp = draftAttempt.current.stamp
     return api.planTrip({
       shipment: {
         reference_code: `SHP-${stamp}`,
         client_name: client.trim(),
-        pickup_address: pickupAddress.trim(),
+        pickup_address: pickup.address.trim(),
         pickup: pickupPoint.value!,
-        destination_address: destinationAddress.trim(),
+        destination_address: destination.address.trim(),
         destination: destinationPoint.value!,
         cargo_items: [
           {
@@ -151,9 +167,12 @@ export default function TripsPage() {
       }
       return
     }
+    if (!result.data) return
+    setReviewTrip(result.data)
+    draftAttempt.current = null
     setClient('')
-    setPickupAddress('')
-    setDestinationAddress('')
+    setPickup(EMPTY_ENDPOINT)
+    setDestination(EMPTY_ENDPOINT)
     trips.reload()
   }
 
@@ -177,23 +196,24 @@ export default function TripsPage() {
   const referencesReady =
     drivers.status === 'success' && trucks.status === 'success'
   const formComplete =
-    client.trim() && pickupAddress.trim() && destinationAddress.trim() &&
+    client.trim() && pickup.address.trim() && destination.address.trim() &&
     weight.trim() && driverId && truckId
 
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-bold text-slate-100">Trips</h1>
-        <p className="text-xs text-slate-500">
-          A trip is created as a draft and only becomes the driver's to start
-          when it is dispatched — which re-checks the licence, the truck and the
-          assignment at that moment.
+        <h1 className="text-xl font-bold text-ink">Dispatch workspace</h1>
+        <p className="text-xs text-muted">
+          Plan the load, review the road, then dispatch. Your driver receives the trip after dispatch.
         </p>
       </div>
 
+      <div className="dispatch-grid">
       {canCreate ? (
         <Card title="Plan a trip">
-          {!referencesReady ? (
+          {drivers.status === 'error' || trucks.status === 'error' ? (
+            <ErrorState error={drivers.error ?? trucks.error} onRetry={() => { drivers.reload(); trucks.reload() }} />
+          ) : !referencesReady ? (
             <LoadingState label="Loading drivers and trucks…" />
           ) : (
             <>
@@ -214,77 +234,82 @@ export default function TripsPage() {
                   required
                   hint="Checked against the truck's capacity — an overloaded truck is refused."
                 />
-                <Field
-                  label="Pickup address"
-                  name="pickup_address"
-                  value={pickupAddress}
-                  onChange={setPickupAddress}
-                  required
-                  placeholder="Depot, Guwahati"
-                />
-                <Field
-                  label="Destination address"
-                  name="destination_address"
-                  value={destinationAddress}
-                  onChange={setDestinationAddress}
-                  required
-                  placeholder="Yard, Jorhat"
-                />
-                <div className="grid grid-cols-2 gap-2">
-                  <Field
-                    label="Pickup lat"
-                    name="pickup_lat"
-                    value={pickup.lat}
-                    onChange={(v) => setPickup((p) => ({ ...p, lat: v }))}
+                {/* Pickup and destination span both columns: an address
+                    with a suggestion list under it does not belong in a
+                    half-width cell next to a weight box. */}
+                <div className="sm:col-span-2 space-y-3">
+                  <AddressPicker
+                    label="Pickup address"
+                    name="pickup_address"
+                    value={pickup}
+                    onChange={setPickup}
+                    placeholder="Depot, Guwahati"
                   />
-                  <Field
-                    label="Pickup lon"
-                    name="pickup_lon"
-                    value={pickup.lon}
-                    onChange={(v) => setPickup((p) => ({ ...p, lon: v }))}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <Field
-                    label="Destination lat"
-                    name="dest_lat"
-                    value={destination.lat}
-                    onChange={(v) => setDestination((p) => ({ ...p, lat: v }))}
-                  />
-                  <Field
-                    label="Destination lon"
-                    name="dest_lon"
-                    value={destination.lon}
-                    onChange={(v) => setDestination((p) => ({ ...p, lon: v }))}
+                  <div className="flex justify-center">
+                    {/* Swaps the WHOLE endpoint - address, coordinate and the
+                        provenance of that coordinate. Swapping only the text
+                        would leave each address pointing at the other's pin,
+                        which is the exact class of bug this form had. */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const was = pickup
+                        setPickup(destination)
+                        setDestination(was)
+                      }}
+                      className="rounded-md border border-line px-3 py-1 text-xs text-ink hover:bg-soft"
+                    >
+                      Swap pickup and destination
+                    </button>
+                  </div>
+                  <AddressPicker
+                    label="Destination address"
+                    name="destination_address"
+                    value={destination}
+                    onChange={setDestination}
+                    placeholder="Yard, Jorhat"
                   />
                 </div>
 
                 <label className="block">
-                  <span className="text-xs font-medium text-slate-300">
-                    Driver<span className="ml-0.5 text-red-400">*</span>
+                  <span className="text-xs font-medium text-ink">
+                    Driver<span className="ml-0.5 text-danger">*</span>
                   </span>
                   <select
                     value={driverId}
                     onChange={(e) => setDriverId(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-emerald-600 focus:outline-none"
+                    className="mt-1 w-full rounded-[var(--radius-control)] border border-outline bg-surface px-3 py-2 text-sm text-ink focus:border-route focus:ring-1 focus:ring-route"
                   >
                     <option value="">Select a driver…</option>
+                    {/*
+                      Disabled rather than hidden, and labelled with the reason.
+                      A driver who silently vanished from this list would send a
+                      manager to look for a record that still exists; the point
+                      is to say why they cannot be picked. This is convenience
+                      only - the server re-checks and returns
+                      DRIVER_LOGIN_INACTIVE, which is what actually enforces it.
+                    */}
                     {drivers.data?.items.map((d) => (
-                      <option key={d.id} value={d.id}>
+                      <option
+                        key={d.id}
+                        value={d.id}
+                        disabled={!d.login_is_active}
+                      >
                         {d.full_name} — {d.licence_number}
+                        {d.login_is_active ? '' : ' (login inactive)'}
                       </option>
                     ))}
                   </select>
                 </label>
 
                 <label className="block">
-                  <span className="text-xs font-medium text-slate-300">
-                    Truck<span className="ml-0.5 text-red-400">*</span>
+                  <span className="text-xs font-medium text-ink">
+                    Truck<span className="ml-0.5 text-danger">*</span>
                   </span>
                   <select
                     value={truckId}
                     onChange={(e) => setTruckId(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-emerald-600 focus:outline-none"
+                    className="mt-1 w-full rounded-[var(--radius-control)] border border-outline bg-surface px-3 py-2 text-sm text-ink focus:border-route focus:ring-1 focus:ring-route"
                   >
                     <option value="">Select a truck…</option>
                     {trucks.data?.items.map((t) => (
@@ -298,7 +323,7 @@ export default function TripsPage() {
               </div>
 
               {formError ? (
-                <div className="mt-3 rounded-lg border border-red-900 bg-red-950/50 px-4 py-3 text-xs text-red-200">
+                <div className="mt-3 rounded-lg border border-danger/30 bg-danger-soft/50 px-4 py-3 text-xs text-danger">
                   {formError}
                 </div>
               ) : create.error ? (
@@ -321,6 +346,8 @@ export default function TripsPage() {
         </Card>
       ) : null}
 
+      <div className="dispatch-review">{reviewTrip ? <TripRouteReview key={reviewTrip.id} trip={reviewTrip} onChanged={trips.reload} /> : <Card title="Trip review"><EmptyState title="Every journey starts with a plan" description="Create a draft on the left, or choose Review route from the trips below. Review the actual route and its conditions here before dispatch." /></Card>}</div>
+      </div>
       <Card title="Trips">
         {trips.status === 'loading' ? (
           <LoadingState label="Loading trips…" />
@@ -345,7 +372,7 @@ export default function TripsPage() {
               </div>
             ) : null}
             <table className="w-full text-left text-sm">
-              <thead className="text-xs uppercase tracking-wide text-slate-500">
+              <thead className="text-xs uppercase tracking-wide text-muted">
                 <tr>
                   <th className="pb-2 font-medium">Trip</th>
                   <th className="pb-2 font-medium">Driver</th>
@@ -356,14 +383,14 @@ export default function TripsPage() {
               </thead>
               <tbody>
                 {trips.data?.items.map((trip) => (
-                  <tr key={trip.id} className="border-t border-slate-800">
-                    <td className="py-3 font-medium text-slate-200">
+                  <tr key={trip.id} className="border-t border-line">
+                    <td className="py-3 font-medium text-ink">
                       {trip.trip_code}
                     </td>
-                    <td className="py-3 text-slate-300">
+                    <td className="py-3 text-ink">
                       {driverName(trip.driver_id)}
                     </td>
-                    <td className="py-3 text-slate-300">
+                    <td className="py-3 text-ink">
                       {truckReg(trip.truck_id)}
                     </td>
                     <td className="py-3">
@@ -373,7 +400,8 @@ export default function TripsPage() {
                       {/* Only actions legal from the current state are shown.
                           A control that is present is one the server will
                           accept. */}
-                      <div className="flex justify-end gap-2">
+                      <div className="flex flex-wrap justify-end gap-2">
+                        {can('route:read') ? <Button variant="secondary" onClick={() => { setReviewTrip(trip); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>Review route</Button> : null}
                         {trip.status === 'DRAFT' && can('trip:dispatch') ? (
                           <Button
                             variant="secondary"
@@ -392,7 +420,11 @@ export default function TripsPage() {
                           <Button
                             variant="secondary"
                             busy={actingOn === trip.id && closeTrip.isSubmitting}
-                            disabled={actingOn !== null && actingOn !== trip.id}
+                            disabled={
+                              closeBlocked !== null ||
+                              (actingOn !== null && actingOn !== trip.id)
+                            }
+                            title={closeBlocked ?? undefined}
                             onClick={() =>
                               void run(trip.id, () => closeTrip.submit(trip.id))
                             }
@@ -406,7 +438,11 @@ export default function TripsPage() {
                           <Button
                             variant="danger"
                             busy={actingOn === trip.id && cancelTrip.isSubmitting}
-                            disabled={actingOn !== null && actingOn !== trip.id}
+                            disabled={
+                              cancelBlocked !== null ||
+                              (actingOn !== null && actingOn !== trip.id)
+                            }
+                            title={cancelBlocked ?? undefined}
                             onClick={() => {
                               if (!window.confirm(`Cancel ${trip.trip_code}?`)) return
                               void run(trip.id, () => cancelTrip.submit(trip.id))

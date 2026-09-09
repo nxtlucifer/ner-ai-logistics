@@ -5,7 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 import sqlalchemy as sa
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, column_property, mapped_column, relationship
 
 from app.db.session import Base
 from app.models.base import (
@@ -110,6 +110,21 @@ class Driver(TimestampMixin, SoftDeleteMixin, Base):
         back_populates="driver",
         cascade="all, delete-orphan",
         lazy="raise",
+    )
+
+    #: Whether the account behind this driver can still sign in.
+    #:
+    #: A correlated subquery rather than a property over `user`, which is
+    #: lazy="raise" and would therefore explode on any path that had not
+    #: eager-loaded it - including the create and deactivate responses. This is
+    #: a fact every read of a driver needs: a driver row says AVAILABLE about
+    #: the person, and nothing at all about whether they can reach the app.
+    login_is_active: Mapped[bool] = column_property(
+        sa.select(User.is_active)
+        .where(User.id == user_id)
+        .correlate_except(User)
+        .scalar_subquery(),
+        deferred=False,
     )
 
     __table_args__ = (

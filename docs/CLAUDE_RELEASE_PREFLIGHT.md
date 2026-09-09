@@ -1,0 +1,258 @@
+# RELEASE PRE-FLIGHT — SAFE PUBLICATION PLAN
+
+Continues `CLAUDE_HOSTING_READINESS.md`.
+
+**Nothing was staged, committed, pushed or deployed.** Commit/push authorization
+was not granted in this session, so I stopped at Step 9 as instructed.
+
+---
+
+## STEP 1 — WORKTREE CLASSIFICATION
+
+`git status --short` reports 206 untracked entries because it collapses
+directories. Expanded, `git ls-files --others --exclude-standard` gives **406
+untracked files**, plus **74 modified tracked files**.
+
+| Class | Count | Decision |
+| :--- | ---: | :--- |
+| **A** Required application source | 96 | STAGE |
+| **A** Required source (operational scripts) | 37 | STAGE |
+| **B** Required test | 76 | STAGE |
+| **C** Required migration | 15 | STAGE |
+| **D** Required deployment config | 7 | STAGE |
+| **E** Required documentation | 116 | STAGE |
+| **I** Cache (`supabase/.temp/`) | 9 | EXCLUDE |
+| **J** Temp tool output (`.claude/`) | 29 | EXCLUDE |
+| **J** Temp tool output (other agent tooling) | 8 | EXCLUDE |
+| **J** Temp tool output (prompt dumps) | 6 | EXCLUDE |
+| **J** Temp tool output (`.artibot/`) | 3 | EXCLUDE |
+| **K** Unclassified — needs your call | 4 | see below |
+
+**WOULD STAGE: 348 untracked + 74 modified. WOULD EXCLUDE: 58.**
+
+### The reassuring part
+
+`.runtime/`, `backend/.env`, `manager-web/.env.production`, `node_modules/`,
+`logs/`, `backend/.venv/` and every `.apk` **did not appear in the untracked
+list at all** — they are already ignored. I verified this with `git check-ignore`
+rather than inferring it from their absence.
+
+### One fragile thing worth fixing
+
+```
+.runtime/pgpass.txt  ->  ignored by .git/info/exclude:9
+```
+
+`.git/info/exclude` is **local-only and never committed**. The directory holding
+the local Postgres password and every built APK is protected by a rule that
+exists on this machine and nowhere else. Anyone cloning the repo and recreating
+`.runtime/` gets no protection. **Recommend moving `.runtime/` into the tracked
+`.gitignore` before publishing.** Cheap, and it removes a footgun.
+
+### The 4 unclassified
+
+| Path | My reading | Suggested |
+| :--- | :--- | :--- |
+| `driver-app/vitest.config.ts` | test configuration; the driver suite will not run without it | **STAGE** |
+| `manager-web/netlify.toml` | manager host config | STAGE, but see below |
+| `manager-web/vercel.json` | manager host config | STAGE, but see below |
+| `memory/.dreams/events.jsonl` | agent tool output | **EXCLUDE** |
+
+**Netlify *and* Vercel configs both exist, alongside `render.yaml` for the
+backend.** Three hosting descriptors for two deployables. Nothing breaks, but
+publishing both invites a future reader to deploy the manager twice, to two
+places, with different environment variables — and only one of them will have
+`VITE_INTELLIGENCE_BASE_URL`. Decide which one the manager actually ships on and
+delete the other.
+
+---
+
+## STEP 2 — SECRET SCAN: **PASS**
+
+360 files scanned — every untracked staging candidate plus every modified
+tracked file, because a secret introduced into an already-tracked file is just
+as bad and easier to miss.
+
+| File | Type | Verdict |
+| :--- | :--- | :--- |
+| `backend/scripts/rls_harness.py` ×4 | Postgres URL with password | SAFE — `{pw}` format placeholder |
+| `backend/tests/test_select_route_rpc.py` ×2 | Postgres URL with password | SAFE — `{pw}` format placeholder |
+| `backend/tests/conftest.py:429` | Postgres URL with password | SAFE — host is `db.unreachable.invalid` |
+| `backend/tests/test_config.py:183,205` | Postgres URL with password | SAFE — fixture exercising URL parsing (a password containing `@`) |
+| `backend/tests/test_db_target_guard.py:202` | Postgres URL with password | SAFE — fixture proving the guard does **not** leak credentials in refusals |
+| `scripts/Start-Demo.ps1:161` | Postgres URL with password | SAFE — `$pw` PowerShell interpolation reading gitignored `.runtime/pgpass.txt` |
+
+Searched for and **found none of**: `sb_secret_*`, a `service_role` JWT, Google
+`AIza…` keys, OpenRouter `sk-or-v1-…`, OpenAI-style keys, private key blocks,
+AWS access keys.
+
+**SECRET_SCAN = PASS. Zero real credentials in the staging set.**
+
+---
+
+## STEP 3 — AI STATUS CONSOLIDATION: DONE
+
+There is now **one** function, `buildStatus()`, and both status routes call it.
+Previously each assembled its own object and they disagreed — the POST branch
+ignored `openRouterKey` entirely, so a backup-only deployment reported OFFLINE on
+POST and online on GET. Two implementations of one question always eventually
+differ.
+
+States, computed from what the providers actually did rather than from key
+presence:
+
+| State | Meaning |
+| :--- | :--- |
+| `OFFLINE` | no provider key configured at all |
+| `CONFIGURED` | a key exists; nothing attempted yet in this isolate |
+| `USABLE` | the last attempt produced a real generated answer |
+| `QUOTA_EXHAUSTED` | the last attempt was refused for quota |
+| `FALLBACK` | the primary failed and the backup engine answered |
+
+`available` is true only for `USABLE` and `FALLBACK`.
+
+Covered by tests, all passing:
+
+- Gemini usable → `USABLE`, available
+- Gemini 429 + backup answers → **`FALLBACK`, available** (a generated answer
+  *is* obtainable, just not from the primary)
+- Gemini timeout + backup answers → `FALLBACK`
+- Backup-only configuration → GET and POST agree on state, availability and provider
+- All providers spent → `QUOTA_EXHAUSTED`, **not** available, answer
+  `generated: false`
+- Cold isolate → `CONFIGURED`, not available
+
+Honest about its own limits: the record is per-isolate and Edge isolates are
+ephemeral, so a cold isolate says `CONFIGURED` rather than claiming knowledge.
+It is deliberately **not** a live probe on GET — spending a request against a
+rate-limited tier to discover it is rate-limited makes the problem worse.
+
+**Not deployed.** That is a separate authorization.
+
+---
+
+## STEP 4 — HOSTED SURFACE CONTRACT
+
+Four endpoints. Everything else on the image is unused by production clients.
+
+| # | Method | Path | Auth | Request | Response | Client | On failure |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| 1 | GET | `/api/trips/{id}/routes/recommendation` | Supabase JWT | path id | `RouteRecommendation` — candidates, score-or-null, eligibility, evidence freshness, unavailable factors | Manager | `IntelligenceUnavailableError` → `UNASSESSED`, null score |
+| 2 | POST | `/api/trips/{id}/reroute` | Supabase JWT | path id | `RerouteAssessment` | Manager | surfaced as unavailable; **silence would read as safety** |
+| 3 | GET | `/api/driver/me/trip/navigation` | Supabase JWT | — | `NavigationPackage` — `trip_id`, `route_id`, `route_revision`, geometry, maneuvers | Driver | no stale fallback; panel says directions unavailable |
+| 4 | GET | `/api/driver/me/trip/offline-package` | Supabase JWT | — | `OfflinePackage` — trip kit for offline use | Driver | cached package with its age, or absent |
+| — | GET | `/health`, `/ready` | none | — | liveness / readiness | platform | `/ready` 503 when DB or PostGIS is down |
+
+**No client depends on a FastAPI-only endpoint for the demo workflow.** Auth,
+trips, fleet, assignments, GPS and route selection all go to Supabase. If the
+intelligence plane is down, accessibility reads `UNASSESSED` and every other
+workflow keeps working — the property that makes hosting it a small risk.
+
+---
+
+## STEP 5 — CLIENT ORIGIN CONTRACT
+
+Read from source. **No URL was hardcoded.**
+
+| Client | Variable (actual name) | Currently |
+| :--- | :--- | :--- |
+| Manager | `VITE_INTELLIGENCE_BASE_URL` | **not set** in `.env.production` |
+| Driver | `EXPO_PUBLIC_INTELLIGENCE_BASE_URL` | **not set** in `eas.json`, either profile |
+
+Note the brief called these `..._API_ORIGIN`. The code says `..._BASE_URL`.
+
+**Missing-value behaviour, verified rather than assumed.** `intelligence.ts`
+evaluates `originProblem(RAW_BASE)` at module load; if unset or not a public
+HTTPS origin, `BASE` becomes `''` and every call throws
+`IntelligenceUnavailableError` *before any fetch is attempted*.
+`routeRecommendation` catches it and returns `UNASSESSED`.
+
+`localhost`, `127.0.0.1`, `::1`, `0.0.0.0` and empty are all rejected outright,
+so **there is no localhost fallback in production** — a copied dev profile fails
+rather than silently pointing a release at somebody's laptop.
+
+Full table in **`docs/DEPLOYMENT_ENV_MATRIX.md`** (Step 6, written).
+
+---
+
+## STEP 7 — STAGING PLAN
+
+### Stage (348 untracked + 74 modified)
+
+| Group | Why |
+| :--- | :--- |
+| `backend/app/**`, `driver-app/src/**`, `manager-web/src/**`, `supabase/functions/**` | the application |
+| `backend/tests/**`, `**/*.test.ts(x)`, `driver-app/vitest.config.ts` | the evidence; a suite that cannot run proves nothing |
+| `supabase/migrations/**`, `backend/alembic/**`, `supabase/rollback/**` | schema history, including the atomic-route RPC |
+| `backend/Dockerfile`, `backend/render.yaml`, `driver-app/eas.json`, `driver-app/app.config.js`, `driver-app/scripts/**`, `.easignore` | **without these Render cannot build anything** |
+| `docs/**`, `design-system/**`, `CLAUDE.md`, `AGENTS.md` | the decision record |
+| `backend/scripts/**`, `scripts/**` | operational tooling (RLS harness, demo seeding, verification) |
+
+### Exclude (58)
+
+| Group | Why |
+| :--- | :--- |
+| `.claude/**` (29) | this agent's own session state, caches, transcripts |
+| `.artibot/**`, `.agentic-*`, `.agentops/**`, `.coworker/**`, `.context-os/**`, `.remember/**`, `.thumbgate/**`, `.semgrep/**`, `.codex/**` (8) | other agent tooling |
+| `supabase/.temp/**` (9) | Supabase CLI cache |
+| `full_user_request*.txt`, `latest_user_prompt*.txt`, `scratch_user_prompt.txt`, `mission_prompt_full_clean.txt` (6) | **prompt dumps — publishing these puts the whole working conversation in a public repo** |
+| `memory/.dreams/events.jsonl` | agent tool output |
+
+Already ignored, so not even candidates: `.runtime/**` (APKs, `pgpass.txt`),
+every `.env`, `node_modules/`, `logs/`, `backend/.venv/`, `dist/`, `coverage/`.
+
+### The commit I would make, if authorized
+
+```
+git add <the 348 + 74 above>          # explicit paths, never `git add -A`
+git commit -m "SIH26002: hosted intelligence plane, Supabase auth, atomic route RPCs, UI pass"
+git push origin main
+git ls-remote origin main             # verify remote HEAD == the pushed commit
+```
+
+I would **not** run `git add -A`: it would sweep in 58 paths of agent state and
+prompt dumps, and it is exactly the habit that puts a `.env` into a public repo
+the one time `.gitignore` has a gap.
+
+---
+
+## STEP 8 — RELEASE GATE
+
+| Suite | Result |
+| :--- | :--- |
+| **Backend** | **994 passed**, 5 skipped, 0 failed |
+| **Manager** | **156 passed**, 0 failed |
+| **Driver** | **517 passed** (514 + 3 AI fallback/exhaustion), 0 failed |
+| Manager `tsc -b` | clean (exit 0) |
+| Manager production build | clean |
+| Driver `tsc --noEmit` | clean |
+
+---
+
+## STEP 9 — STOPPED AT AUTHORIZATION
+
+```
+READY_TO_COMMIT          = YES
+SAFE_STAGING_SET         = 422   (348 untracked + 74 modified)
+EXCLUDED_RUNTIME_FILES   = 58    (+ everything already gitignored)
+SECRET_SCAN              = PASS  (0 real credentials in 360 files)
+TESTS                    = backend 994 / manager 156 / driver 517
+                           tsc -b clean · production build clean
+```
+
+**No `git add`, `git commit` or `git push` was run.** Nothing was reset,
+cleaned, rebased or discarded. VC10 was not built. Nothing was deployed.
+
+### Two decisions I need from you before publishing
+
+1. **`.runtime/` is ignored only via `.git/info/exclude`**, which is not
+   committed. Move it into the tracked `.gitignore` first?
+2. **`netlify.toml` and `vercel.json` both exist** for the manager. Which one
+   ships? Publishing both risks a second deployment without the intelligence
+   origin.
+
+### And the one after that
+
+Even once this is pushed and Render is up, **VC10 must not be built until
+`EXPO_PUBLIC_INTELLIGENCE_BASE_URL` is in `eas.json`.** A fresh install has no
+cached package, so without it the driver has no source of route geometry at all.

@@ -1,0 +1,30 @@
+[
+  {
+    "step": 31,
+    "name": "baseline-live",
+    "note": "Running, for comparison with the holds below.",
+    "panel": "33 km Continue",
+    "file": "D:\\Projects\\ner-ai-logistics\\docs\\submission\\evidence\\31-baseline-live.png"
+  },
+  {
+    "step": 32,
+    "name": "approved-replacement-driver-side",
+    "note": "selected_route_id e040cf7f -> 4b7a6900; navigation package follows it (true); 19 maneuvers; map/steps/progress share one id.",
+    "panel": "33 km Continue",
+    "file": "D:\\Projects\\ner-ai-logistics\\docs\\submission\\evidence\\32-approved-replacement-driver-side.png"
+  },
+  {
+    "step": 33,
+    "name": "contact-lost-hold",
+    "note": "Polling blocked for over the freshness window: the cached LIVE label is aged out, not trusted.",
+    "panel": "33 km Continue",
+    "file": "D:\\Projects\\ner-ai-logistics\\docs\\submission\\evidence\\33-contact-lost-hold.png"
+  },
+  {
+    "step": 34,
+    "name": "permission-revoked-after-live-fix",
+    "note": "Was running (\"31 km Continue\") on a fix the SERVER still calls LIVE for 90s. Permission revoked with no reload.",
+    "panel": "31 km Continue",
+    "file": "D:\\Projects\\ner-ai-logistics\\docs\\submission\\evidence\\34-permission-revoked-after-live-fix.png"
+  }
+]

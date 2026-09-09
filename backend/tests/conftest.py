@@ -16,11 +16,59 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.event_loop import configure_event_loop_policy
 from app.db import session as db_session
+from tests import db_target
 
 # Must run at import time, before pytest-asyncio creates any event loop. On
 # Windows the default ProactorEventLoop cannot run async psycopg, so without this
 # every database-backed test fails with an InterfaceError.
 configure_event_loop_policy()
+
+# --- Database target enforcement -----------------------------------------
+#
+# INSTALLED AT IMPORT, NOT IN A FIXTURE. conftest is imported during pytest's
+# collection phase, before any fixture runs and before any test module's
+# import-time code executes. A session fixture would be too late: a module that
+# opens a connection while being imported would already have connected.
+#
+# The veto is a `do_connect` listener on SQLAlchemy's `Engine` class, so it
+# covers the async application engine, the synchronous engines this file builds
+# for the advisory lock and the `db` fixture, the one test_migrations.py builds
+# from a DIFFERENT url, and anything added later - none of them has to
+# remember. It raises instead of calling the driver, so a refused target is
+# never dialled, which is what makes "zero connection attempts" provable rather
+# than hopeful.
+db_target.install()
+
+
+def pytest_collection_modifyitems(
+    session: pytest.Session, config: pytest.Config, items: list[pytest.Item]
+) -> None:
+    """Refuse the whole run early when the resolved target is not allowed.
+
+    The engine hook above is the real protection - it cannot be bypassed by any
+    ordering. This exists so an unsafe run fails with ONE clear message before
+    any test executes, instead of the same refusal repeated once per
+    database-backed test.
+
+    Both URLs are checked. `effective_migration_url` is a separate setting that
+    falls back to the runtime one only when unset, so a `.env` naming a shared
+    migration target would otherwise reach test_migrations.py unexamined.
+
+    Settings are read here rather than at import so a test that legitimately
+    repoints configuration (see `unreachable_db`) is not evaluated against a
+    stale value.
+    """
+    settings = get_settings()
+    for label, url in (
+        ("DATABASE_URL", settings.effective_database_url),
+        ("MIGRATION_DATABASE_URL", settings.effective_migration_url),
+    ):
+        reason = db_target.check_url(url)
+        if reason is not None:
+            pytest.exit(
+                f"REFUSING TO RUN ({label}): {reason}{_NL}{_NL}{db_target.ARM_HINT}",
+                returncode=3,
+            )
 
 
 #: Advisory-lock key serialising whole pytest runs. Arbitrary but fixed; the
@@ -92,19 +140,19 @@ class SuiteLock:
     def assert_held(cls, when: str) -> None:
         """Raise unless the lock is still ours.
 
-        Called before every global cleanup. If the connection holding the lock
-        was dropped mid-run - a pooler timeout, a network blip - the suite is no
-        longer isolated, and the very next thing it would do is
-        `DELETE FROM shipments WHERE reference_code LIKE 'STEST-%'` against a
-        database another run may now be using. Stopping here is strictly better
-        than tidying up someone else's fixtures.
+        Called before every cleanup. Cleanup itself is now id-scoped, so a lost
+        lock no longer risks deleting another run's rows - `factories.OWNED`
+        makes that impossible by construction. What a lost lock does mean is
+        that this run stopped being the only writer somewhere in the middle,
+        which invalidates the isolation the results are reported under. Saying
+        so is worth more than continuing quietly.
         """
         if not cls.is_held():
             raise RuntimeError(
                 f"Suite advisory lock is NOT held ({when}). The dedicated "
-                "connection lost it, so this run is no longer isolated and "
-                "global prefix cleanup must not proceed - it would delete "
-                "another run's fixtures. Re-run when the database is quiet."
+                "connection lost it, so this run was not the only writer for "
+                "some part of its length and its results are not isolated. "
+                "Re-run when the database is quiet."
             )
 
 
@@ -112,19 +160,19 @@ class SuiteLock:
 def exclusive_suite_lock() -> Iterator[None]:
     """Refuse to start while another pytest run holds this database.
 
-    `_cleanup_test_rows` below deletes by GLOBAL prefix - every `STEST-%`
-    shipment, every `TTEST-%` trip, every `AS__ZZ%` truck - not merely the rows
-    the finishing test made. Within one serial run that is correct and cheap.
-    Across two runs it is mutual destruction: run A creates a shipment, run B's
-    teardown deletes it, and run A's next insert dies with
+    This fixture was written because `_cleanup_test_rows` deleted by GLOBAL
+    prefix - every `STEST-%` shipment, whoever made it - so two runs destroyed
+    each other's fixtures and failed with unrelated-looking
+    `ForeignKeyViolation`s that read as product defects. Two agents sharing this
+    working tree produced a full page of them during the P6 audit.
 
-        ForeignKeyViolation: Key (shipment_id)=... is not present in "shipments"
-
-    That is not hypothetical. Two agents sharing this working tree produced a
-    full page of exactly those failures during the P6 audit, and they read as
-    product defects rather than as a collision - which cost real time to
-    diagnose. This fixture converts that silent corruption into a refusal to
-    start, with a message naming the actual cause.
+    Cleanup is now id-scoped (`factories.OWNED`), so that specific collision is
+    gone at the source and this lock is no longer what prevents it. It is kept
+    for the reason it also always served: the project's workflow is ONE database
+    test process, several tests assume they are the only writer while asserting
+    on counts and locks, and a second concurrent run makes those results mean
+    something else. A refusal to start says that; a confusing failure later does
+    not.
 
     `pg_try_advisory_lock` is session-scoped in PostgreSQL and held for as long
     as the connection lives, so this takes ONE dedicated connection outside the
@@ -420,15 +468,11 @@ async def _cleanup_test_rows() -> AsyncGenerator[None, None]:
 
     Autouse so a failing test cannot leave data that breaks the next one.
 
-    GUARDED. `factories.cleanup` deletes by GLOBAL prefix, so it is only safe
-    while this run provably owns the database. The check runs BEFORE the delete,
-    not after: if the connection holding the suite lock has been dropped - a
-    pooler timeout, a network blip on a link to Mumbai - then another run may
-    already have started, and the next statement would delete its fixtures.
-    Verifying afterwards would report the damage instead of preventing it.
-
-    The cost is one round trip per test. That is the correct price for a
-    statement whose blast radius is every `STEST-%` row in a shared database.
+    `factories.cleanup` removes exactly the ids this run recorded, so its blast
+    radius is this run's own rows and nothing else - a concurrent run's fixtures
+    are unreachable from it. The lock check that still runs first is therefore
+    about the RESULT, not the deletion: losing the lock means this run was not
+    the only writer, and the assertions it just made were not isolated.
     """
     yield
     from tests import factories
@@ -459,3 +503,38 @@ async def auth_headers(api: AsyncClient, identifier: str, password: str) -> dict
     )
     assert response.status_code == 200, response.text
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
+@pytest.fixture
+def clear_hazard_evidence(monkeypatch):
+    """A labelled SYNTHETIC hazard source that answered and found nothing.
+
+    LS-7 made landslide REQUIRED safety evidence, so a route with no hazard
+    source assessed is REQUIRES_REVIEW and is deliberately not recommendable
+    or selectable. That is correct for production, where no source is
+    configured - but it is not what most API tests are ABOUT. A reroute
+    atomicity test should exercise atomicity, not be blocked by a hazard
+    policy it never meant to invoke.
+
+    This fixture supplies sufficient evidence: a provider that really answered
+    and reported no incidents, which is the ONE route to ELIGIBLE. It is
+    injected at the provider seam - the same place a real source would sit -
+    so the whole assessment, eligibility and guard chain still runs for real.
+
+    It is TEST-ONLY. Production uses NullLandslideProvider, asserted in
+    tests/test_landslide_provider.py.
+    """
+    from app.domain.landslide import IncidentQueryResult, SourceState
+    from app.services import route_risk as _risk
+
+    class _AnsweredNothingFound:
+        name = "test-clear-source"
+
+        async def incidents_near(self, box, *, since, until):
+            return IncidentQueryResult(
+                state=SourceState.AVAILABLE, provider=self.name
+            )
+
+    monkeypatch.setattr(
+        _risk, "build_landslide_provider", lambda: _AnsweredNothingFound()
+    )

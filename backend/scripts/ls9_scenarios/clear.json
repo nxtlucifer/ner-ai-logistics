@@ -1,0 +1,12 @@
+{
+  "label": "SYNTHETIC - LS-9 demonstration only. Not a real landslide bulletin.",
+  "description": "A regional source that answered for the Assam demo corridor and had no current incident on it. AVAILABLE with zero incidents is a real finding ('we looked, nothing recorded'), which is why this yields LOW rather than UNKNOWN. Outside the coverage box the same provider returns NOT_CONFIGURED, so this fixture does NOT make every route on the map eligible.",
+  "coverage": {
+    "min_lat": 25.5,
+    "min_lon": 91.0,
+    "max_lat": 27.5,
+    "max_lon": 95.0
+  },
+  "source_state": "AVAILABLE",
+  "incidents": []
+}

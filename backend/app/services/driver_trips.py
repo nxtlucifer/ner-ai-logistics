@@ -31,6 +31,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictError, NotFoundError
+from app.domain.trip_state import COMMITS_DRIVER_TO_TRUCK
 from app.models.enums import (
     AuditAction,
     DriverStatus,
@@ -54,6 +55,15 @@ STOP_AUDITED_FIELDS = (
 #: Statuses in which a driver is executing, as opposed to waiting to start.
 IN_PROGRESS_STATUSES = (TripStatus.ACTIVE, TripStatus.DELAYED)
 
+#: Statuses in which a trip is over and nothing a driver does can change it.
+#: Used by `accept` to refuse acknowledging a job that has already finished or
+#: been called off, which is always a stale screen rather than a real retry.
+TERMINAL_STATUSES = (
+    TripStatus.DELIVERED,
+    TripStatus.CLOSED,
+    TripStatus.CANCELLED,
+)
+
 #: A stop nobody needs to act on any more.
 SETTLED_STOP_STATUSES = (TripStopStatus.COMPLETED, TripStopStatus.SKIPPED)
 
@@ -67,16 +77,27 @@ async def current_trip(
     the app renders an empty screen rather than an error.
 
     Ordering makes "current" deterministic when a driver has been given more
-    than one trip. An in-progress trip always wins: a driver who is already
-    driving must not have the app switch to a different trip underneath them.
-    Among trips not yet started, the one dispatched first is next.
+    than one trip. A trip the driver is already on always wins: a driver who is
+    already driving must not have the app switch to a different trip underneath
+    them. Among trips not yet started, the one dispatched first is next.
 
     `for_update` locks the trip row. Mutating callers must set it.
     """
     # ASC on a CASE would need a literal; ordering by two booleans is clearer
-    # and indexes the same. `status IN (ACTIVE, DELAYED)` sorts True first under
-    # DESC, which is the in-progress-wins rule.
-    in_progress = Trip.status.in_(IN_PROGRESS_STATUSES)
+    # and indexes the same. The predicate sorts True first under DESC, which is
+    # the already-on-it-wins rule.
+    #
+    # The key is COMMITTED, not merely in-progress. INCIDENT is the difference:
+    # a stopped truck is not "in progress", but the driver is standing next to
+    # it, and ranking that level with a queued ASSIGNED trip lets any trip
+    # dispatched earlier take the screen. Whether that pair is reachable today
+    # depends on an argument about dispatch order; the ordering should not.
+    # Intersected with the filter above rather than used raw, so DELIVERED -
+    # committed, but settlement work, and addressed by id elsewhere - cannot
+    # leak in through the sort key.
+    committed = Trip.status.in_(
+        tuple(COMMITS_DRIVER_TO_TRUCK.intersection(trips.OPEN_TRIP_STATUSES))
+    )
 
     stmt = (
         select(Trip)
@@ -85,7 +106,7 @@ async def current_trip(
             Trip.status.in_(trips.OPEN_TRIP_STATUSES),
         )
         .order_by(
-            in_progress.desc(),
+            committed.desc(),
             Trip.dispatched_at.asc().nullslast(),
             Trip.created_at.asc(),
         )
@@ -256,6 +277,94 @@ async def start(
         before=before,
         after=audit.snapshot(trip, AUDITED_FIELDS),
         reason="started by driver",
+        ip_address=ip,
+    )
+    await db.commit()
+    await db.refresh(trip)
+    return trip
+
+
+async def accept(
+    db: AsyncSession,
+    driver: Driver,
+    user: User,
+    *,
+    trip_id: uuid.UUID | None = None,
+    ip: str | None = None,
+) -> Trip:
+    """The driver acknowledges the dispatched job. NOT the start of travel.
+
+    Sets `driver_accepted_at` and leaves the status exactly where it was. This
+    is the operation the driver app's **Accept trip** button performs, and the
+    server confirming it is what allows the app to open the Map page - so the
+    redirect follows a persisted fact rather than an optimistic local boolean.
+
+    WHAT IT IS NOT
+
+    It is not a gate. `can_start` does not consult it, `evaluate_start` does
+    not consult it, and neither does route eligibility, the hazard refusal or
+    the review authorisation. A driver who accepts an unstartable trip has an
+    unstartable trip they have acknowledged; the blocker still blocks, and the
+    reason is still shown. Acceptance grants no authority over the route.
+
+    IDEMPOTENT, DELIBERATELY
+
+    A double tap on a flaky link, or a retry after a lost response, must not
+    move the acceptance time or write a second timeline entry. The first
+    acceptance wins and is returned unchanged - the same rule verification and
+    `start` already follow, under the same row lock, so two concurrent taps
+    serialise instead of racing.
+
+    A trip already in progress counts as accepted: starting a trip is a
+    stronger act than acknowledging one, so an ACTIVE trip that predates this
+    column is stamped rather than refused, and the driver sees "Resume
+    navigation" instead of an error about a job they are already driving.
+    """
+    trip = await _own_trip_for_update(db, driver, trip_id=trip_id)
+
+    if trip.status in TERMINAL_STATUSES:
+        # Accepting a finished or cancelled job is never a retry worth
+        # honouring - it is a stale screen, and the app must show the real
+        # state rather than record an acknowledgment of something over.
+        raise ConflictError(
+            "This trip is no longer running.",
+            code="TRIP_NOT_ACCEPTABLE",
+            details={"status": trip.status.value},
+        )
+
+    # Already accepted BY THIS DRIVER - a retry, so return the first
+    # acceptance unchanged and write no second event.
+    #
+    # The `driver_accepted_by` half is what stops an acknowledgment being
+    # inherited. `_own_trip_for_update` resolves the trip from the driver
+    # asking, so if a trip were ever handed to someone else the new driver
+    # would arrive here with the PREVIOUS driver's id in this column: the
+    # comparison fails, and they are asked to accept the job themselves rather
+    # than finding it already accepted on their behalf.
+    if trip.driver_accepted_at is not None and trip.driver_accepted_by == driver.id:
+        return trip
+
+    before = audit.snapshot(trip, AUDITED_FIELDS)
+    trip.driver_accepted_at = datetime.now(UTC)
+    trip.driver_accepted_by = driver.id
+
+    await db.flush()
+    await trips.record_event(
+        db,
+        trip,
+        kind=TripEventKind.ACCEPTED,
+        description=f"{driver.full_name} accepted trip {trip.trip_code}",
+        actor_user_id=user.id,
+    )
+    await audit.record(
+        db,
+        action=AuditAction.STATUS_CHANGE,
+        entity_type="trips",
+        entity_id=trip.id,
+        actor_user_id=user.id,
+        before=before,
+        after=audit.snapshot(trip, AUDITED_FIELDS),
+        reason="accepted by driver",
         ip_address=ip,
     )
     await db.commit()

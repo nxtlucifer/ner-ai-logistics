@@ -1,0 +1,29 @@
+{
+  "label": "SYNTHETIC - LS-9 demonstration only. NOT a real landslide bulletin.",
+  "description": "An officially reported incident on the corridor that does NOT block the road. OFFICIAL verification with road_blocked=false reaches HIGH, which is in REVIEW_BANDS but not REJECTING_BANDS - so the route is REQUIRES_REVIEW for a different reason than an unknown one: here the hazard IS known and is serious, rather than unmeasured.",
+  "coordinate_provenance": "Same sampled position as closure.json - see that file. Pinned from the demo route's own geometry.",
+  "coverage": {
+    "min_lat": 25.5,
+    "min_lon": 91.0,
+    "max_lat": 27.5,
+    "max_lon": 95.0
+  },
+  "source_state": "AVAILABLE",
+  "incidents": [
+    {
+      "incident_id": "SYNTHETIC-LS9-HIGH-001",
+      "latitude": 26.626497,
+      "longitude": 93.530169,
+      "location_name": "SYNTHETIC test incident - not a real report",
+      "district": "Golaghat",
+      "state": "Assam",
+      "road_name": "NH-715",
+      "highway_code": "NH-715",
+      "road_blocked": false,
+      "verification_status": "OFFICIAL",
+      "sources": [
+        { "name": "ls9-scenario-fixture (SYNTHETIC)", "source_type": "OFFICIAL_AGENCY" }
+      ]
+    }
+  ]
+}

@@ -212,6 +212,38 @@ class Trip(TimestampMixin, Base):
     dispatched_at: Mapped[datetime | None] = mapped_column(
         sa.DateTime(timezone=True), nullable=True
     )
+    #: When the assigned driver ACKNOWLEDGED this trip (LS-12 G1A).
+    #:
+    #: Deliberately not a `TripStatus`. Accepting a job and starting to travel
+    #: are different acts by the same person at different times, and only the
+    #: second one puts a truck on the road - so this is a timestamp beside
+    #: `started_at`, not a state before ACTIVE. Nothing in the start gate, the
+    #: hazard refusal or the review-authorisation flow reads it: acceptance is
+    #: an acknowledgment, never a permission.
+    driver_accepted_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=True,
+        comment=(
+            "When the assigned driver acknowledged this trip. NOT a "
+            "lifecycle state and not a start gate - see 0008 docstring."
+        ),
+    )
+    #: WHICH driver acknowledged it, so an acceptance can never be inherited.
+    #:
+    #: The timestamp alone lives on the trip, so a trip handed to a different
+    #: driver would carry the previous driver's acknowledgment with it. The
+    #: read model compares this against the driver asking and reports an
+    #: acceptance only when they match - so a reassigned trip reads as
+    #: unaccepted by construction, with nothing needing to remember to clear it.
+    driver_accepted_by: Mapped[uuid.UUID | None] = mapped_column(
+        sa.ForeignKey("drivers.id", ondelete="RESTRICT"),
+        nullable=True,
+        comment=(
+            "Which driver acknowledged this trip. RESTRICT, like every other "
+            "actor reference: an acknowledgment must not lose the person who "
+            "gave it."
+        ),
+    )
     started_at: Mapped[datetime | None] = mapped_column(
         sa.DateTime(timezone=True), nullable=True
     )
@@ -378,6 +410,22 @@ class TripRoute(Base):
     risk_score: Mapped[Decimal | None] = mapped_column(sa.Numeric(4, 3), nullable=True)
     risk_factors: Mapped[dict | None] = mapped_column(
         postgresql.JSONB, nullable=True
+    )
+    #: Provider turn instructions for THIS route's geometry, or None.
+    #:
+    #: None means the route was planned without directions, so it cannot drive
+    #: turn-by-turn - NOT that the road has no turns. Guidance is only ever
+    #: rendered from a route that carries these, because they and `geometry`
+    #: come from the same provider response and therefore describe the same
+    #: road. See migration 0009.
+    maneuvers: Mapped[list | None] = mapped_column(
+        postgresql.JSONB,
+        nullable=True,
+        comment=(
+            "Provider turn instructions for THIS route's geometry, or "
+            "NULL when the route was planned without them. NULL means "
+            "guidance unavailable, never 'no turns'."
+        ),
     )
     routing_provider: Mapped[str | None] = mapped_column(sa.String(32), nullable=True)
     provider_route_id: Mapped[str | None] = mapped_column(sa.String(128), nullable=True)

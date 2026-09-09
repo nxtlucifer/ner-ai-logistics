@@ -68,6 +68,24 @@ COMMITS_DRIVER_TO_TRUCK: frozenset[TripStatus] = frozenset(
     {S.ACTIVE, S.DELAYED, S.INCIDENT, S.DELIVERED}
 )
 
+#: States in which the trip is the driver's to act on, so the account behind
+#: them must remain able to sign in.
+#:
+#: Wider than COMMITS_DRIVER_TO_TRUCK on purpose, and for a different question.
+#: That set asks "is this pairing a physical fact"; this one asks "would
+#: disabling this login strand a trip". A dispatched trip the driver has not
+#: started yet is still theirs to start, and a driver who cannot authenticate
+#: can never start it - the trip sits ASSIGNED forever holding a truck, which
+#: is the same stranding the dispatch gate exists to prevent, arrived at from
+#: the other side.
+#:
+#: DRAFT is excluded: it has not been dispatched, so it is not the driver's
+#: yet and a manager can simply re-plan it. Terminal states are excluded
+#: because nothing is left to act on.
+REQUIRES_DRIVER_LOGIN: frozenset[TripStatus] = frozenset(
+    set(TripStatus) - TERMINAL_STATES - {S.DRAFT}
+)
+
 
 class IllegalTripTransition(ValueError):
     """Raised when a caller attempts a transition the lifecycle forbids."""

@@ -1,0 +1,8 @@
+[
+  {
+    "app": "manager",
+    "kind": "http",
+    "status": 401,
+    "path": "/api/auth/refresh"
+  }
+]

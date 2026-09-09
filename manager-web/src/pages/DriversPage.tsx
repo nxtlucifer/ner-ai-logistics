@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { ApiError, api, type Driver } from '../api/client'
+import { ApiError, api, type Driver, unavailableReason } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
 import {
   Button,
@@ -48,6 +48,11 @@ export default function DriversPage() {
 
   const deactivate = useMutation((id: string) => api.deactivateDriver(id))
 
+  // See UNAVAILABLE_OPERATIONS: these have no hosted implementation, so the
+  // controls say so rather than throwing when pressed.
+  const addBlocked = unavailableReason('createDriver')
+  const deactivateBlocked = unavailableReason('deactivateDriver')
+
   async function handleCreate() {
     setFieldErrors({})
     const { data, error } = await create.submit(form)
@@ -91,8 +96,8 @@ export default function DriversPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-slate-100">Drivers</h1>
-          <p className="text-xs text-slate-500">
+          <h1 className="text-xl font-bold text-ink">Drivers</h1>
+          <p className="text-xs text-muted">
             Creating a driver also creates their login.
           </p>
         </div>
@@ -101,11 +106,16 @@ export default function DriversPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search name or licence"
-            className="w-56 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 focus:border-emerald-600 focus:outline-none"
+            className="w-56 rounded-[var(--radius-control)] border border-outline bg-surface px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-route focus:ring-1 focus:ring-route"
           />
           {/* Rendered only when permitted - but the server enforces it too. */}
           {canCreate ? (
-            <Button onClick={() => setShowForm((v) => !v)} variant="secondary">
+            <Button
+              onClick={() => setShowForm((v) => !v)}
+              variant="secondary"
+              disabled={addBlocked !== null}
+              title={addBlocked ?? undefined}
+            >
               {showForm ? 'Cancel' : 'Add driver'}
             </Button>
           ) : null}
@@ -201,14 +211,20 @@ export default function DriversPage() {
             }
             action={
               !search && canCreate ? (
-                <Button onClick={() => setShowForm(true)}>Add driver</Button>
+                <Button
+                  onClick={() => setShowForm(true)}
+                  disabled={addBlocked !== null}
+                  title={addBlocked ?? undefined}
+                >
+                  Add driver
+                </Button>
               ) : null
             }
           />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="text-xs uppercase tracking-wide text-slate-500">
+              <thead className="text-xs uppercase tracking-wide text-muted">
                 <tr>
                   <th className="pb-2 font-medium">Name</th>
                   <th className="pb-2 font-medium">Phone</th>
@@ -218,26 +234,46 @@ export default function DriversPage() {
                   <th className="pb-2" />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800">
+              <tbody className="divide-y divide-line">
                 {drivers.data?.items.map((driver) => {
                   const expired = new Date(driver.licence_expiry) < new Date()
                   return (
                     <tr key={driver.id}>
-                      <td className="py-3 font-medium text-slate-200">
+                      <td className="py-3 font-medium text-ink">
                         {driver.full_name}
                       </td>
-                      <td className="py-3 text-slate-400">{driver.phone}</td>
-                      <td className="py-3 font-mono text-xs text-slate-400">
+                      <td className="py-3 text-muted">{driver.phone}</td>
+                      <td className="py-3 font-mono text-xs text-muted">
                         {driver.licence_number}
                       </td>
                       <td
-                        className={`py-3 text-xs ${expired ? 'font-semibold text-red-400' : 'text-slate-400'}`}
+                        className={`py-3 text-xs ${expired ? 'font-semibold text-danger' : 'text-muted'}`}
                       >
                         {driver.licence_expiry}
                         {expired ? ' (expired)' : ''}
                       </td>
                       <td className="py-3">
-                        <StatusPill status={driver.status} />
+                        <div className="flex flex-col items-start gap-1">
+                          <StatusPill status={driver.status} />
+                          {/*
+                            drivers.status describes the person; it says nothing
+                            about whether the account behind them can sign in.
+                            Showing only the pill above would present a driver
+                            the backend will refuse at dispatch as ready to go,
+                            so the login state is stated in words rather than
+                            left to be inferred - and never by colour alone.
+                          */}
+                          {!driver.login_is_active ? (
+                            <>
+                              <span className="inline-block rounded-full border border-warning/30 bg-warning-soft px-2 py-0.5 text-[11px] font-semibold tracking-wide text-warning">
+                                LOGIN INACTIVE
+                              </span>
+                              <span className="text-[11px] text-muted">
+                                Cannot be dispatched
+                              </span>
+                            </>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="py-3 text-right">
                         {can('driver:deactivate') ? (
@@ -245,6 +281,8 @@ export default function DriversPage() {
                             variant="danger"
                             onClick={() => handleDeactivate(driver)}
                             busy={deactivate.isSubmitting}
+                            disabled={deactivateBlocked !== null}
+                            title={deactivateBlocked ?? undefined}
                           >
                             Deactivate
                           </Button>

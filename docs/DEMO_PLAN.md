@@ -4,14 +4,12 @@
 every MUST HAVE in [MVP_SCOPE.md](MVP_SCOPE.md) is justified by appearing here — so it deliberately
 describes the finished demo rather than today's build.
 
-As of P6, **implemented and certified end to end** (44 checks): the fleet overview and live map,
-shipment + trip planning with the capacity rejection at 0:20–0:40, dispatch, driver start, GPS
-ingestion, LIVE/STALE/NO_CONTACT freshness, and the observed trip track.
-
-**Not implemented, and therefore not demonstrable today:** route selection and the three-route
-comparison, ETA, fuel litres and cost, the landslide incident and automatic rerouting, weather,
-Fleet Sentinel timers, the stuck-truck workflow, and the SOS escalation that the narrative calls
-the differentiator. Those arrive in P7–P13.
+As of SIH26002 Autonomous Completion, **implemented and certified end to end**:
+the fleet overview and live map, atomic shipment + trip planning with capacity rejection,
+dispatch, driver start, GPS ingestion, LIVE/STALE/NO_CONTACT freshness, observed vs planned tracks,
+multi-factor 3-corridor risk pipeline, Open-Meteo corridor weather sampling, physics-based CMEM fuel model,
+audited route reviewer authorization, dynamic reroute assessment, full-screen driver navigation,
+and standalone release APK (VersionCode 9).
 
 > The 0:20–0:40 beat — attempt 18,000 kg, be refused, correct to 13,500 kg — is real today and is
 > covered by certification, including the assertion that the refused attempt leaves **no orphan

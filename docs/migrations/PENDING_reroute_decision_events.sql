@@ -1,0 +1,72 @@
+-- PREPARED. NOT APPLIED. REQUIRES EXPLICIT APPROVAL BEFORE RUNNING.
+--
+-- SCHEMA_APPLICATION_REQUIRES_APPROVAL = YES
+--
+-- This file is deliberately NOT an alembic revision and deliberately NOT in
+-- backend/alembic/versions/. Anything placed there is applied by the next
+-- `alembic upgrade head`, including the one the test suite runs, and this
+-- database is shared. Moving it into a revision is the approval step.
+--
+--
+-- WHAT IT IS FOR
+--
+-- Accepting a reroute is already fully recorded with the schema as it stands:
+-- app/services/reroute.py writes a ROUTE_CHANGED trip_event carrying the route
+-- the trip came from, the route it went to, who decided and when, in the same
+-- transaction as the route change itself.
+--
+-- DECLINING one is not recordable, and that is the gap. There is no value in
+-- trip_event_kind that honestly means "the system proposed a safer road and a
+-- manager chose to stay on this one". Every existing value would be a lie:
+--
+--   ROUTE_CHANGED    nothing changed
+--   DELAY_DETECTED   describes the road, not a decision about it
+--   INCIDENT_OPENED  invents an incident that did not occur
+--
+-- Rather than misuse one, declines are currently not stored at all, and the
+-- code says so instead of pretending otherwise.
+--
+-- The record matters for incident review. "At 14:03 a lower-risk corridor was
+-- available and the trip stayed on NH-715" is evidence about a decision a
+-- person made. Reconstructing it after the fact is impossible, because the
+-- risk scores that produced the proposal are never persisted - they are
+-- statements about the weather at one moment, by design.
+--
+--
+-- WHY TWO VALUES AND NOT ONE
+--
+-- REROUTE_DECLINED  a proposal was made and refused.
+-- REROUTE_ALERTED   the road deteriorated and there was NO better option, so
+--                   nothing could be proposed. On a single corridor - which is
+--                   most of the North East - this is the common case, and a
+--                   timeline that shows only accepted reroutes would suggest
+--                   the system was silent through a monsoon when in fact it
+--                   raised an alert nobody could act on.
+--
+-- Note that ADDING these values does not by itself create any writer. The
+-- application writes neither until a follow-up change does, so applying this
+-- migration is safe in the narrow sense and useless on its own; both should
+-- land together.
+--
+--
+-- SAFETY NOTES FOR WHOEVER APPLIES THIS
+--
+-- ALTER TYPE ... ADD VALUE is not transactional on PostgreSQL before 12, and
+-- on 12+ it cannot be used in the same transaction that then USES the new
+-- value. Alembic runs migrations in a transaction, so a revision doing this
+-- must either set its own isolation or split the value-add from any backfill.
+-- There is no backfill here, so a plain revision with these two statements is
+-- sufficient.
+--
+-- Adding an enum value is additive and does not rewrite the table. It cannot
+-- be reverted without recreating the type, so the DOWN path is a no-op and
+-- should be written as one honestly rather than as a fake reversal.
+--
+-- No existing row is touched. No data is deleted. No column is dropped.
+
+ALTER TYPE trip_event_kind ADD VALUE IF NOT EXISTS 'REROUTE_ALERTED';
+ALTER TYPE trip_event_kind ADD VALUE IF NOT EXISTS 'REROUTE_DECLINED';
+
+-- After applying, app/models/enums.py TripEventKind must gain the same two
+-- members in the same order, or tests/test_schema_drift.py will fail - which
+-- is that test doing its job.

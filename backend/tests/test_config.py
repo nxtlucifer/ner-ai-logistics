@@ -22,6 +22,28 @@ SUPABASE_URL_EXAMPLE = (
 LOCAL_URL_EXAMPLE = "postgresql+psycopg://ner:pw@localhost:5432/ner_logistics"
 
 
+@pytest.fixture(autouse=True)
+def _hermetic_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Build Settings from explicit values ONLY - no .env, and no ambient env.
+
+    `_env_file=None` stops pydantic-settings reading `.env`, but it does NOT
+    stop it reading OS environment variables, which outrank nothing here and
+    silently fill in any field a test left out. That made
+    `test_local_mode_requires_local_url` fail whenever the shell had been armed
+    for the isolated cluster (`.runtime/use-isolated-db.ps1` exports
+    LOCAL_DATABASE_URL): the field the test deliberately omits was supplied by
+    the environment, so the validator it exists to prove never fired. The test
+    was right and the harness was leaky.
+
+    Clearing every declared field for the duration of each test makes the
+    helper's docstring true. Scoped to this module, which only ever constructs
+    Settings objects in memory and never opens a connection - so nothing here
+    can affect which database a writing test reaches.
+    """
+    for field in Settings.model_fields:
+        monkeypatch.delenv(field, raising=False)
+
+
 def _settings(**overrides: object) -> Settings:
     """Build Settings from explicit values, ignoring any .env on disk."""
     base: dict[str, object] = {

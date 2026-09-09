@@ -134,6 +134,34 @@ describe('TripsPage', () => {
    * check that matters here is that the client never reaches for the
    * single-resource endpoints on this path.
    */
+  it('offers an inactive-login driver disabled, with the reason stated', async () => {
+    // Convenience only - the server returns DRIVER_LOGIN_INACTIVE regardless.
+    // What matters here is that the manager is not invited to pick someone the
+    // dispatch will refuse, and can see why.
+    vi.spyOn(api, 'listTrips').mockResolvedValue({ items: [], next_cursor: null })
+    vi.spyOn(api, 'listTrucks').mockResolvedValue({ items: [], next_cursor: null })
+    vi.spyOn(api, 'listDrivers').mockResolvedValue({
+      items: [
+        {
+          id: '33333333-3333-4333-8333-333333333333',
+          user_id: 'u9', full_name: 'Locked Out', phone: '9435099999',
+          photo_url: null, licence_number: 'AS-9999', licence_expiry: '2030-01-01',
+          status: 'AVAILABLE', login_is_active: false,
+          created_at: new Date().toISOString(),
+        },
+      ],
+      next_cursor: null,
+    })
+
+    render(<TripsPage />)
+
+    const option = (await screen.findByRole('option', {
+      name: /Locked Out/,
+    })) as HTMLOptionElement
+    expect(option.disabled).toBe(true)
+    expect(option.textContent).toContain('login inactive')
+  })
+
   it('plans a trip in one atomic request, never shipment-then-trip', async () => {
     const user = userEvent.setup()
     vi.spyOn(api, 'listTrips').mockResolvedValue({ items: [], next_cursor: null })
@@ -143,7 +171,8 @@ describe('TripsPage', () => {
           id: '22222222-2222-4222-8222-222222222222',
           user_id: 'u1', full_name: 'Bipul Das', phone: '9435012345',
           photo_url: null, licence_number: 'AS-1234', licence_expiry: '2030-01-01',
-          status: 'AVAILABLE', created_at: new Date().toISOString(),
+          status: 'AVAILABLE', login_is_active: true,
+          created_at: new Date().toISOString(),
         },
       ],
       next_cursor: null,
@@ -170,6 +199,27 @@ describe('TripsPage', () => {
     await user.type(screen.getByLabelText(/^client/i), 'Brahmaputra Traders')
     await user.type(screen.getByLabelText(/pickup address/i), 'Depot, Guwahati')
     await user.type(screen.getByLabelText(/destination address/i), 'Yard, Jorhat')
+
+    // An address alone no longer plans a trip: it carries no coordinate, and
+    // the form used to substitute a depot default here. With no Google key
+    // configured the remaining paths are the map picker - which needs a GL
+    // context jsdom does not have - and Advanced, which is what this drives.
+    const advanced = screen.getAllByRole('button', { name: /^advanced$/i })
+    await user.click(advanced[0])
+    await user.click(advanced[1])
+    await user.type(screen.getByLabelText(/^latitude$/i, {
+      selector: '[name="pickup_address_lat"]',
+    }), '26.1445')
+    await user.type(screen.getByLabelText(/^longitude$/i, {
+      selector: '[name="pickup_address_lon"]',
+    }), '91.7362')
+    await user.type(screen.getByLabelText(/^latitude$/i, {
+      selector: '[name="destination_address_lat"]',
+    }), '26.7509')
+    await user.type(screen.getByLabelText(/^longitude$/i, {
+      selector: '[name="destination_address_lon"]',
+    }), '94.2037')
+
     await user.selectOptions(
       screen.getByRole('combobox', { name: /driver/i }),
       '22222222-2222-4222-8222-222222222222',
@@ -190,6 +240,60 @@ describe('TripsPage', () => {
     expect(body.trip.truck_id).toBe('33333333-3333-4333-8333-333333333333')
     // No shipment_id: the server mints it inside the transaction.
     expect('shipment_id' in body.trip).toBe(false)
+    // The coordinate that shipped is the one that was entered, not a default.
+    expect(body.shipment.pickup).toEqual({ lat: 26.1445, lon: 91.7362 })
+    expect(body.shipment.destination).toEqual({ lat: 26.7509, lon: 94.2037 })
+  })
+
+  it('refuses to plan an endpoint that was never located', async () => {
+    // The defect this replaces: the form shipped a pre-filled depot coordinate
+    // for any address the manager typed, so a trip to Jorhat routed to
+    // Guwahati with "Yard, Jorhat" written on it.
+    const user = userEvent.setup()
+    vi.spyOn(api, 'listTrips').mockResolvedValue({ items: [], next_cursor: null })
+    vi.spyOn(api, 'listDrivers').mockResolvedValue({
+      items: [
+        {
+          id: '22222222-2222-4222-8222-222222222222',
+          full_name: 'Bipul Das', phone: '+919000000001', licence_number: 'AS-01',
+          licence_expiry: '2030-01-01', status: 'AVAILABLE', user_id: '44444444-4444-4444-8444-444444444444',
+          login_is_active: true, photo_url: null, created_at: new Date().toISOString(),
+        },
+      ],
+      next_cursor: null,
+    })
+    vi.spyOn(api, 'listTrucks').mockResolvedValue({
+      items: [
+        {
+          id: '33333333-3333-4333-8333-333333333333',
+          registration_number: 'AS01AB1234', truck_type: null, make: null,
+          model: null, max_capacity_kg: '16000.00', current_load_kg: '0.00',
+          status: 'AVAILABLE', baseline_mileage_kmpl: null,
+          created_at: new Date().toISOString(),
+        },
+      ],
+      next_cursor: null,
+    })
+    const planTrip = vi.spyOn(api, 'planTrip').mockResolvedValue(trip())
+
+    render(<TripsPage />)
+    await screen.findByText(/plan a trip/i)
+
+    await user.type(screen.getByLabelText(/^client/i), 'Brahmaputra Traders')
+    await user.type(screen.getByLabelText(/pickup address/i), 'Depot, Guwahati')
+    await user.type(screen.getByLabelText(/destination address/i), 'Yard, Jorhat')
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: /driver/i }),
+      '22222222-2222-4222-8222-222222222222',
+    )
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: /truck/i }),
+      '33333333-3333-4333-8333-333333333333',
+    )
+    await user.click(screen.getByRole('button', { name: /create draft trip/i }))
+
+    expect(await screen.findByText(/pickup has no location yet/i)).toBeTruthy()
+    expect(planTrip).not.toHaveBeenCalled()
   })
 
   it('still surfaces a refused Dispatch', async () => {

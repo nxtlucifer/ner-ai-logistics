@@ -8,6 +8,7 @@ how a table silently disappears from a migration.
 
 from app.models.audit import AuditLog
 from app.models.auth import RefreshToken
+from app.models.review import RouteReviewAuthorization
 from app.models.enums import (
     AssignmentStatus,
     AuditAction,
@@ -17,6 +18,7 @@ from app.models.enums import (
     DriverStatus,
     MaintenanceKind,
     RouteKind,
+    RouteReviewBasis,
     RouteState,
     ShipmentStatus,
     TripEventKind,
@@ -81,6 +83,8 @@ __all__ = [
     "TripStopKind",
     "TripStopStatus",
     "RouteKind",
+    "RouteReviewAuthorization",
+    "RouteReviewBasis",
     "RouteState",
     "TripEventKind",
     "AuditAction",

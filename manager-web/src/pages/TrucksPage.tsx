@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { ApiError, api, type Truck } from '../api/client'
+import { ApiError, api, type Truck, unavailableReason } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
 import {
   Button,
@@ -75,6 +75,12 @@ export default function TrucksPage() {
     }
   }
 
+  // Asked once, used by every control below. A button whose backend has no
+  // implementation is rendered disabled with the reason on it, never left
+  // looking live so the click can throw.
+  const addBlocked = unavailableReason('createTruck')
+  const retireBlocked = unavailableReason('retireTruck')
+
   async function handleRetire(truck: Truck) {
     if (
       !window.confirm(
@@ -92,8 +98,8 @@ export default function TrucksPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-slate-100">Trucks</h1>
-          <p className="text-xs text-slate-500">
+          <h1 className="text-xl font-bold text-ink">Trucks</h1>
+          <p className="text-xs text-muted">
             Capacity is a safety limit enforced by the database.
           </p>
         </div>
@@ -102,10 +108,15 @@ export default function TrucksPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search registration"
-            className="w-56 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 focus:border-emerald-600 focus:outline-none"
+            className="w-56 rounded-[var(--radius-control)] border border-outline bg-surface px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-route focus:ring-1 focus:ring-route"
           />
           {canCreate ? (
-            <Button onClick={() => setShowForm((v) => !v)} variant="secondary">
+            <Button
+              onClick={() => setShowForm((v) => !v)}
+              variant="secondary"
+              disabled={addBlocked !== null}
+              title={addBlocked ?? undefined}
+            >
               {showForm ? 'Cancel' : 'Add truck'}
             </Button>
           ) : null}
@@ -197,14 +208,20 @@ export default function TrucksPage() {
             }
             action={
               !search && canCreate ? (
-                <Button onClick={() => setShowForm(true)}>Add truck</Button>
+                <Button
+                  onClick={() => setShowForm(true)}
+                  disabled={addBlocked !== null}
+                  title={addBlocked ?? undefined}
+                >
+                  Add truck
+                </Button>
               ) : null
             }
           />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="text-xs uppercase tracking-wide text-slate-500">
+              <thead className="text-xs uppercase tracking-wide text-muted">
                 <tr>
                   <th className="pb-2 font-medium">Registration</th>
                   <th className="pb-2 font-medium">Type</th>
@@ -214,22 +231,22 @@ export default function TrucksPage() {
                   <th className="pb-2" />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800">
+              <tbody className="divide-y divide-line">
                 {trucks.data?.items.map((truck) => (
                   <tr key={truck.id}>
-                    <td className="py-3 font-mono font-medium text-slate-200">
+                    <td className="py-3 font-mono font-medium text-ink">
                       {truck.registration_number}
                     </td>
-                    <td className="py-3 text-slate-400">
+                    <td className="py-3 text-muted">
                       {[truck.make, truck.model].filter(Boolean).join(' ') ||
                         truck.truck_type || (
-                          <span className="text-slate-600">—</span>
+                          <span className="text-muted">—</span>
                         )}
                     </td>
-                    <td className="py-3 tabular-nums text-slate-400">
+                    <td className="py-3 tabular-nums text-muted">
                       {Number(truck.max_capacity_kg).toLocaleString()} kg
                     </td>
-                    <td className="py-3 tabular-nums text-slate-400">
+                    <td className="py-3 tabular-nums text-muted">
                       {Number(truck.current_load_kg).toLocaleString()} kg
                     </td>
                     <td className="py-3">
@@ -241,6 +258,8 @@ export default function TrucksPage() {
                           variant="danger"
                           onClick={() => handleRetire(truck)}
                           busy={retire.isSubmitting}
+                          disabled={retireBlocked !== null}
+                          title={retireBlocked ?? undefined}
                         >
                           Retire
                         </Button>

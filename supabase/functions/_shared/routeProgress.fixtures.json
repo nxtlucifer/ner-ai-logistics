@@ -1,0 +1,4175 @@
+[
+ {
+  "name": "at the start",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.1445,
+    91.7362
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.0,
+   "travelled_distance_km": 0.0,
+   "remaining_distance_km": 255.44556007881184,
+   "off_route_m": 0.0,
+   "on_route": true,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "at the end",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.7509,
+    94.2037
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 1.0,
+   "travelled_distance_km": 255.44556007881184,
+   "remaining_distance_km": 0.0,
+   "off_route_m": 0.0,
+   "on_route": true,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "on a middle vertex",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.45,
+    93.2
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.5871517988069545,
+   "travelled_distance_km": 149.98532009752432,
+   "remaining_distance_km": 105.46023998128751,
+   "off_route_m": 0.0,
+   "on_route": true,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "within a segment",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.163,
+    91.868
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.052109856540194434,
+   "travelled_distance_km": 13.311231489536503,
+   "remaining_distance_km": 242.13432858927533,
+   "off_route_m": 83.98856986086321,
+   "on_route": true,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "before the start clamps to 0",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.1,
+    91.5
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.0,
+   "travelled_distance_km": 0.0,
+   "remaining_distance_km": 255.44556007881184,
+   "off_route_m": 24095.07254543984,
+   "on_route": false,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "past the end clamps to 1",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.9,
+    94.6
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 1.0,
+   "travelled_distance_km": 255.44556007881184,
+   "remaining_distance_km": 0.0,
+   "off_route_m": 42676.34239093727,
+   "on_route": false,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "no position",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": null,
+   "plannedDurationMin": null,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": null,
+   "travelled_distance_km": null,
+   "remaining_distance_km": null,
+   "off_route_m": null,
+   "on_route": null,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "NO_POSITION_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "empty geometry",
+  "input": {
+   "geometry": [],
+   "position": [
+    26.1445,
+    91.7362
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": null,
+   "travelled_distance_km": null,
+   "remaining_distance_km": null,
+   "off_route_m": null,
+   "on_route": null,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "ROUTE_HAS_NO_GEOMETRY"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "single vertex",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ]
+   ],
+   "position": [
+    26.1445,
+    91.7362
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": null,
+   "travelled_distance_km": null,
+   "remaining_distance_km": null,
+   "off_route_m": null,
+   "on_route": null,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "ROUTE_HAS_NO_GEOMETRY"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "zero-length line",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.1445,
+     91.7362
+    ]
+   ],
+   "position": [
+    26.1445,
+    91.7362
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": null,
+   "travelled_distance_km": null,
+   "remaining_distance_km": null,
+   "off_route_m": null,
+   "on_route": null,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "ROUTE_HAS_NO_GEOMETRY"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "zero-length line, three identical vertices",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.1445,
+     91.7362
+    ]
+   ],
+   "position": [
+    26.1445,
+    91.7362
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": null,
+   "travelled_distance_km": null,
+   "remaining_distance_km": null,
+   "off_route_m": null,
+   "on_route": null,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "ROUTE_HAS_NO_GEOMETRY"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "just inside the corridor",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.1446,
+    91.7378
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.0006260874762890768,
+   "travelled_distance_km": 0.15993126603899305,
+   "remaining_distance_km": 255.28562881277284,
+   "off_route_m": 12.685888548082854,
+   "on_route": true,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "far off the corridor",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    25.5,
+    92.0
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.06870986071914745,
+   "travelled_distance_km": 17.55162885433977,
+   "remaining_distance_km": 237.89393122447206,
+   "off_route_m": 74810.38367326873,
+   "on_route": false,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "off route but figures still returned",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    27.5,
+    93.0
+   ],
+   "plannedDurationMin": 300.0,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.6109397669915425,
+   "travelled_distance_km": 156.06185095357338,
+   "remaining_distance_km": 99.38370912523845,
+   "off_route_m": 117941.63248283761,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 116.71806990253724,
+   "planned_average_speed_kmph": 51.08911201576237,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "with duration",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.35,
+    92.68
+   ],
+   "plannedDurationMin": 420.0,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.3797829634003508,
+   "travelled_distance_km": 97.0138717941935,
+   "remaining_distance_km": 158.43168828461833,
+   "off_route_m": 0.0,
+   "on_route": true,
+   "remaining_at_planned_pace_min": 260.4911553718527,
+   "planned_average_speed_kmph": 36.49222286840169,
+   "reason_codes": [
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "zero duration is absent",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.35,
+    92.68
+   ],
+   "plannedDurationMin": 0.0,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.3797829634003508,
+   "travelled_distance_km": 97.0138717941935,
+   "remaining_distance_km": 158.43168828461833,
+   "off_route_m": 0.0,
+   "on_route": true,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "negative duration is absent",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.35,
+    92.68
+   ],
+   "plannedDurationMin": -10.0,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.3797829634003508,
+   "travelled_distance_km": 97.0138717941935,
+   "remaining_distance_km": 158.43168828461833,
+   "off_route_m": 0.0,
+   "on_route": true,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "no duration",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.35,
+    92.68
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.3797829634003508,
+   "travelled_distance_km": 97.0138717941935,
+   "remaining_distance_km": 158.43168828461833,
+   "off_route_m": 0.0,
+   "on_route": true,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "provider distance scales lengths",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.35,
+    92.68
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": 305.4
+  },
+  "expected": {
+   "fraction_complete": 0.3797829634003508,
+   "travelled_distance_km": 115.98571702246711,
+   "remaining_distance_km": 189.41428297753288,
+   "off_route_m": 0.0,
+   "on_route": true,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "provider distance with duration",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.35,
+    92.68
+   ],
+   "plannedDurationMin": 420.0,
+   "plannedDistanceKm": 305.4
+  },
+  "expected": {
+   "fraction_complete": 0.3797829634003508,
+   "travelled_distance_km": 115.98571702246711,
+   "remaining_distance_km": 189.41428297753288,
+   "off_route_m": 0.0,
+   "on_route": true,
+   "remaining_at_planned_pace_min": 260.4911553718527,
+   "planned_average_speed_kmph": 43.628571428571426,
+   "reason_codes": [
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "zero provider distance ignored",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.35,
+    92.68
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": 0.0
+  },
+  "expected": {
+   "fraction_complete": 0.3797829634003508,
+   "travelled_distance_km": 97.0138717941935,
+   "remaining_distance_km": 158.43168828461833,
+   "off_route_m": 0.0,
+   "on_route": true,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "negative provider distance ignored",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.35,
+    92.68
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": -5.0
+  },
+  "expected": {
+   "fraction_complete": 0.3797829634003508,
+   "travelled_distance_km": 97.0138717941935,
+   "remaining_distance_km": 158.43168828461833,
+   "off_route_m": 0.0,
+   "on_route": true,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "self crossing, nearest segment wins",
+  "input": {
+   "geometry": [
+    [
+     26.0,
+     91.0
+    ],
+    [
+     26.0,
+     91.5
+    ],
+    [
+     26.01,
+     91.5
+    ],
+    [
+     26.01,
+     91.0
+    ]
+   ],
+   "position": [
+    26.005,
+    91.25
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.24725951018286993,
+   "travelled_distance_km": 24.98531927625403,
+   "remaining_distance_km": 76.0636525419592,
+   "off_route_m": 555.9746332226831,
+   "on_route": false,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "self crossing, on the return leg",
+  "input": {
+   "geometry": [
+    [
+     26.0,
+     91.0
+    ],
+    [
+     26.0,
+     91.5
+    ],
+    [
+     26.01,
+     91.5
+    ],
+    [
+     26.01,
+     91.0
+    ]
+   ],
+   "position": [
+    26.0099,
+    91.25
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.7527615417544833,
+   "travelled_distance_km": 76.06577981858352,
+   "remaining_distance_km": 24.98319199962971,
+   "off_route_m": 11.119492664825003,
+   "on_route": true,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 0",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    27.085203018457406,
+    94.17870902330262
+   ],
+   "plannedDurationMin": 420.0,
+   "plannedDistanceKm": 0.0
+  },
+  "expected": {
+   "fraction_complete": 1.0,
+   "travelled_distance_km": 255.44556007881184,
+   "remaining_distance_km": 0.0,
+   "off_route_m": 37255.287657752124,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 0.0,
+   "planned_average_speed_kmph": 36.49222286840169,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 1",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.87973289165114,
+    93.10004404262591
+   ],
+   "plannedDurationMin": 0.0,
+   "plannedDistanceKm": 120.0
+  },
+  "expected": {
+   "fraction_complete": 0.5899977020828295,
+   "travelled_distance_km": 70.79972424993954,
+   "remaining_distance_km": 49.200275750060456,
+   "off_route_m": 48761.63439679404,
+   "on_route": false,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 2",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.011752234148386,
+    93.88544836810004
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": 0.0
+  },
+  "expected": {
+   "fraction_complete": 0.8063384867234257,
+   "travelled_distance_km": 205.97558635416706,
+   "remaining_distance_km": 49.469973724644774,
+   "off_route_m": 65380.82885170533,
+   "on_route": false,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 3",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    27.104061331334666,
+    92.16357825735908
+   ],
+   "plannedDurationMin": 1000.5,
+   "plannedDistanceKm": -1.0
+  },
+  "expected": {
+   "fraction_complete": 0.25471833719479015,
+   "travelled_distance_km": 65.06666830706682,
+   "remaining_distance_km": 190.37889177174503,
+   "off_route_m": 94704.53447903653,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 745.6543036366126,
+   "planned_average_speed_kmph": 15.319074067694862,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 4",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.50881915537175,
+    90.9521280412336
+   ],
+   "plannedDurationMin": 60.0,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.0,
+   "travelled_distance_km": 0.0,
+   "remaining_distance_km": 255.44556007881184,
+   "off_route_m": 88018.28321156782,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 60.0,
+   "planned_average_speed_kmph": 255.44556007881184,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 5",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    25.792285585806848,
+    91.11506205652648
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": 0.0
+  },
+  "expected": {
+   "fraction_complete": 0.0,
+   "travelled_distance_km": 0.0,
+   "remaining_distance_km": 255.44556007881184,
+   "off_route_m": 73413.19804425874,
+   "on_route": false,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 6",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    25.77093087906919,
+    92.25239540347336
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": 305.4
+  },
+  "expected": {
+   "fraction_complete": 0.16147837197879594,
+   "travelled_distance_km": 49.315494802324274,
+   "remaining_distance_km": 256.0845051976757,
+   "off_route_m": 50646.510810936314,
+   "on_route": false,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 7",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.014121374970767,
+    93.04660553884376
+   ],
+   "plannedDurationMin": 1000.5,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.4959265338841773,
+   "travelled_distance_km": 126.68223120598752,
+   "remaining_distance_km": 128.76332887282433,
+   "off_route_m": 44219.65512202624,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 504.3255028488808,
+   "planned_average_speed_kmph": 15.319074067694862,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 8",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    25.94306734770103,
+    92.11201375011467
+   ],
+   "plannedDurationMin": 0.0,
+   "plannedDistanceKm": 0.0
+  },
+  "expected": {
+   "fraction_complete": 0.12434968872392356,
+   "travelled_distance_km": 31.764575881708566,
+   "remaining_distance_km": 223.68098419710327,
+   "off_route_m": 28417.176256180115,
+   "on_route": false,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 9",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.115738595081822,
+    92.82057255035022
+   ],
+   "plannedDurationMin": 60.0,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.41651741018136224,
+   "travelled_distance_km": 106.39752312635429,
+   "remaining_distance_km": 149.04803695245755,
+   "off_route_m": 28432.1943048925,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 35.00895538911826,
+   "planned_average_speed_kmph": 255.44556007881184,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 10",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.062735527031364,
+    93.6661645915822
+   ],
+   "plannedDurationMin": 420.0,
+   "plannedDistanceKm": 0.0
+  },
+  "expected": {
+   "fraction_complete": 0.7277285945323702,
+   "travelled_distance_km": 185.89503841568785,
+   "remaining_distance_km": 69.55052166312399,
+   "off_route_m": 54033.274027412925,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 114.35399029640455,
+   "planned_average_speed_kmph": 36.49222286840169,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 11",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.777025881110635,
+    91.68431566307511
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": 305.4
+  },
+  "expected": {
+   "fraction_complete": 0.012896817594592118,
+   "travelled_distance_km": 3.9386880933884325,
+   "remaining_distance_km": 301.46131190661157,
+   "off_route_m": 70350.19749414886,
+   "on_route": false,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 12",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.032781392666116,
+    92.1525990837401
+   ],
+   "plannedDurationMin": 1000.5,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.14838338467595236,
+   "travelled_distance_km": 37.903876804938434,
+   "remaining_distance_km": 217.5416832738734,
+   "off_route_m": 19882.278437112232,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 852.0424236317097,
+   "planned_average_speed_kmph": 15.319074067694862,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 13",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.19176578502449,
+    92.19319878169851
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.1790275460872477,
+   "travelled_distance_km": 45.73179177979228,
+   "remaining_distance_km": 209.71376829901956,
+   "off_route_m": 3918.418307051432,
+   "on_route": false,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 14",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.311719572156335,
+    91.13297959714359
+   ],
+   "plannedDurationMin": 420.0,
+   "plannedDistanceKm": -1.0
+  },
+  "expected": {
+   "fraction_complete": 0.0,
+   "travelled_distance_km": 0.0,
+   "remaining_distance_km": 255.44556007881184,
+   "off_route_m": 62976.55732737828,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 420.0,
+   "planned_average_speed_kmph": 36.49222286840169,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 15",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.638526637299055,
+    91.55768550225635
+   ],
+   "plannedDurationMin": 0.0,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.0,
+   "travelled_distance_km": 0.0,
+   "remaining_distance_km": 255.44556007881184,
+   "off_route_m": 57739.2994907162,
+   "on_route": false,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 16",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    25.851925538424673,
+    93.98266431007976
+   ],
+   "plannedDurationMin": 60.0,
+   "plannedDistanceKm": 305.4
+  },
+  "expected": {
+   "fraction_complete": 0.8281317930693004,
+   "travelled_distance_km": 252.91144960336433,
+   "remaining_distance_km": 52.488550396635645,
+   "off_route_m": 85131.44307750899,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 10.312092415841974,
+   "planned_average_speed_kmph": 305.4,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 17",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    25.653241571281168,
+    90.98628440037045
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": 120.0
+  },
+  "expected": {
+   "fraction_complete": 0.0,
+   "travelled_distance_km": 0.0,
+   "remaining_distance_km": 120.0,
+   "off_route_m": 92793.6470318179,
+   "on_route": false,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 18",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    27.18992803259924,
+    93.1722130052443
+   ],
+   "plannedDurationMin": 0.0,
+   "plannedDistanceKm": -1.0
+  },
+  "expected": {
+   "fraction_complete": 0.6469813984452722,
+   "travelled_distance_km": 165.2685256864255,
+   "remaining_distance_km": 90.17703439238633,
+   "off_route_m": 80084.54731733352,
+   "on_route": false,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 19",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.91605100060542,
+    94.40090845193984
+   ],
+   "plannedDurationMin": 0.0,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 1.0,
+   "travelled_distance_km": 255.44556007881184,
+   "remaining_distance_km": 0.0,
+   "off_route_m": 26834.9730107231,
+   "on_route": false,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 20",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.329873219564227,
+    92.1545761654761
+   ],
+   "plannedDurationMin": 60.0,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.17746541013507908,
+   "travelled_distance_km": 45.33275108657133,
+   "remaining_distance_km": 210.1128089922405,
+   "off_route_m": 11929.468491539032,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 49.352075391895255,
+   "planned_average_speed_kmph": 255.44556007881184,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 21",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.166262932317665,
+    93.95052000392732
+   ],
+   "plannedDurationMin": 60.0,
+   "plannedDistanceKm": 120.0
+  },
+  "expected": {
+   "fraction_complete": 0.8297890742897368,
+   "travelled_distance_km": 99.57468891476842,
+   "remaining_distance_km": 20.425311085231584,
+   "off_route_m": 50506.26323419252,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 10.212655542615792,
+   "planned_average_speed_kmph": 120.0,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 22",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.716964602637443,
+    92.67374665528259
+   ],
+   "plannedDurationMin": 1000.5,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.4045168893863866,
+   "travelled_distance_km": 103.3320433706443,
+   "remaining_distance_km": 152.11351670816754,
+   "off_route_m": 40058.3201338562,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 595.7808521689202,
+   "planned_average_speed_kmph": 15.319074067694862,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 23",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    25.801142327169213,
+    92.1926497381376
+   ],
+   "plannedDurationMin": 1000.5,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.14157185828631946,
+   "travelled_distance_km": 36.16390263134706,
+   "remaining_distance_km": 219.2816574474648,
+   "off_route_m": 45803.61496262729,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 858.8573557845374,
+   "planned_average_speed_kmph": 15.319074067694862,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 24",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.00354052358633,
+    92.43089336918241
+   ],
+   "plannedDurationMin": 420.0,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.25173763509624597,
+   "travelled_distance_km": 64.30526119007611,
+   "remaining_distance_km": 191.14029888873574,
+   "off_route_m": 30480.720025797786,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 314.27019325957673,
+   "planned_average_speed_kmph": 36.49222286840169,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 25",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.539100184318727,
+    94.42099630905302
+   ],
+   "plannedDurationMin": 60.0,
+   "plannedDistanceKm": 305.4
+  },
+  "expected": {
+   "fraction_complete": 1.0,
+   "travelled_distance_km": 305.4,
+   "remaining_distance_km": 0.0,
+   "off_route_m": 31953.881997176228,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 0.0,
+   "planned_average_speed_kmph": 305.4,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 26",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    25.72913680058454,
+    90.9056686579857
+   ],
+   "plannedDurationMin": 420.0,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.0,
+   "travelled_distance_km": 0.0,
+   "remaining_distance_km": 255.44556007881184,
+   "off_route_m": 95027.54936059372,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 420.0,
+   "planned_average_speed_kmph": 36.49222286840169,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 27",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    25.866980425570308,
+    91.27014252762623
+   ],
+   "plannedDurationMin": 60.0,
+   "plannedDistanceKm": 305.4
+  },
+  "expected": {
+   "fraction_complete": 0.0,
+   "travelled_distance_km": 0.0,
+   "remaining_distance_km": 305.4,
+   "off_route_m": 55871.191433708176,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 60.0,
+   "planned_average_speed_kmph": 305.4,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 28",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.58445334260404,
+    93.96684483806482
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": 305.4
+  },
+  "expected": {
+   "fraction_complete": 0.8893617029055565,
+   "travelled_distance_km": 271.61106406735695,
+   "remaining_distance_km": 33.78893593264303,
+   "off_route_m": 8014.550227225067,
+   "on_route": false,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 29",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.881184071805105,
+    93.84357864448012
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.884792771621779,
+   "travelled_distance_km": 226.0163851006096,
+   "remaining_distance_km": 29.42917497820224,
+   "off_route_m": 27245.332383846464,
+   "on_route": false,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 30",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.114215422106252,
+    92.28109417131205
+   ],
+   "plannedDurationMin": 0.0,
+   "plannedDistanceKm": 120.0
+  },
+  "expected": {
+   "fraction_complete": 0.20515665489187965,
+   "travelled_distance_km": 24.61879858702556,
+   "remaining_distance_km": 95.38120141297443,
+   "off_route_m": 14593.00011280364,
+   "on_route": false,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 31",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.481912735753895,
+    91.94374868942523
+   ],
+   "plannedDurationMin": 0.0,
+   "plannedDistanceKm": 305.4
+  },
+  "expected": {
+   "fraction_complete": 0.11155218756744603,
+   "travelled_distance_km": 34.06803808309802,
+   "remaining_distance_km": 271.33196191690195,
+   "off_route_m": 33887.99292843828,
+   "on_route": false,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 32",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    27.077929162776595,
+    93.19779652783212
+   ],
+   "plannedDurationMin": 420.0,
+   "plannedDistanceKm": 120.0
+  },
+  "expected": {
+   "fraction_complete": 0.6460617765789696,
+   "travelled_distance_km": 77.52741318947635,
+   "remaining_distance_km": 42.47258681052365,
+   "off_route_m": 67391.12472567717,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 148.6540538368328,
+   "planned_average_speed_kmph": 17.142857142857142,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 33",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.580434619057122,
+    93.11638695262428
+   ],
+   "plannedDurationMin": 420.0,
+   "plannedDistanceKm": 120.0
+  },
+  "expected": {
+   "fraction_complete": 0.5646434627524811,
+   "travelled_distance_km": 67.75721553029773,
+   "remaining_distance_km": 52.24278446970227,
+   "off_route_m": 15941.537602453707,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 182.84974564395796,
+   "planned_average_speed_kmph": 17.142857142857142,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 34",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    25.813710662568795,
+    92.24227679772247
+   ],
+   "plannedDurationMin": 0.0,
+   "plannedDistanceKm": 305.4
+  },
+  "expected": {
+   "fraction_complete": 0.1616981900732916,
+   "travelled_distance_km": 49.382627248383244,
+   "remaining_distance_km": 256.01737275161673,
+   "off_route_m": 45786.050299800125,
+   "on_route": false,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 35",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.860932212285622,
+    92.69020943536412
+   ],
+   "plannedDurationMin": 60.0,
+   "plannedDistanceKm": 0.0
+  },
+  "expected": {
+   "fraction_complete": 0.42149495883037646,
+   "travelled_distance_km": 107.66901582882126,
+   "remaining_distance_km": 147.7765442499906,
+   "off_route_m": 55377.145581356686,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 34.71030247017741,
+   "planned_average_speed_kmph": 255.44556007881184,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 36",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.85208242108671,
+    94.4832529152497
+   ],
+   "plannedDurationMin": 0.0,
+   "plannedDistanceKm": 305.4
+  },
+  "expected": {
+   "fraction_complete": 1.0,
+   "travelled_distance_km": 305.4,
+   "remaining_distance_km": 0.0,
+   "off_route_m": 29939.923354401024,
+   "on_route": false,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 37",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    27.069820291553498,
+    93.50388738815847
+   ],
+   "plannedDurationMin": 420.0,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.7617906766488731,
+   "travelled_distance_km": 194.59604605938844,
+   "remaining_distance_km": 60.849514019423395,
+   "off_route_m": 58315.41800247775,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 100.04791580747329,
+   "planned_average_speed_kmph": 36.49222286840169,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 38",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    25.70933348737854,
+    94.10727028233647
+   ],
+   "plannedDurationMin": 1000.5,
+   "plannedDistanceKm": 305.4
+  },
+  "expected": {
+   "fraction_complete": 0.8297890742897368,
+   "travelled_distance_km": 253.4175832880856,
+   "remaining_distance_km": 51.98241671191437,
+   "off_route_m": 103677.22537118223,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 170.2960311731183,
+   "planned_average_speed_kmph": 18.314842578710643,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 39",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.265970894735176,
+    91.83181049850157
+   ],
+   "plannedDurationMin": 420.0,
+   "plannedDistanceKm": 305.4
+  },
+  "expected": {
+   "fraction_complete": 0.043443916621732,
+   "travelled_distance_km": 13.267772136276951,
+   "remaining_distance_km": 292.132227863723,
+   "off_route_m": 11947.591946333361,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 401.75355501887253,
+   "planned_average_speed_kmph": 43.628571428571426,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 40",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.078226102052827,
+    92.68693819869029
+   ],
+   "plannedDurationMin": 420.0,
+   "plannedDistanceKm": -1.0
+  },
+  "expected": {
+   "fraction_complete": 0.3565153425613961,
+   "travelled_distance_km": 91.07026135728529,
+   "remaining_distance_km": 164.37529872152655,
+   "off_route_m": 29334.974402617754,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 270.26355612421366,
+   "planned_average_speed_kmph": 36.49222286840169,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 41",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.309846207826972,
+    92.56734575579296
+   ],
+   "plannedDurationMin": 420.0,
+   "plannedDistanceKm": 305.4
+  },
+  "expected": {
+   "fraction_complete": 0.3329875509426993,
+   "travelled_distance_km": 101.69439805790034,
+   "remaining_distance_km": 203.70560194209963,
+   "off_route_m": 1285.9471638456537,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 280.14522860406635,
+   "planned_average_speed_kmph": 43.628571428571426,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 42",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.856831379776487,
+    91.57050370539436
+   ],
+   "plannedDurationMin": 0.0,
+   "plannedDistanceKm": -1.0
+  },
+  "expected": {
+   "fraction_complete": 0.0,
+   "travelled_distance_km": 0.0,
+   "remaining_distance_km": 255.44556007881184,
+   "off_route_m": 80905.62790487766,
+   "on_route": false,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 43",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    27.113052575185055,
+    93.38079554160285
+   ],
+   "plannedDurationMin": 1000.5,
+   "plannedDistanceKm": -1.0
+  },
+  "expected": {
+   "fraction_complete": 0.7190546305248158,
+   "travelled_distance_km": 183.67931282167467,
+   "remaining_distance_km": 71.76624725713717,
+   "off_route_m": 66250.56463371986,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 281.08584215992187,
+   "planned_average_speed_kmph": 15.319074067694862,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 44",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.144012666597572,
+    93.29704210052289
+   ],
+   "plannedDurationMin": 1000.5,
+   "plannedDistanceKm": 0.0
+  },
+  "expected": {
+   "fraction_complete": 0.5871517988069545,
+   "travelled_distance_km": 149.98532009752432,
+   "remaining_distance_km": 105.46023998128751,
+   "off_route_m": 35372.76002184281,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 413.0546252936421,
+   "planned_average_speed_kmph": 15.319074067694862,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 45",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.68078126985152,
+    91.6987207648604
+   ],
+   "plannedDurationMin": 60.0,
+   "plannedDistanceKm": 120.0
+  },
+  "expected": {
+   "fraction_complete": 0.01346075990020303,
+   "travelled_distance_km": 1.6152911880243634,
+   "remaining_distance_km": 118.38470881197564,
+   "off_route_m": 59549.748432325134,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 59.19235440598782,
+   "planned_average_speed_kmph": 120.0,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 46",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    25.90794170655199,
+    93.92446120375268
+   ],
+   "plannedDurationMin": 420.0,
+   "plannedDistanceKm": 0.0
+  },
+  "expected": {
+   "fraction_complete": 0.8113092981054015,
+   "travelled_distance_km": 207.24535805168202,
+   "remaining_distance_km": 48.20020202712982,
+   "off_route_m": 77562.17115119236,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 79.25009479573134,
+   "planned_average_speed_kmph": 36.49222286840169,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 47",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    25.954246888949953,
+    94.3157772664134
+   ],
+   "plannedDurationMin": 60.0,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.931300229578748,
+   "travelled_distance_km": 237.89650874626935,
+   "remaining_distance_km": 17.54905133254249,
+   "off_route_m": 86280.82181345069,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 4.121986225275116,
+   "planned_average_speed_kmph": 255.44556007881184,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 48",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.833343951456378,
+    91.52754960650213
+   ],
+   "plannedDurationMin": 420.0,
+   "plannedDistanceKm": 305.4
+  },
+  "expected": {
+   "fraction_complete": 0.0,
+   "travelled_distance_km": 0.0,
+   "remaining_distance_km": 305.4,
+   "off_route_m": 79360.73665733612,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 420.0,
+   "planned_average_speed_kmph": 43.628571428571426,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 49",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.551367027603533,
+    93.48663676034816
+   ],
+   "plannedDurationMin": 1000.5,
+   "plannedDistanceKm": 120.0
+  },
+  "expected": {
+   "fraction_complete": 0.7058931594884705,
+   "travelled_distance_km": 84.70717913861647,
+   "remaining_distance_km": 35.29282086138353,
+   "off_route_m": 3185.860195700456,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 294.25389393178517,
+   "planned_average_speed_kmph": 7.19640179910045,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 50",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    25.716453274151306,
+    94.40951363569671
+   ],
+   "plannedDurationMin": 60.0,
+   "plannedDistanceKm": 120.0
+  },
+  "expected": {
+   "fraction_complete": 0.9330947739462352,
+   "travelled_distance_km": 111.97137287354822,
+   "remaining_distance_km": 8.02862712645178,
+   "off_route_m": 114364.99889831529,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 4.01431356322589,
+   "planned_average_speed_kmph": 120.0,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 51",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.10578815725762,
+    93.61518941165356
+   ],
+   "plannedDurationMin": 0.0,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.7124235975911722,
+   "travelled_distance_km": 181.98544490003906,
+   "remaining_distance_km": 73.46011517877278,
+   "off_route_m": 48048.763377860196,
+   "on_route": false,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 52",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.893310040035654,
+    93.8990867953886
+   ],
+   "plannedDurationMin": 1000.5,
+   "plannedDistanceKm": -1.0
+  },
+  "expected": {
+   "fraction_complete": 0.9070041903384263,
+   "travelled_distance_km": 231.69019339482855,
+   "remaining_distance_km": 23.755366683983283,
+   "off_route_m": 26358.102800487224,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 93.04230756640453,
+   "planned_average_speed_kmph": 15.319074067694862,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 53",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.762551635395123,
+    92.95436128575629
+   ],
+   "plannedDurationMin": 1000.5,
+   "plannedDistanceKm": 0.0
+  },
+  "expected": {
+   "fraction_complete": 0.5158025959888894,
+   "travelled_distance_km": 131.75948302248696,
+   "remaining_distance_km": 123.68607705632488,
+   "off_route_m": 39146.341371927825,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 484.4395027131162,
+   "planned_average_speed_kmph": 15.319074067694862,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 54",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.177228870651156,
+    92.17888399925671
+   ],
+   "plannedDurationMin": 60.0,
+   "plannedDistanceKm": 305.4
+  },
+  "expected": {
+   "fraction_complete": 0.17218173188926358,
+   "travelled_distance_km": 52.58430091898109,
+   "remaining_distance_km": 252.8156990810189,
+   "off_route_m": 5093.753841767917,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 49.66909608664419,
+   "planned_average_speed_kmph": 305.4,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 55",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.653253056199997,
+    92.26747941677037
+   ],
+   "plannedDurationMin": 60.0,
+   "plannedDistanceKm": null
+  },
+  "expected": {
+   "fraction_complete": 0.25136164025930824,
+   "travelled_distance_km": 64.20921497836781,
+   "remaining_distance_km": 191.23634510044403,
+   "off_route_m": 43581.776925909624,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 44.91830158444151,
+   "planned_average_speed_kmph": 255.44556007881184,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 56",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.021396751608574,
+    91.65096856645896
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": -1.0
+  },
+  "expected": {
+   "fraction_complete": 0.0,
+   "travelled_distance_km": 0.0,
+   "remaining_distance_km": 255.44556007881184,
+   "off_route_m": 16119.242571586872,
+   "on_route": false,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 57",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.11649667230254,
+    91.11621103941104
+   ],
+   "plannedDurationMin": null,
+   "plannedDistanceKm": -1.0
+  },
+  "expected": {
+   "fraction_complete": 0.0,
+   "travelled_distance_km": 0.0,
+   "remaining_distance_km": 255.44556007881184,
+   "off_route_m": 61971.75157434552,
+   "on_route": false,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 58",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.793032070034098,
+    94.49624510111958
+   ],
+   "plannedDurationMin": 60.0,
+   "plannedDistanceKm": 305.4
+  },
+  "expected": {
+   "fraction_complete": 1.0,
+   "travelled_distance_km": 305.4,
+   "remaining_distance_km": 0.0,
+   "off_route_m": 29417.996445474975,
+   "on_route": false,
+   "remaining_at_planned_pace_min": 0.0,
+   "planned_average_speed_kmph": 305.4,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE"
+   ],
+   "version": "route-progress-v1"
+  }
+ },
+ {
+  "name": "sweep 59",
+  "input": {
+   "geometry": [
+    [
+     26.1445,
+     91.7362
+    ],
+    [
+     26.18,
+     92.0
+    ],
+    [
+     26.35,
+     92.68
+    ],
+    [
+     26.45,
+     93.2
+    ],
+    [
+     26.6,
+     93.8
+    ],
+    [
+     26.7509,
+     94.2037
+    ]
+   ],
+   "position": [
+    26.454373941916295,
+    92.17545386179425
+   ],
+   "plannedDurationMin": 0.0,
+   "plannedDistanceKm": 0.0
+  },
+  "expected": {
+   "fraction_complete": 0.1972994852472629,
+   "travelled_distance_km": 50.39927751224835,
+   "remaining_distance_km": 205.0462825665635,
+   "off_route_m": 24721.83844202926,
+   "on_route": false,
+   "remaining_at_planned_pace_min": null,
+   "planned_average_speed_kmph": null,
+   "reason_codes": [
+    "VEHICLE_OFF_PLANNED_ROUTE",
+    "NO_PLANNED_PACE_AVAILABLE"
+   ],
+   "version": "route-progress-v1"
+  }
+ }
+]

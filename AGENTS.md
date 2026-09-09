@@ -98,11 +98,14 @@ Never label planned functionality as implemented.
 - **Backend:** start with `python run.py`, not `uvicorn` directly. On Windows the
   selector event-loop policy must be set before uvicorn creates its loop, or every
   async psycopg call fails. See `backend/app/core/event_loop.py`.
-- **Database:** **Supabase PostgreSQL 17 + PostGIS 3.3 is the primary database.**
-  No local database step is needed. `DATABASE_PROVIDER` selects the target and
-  there is **no automatic fallback** — never add one. A local WSL2 PostgreSQL
-  remains available for offline work via `DATABASE_PROVIDER=local` plus
-  `scripts\db-start.ps1`.
+- **Database:** **Supabase PostgreSQL 17 + PostGIS 3.3 is the primary database
+  for the running application.** `DATABASE_PROVIDER` selects the target and
+  there is **no automatic fallback** — never add one. **Tests are the
+  exception, and it is not a preference: the suite runs only against the
+  isolated cluster at `127.0.0.1:55432/ner_logistics_test`**, armed by
+  `.runtime/use-isolated-db.ps1` or `.sh` and enforced by `tests/db_target.py`.
+  `DATABASE_PROVIDER=local` alone is not enough — `.env`'s own
+  `LOCAL_DATABASE_URL` names a different local database.
 - **Authorization lives in FastAPI, never in RLS.** The backend connects as
   `postgres`, which has `rolbypassrls = true` - measured, and pinned by
   `tests/test_rls_boundary.py`. RLS contains the Supabase Data API; it enforces
@@ -171,6 +174,21 @@ planned route and scored by a deterministic weighted rule with published constan
 prediction, and a test keeps those fields absent. It reports the datasets it lacks
 (landslide, road quality, truck restrictions, fuel) rather than hiding them.
 
+**Route eligibility and audited review exist — uncommitted (LS-4..LS-11).**
+Eligibility is a REFUSAL decided separately from the score
+(`app/domain/route_eligibility.py`): a closed road is REJECTED no matter how it
+ranks. With no landslide source connected every route is UNKNOWN and therefore
+REQUIRES_REVIEW, so an **AUTHORISED_REVIEWER** (a distinct role holding
+`route:review_authorize` and deliberately NOT `route:select`) may authorise ONE
+selection, bound to the route and an evidence digest, single-use, 30 minutes,
+consumed atomically inside the selection's transaction — migration 0007,
+applied to the isolated test cluster ONLY.
+
+It can never reach REJECTED or NOT_ASSESSED, and it does not change what the
+evidence says: after consumption the route still reports
+`landslide: NOT_AVAILABLE`. Never describe it as marking a route safe or
+verified.
+
 What does **not** exist at all: ETA, fuel AI, road incidents, automatic
 rerouting, Fleet Sentinel, SOS, payments, payroll, OCR, and rate limiting outside
 auth. Physical Android GPS capture is **NOT CERTIFIED** — it has never been run
@@ -178,7 +196,25 @@ on a real handset.
 
 See [docs/DEVELOPMENT_ROADMAP.md](docs/DEVELOPMENT_ROADMAP.md).
 
-**One backend pytest run at a time.** `factories.cleanup` deletes by global
-prefix, so two concurrent runs delete each other's fixtures. A session advisory
-lock now refuses the second run rather than letting it corrupt the first — see
+**Arm the isolated database before running the backend suite.**
+
+```
+PowerShell:  . .\.runtime\use-isolated-db.ps1
+Bash:        source .runtime/use-isolated-db.sh
+```
+
+A plain `pytest` resolves `backend/.env`, which is `DATABASE_PROVIDER=supabase`
+— the shared project. That is not theoretical: three unarmed runs executed
+105 tests against it, and the autouse teardown deleted by global prefix on every
+one of them. See
+[docs/INCIDENT_2026-09-06_SHARED_DB_WRITE.md](docs/INCIDENT_2026-09-06_SHARED_DB_WRITE.md).
+
+`tests/db_target.py` now refuses any target but
+`127.0.0.1:55432/ner_logistics_test`, before a socket is opened, with no
+environment-variable override. Forgetting to arm is a clear exit-3 refusal
+rather than a silent write somewhere else.
+
+**One backend pytest run at a time.** Enforced by a session advisory lock.
+Cleanup is now id-scoped so concurrent runs no longer delete each other's rows,
+but several tests still assume they are the only writer — see
 [docs/TESTING_STRATEGY.md](docs/TESTING_STRATEGY.md).

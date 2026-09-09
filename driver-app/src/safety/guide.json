@@ -1,0 +1,358 @@
+{
+  "$comment": [
+    "Driver Safety & First-Aid Guide. Curated, versioned, and shipped INSIDE",
+    "the app so it works with no signal - which is exactly when a driver on a",
+    "hill road needs it.",
+    "",
+    "WHAT THIS IS NOT",
+    "It is not a diagnostic system. It never tells a driver what they 'have'.",
+    "Every topic is phrased as 'what you are seeing' and 'what to do now'. It",
+    "recommends no medicine of any kind, prescription or otherwise, and it",
+    "does not replace emergency services - it tells you to call them.",
+    "",
+    "EVERY TOPIC ANSWERS 'WHEN DOES THIS BECOME AN EMERGENCY'",
+    "A topic is either `emergency: true` - call now, no judgement required -",
+    "or it carries a non-empty `escalate` list of red flags that mean call",
+    "now. guide.test.ts enforces exactly that, and a topic that leaves a",
+    "driver without that answer fails the suite. It is the single most",
+    "important property of this file.",
+    "",
+    "THE ESCALATION TEXT IS NOT REPEATED PER TOPIC",
+    "'Stop safely, call 112, tell dispatch' lives once, in `emergency.steps`,",
+    "and the screen renders it for every emergency topic. Copying it into",
+    "eleven topics in three languages would guarantee that one of them",
+    "eventually drifts, and the one that drifts is the one being read at the",
+    "roadside.",
+    "",
+    "TRANSLATION REVIEW STATUS",
+    "hi and as strings are UNREVIEWED by a native speaker, exactly as recorded",
+    "for i18n/reason_codes.json. For safety content that caveat is stronger,",
+    "not weaker: nothing here should be demonstrated as certified medical or",
+    "certified translated guidance until a clinician and a fluent speaker have",
+    "read it. The app shows the disclaimer on screen rather than burying it",
+    "in this comment."
+  ],
+  "version": "safety-guide-v1",
+  "revised": "2026-09-04",
+  "disclaimer": {
+    "en": "General first-aid guidance only. Not a diagnosis, and not a substitute for emergency services or a doctor.",
+    "hi": "यह केवल सामान्य प्राथमिक उपचार जानकारी है। यह निदान नहीं है और आपातकालीन सेवा या डॉक्टर का विकल्प नहीं है।",
+    "as": "ই কেৱল সাধাৰণ প্ৰাথমিক চিকিৎসাৰ তথ্য। ই ৰোগ নিৰ্ণয় নহয় আৰু জৰুৰীকালীন সেৱা বা চিকিৎসকৰ বিকল্প নহয়।"
+  },
+  "emergency": {
+    "banner": {
+      "en": "EMERGENCY - ACT NOW",
+      "hi": "आपातकाल - तुरंत कार्रवाई करें",
+      "as": "জৰুৰীকালীন - এতিয়াই ব্যৱস্থা লওক"
+    },
+    "steps": {
+      "en": [
+        "Stop the truck safely and switch on the hazard lights.",
+        "Call 112 now.",
+        "Tell dispatch where you are.",
+        "Stay with the person until help arrives."
+      ],
+      "hi": [
+        "ट्रक सुरक्षित रूप से रोकें और खतरे की बत्ती जलाएँ।",
+        "अभी 112 पर कॉल करें।",
+        "डिस्पैच को अपनी जगह बताएँ।",
+        "मदद आने तक व्यक्ति के साथ रहें।"
+      ],
+      "as": [
+        "ট্ৰাকখন নিৰাপদে ৰাখক আৰু বিপদ সংকেত বাতি জ্বলাওক।",
+        "এতিয়াই ১১২ নম্বৰত ফোন কৰক।",
+        "ডিছপেচক আপোনাৰ অৱস্থান জনাওক।",
+        "সহায় নহালৈকে ব্যক্তিজনৰ লগত থাকক।"
+      ]
+    }
+  },
+  "numbers": [
+    {
+      "number": "112",
+      "en": "All emergencies",
+      "hi": "सभी आपात स्थितियाँ",
+      "as": "সকলো জৰুৰীকালীন অৱস্থা"
+    },
+    {
+      "number": "108",
+      "en": "Ambulance",
+      "hi": "एम्बुलेंस",
+      "as": "এম্বুলেন্স"
+    },
+    {
+      "number": "1033",
+      "en": "National highway helpline",
+      "hi": "राष्ट्रीय राजमार्ग हेल्पलाइन",
+      "as": "ৰাষ্ট্ৰীয় ঘাইপথ হেল্পলাইন"
+    }
+  ],
+  "sources": [
+    {
+      "id": "mha-erss",
+      "name": "Ministry of Home Affairs - Emergency Response Support System (112)",
+      "url": "https://www.mha.gov.in/en/commoncontent/emergency-response-support-system-erss",
+      "retrieved": "2026-09-04"
+    },
+    {
+      "id": "nhs-stroke",
+      "name": "NHS - Stroke symptoms (FAST)",
+      "url": "https://www.nhs.uk/conditions/stroke/symptoms/",
+      "retrieved": "2026-09-04"
+    }
+  ],
+  "topics": [
+    {
+      "id": "SEVERE_BLEEDING",
+      "emergency": true,
+      "escalate": [],
+      "en": {
+        "title": "Severe bleeding",
+        "recognise": ["Blood soaking through clothing", "Blood spurting from the wound", "Bleeding that will not stop"],
+        "do": ["Press hard directly on the wound with the cleanest cloth you have.", "Keep pressing. Do not lift the cloth to look.", "Put more cloth on top if it soaks through.", "Lay the person down and raise the injured part if you can."],
+        "avoid": ["Do not pull out anything stuck in the wound - press around it.", "Do not use a tourniquet unless you have been trained."]
+      },
+      "hi": {
+        "title": "अत्यधिक रक्तस्राव",
+        "recognise": ["कपड़ों से खून रिस रहा हो", "घाव से खून की धार निकल रही हो", "खून बंद न हो रहा हो"],
+        "do": ["सबसे साफ कपड़े से घाव पर सीधे ज़ोर से दबाएँ।", "दबाते रहें। देखने के लिए कपड़ा न हटाएँ।", "कपड़ा भीग जाए तो ऊपर और कपड़ा रखें।", "व्यक्ति को लिटाएँ और हो सके तो घायल हिस्सा ऊपर उठाएँ।"],
+        "avoid": ["घाव में धँसी चीज़ बाहर न निकालें - उसके चारों ओर दबाएँ।", "प्रशिक्षण के बिना टूर्निकेट का प्रयोग न करें।"]
+      },
+      "as": {
+        "title": "গুৰুতৰ ৰক্তক্ষৰণ",
+        "recognise": ["কাপোৰেৰে তেজ ওলাই আছে", "ঘাৰ পৰা তেজ বেগেৰে ওলাই আছে", "তেজ ওলোৱা বন্ধ হোৱা নাই"],
+        "do": ["আটাইতকৈ পৰিষ্কাৰ কাপোৰেৰে ঘাটোত পোনপটীয়াকৈ জোৰেৰে হেঁচা দিয়ক।", "হেঁচা দি থাকক। চাবলৈ কাপোৰখন নুতুলিব।", "কাপোৰ তিতিলে ওপৰত আৰু কাপোৰ দিয়ক।", "ব্যক্তিজনক শুৱাই দিয়ক আৰু পাৰিলে আঘাতপ্ৰাপ্ত অংশ ওপৰলৈ তুলি ধৰক।"],
+        "avoid": ["ঘাত সোমাই থকা বস্তু উলিয়াই নানিব - ইয়াৰ চাৰিওফালে হেঁচা দিয়ক।", "প্ৰশিক্ষণ নোহোৱাকৈ টাৰ্নিকেট ব্যৱহাৰ নকৰিব।"]
+      }
+    },
+    {
+      "id": "HEART_ATTACK",
+      "emergency": true,
+      "escalate": [],
+      "en": {
+        "title": "Suspected heart attack",
+        "recognise": ["Chest pain, pressure or tightness", "Pain spreading to arm, jaw, neck or back", "Cold sweat, feeling sick, short of breath"],
+        "do": ["Stop driving safely and stay stopped.", "Sit down and rest. Do not walk about.", "Loosen tight clothing.", "Call 112."],
+        "avoid": ["Do not drive yourself, and do not let them drive.", "Do not dismiss it as indigestion.", "Do not take any medicine unless a doctor has already prescribed it to you."]
+      },
+      "hi": {
+        "title": "दिल का दौरा होने की आशंका",
+        "recognise": ["छाती में दर्द, दबाव या जकड़न", "दर्द का बाँह, जबड़े, गर्दन या पीठ तक फैलना", "ठंडा पसीना, जी मिचलाना, साँस फूलना"],
+        "do": ["सुरक्षित जगह पर गाड़ी रोकें और रुके रहें।", "बैठ जाएँ और आराम करें। चलें-फिरें नहीं।", "तंग कपड़े ढीले करें।", "112 पर कॉल करें।"],
+        "avoid": ["खुद गाड़ी न चलाएँ और न ही उन्हें चलाने दें।", "इसे गैस या बदहज़मी समझकर टालें नहीं।", "कोई भी दवा न लें, जब तक डॉक्टर ने पहले से न दी हो।"]
+      },
+      "as": {
+        "title": "হৃদৰোগৰ আক্ৰমণৰ সন্দেহ",
+        "recognise": ["বুকুত বিষ, হেঁচা বা জাপ লগা অনুভৱ", "বিষ বাহু, চেঁচৰ, ডিঙি বা পিঠিলৈ বিয়পা", "ঠাণ্ডা ঘাম, বমি ভাব, উশাহত কষ্ট"],
+        "do": ["নিৰাপদ ঠাইত গাড়ী ৰাখক আৰু ৰৈ থাকক।", "বহি জিৰণি লওক। ইফালে সিফালে নাফুৰিব।", "টান কাপোৰ ঢিলা কৰক।", "১১২ নম্বৰত ফোন কৰক।"],
+        "avoid": ["নিজে গাড়ী নচলাব আৰু তেওঁকো চলাব নিদিব।", "ইয়াক হজম নোহোৱাৰ সমস্যা বুলি এৰি নিদিব।", "চিকিৎসকে আগতে দিয়া নাথাকিলে কোনো ঔষধ নাখাব।"]
+      }
+    },
+    {
+      "id": "STROKE",
+      "emergency": true,
+      "escalate": [],
+      "en": {
+        "title": "Suspected stroke - FAST",
+        "recognise": ["Face: has one side drooped? Ask them to smile.", "Arms: can they raise both arms and keep them up?", "Speech: is it slurred or muddled?", "Time: note when the symptoms started, and call 112."],
+        "do": ["Call 112 immediately - say you suspect a stroke.", "Write down the time the symptoms started.", "Keep them sitting or lying comfortably and stay with them."],
+        "avoid": ["Do not drive them yourself.", "Do not give food or drink - swallowing may be affected."]
+      },
+      "hi": {
+        "title": "लकवे (स्ट्रोक) की आशंका - FAST",
+        "recognise": ["चेहरा: क्या एक तरफ लटक गया है? मुस्कुराने को कहें।", "बाँहें: क्या वे दोनों बाँहें उठाकर रोक पाते हैं?", "बोली: क्या आवाज़ लड़खड़ा रही है?", "समय: लक्षण शुरू होने का समय नोट करें और 112 पर कॉल करें।"],
+        "do": ["तुरंत 112 पर कॉल करें - कहें कि स्ट्रोक की आशंका है।", "लक्षण शुरू होने का समय लिख लें।", "उन्हें आराम से बैठाकर या लिटाकर साथ रहें।"],
+        "avoid": ["उन्हें खुद गाड़ी में लेकर न जाएँ।", "कुछ खाने या पीने को न दें - निगलने में दिक्कत हो सकती है।"]
+      },
+      "as": {
+        "title": "ষ্ট্ৰোকৰ সন্দেহ - FAST",
+        "recognise": ["মুখ: এফালে জোপ খাইছে নেকি? হাঁহিবলৈ কওক।", "বাহু: দুয়োখন বাহু তুলি ৰাখিব পাৰেনে?", "কথা: কথা জৰি গৈছে বা বেমেজালি হৈছে নেকি?", "সময়: লক্ষণ আৰম্ভ হোৱা সময় টুকি লওক আৰু ১১২ ত ফোন কৰক।"],
+        "do": ["লগে লগে ১১২ ত ফোন কৰক - ষ্ট্ৰোকৰ সন্দেহ বুলি কওক।", "লক্ষণ আৰম্ভ হোৱা সময়টো লিখি থওক।", "তেওঁক আৰামেৰে বহুৱাই বা শুৱাই লগত থাকক।"],
+        "avoid": ["নিজে গাড়ীৰে তেওঁক লৈ নাযাব।", "খাবলৈ বা পান কৰিবলৈ নিদিব - ঢোক গিলাত অসুবিধা হ'ব পাৰে।"]
+      }
+    },
+    {
+      "id": "UNCONSCIOUS",
+      "emergency": true,
+      "escalate": [],
+      "en": {
+        "title": "Someone is unconscious",
+        "recognise": ["No response when you speak loudly or tap their shoulders"],
+        "do": ["Check whether they are breathing normally.", "If they are breathing, roll them onto their side and tilt the head back so the airway stays open.", "Call 112.", "Stay with them and keep checking their breathing."],
+        "avoid": ["Do not put anything in their mouth.", "Do not move them if a neck or back injury is possible, unless where they lie is dangerous."]
+      },
+      "hi": {
+        "title": "कोई बेहोश हो जाए",
+        "recognise": ["ज़ोर से बुलाने या कंधा थपथपाने पर कोई प्रतिक्रिया न हो"],
+        "do": ["देखें कि साँस सामान्य चल रही है या नहीं।", "साँस चल रही हो तो करवट पर लिटाएँ और सिर पीछे झुकाएँ ताकि साँस की नली खुली रहे।", "112 पर कॉल करें।", "साथ रहें और साँस जाँचते रहें।"],
+        "avoid": ["उनके मुँह में कुछ न डालें।", "गर्दन या पीठ में चोट की आशंका हो तो उन्हें हिलाएँ नहीं, जब तक वहाँ पड़े रहना खतरनाक न हो।"]
+      },
+      "as": {
+        "title": "কোনোবা অচেতন হৈ পৰিলে",
+        "recognise": ["জোৰেৰে মাতিলে বা কান্ধত টোকৰ মাৰিলেও কোনো সঁহাৰি নাই"],
+        "do": ["উশাহ স্বাভাৱিকভাৱে চলি আছে নে চাওক।", "উশাহ চলি থাকিলে কাতিকৈ শুৱাই দিয়ক আৰু মূৰটো পিছফালে হেলাই দিয়ক যাতে বায়ুপথ খোলা থাকে।", "১১২ ত ফোন কৰক।", "লগত থাকক আৰু উশাহ চাই থাকক।"],
+        "avoid": ["মুখত একো নুসুমুৱাব।", "ডিঙি বা পিঠিত আঘাতৰ সম্ভাৱনা থাকিলে লৰচৰ নকৰাব, যদিহে শুই থকা ঠাইখন বিপজ্জনক নহয়।"]
+      }
+    },
+    {
+      "id": "BREATHING_EMERGENCY",
+      "emergency": true,
+      "escalate": [],
+      "en": {
+        "title": "Trouble breathing or choking",
+        "recognise": ["Cannot speak or cough", "Gasping, or noisy breathing", "Lips or face turning blue or grey"],
+        "do": ["Call 112.", "Help them sit upright, leaning slightly forward.", "Loosen tight clothing at the neck and chest.", "If they are choking, encourage hard coughing; if that fails, give firm blows between the shoulder blades."],
+        "avoid": ["Do not lay them flat on their back.", "Do not put your fingers blindly into their mouth."]
+      },
+      "hi": {
+        "title": "साँस लेने में दिक्कत या गला अटकना",
+        "recognise": ["बोल या खाँस नहीं पा रहे", "हाँफना या आवाज़ के साथ साँस", "होंठ या चेहरा नीला या भूरा पड़ना"],
+        "do": ["112 पर कॉल करें।", "उन्हें सीधा बैठाएँ, थोड़ा आगे झुकाकर।", "गले और छाती के तंग कपड़े ढीले करें।", "गला अटका हो तो ज़ोर से खाँसने को कहें; न हो तो कंधों के बीच पीठ पर ज़ोरदार थपकी दें।"],
+        "avoid": ["उन्हें पीठ के बल सीधा न लिटाएँ।", "बिना देखे मुँह में उँगली न डालें।"]
+      },
+      "as": {
+        "title": "উশাহত কষ্ট বা ডিঙিত লগা",
+        "recognise": ["কথা ক'ব বা কাহিব নোৱাৰে", "হাঁপ ধৰা বা শব্দ কৰি উশাহ লোৱা", "ওঁঠ বা মুখ নীলা বা ধোঁৱাবৰণীয়া হোৱা"],
+        "do": ["১১২ ত ফোন কৰক।", "তেওঁক পোনকৈ বহুৱাওক, অলপ আগলৈ হেলনীয়া কৰি।", "ডিঙি আৰু বুকুৰ টান কাপোৰ ঢিলা কৰক।", "ডিঙিত লাগি থাকিলে জোৰেৰে কাহিবলৈ কওক; নহ'লে কান্ধৰ মাজত পিঠিত জোৰেৰে চাপৰি মাৰক।"],
+        "avoid": ["পিঠিৰ ওপৰত পোনকৈ শুৱাই নিদিব।", "নাচাই মুখত আঙুলি নুসুমুৱাব।"]
+      }
+    },
+    {
+      "id": "HEAT_EXHAUSTION",
+      "emergency": false,
+      "escalate": ["Confused, agitated, or not making sense", "Skin hot and dry, or sweating has stopped", "No better after 30 minutes of cooling", "Faints, or has a fit"],
+      "en": {
+        "title": "Heat exhaustion",
+        "recognise": ["Heavy sweating, tiredness, headache", "Muscle cramps", "Feeling sick or dizzy in the heat"],
+        "do": ["Stop and move into shade or an air-conditioned cab.", "Loosen or remove extra clothing.", "Sip water or oral rehydration solution.", "Cool the skin with a wet cloth on the neck, face and armpits."],
+        "avoid": ["Do not keep driving to reach the next stop.", "Do not drink alcohol."]
+      },
+      "hi": {
+        "title": "गर्मी से थकावट",
+        "recognise": ["बहुत पसीना, थकान, सिरदर्द", "मांसपेशियों में ऐंठन", "गर्मी में जी मिचलाना या चक्कर"],
+        "do": ["रुकें और छाँव या ठंडे केबिन में जाएँ।", "अतिरिक्त कपड़े ढीले करें या उतारें।", "थोड़ा-थोड़ा पानी या ORS पिएँ।", "गर्दन, चेहरे और बगल पर गीला कपड़ा रखकर शरीर ठंडा करें।"],
+        "avoid": ["अगले पड़ाव तक पहुँचने के लिए गाड़ी चलाते न रहें।", "शराब न पिएँ।"]
+      },
+      "as": {
+        "title": "গৰমৰ ক্লান্তি",
+        "recognise": ["বহুত ঘাম, ভাগৰ, মূৰৰ বিষ", "মাংসপেশীত জাপ লগা", "গৰমত বমি ভাব বা মূৰ ঘূৰোৱা"],
+        "do": ["ৰৈ ছাঁ বা ঠাণ্ডা কেবিনলৈ যাওক।", "অতিৰিক্ত কাপোৰ ঢিলা কৰক বা খুলি দিয়ক।", "অলপ অলপকৈ পানী বা ওআৰএছ খাওক।", "ডিঙি, মুখ আৰু বগলিত তিতা কাপোৰ দি গা ঠাণ্ডা কৰক।"],
+        "avoid": ["পিছৰ ষ্টপলৈ যাবলৈ গাড়ী চলাই নাথাকিব।", "মদ্যপান নকৰিব।"]
+      }
+    },
+    {
+      "id": "DEHYDRATION",
+      "emergency": false,
+      "escalate": ["Cannot keep fluids down", "Confused or very drowsy", "Has not passed urine for 8 hours", "Heartbeat feels very fast"],
+      "en": {
+        "title": "Dehydration",
+        "recognise": ["Dark yellow urine, or passing very little", "Dry mouth and lips, thirst", "Headache, tiredness, dizziness"],
+        "do": ["Sip water or oral rehydration solution steadily, rather than drinking it all at once.", "Rest in shade before driving on.", "Keep drinking through the shift, not only when thirsty."],
+        "avoid": ["Do not rely on tea, coffee or energy drinks to rehydrate."]
+      },
+      "hi": {
+        "title": "शरीर में पानी की कमी",
+        "recognise": ["गहरे पीले रंग का या बहुत कम पेशाब", "मुँह और होंठ सूखना, प्यास", "सिरदर्द, थकान, चक्कर"],
+        "do": ["एक साथ नहीं, थोड़ा-थोड़ा करके पानी या ORS पिएँ।", "आगे चलने से पहले छाँव में आराम करें।", "प्यास लगने पर ही नहीं, पूरी शिफ्ट पीते रहें।"],
+        "avoid": ["पानी की कमी पूरी करने के लिए चाय, कॉफी या एनर्जी ड्रिंक पर निर्भर न रहें।"]
+      },
+      "as": {
+        "title": "শৰীৰত পানীৰ অভাৱ",
+        "recognise": ["গাঢ় হালধীয়া বা অতি কম প্ৰস্ৰাৱ", "মুখ আৰু ওঁঠ শুকান, পিয়াহ", "মূৰৰ বিষ, ভাগৰ, মূৰ ঘূৰোৱা"],
+        "do": ["একেলগে নহয়, অলপ অলপকৈ পানী বা ওআৰএছ খাওক।", "আগবাঢ়ি যোৱাৰ আগতে ছাঁত জিৰণি লওক।", "পিয়াহ লাগিলেহে নহয়, গোটেই ছিফ্টত পানী খাই থাকক।"],
+        "avoid": ["পানীৰ অভাৱ পূৰণৰ বাবে চাহ, কফী বা এনাৰ্জি ড্ৰিংকৰ ওপৰত নিৰ্ভৰ নকৰিব।"]
+      }
+    },
+    {
+      "id": "DIZZINESS",
+      "emergency": false,
+      "escalate": ["Chest pain or pressure", "Weakness on one side of the face or body", "Slurred speech", "Fainted, or nearly fainted"],
+      "en": {
+        "title": "Dizziness or feeling faint",
+        "recognise": ["The road or cab feels like it is spinning", "Light-headed when standing up", "Vision greying at the edges"],
+        "do": ["Stop driving safely as soon as you feel it - do not try to reach the next stop.", "Sit or lie down until it passes.", "Drink water, and eat something if you have not eaten.", "Tell dispatch before you drive on."],
+        "avoid": ["Do not carry on driving to see whether it passes."]
+      },
+      "hi": {
+        "title": "चक्कर आना या कमज़ोरी लगना",
+        "recognise": ["ऐसा लगे जैसे सड़क या केबिन घूम रहा हो", "खड़े होने पर सिर हल्का लगना", "आँखों के आगे अँधेरा छाना"],
+        "do": ["जैसे ही महसूस हो, सुरक्षित जगह गाड़ी रोकें - अगले पड़ाव तक जाने की कोशिश न करें।", "ठीक होने तक बैठ या लेट जाएँ।", "पानी पिएँ और कुछ न खाया हो तो कुछ खाएँ।", "आगे चलने से पहले डिस्पैच को बताएँ।"],
+        "avoid": ["यह देखने के लिए गाड़ी चलाते न रहें कि अपने आप ठीक होता है या नहीं।"]
+      },
+      "as": {
+        "title": "মূৰ ঘূৰোৱা বা দুৰ্বল লগা",
+        "recognise": ["পথ বা কেবিন ঘূৰি থকা যেন লগা", "থিয় হ'লে মূৰ পাতল লগা", "চকুৰ আগত অন্ধকাৰ হোৱা"],
+        "do": ["অনুভৱ হোৱাৰ লগে লগে নিৰাপদ ঠাইত গাড়ী ৰাখক - পিছৰ ষ্টপলৈ যাবলৈ চেষ্টা নকৰিব।", "ভাল নোহোৱালৈকে বহি বা শুই থাকক।", "পানী খাওক আৰু একো নাখালে কিবা খাওক।", "আগবাঢ়ি যোৱাৰ আগতে ডিছপেচক জনাওক।"],
+        "avoid": ["নিজে ভাল হয় নে নহয় চাবলৈ গাড়ী চলাই নাথাকিব।"]
+      }
+    },
+    {
+      "id": "MINOR_CUT",
+      "emergency": false,
+      "escalate": ["Bleeding has not stopped after 10 minutes of firm pressure", "The wound is deep or gaping, or something is stuck in it", "The wound was made by something dirty or rusty", "Redness, swelling or pus appears later"],
+      "en": {
+        "title": "Minor cut or graze",
+        "recognise": ["Small wound, and the bleeding slows when you press on it"],
+        "do": ["Wash your hands if you can.", "Rinse the wound with clean water.", "Press with a clean cloth until the bleeding stops.", "Cover with a clean dressing."],
+        "avoid": ["Do not put engine oil, grease or dirty rags on a wound."]
+      },
+      "hi": {
+        "title": "छोटा कट या छिलना",
+        "recognise": ["छोटा घाव, दबाने पर खून कम हो जाता है"],
+        "do": ["हो सके तो हाथ धोएँ।", "घाव को साफ पानी से धोएँ।", "साफ कपड़े से तब तक दबाएँ जब तक खून बंद न हो।", "साफ पट्टी से ढकें।"],
+        "avoid": ["घाव पर इंजन ऑयल, ग्रीस या गंदा कपड़ा न लगाएँ।"]
+      },
+      "as": {
+        "title": "সৰু কট বা ছাল যোৱা",
+        "recognise": ["সৰু ঘা, হেঁচা দিলে তেজ কমি আহে"],
+        "do": ["পাৰিলে হাত ধুই লওক।", "ঘাটো পৰিষ্কাৰ পানীৰে ধুই দিয়ক।", "তেজ বন্ধ নোহোৱালৈকে পৰিষ্কাৰ কাপোৰেৰে হেঁচা দিয়ক।", "পৰিষ্কাৰ পট্টিৰে ঢাকি দিয়ক।"],
+        "avoid": ["ঘাত ইঞ্জিন অইল, গ্ৰীজ বা লেতেৰা কাপোৰ নলগাব।"]
+      }
+    },
+    {
+      "id": "MINOR_BURN",
+      "emergency": false,
+      "escalate": ["The burn is bigger than the palm of the hand", "The burn is on the face, hands, feet, joints or genitals", "The skin looks white, leathery or charred", "The burn was caused by chemicals or electricity"],
+      "en": {
+        "title": "Minor burn or scald",
+        "recognise": ["Skin red and painful, over a small area"],
+        "do": ["Cool it under clean running water for 20 minutes.", "Remove rings or a watch near the burn before it swells.", "Cover loosely with clean non-fluffy cloth or cling film.", "Keep the person warm - cooling a burn can chill them."],
+        "avoid": ["Do not use ice, butter, oil or toothpaste.", "Do not burst blisters."]
+      },
+      "hi": {
+        "title": "मामूली जलन",
+        "recognise": ["त्वचा लाल और दर्द भरी, छोटे हिस्से पर"],
+        "do": ["20 मिनट तक साफ बहते पानी के नीचे ठंडा करें।", "सूजन आने से पहले पास की अंगूठी या घड़ी उतार दें।", "साफ, रोएँ रहित कपड़े या क्लिंग फिल्म से ढीला ढकें।", "व्यक्ति को गर्म रखें - जलन ठंडी करने से ठंड लग सकती है।"],
+        "avoid": ["बर्फ, मक्खन, तेल या टूथपेस्ट न लगाएँ।", "छाले न फोड़ें।"]
+      },
+      "as": {
+        "title": "সৰু পোৰা",
+        "recognise": ["ছাল ৰঙা আৰু বিষাব ধৰা, সৰু অংশত"],
+        "do": ["২০ মিনিট পৰিষ্কাৰ বৈ থকা পানীৰ তলত ঠাণ্ডা কৰক।", "ফুলি যোৱাৰ আগতে ওচৰৰ আঙঠি বা ঘড়ী খুলি দিয়ক।", "পৰিষ্কাৰ, নোম নোহোৱা কাপোৰ বা ক্লিং ফিল্মেৰে ঢিলাকৈ ঢাকক।", "ব্যক্তিজনক গৰমে ৰাখক - পোৰা ঠাণ্ডা কৰিলে জাৰ লাগিব পাৰে।"],
+        "avoid": ["বৰফ, মাখন, তেল বা টুথপেষ্ট নলগাব।", "ফোহা নাফুটাব।"]
+      }
+    },
+    {
+      "id": "SPRAIN",
+      "emergency": false,
+      "escalate": ["Cannot put any weight on it", "The limb looks bent or out of shape", "Numbness or tingling, or the part turns pale or cold"],
+      "en": {
+        "title": "Sprain or strain",
+        "recognise": ["Pain and swelling around a joint after a twist or a fall"],
+        "do": ["Rest the joint and stop using it.", "Wrap ice or a cold pack in a cloth and hold it on for up to 20 minutes.", "Support it with a firm bandage - snug, not tight.", "Raise the limb when you can."],
+        "avoid": ["Do not put ice directly on the skin.", "Do not drive if it is your braking or clutch leg."]
+      },
+      "hi": {
+        "title": "मोच या खिंचाव",
+        "recognise": ["मुड़ने या गिरने के बाद जोड़ के आसपास दर्द और सूजन"],
+        "do": ["जोड़ को आराम दें और उसका इस्तेमाल बंद करें।", "बर्फ या ठंडा पैक कपड़े में लपेटकर 20 मिनट तक रखें।", "मज़बूत पट्टी से सहारा दें - कसी हुई नहीं, बस ठीक-ठाक।", "हो सके तो अंग को ऊपर उठाकर रखें।"],
+        "avoid": ["बर्फ सीधे त्वचा पर न लगाएँ।", "अगर यह ब्रेक या क्लच वाला पैर है तो गाड़ी न चलाएँ।"]
+      },
+      "as": {
+        "title": "মোচোৰ খোৱা বা টান লগা",
+        "recognise": ["মোচোৰ খোৱা বা পৰাৰ পিছত গাঁঠিৰ চাৰিওফালে বিষ আৰু ফুলা"],
+        "do": ["গাঁঠিটো জিৰণি দিয়ক আৰু ব্যৱহাৰ বন্ধ কৰক।", "বৰফ বা ঠাণ্ডা পেক কাপোৰত মেৰিয়াই ২০ মিনিটলৈকে ধৰি ৰাখক।", "টানকৈ নহয়, মজবুতকৈ পট্টি বান্ধি সহায় দিয়ক।", "পাৰিলে অংশটো ওপৰলৈ তুলি ৰাখক।"],
+        "avoid": ["বৰফ পোনপটীয়াকৈ ছালত নলগাব।", "ব্ৰেক বা ক্লাচৰ ভৰি হ'লে গাড়ী নচলাব।"]
+      }
+    }
+  ]
+}

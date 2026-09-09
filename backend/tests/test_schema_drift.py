@@ -69,11 +69,47 @@ def test_every_enum_type_exists_with_expected_labels(db: Connection) -> None:
         )
 
 
-def test_migration_enum_definitions_match_python_enums() -> None:
-    """Migration 0002 spells enum values out inline; they must not drift.
+#: Enum LABELS added after migration 0002, and the revision that adds each.
+#:
+#: Listed explicitly, and verified below against the revision file itself. A
+#: label that is in neither 0002 nor here fails this test, so an enum cannot be
+#: extended in Python without someone recording which migration ships it - which
+#: is the drift this test exists to catch.
+ENUM_LABELS_ADDED_AFTER_0002: dict[str, dict[str, str]] = {
+    "user_role": {"AUTHORISED_REVIEWER": "0007_route_review_authorizations"},
+    "trip_event_kind": {"ACCEPTED": "0008_trip_driver_acceptance"},
+}
 
-    The migration is deliberately self-contained - it does not import
-    app.models - so this test is what keeps the two copies in agreement.
+#: Enum TYPES created after 0002, and the revision that creates each.
+ENUM_TYPES_ADDED_AFTER_0002: dict[str, str] = {
+    "route_review_basis": "0007_route_review_authorizations",
+}
+
+
+def _revision_source(revision: str) -> str:
+    from pathlib import Path
+
+    path = (
+        Path(__file__).resolve().parents[1] / "alembic" / "versions" / f"{revision}.py"
+    )
+    assert path.exists(), f"revision {revision} does not exist"
+    return path.read_text(encoding="utf-8")
+
+
+def test_migration_enum_definitions_match_python_enums() -> None:
+    """Python enums and the migrations that ship them must not drift.
+
+    Migration 0002 spells its enum values out inline and deliberately does not
+    import app.models, so something has to keep the two copies in agreement.
+
+    ORIGINALLY this asserted that 0002 held EVERY enum, which was true when it
+    was written and stopped being true at 0007 - that revision adds the
+    `AUTHORISED_REVIEWER` label and creates the `route_review_basis` type. The
+    assertion was therefore measuring "0002 is the only source of enums" rather
+    than "Python and the migrations agree", and it is widened here to the
+    property actually wanted. It is NOT loosened: every later addition must be
+    declared above AND the declared revision is opened and checked to really
+    contain it, so an undeclared change still fails.
     """
     import importlib.util
     from pathlib import Path
@@ -90,9 +126,41 @@ def test_migration_enum_definitions_match_python_enums() -> None:
     spec.loader.exec_module(module)
 
     for py_enum, type_name in ENUM_TYPE_NAMES.items():
+        expected = {m.value for m in py_enum}
+
+        if type_name in ENUM_TYPES_ADDED_AFTER_0002:
+            revision = ENUM_TYPES_ADDED_AFTER_0002[type_name]
+            assert type_name not in module.ENUMS, (
+                f"{type_name} is declared as created by {revision} but 0002 "
+                f"also defines it"
+            )
+            source = _revision_source(revision)
+            assert type_name in source, (
+                f"{revision} does not mention the {type_name} type"
+            )
+            for label in expected:
+                assert label in source, (
+                    f"{revision} creates {type_name} without the label {label!r}"
+                )
+            continue
+
         assert type_name in module.ENUMS, f"{type_name} missing from migration"
-        assert set(module.ENUMS[type_name]) == {m.value for m in py_enum}, (
-            f"enum {type_name} differs between migration and app.models.enums"
+
+        in_0002 = set(module.ENUMS[type_name])
+        added = ENUM_LABELS_ADDED_AFTER_0002.get(type_name, {})
+        for label, revision in added.items():
+            assert label not in in_0002, (
+                f"{label!r} is declared as added by {revision} but 0002 "
+                f"already has it"
+            )
+            assert label in _revision_source(revision), (
+                f"{revision} does not add the {type_name} label {label!r}"
+            )
+
+        assert in_0002 | set(added) == expected, (
+            f"enum {type_name} differs between the migrations and "
+            f"app.models.enums. Values only in Python must be declared in "
+            f"ENUM_LABELS_ADDED_AFTER_0002 with the revision that ships them."
         )
 
 

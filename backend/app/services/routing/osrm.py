@@ -45,6 +45,7 @@ import httpx
 
 from app.domain.routing import (
     Coordinate,
+    Maneuver,
     RouteCandidate,
     RoutingMalformed,
     RoutingRejected,
@@ -53,6 +54,23 @@ from app.domain.routing import (
 from app.models.enums import RouteKind
 
 logger = logging.getLogger(__name__)
+
+
+def _nearest_index(points: list[tuple[float, float]], at: tuple[float, float]) -> int:
+    """Index of the geometry vertex closest to a maneuver location.
+
+    Squared degrees, not metres: this only ever ranks candidates against each
+    other, so the monotonic comparison is identical and the trigonometry is
+    not worth paying for once per step per route.
+    """
+    best_index = 0
+    best = float("inf")
+    for index, (lat, lon) in enumerate(points):
+        d = (lat - at[0]) ** 2 + (lon - at[1]) ** 2
+        if d < best:
+            best = d
+            best_index = index
+    return best_index
 
 #: Identifies this application, as the usage policy requires.
 USER_AGENT: Final[str] = "ner-fleet-intelligence/0.1 (SIH26002; routing)"
@@ -105,6 +123,7 @@ class OsrmRoutingProvider:
         *,
         kind: RouteKind,
         limit: int = 1,
+        detailed: bool = False,
     ) -> list[RouteCandidate]:
         """Up to `limit` routes, best first.
 
@@ -112,6 +131,13 @@ class OsrmRoutingProvider:
         promise: on a corridor with one sensible road - which describes much of
         the NER network - it returns one route, and that is the honest answer
         rather than a shortfall to paper over.
+
+        `detailed=True` asks for turn instructions and the full geometry, in
+        ONE response, for navigation. It is off by default because planning
+        does not need either: see the `overview` note below for the measured
+        cost. When it is on, the maneuvers and the line come from the same
+        provider answer - which is what makes it impossible for a route's
+        directions to describe a different road from its polyline.
         """
         # lon,lat - see the module docstring. One inversion, one place.
         pair = (
@@ -126,9 +152,19 @@ class OsrmRoutingProvider:
             # sent to the browser, to draw a line a dispatcher views at a zoom
             # where the extra vertices are invisible. `simplified` is OSRM's own
             # default and keeps the shape of the road.
-            "overview": "simplified",
+            # `simplified` for PLANNING. Measured against the live service on
+            # the Guwahati-Jorhat corridor, `full` returns 5,213 points -
+            # roughly 100 KB of JSON for one route, fetched on every trip
+            # selection and sent to the browser, to draw a line a dispatcher
+            # views at a zoom where the extra vertices are invisible.
+            #
+            # Navigation is the case that genuinely needs them: turn-by-turn
+            # projects a moving fix onto the line, and a simplified polyline
+            # cuts exactly the geometry a vehicle drives through a junction.
+            # So the cost is paid once, for the route that will be driven.
+            "overview": "full" if detailed else "simplified",
             "alternatives": "false" if limit <= 1 else str(limit - 1),
-            "steps": "false",
+            "steps": "true" if detailed else "false",
         }
 
         try:
@@ -162,10 +198,10 @@ class OsrmRoutingProvider:
         if code != "Ok":
             raise RoutingMalformed(f"{self.name} returned an unknown code {code!r}")
 
-        return self._parse_all(body, kind=kind, limit=limit)
+        return self._parse_all(body, kind=kind, limit=limit, detailed=detailed)
 
     def _parse_all(
-        self, body: dict, *, kind: RouteKind, limit: int
+        self, body: dict, *, kind: RouteKind, limit: int, detailed: bool = False
     ) -> list[RouteCandidate]:
         routes = body.get("routes")
         if not isinstance(routes, list) or not routes:
@@ -176,11 +212,13 @@ class OsrmRoutingProvider:
             # The first route is the primary; any others are alternatives and
             # are labelled by the caller, not here - this layer does not decide
             # what an alternative means operationally.
-            out.append(self._parse_one(route, kind=kind, index=index))
+            out.append(
+                self._parse_one(route, kind=kind, index=index, detailed=detailed)
+            )
         return out
 
     def _parse_one(
-        self, route: object, *, kind: RouteKind, index: int
+        self, route: object, *, kind: RouteKind, index: int, detailed: bool = False
     ) -> RouteCandidate:
         if not isinstance(route, dict):
             raise RoutingMalformed(f"{self.name} returned a malformed route")
@@ -222,4 +260,93 @@ class OsrmRoutingProvider:
             distance_m=float(distance),
             duration_s=float(duration) if isinstance(duration, (int, float)) else None,
             metadata={"profile": self._profile, "option_index": str(index)},
+            maneuvers=self._parse_maneuvers(route, points) if detailed else (),
         )
+
+    def _parse_maneuvers(
+        self, route: dict, points: list[tuple[float, float]]
+    ) -> tuple[Maneuver, ...]:
+        """OSRM legs/steps -> maneuvers indexed into THIS route's geometry.
+
+        The index is the point of the exercise. OSRM gives each maneuver a
+        `location`, but a navigator needs to know how far along the line that
+        is - otherwise "distance to the next turn" has to be guessed from
+        straight-line distance and goes wrong on every bend. Matching the
+        maneuver location to its nearest vertex ties the instruction to the
+        same geometry progress is measured on.
+
+        With `overview=full` the maneuver locations ARE geometry vertices, so
+        the match is exact. The nearest-vertex fallback exists so a provider
+        that rounds coordinates differently degrades to a near-miss rather
+        than an exception - a maneuver a metre off is still the right turn.
+
+        A malformed steps block yields NO maneuvers rather than partial ones.
+        Half a set of directions is worse than none: it would run out
+        mid-journey and look like an arrival.
+        """
+        legs = route.get("legs")
+        if not isinstance(legs, list):
+            return ()
+
+        out: list[Maneuver] = []
+        for leg in legs:
+            if not isinstance(leg, dict):
+                return ()
+            steps = leg.get("steps")
+            if not isinstance(steps, list):
+                return ()
+            for step in steps:
+                if not isinstance(step, dict):
+                    return ()
+                maneuver = step.get("maneuver")
+                if not isinstance(maneuver, dict):
+                    return ()
+                location = maneuver.get("location")
+                if (
+                    not isinstance(location, (list, tuple))
+                    or len(location) < 2
+                    or not isinstance(location[0], (int, float))
+                    or not isinstance(location[1], (int, float))
+                ):
+                    return ()
+                # GeoJSON is [lon, lat]; the model holds (lat, lon).
+                at = (float(location[1]), float(location[0]))
+                step_distance = step.get("distance")
+                step_duration = step.get("duration")
+                name = step.get("name")
+                exit_number = maneuver.get("exit")
+                try:
+                    out.append(
+                        Maneuver(
+                            type=str(maneuver.get("type") or "unknown"),
+                            modifier=(
+                                str(maneuver["modifier"])
+                                if maneuver.get("modifier")
+                                else None
+                            ),
+                            at=at,
+                            geometry_index=_nearest_index(points, at),
+                            step_distance_m=(
+                                float(step_distance)
+                                if isinstance(step_distance, (int, float))
+                                else 0.0
+                            ),
+                            duration_s=(
+                                float(step_duration)
+                                if isinstance(step_duration, (int, float))
+                                else None
+                            ),
+                            # OSRM sends "" for an unnamed road. Empty is not a
+                            # name, and rendering it would print "turn left
+                            # onto" with nothing after it.
+                            name=str(name) if isinstance(name, str) and name else None,
+                            exit=(
+                                int(exit_number)
+                                if isinstance(exit_number, int)
+                                else None
+                            ),
+                        )
+                    )
+                except RoutingMalformed:
+                    return ()
+        return tuple(out)

@@ -9,9 +9,13 @@ Mission 1. The layers below describe the target; §11 states exactly what exists
 
 1. **Safety logic gets the highest coverage.** Fleet Sentinel and capacity validation are tested to
    a standard the rest of the codebase is not held to.
-2. **Tests run against the real configured database** - Supabase PostgreSQL + PostGIS
-   by default - never SQLite. Half of what we test is spatial and enum-constrained;
-   a substituted database tests a different system.
+2. **Tests run against real PostgreSQL + PostGIS, never SQLite.** Half of what we test is
+   spatial and enum-constrained; a substituted database tests a different system.
+   **The database is the isolated local cluster at `127.0.0.1:55432/ner_logistics_test`
+   and nothing else.** This principle used to read "the real configured database -
+   Supabase by default", which is how a suite that deletes rows came to run against a
+   shared project. See [the incident record](INCIDENT_2026-09-06_SHARED_DB_WRITE.md).
+   The target is now enforced in `tests/db_target.py`, not merely documented.
 3. **A test that needs a live third-party API is not a test.** External providers are stubbed at
    the interface boundary.
 4. **No test asserts a model's accuracy.** ML tests assert the *pipeline*, the *fallbacks*, and
@@ -82,47 +86,58 @@ Constraints must be proven at the database level, not just in Python:
   cause).
 - Every migration is tested `upgrade` → `downgrade` → `upgrade`.
 
-> **⚠ Run only ONE backend suite at a time against the shared project.**
-> `_cleanup_test_rows` in `conftest.py` is autouse and deletes **globally by
-> prefix** — `DELETE FROM shipments WHERE reference_code LIKE 'STEST-%'` and the
-> same for `TTEST-%` trips and `AS__ZZ%` trucks. Nothing scopes that to the rows
-> the finishing test created, because within one serial run nothing needs to.
+> **⚠ The suite may only ever reach the isolated cluster, and it deletes only
+> what it created.**
 >
-> Two suites against the same Supabase project therefore destroy each other:
-> run A creates `STEST-…`, run B's teardown deletes every `STEST-%` row, and run
-> A's next insert dies with
-> `ForeignKeyViolation: Key (shipment_id)=… is not present in table "shipments"`.
-> This is not hypothetical — it produced a full page of spurious failures during
-> the P6 audit when two agents ran the suite concurrently, and it looks exactly
-> like a real product defect. The session pooler's **15-client** limit compounds
-> it, and that budget is shared with any running dev server.
+> Both of those were once true by convention and are now checked.
 >
-> `scripts/certify_fleet.py` is safe to run alongside: its namespaces
-> (`P5CERT-`, `P5SHP-`, `AS88CT`, `p5cert.invalid`) are disjoint from the test
-> factories'. The collision is specifically **pytest against pytest**.
+> **Target.** `tests/db_target.py` registers one permitted database —
+> `postgresql+psycopg://127.0.0.1:55432/ner_logistics_test` — and vetoes every
+> connection that is not it, on SQLAlchemy's `do_connect` event. That is the
+> point where the dialect would otherwise call the driver, so a refused target
+> opens no socket, and it covers every engine in the process: the async
+> application engine, the synchronous one holding the advisory lock, the `db`
+> fixture's, and the one `test_migrations.py` builds from a *different* URL.
+> `DATABASE_PROVIDER=local` is not consulted and is not sufficient —
+> `backend/.env` sets `LOCAL_DATABASE_URL` to `localhost:5432/ner_logistics`,
+> which is local, is a different database, and would be written to just as
+> readily. There is no environment-variable override; a future authorised remote
+> target would be added to `ALLOWED_TARGETS` by a human editing that file.
+> Arm a shell with `.runtime/use-isolated-db.ps1` (dot-sourced) or
+> `source .runtime/use-isolated-db.sh`; an unarmed run exits 3 before any test
+> executes.
 >
-> **This is now enforced, not merely advised.** A session-scoped autouse fixture,
-> `exclusive_suite_lock`, takes a PostgreSQL session advisory lock on one
-> dedicated `NullPool` connection held for the whole run, and a second pytest
-> process is refused at startup with a message naming the collision — it runs no
-> test bodies and, critically, no cleanup. Ownership is re-asserted **before
-> every** global cleanup, not only at teardown: if the connection holding the
-> lock is ever dropped mid-run, the suite aborts rather than issuing a
-> prefix-wide `DELETE` while unprotected. The check verifies the complete 64-bit
-> key identity (`classid`, `objid`, `objsubid`, `granted`) on the recorded
-> backend pid, because matching only the low 32 bits would accept a different
-> lock that happened to collide.
+> **Ownership.** `factories.OWNED` records the id of every row the run creates,
+> and `factories.cleanup` deletes exactly those. It no longer deletes by prefix,
+> so a concurrent run's fixtures, rows that predate this run, and real records
+> that happen to match a pattern are all unreachable from it. Ids are recorded by
+> an `after_flush` listener rather than by each factory, because several tests
+> create their trips by POSTing to `/api/trips` — those rows are made by the
+> application's own session and no factory ever sees them.
 >
-> It works because the project connects through Supabase's **session** pooler
-> (port 5432). On the transaction pooler (6543) a session-level advisory lock
-> would not survive between statements — one more reason README.md insists on
-> the session pooler.
+> Both properties are tested, and tested as behaviour rather than as helper
+> return values: `tests/test_db_target_guard.py` builds real engines with
+> `psycopg.connect` replaced by a tripwire, so a refusal that reached the driver
+> fails; `tests/test_cleanup_ownership.py` writes another run's whole graph with
+> raw SQL and asserts it survives.
 >
-> A per-run prefix would be better still, so cleanup could only ever remove its
-> own rows. It is not done yet because truck registrations must satisfy
-> `REGISTRATION_PATTERN`, which leaves almost no room to encode a run id; a
-> partial namespace would protect trips and shipments while leaving trucks
-> colliding, which looks complete and is not.
+> **Still run one backend suite at a time.** `exclusive_suite_lock` takes a
+> PostgreSQL session advisory lock on a dedicated `NullPool` connection and
+> refuses a second process at startup. The reason has changed: it used to be the
+> only thing standing between two runs and mutual deletion, and now that cleanup
+> is id-scoped it is about the *results* — several tests assert on counts and
+> locks while assuming they are the only writer. Losing the lock mid-run aborts
+> rather than continuing, because a run that stopped being alone is no longer
+> reporting an isolated result.
+>
+> `scripts/certify_fleet.py` remains safe to run alongside; its namespaces are
+> disjoint from the factories'.
+>
+> This replaces an earlier note that described the prefix-wide deletes as
+> acceptable within one serial run and deferred per-run namespacing because truck
+> registrations had no room to encode a run id. Recording ids sidesteps the
+> format question entirely. What the deferral actually cost is in
+> [the incident record](INCIDENT_2026-09-06_SHARED_DB_WRITE.md).
 
 > **⚠ Test accounts are retained but deactivated, and the suite password is
 > generated per run.**
@@ -358,6 +373,11 @@ The clock-skew and offline-flush cases are the ones most likely to break silentl
 ## 12. Commands
 
 ```bash
+# Arm the isolated target FIRST. An unarmed run is refused (exit 3); it does not
+# fall back to backend/.env, which points at shared Supabase.
+source .runtime/use-isolated-db.sh       # Bash
+# PowerShell: dot-source .runtime\use-isolated-db.ps1
+
 cd backend && pytest -v                 # backend suite
 cd backend && pytest --cov=app          # with coverage
 cd manager-web && npm run typecheck     # tsc --noEmit

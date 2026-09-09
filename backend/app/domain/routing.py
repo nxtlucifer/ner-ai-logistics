@@ -92,18 +92,85 @@ def _sample(geometry: list[tuple[float, float]], count: int) -> list[tuple[float
 def sample_positions(
     geometry: list[tuple[float, float]], count: int
 ) -> list[tuple[float, float]]:
-    """`count` points spread along a route, for asking about conditions.
+    """`count` points spread along a route BY DISTANCE, for asking conditions.
 
-    Public counterpart of the private sampler `is_distinct_corridor` uses. Same
-    even-by-index spread: exact spacing does not matter for weather, which
-    varies over tens of kilometres, and index sampling needs no cumulative
-    distance pass over a geometry that may hold thousands of points.
+    By distance, not by index, and the difference is not academic. This project
+    asks OSRM for `overview=simplified`, which keeps more vertices where the
+    road bends and few on long straight legs - so on a NER corridor the
+    vertices crowd into the hills. Sampling by index then follows them there.
+
+    Measured on a corridor shaped like that: index sampling put FOUR of five
+    points inside the first 43.6 km of a 263.7 km route, leaving 220 km - 83%
+    of it - represented by a single reading. `route_risk` scores from these
+    samples, and the recommendation and reroute assessment score from that, so
+    a storm sitting on the unsampled stretch would be seen once out of five
+    times and scored as if it were a local shower.
+
+    The docstring this replaces argued that exact spacing does not matter
+    because weather varies over tens of kilometres. That is true of mild
+    unevenness and false of a 4-in-17% cluster. It also worried about a
+    cumulative pass over "thousands of points" - but `simplified` returns
+    hundreds, and one O(n) walk is nothing beside the five HTTP requests these
+    samples exist to make.
+
+    Endpoints are always included: origin and destination are the two places a
+    dispatcher assumes were looked at.
+
+    `is_distinct_corridor` deliberately still uses the by-index sampler. It
+    compares two routes against each other rather than covering one, and its
+    threshold is tuned against that behaviour.
     """
     if count <= 0:
         return []
+    if not geometry:
+        return []
     if count == 1:
         return list(geometry[:1])
-    return _sample(geometry, count)
+    if len(geometry) <= count:
+        return list(geometry)
+
+    cumulative = [0.0]
+    for i in range(1, len(geometry)):
+        cumulative.append(
+            cumulative[-1]
+            + haversine_m(
+                geometry[i - 1][0], geometry[i - 1][1], geometry[i][0], geometry[i][1]
+            )
+        )
+    total = cumulative[-1]
+    if total <= 0:
+        # Every vertex in the same place. Nothing to spread along, and the
+        # by-index answer is as good as any.
+        return _sample(geometry, count)
+
+    out: list[tuple[float, float]] = []
+    cursor = 0
+    for i in range(count):
+        target = total * i / (count - 1)
+        while cursor + 1 < len(geometry) and cumulative[cursor + 1] < target:
+            cursor += 1
+        if cursor + 1 >= len(geometry):
+            out.append(geometry[-1])
+            continue
+
+        # INTERPOLATED along the segment, not snapped to the nearer vertex.
+        # Snapping seems tidier - every sample is then a point the provider
+        # literally returned - but on a sparse leg it collapses: with no vertex
+        # between 128 km and 263 km, two different targets snap to the same
+        # endpoint and one of five weather requests is spent asking about a
+        # place already asked about. An interpolated point is still ON the
+        # route, and where it is on the road is the only thing the weather
+        # query cares about.
+        #
+        # Linear in degrees rather than great-circle. Over a segment of this
+        # length at 26 N the two differ by a few hundred metres, which is far
+        # inside the scale weather varies on.
+        span = cumulative[cursor + 1] - cumulative[cursor]
+        t = 0.0 if span <= 0 else (target - cumulative[cursor]) / span
+        lat_a, lon_a = geometry[cursor]
+        lat_b, lon_b = geometry[cursor + 1]
+        out.append((lat_a + t * (lat_b - lat_a), lon_a + t * (lon_b - lon_a)))
+    return out
 
 
 def parse_wkt_linestring(wkt: str) -> list[tuple[float, float]]:
@@ -121,6 +188,19 @@ def parse_wkt_linestring(wkt: str) -> list[tuple[float, float]]:
         lon_text, lat_text = pair.split()
         points.append((float(lat_text), float(lon_text)))
     return points
+
+
+def parse_wkt_point(wkt: str) -> tuple[float, float]:
+    """A PostGIS POINT as (lat, lon).
+
+    Same swap and the same reason as `parse_wkt_linestring`: WKT is lon-lat and
+    this application is lat-lon. Kept here beside it rather than inline at each
+    call site, because two hand-rolled parsers eventually disagree and the way
+    they disagree is by putting a truck in the Arctic Ocean.
+    """
+    inner = wkt[wkt.index("(") + 1 : wkt.rindex(")")]
+    lon_text, lat_text = inner.split()[0], inner.split()[1]
+    return float(lat_text), float(lon_text)
 
 
 def is_distinct_corridor(
@@ -187,6 +267,68 @@ class Coordinate:
 
 
 @dataclass(frozen=True)
+class Maneuver:
+    """One turn instruction, as the ROUTING PROVIDER described it.
+
+    NOT DERIVED FROM GEOMETRY. Nothing in this system infers a turn from the
+    corners of a polyline: a simplified overview has vertices wherever the
+    encoder put them, not where the junctions are, and "the line bends here"
+    is not "turn right at the roundabout". Every field below comes from the
+    provider's own step object or is null.
+
+    `at` is the maneuver point - where the turn happens - and
+    `geometry_index` is where that point falls in the route's own geometry, so
+    progress along the line and the next instruction cannot drift apart.
+
+    `step_distance_m` MEASURES FORWARD, not backward. It is the distance from
+    this maneuver to the NEXT one, which is what OSRM's `step.distance` means:
+    "the distance of travel from the maneuver to the subsequent step's
+    maneuver". This field was previously called `distance_m` and documented as
+    "the length of the step that ENDS at this maneuver, which is what 'in 400 m,
+    turn left' is measured against" - the exact opposite of its value, and an
+    off-by-one-step error waiting to be rendered on a windscreen.
+
+    Verified against the provider rather than argued from the documentation: a
+    Guwahati route returns `sum(step.distance) == route.distance` and a final
+    `arrive` step of **0.0 m**. A step measured backward could not be zero at
+    arrival, and the sum could not close.
+
+    So this is NOT the number to put in "in X m, turn left". Distance to a
+    maneuver is remaining path length from the current position, which is what
+    `navigation.build_for_route` publishes as `distance_from_start_m`.
+    """
+
+    #: Provider verb: turn, merge, roundabout, arrive, depart, fork...
+    type: str
+    #: Provider modifier: left, slight right, uturn... None when it has none.
+    modifier: str | None
+    #: The maneuver point, (lat, lon).
+    at: tuple[float, float]
+    #: Index of `at` within the route geometry this maneuver belongs to.
+    geometry_index: int
+    #: Distance from this maneuver to the next. 0.0 at arrival.
+    step_distance_m: float
+    #: Free-flow seconds for that step. NOT an ETA - see the module docstring.
+    duration_s: float | None = None
+    #: Road name where the provider gave one. Never invented.
+    name: str | None = None
+    #: Exit number for roundabouts, when the provider supplied it.
+    exit: int | None = None
+
+    def __post_init__(self) -> None:
+        lat, lon = self.at
+        if not (-90.0 <= lat <= 90.0) or not (-180.0 <= lon <= 180.0):
+            raise RoutingMalformed(
+                "maneuver coordinate out of range; this is the shape of a "
+                "latitude/longitude inversion"
+            )
+        if self.geometry_index < 0:
+            raise RoutingMalformed("maneuver geometry index is negative")
+        if self.step_distance_m < 0:
+            raise RoutingMalformed("maneuver step distance is negative")
+
+
+@dataclass(frozen=True)
 class RouteCandidate:
     """One route option, normalised.
 
@@ -208,6 +350,20 @@ class RouteCandidate:
     #: Bounded provider metadata, for tracing a number back to its source.
     metadata: dict[str, str] = field(default_factory=dict)
     fetched_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    #: Turn instructions from the provider, in travel order. EMPTY when the
+    #: route was planned without them.
+    #:
+    #: Empty is not "this road has no turns" - it is "this candidate was not
+    #: asked for directions", and a caller must render guidance-unavailable
+    #: rather than fabricating turns from `geometry`. The two are produced by
+    #: the same provider response when they are produced at all, so a
+    #: candidate can never carry directions belonging to a different line.
+    maneuvers: tuple[Maneuver, ...] = ()
+
+    @property
+    def has_guidance(self) -> bool:
+        """Whether this candidate can drive turn-by-turn navigation."""
+        return len(self.maneuvers) > 0
 
     def __post_init__(self) -> None:
         if len(self.geometry) < MIN_GEOMETRY_POINTS:

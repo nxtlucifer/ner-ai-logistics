@@ -1,0 +1,47 @@
+{
+  "log": [
+    {
+      "step": 1,
+      "name": "granted-fresh-on-route",
+      "note": "Permission granted to this origin, watcher subscribed, fix on the approved route.",
+      "panel": "27 km Turn straight",
+      "file": "D:\\Projects\\ner-ai-logistics\\docs\\submission\\evidence\\01-granted-fresh-on-route.png"
+    },
+    {
+      "step": 2,
+      "name": "countdown-approaching",
+      "note": "Approaching: turn ",
+      "panel": "4.0 km Turn straight",
+      "file": "D:\\Projects\\ner-ai-logistics\\docs\\submission\\evidence\\02-countdown-approaching.png"
+    },
+    {
+      "step": 3,
+      "name": "countdown-after-maneuver",
+      "note": "Past it: the panel advances to the next instruction.",
+      "panel": "75 km Continue onto Nagaon Bypass",
+      "file": "D:\\Projects\\ner-ai-logistics\\docs\\submission\\evidence\\03-countdown-after-maneuver.png"
+    },
+    {
+      "step": 4,
+      "name": "off-route-hold",
+      "note": "Fix well off the planned line. Stated, never acted on.",
+      "panel": "Off the planned route Directions are paused because your position is not on the assigned road. Ask your manager to replan.",
+      "file": "D:\\Projects\\ner-ai-logistics\\docs\\submission\\evidence\\04-off-route-hold.png"
+    },
+    {
+      "step": 5,
+      "name": "off-route-recovered",
+      "note": "Back on the line: guidance resumes on its own.",
+      "panel": "35 km Continue",
+      "file": "D:\\Projects\\ner-ai-logistics\\docs\\submission\\evidence\\05-off-route-recovered.png"
+    },
+    {
+      "step": 6,
+      "name": "emergency-panel",
+      "note": "Reachable while guidance is running.",
+      "panel": "35 km Continue",
+      "file": "D:\\Projects\\ner-ai-logistics\\docs\\submission\\evidence\\06-emergency-panel.png"
+    }
+  ],
+  "dialled": []
+}

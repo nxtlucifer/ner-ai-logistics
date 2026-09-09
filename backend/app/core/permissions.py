@@ -51,6 +51,17 @@ TRIP_CLOSE: Final = "trip:close"
 ROUTE_READ: Final = "route:read"
 ROUTE_PLAN: Final = "route:plan"
 ROUTE_SELECT: Final = "route:select"
+#: Authorise ONE selection of a REQUIRES_REVIEW route (LS-11).
+#:
+#: Separate from ROUTE_SELECT on purpose. Accepting a hazard risk and acting on
+#: it are different decisions, and holding both in one role would make
+#: two-person control impossible to express. AUTHORISED_REVIEWER has this and
+#: NOT ROUTE_SELECT; MANAGER has ROUTE_SELECT and NOT this.
+#:
+#: ADMIN receives it through ALL_PERMISSIONS, so an admin does hold both. The
+#: reviewer-is-not-the-selector rule is therefore ALSO enforced explicitly at
+#: consumption time and is not left resting on the role split alone.
+ROUTE_REVIEW_AUTHORIZE: Final = "route:review_authorize"
 
 # Driver-side execution. "own" is an object-level qualifier a permission string
 # cannot express - the binding to *which* trip is enforced in the service layer
@@ -75,7 +86,7 @@ ALL_PERMISSIONS: Final[frozenset[str]] = frozenset(
         ASSIGNMENT_VERIFY_OWN,
         SHIPMENT_READ, SHIPMENT_CREATE,
         TRIP_READ, TRIP_CREATE, TRIP_DISPATCH, TRIP_CANCEL, TRIP_CLOSE,
-        ROUTE_READ, ROUTE_PLAN, ROUTE_SELECT,
+        ROUTE_READ, ROUTE_PLAN, ROUTE_SELECT, ROUTE_REVIEW_AUTHORIZE,
         TRIP_EXECUTE_OWN, LOCATION_SUBMIT_OWN,
         FLEET_LOCATION_READ,
         AUDIT_READ,
@@ -116,12 +127,28 @@ _DRIVER_PERMISSIONS: Final[frozenset[str]] = frozenset(
     }
 )
 
+# Reads the trip and the route it is asked to authorise, and nothing else.
+#
+# Note what is ABSENT: ROUTE_SELECT (the whole point - a reviewer may not act
+# on their own authorisation), ROUTE_PLAN, and FLEET_LOCATION_READ. Judging
+# hazard evidence on a corridor does not require knowing where the driver is,
+# and location is the most sensitive data the system holds
+# (docs/SECURITY.md section 3).
+_AUTHORISED_REVIEWER_PERMISSIONS: Final[frozenset[str]] = frozenset(
+    {
+        TRIP_READ,
+        ROUTE_READ,
+        ROUTE_REVIEW_AUTHORIZE,
+    }
+)
+
 ROLE_PERMISSIONS: Final[dict[UserRole, frozenset[str]]] = {
     # Admin gets everything, including salary visibility, which MANAGER
     # deliberately does not have.
     UserRole.ADMIN: ALL_PERMISSIONS,
     UserRole.MANAGER: _MANAGER_PERMISSIONS,
     UserRole.DRIVER: _DRIVER_PERMISSIONS,
+    UserRole.AUTHORISED_REVIEWER: _AUTHORISED_REVIEWER_PERMISSIONS,
 }
 
 

@@ -9,8 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictError, NotFoundError
 from app.core.security import hash_password
+from app.domain.trip_state import REQUIRES_DRIVER_LOGIN
 from app.models.enums import AuditAction, DriverStatus, UserRole
 from app.models.identity import Driver, User
+from app.models.operations import Trip
 from app.schemas.domain import DriverCreate, DriverUpdate
 from app.services import audit
 from app.services.pagination import (
@@ -253,14 +255,57 @@ async def deactivate(
             code="DRIVER_ON_TRIP",
         )
 
+    # Take the users row lock BEFORE looking for live trips, and before the
+    # write below. Dispatch locks the same row while it decides, so this is the
+    # object the two operations serialise on; checking trips first would read a
+    # DRAFT trip - invisible to the filter below - while a dispatch already in
+    # flight turned it into an ASSIGNED one.
+    user = (
+        await db.execute(
+            select(User).where(User.id == driver.user_id).with_for_update()
+        )
+    ).scalar_one_or_none()
+
+    # The status check above is necessary but not sufficient: drivers.status
+    # only becomes ON_TRIP when the driver STARTS the trip, so a trip that has
+    # been dispatched and not yet started leaves the driver reading AVAILABLE.
+    # Disabling the login in that window strands the trip - it stays ASSIGNED
+    # holding a truck, and the one person who could start it can no longer sign
+    # in. Locked, because the alternative is a check that passes just as a
+    # concurrent dispatch commits.
+    stranded = (
+        await db.execute(
+            select(Trip.id, Trip.trip_code, Trip.status)
+            .where(
+                Trip.driver_id == driver.id,
+                Trip.status.in_(tuple(REQUIRES_DRIVER_LOGIN)),
+            )
+            # Same stable order as assignments._refuse_if_a_trip_is_underway,
+            # which locks an overlapping set of this driver's trips. Without
+            # it the two can deadlock on row order despite agreeing on the
+            # users-then-trips table order.
+            .order_by(Trip.id)
+            .with_for_update()
+        )
+    ).first()
+    if stranded is not None:
+        trip_id, trip_code, trip_status = stranded
+        raise ConflictError(
+            "This driver holds a live trip. Close or cancel it before "
+            "deactivating them, or the trip can never be completed.",
+            code="DRIVER_HAS_LIVE_TRIP",
+            details={
+                "trip_id": str(trip_id),
+                "trip_code": trip_code,
+                "trip_status": trip_status.value,
+            },
+        )
+
     before = audit.snapshot(driver, AUDITED_FIELDS)
     now = datetime.now(UTC)
     driver.deleted_at = now
     driver.status = DriverStatus.SUSPENDED
 
-    user = (
-        await db.execute(select(User).where(User.id == driver.user_id))
-    ).scalar_one_or_none()
     if user is not None:
         user.is_active = False
 

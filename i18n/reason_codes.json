@@ -1,0 +1,424 @@
+{
+  "$comment": [
+    "Reason-code translations. One entry per code the backend can emit.",
+    "",
+    "WHY THIS FILE EXISTS AT THE REPOSITORY ROOT",
+    "Both the driver app and the manager web app render these codes, and a",
+    "second copy would drift. The backend never builds a sentence: every",
+    "explanation it produces is a CODE, precisely so it can arrive on a phone",
+    "in Assamese without a model in the loop and without a network call. This",
+    "file is where a code becomes a sentence.",
+    "",
+    "NO MODEL TRANSLATES ANYTHING AT RUNTIME",
+    "These strings are shipped with the app. A driver in a valley with no",
+    "signal reads the same warning as one in Guwahati. A translation fetched",
+    "on demand would be absent exactly when the alert mattered most.",
+    "",
+    "COVERAGE IS ENFORCED",
+    "backend/tests/test_reason_code_coverage.py collects every REASON_* and",
+    "kindred constant from app/domain and asserts each has an entry here in",
+    "every language. A code with no translation reaches a driver as raw",
+    "SHOUTING_SNAKE_CASE, which is worse than useless on a safety alert - so",
+    "adding one without a translation fails the backend suite.",
+    "",
+    "REVIEW STATUS",
+    "hi and as strings are unreviewed by a native speaker. They are careful,",
+    "they are not certified, and nothing should be demonstrated to a judge as",
+    "verified translation until someone fluent has read them. Recorded here",
+    "rather than in a commit message so it cannot be lost.",
+    "",
+    "'speak' marks the codes cleared for voice output. Kept deliberately",
+    "short: a spoken alert competes with the road."
+  ],
+  "languages": [
+    "en",
+    "hi",
+    "as"
+  ],
+  "codes": {
+    "ALTERNATIVE_IS_FASTER": {
+      "speak": true,
+      "en": "The other route is quicker",
+      "hi": "दूसरा मार्ग तेज़ है",
+      "as": "আনটো পথ সোনকালে হ'ব"
+    },
+    "ALTERNATIVE_IS_LONGER": {
+      "speak": false,
+      "en": "The other route is longer",
+      "hi": "दूसरा मार्ग लंबा है",
+      "as": "আনটো পথ দীঘল"
+    },
+    "ALTERNATIVE_IS_SHORTER": {
+      "speak": false,
+      "en": "The other route is shorter",
+      "hi": "दूसरा मार्ग छोटा है",
+      "as": "আনটো পথ চুটি"
+    },
+    "ALTERNATIVE_IS_SLOWER": {
+      "speak": true,
+      "en": "The other route takes longer",
+      "hi": "दूसरे मार्ग में अधिक समय लगेगा",
+      "as": "আনটো পথত অধিক সময় লাগিব"
+    },
+    "BASEMAP_NOT_BUNDLED_LICENCE": {
+      "speak": true,
+      "en": "Map images are not saved for offline use",
+      "hi": "मानचित्र की तस्वीरें ऑफ़लाइन के लिए सहेजी नहीं गई हैं",
+      "as": "মেপৰ ছবি অফলাইনৰ বাবে সংৰক্ষণ কৰা হোৱা নাই"
+    },
+    "BETTER_ROUTE_AVAILABLE": {
+      "speak": true,
+      "en": "A better route is available",
+      "hi": "एक बेहतर मार्ग उपलब्ध है",
+      "as": "এটা ভাল পথ উপলব্ধ"
+    },
+    "DISTANCE_NOT_ESTIMATED": {
+      "speak": false,
+      "en": "Distance not estimated",
+      "hi": "दूरी का अनुमान नहीं है",
+      "as": "দূৰত্বৰ আকলন নাই"
+    },
+    "DURATION_IS_FREE_FLOW_NOT_AN_ETA": {
+      "speak": false,
+      "en": "Travel time assumes clear roads and is not an arrival time",
+      "hi": "यात्रा समय खाली सड़क मानकर है, यह पहुँचने का समय नहीं है",
+      "as": "যাত্ৰাৰ সময় খালী পথ ধৰি কৰা হৈছে, ই গন্তব্যত পোৱাৰ সময় নহয়"
+    },
+    "DURATION_NOT_ESTIMATED": {
+      "speak": false,
+      "en": "Travel time not estimated",
+      "hi": "यात्रा समय का अनुमान नहीं है",
+      "as": "যাত্ৰাৰ সময়ৰ আকলন নাই"
+    },
+    "GUIDANCE_INCONSISTENT_WITH_ROUTE": {
+      "speak": false,
+      "en": "Stored directions do not match this route and were not used",
+      "hi": "संग्रहीत निर्देश इस मार्ग से मेल नहीं खाते, इसलिए उनका उपयोग नहीं किया गया",
+      "as": "সঞ্চিত নিৰ্দেশনা এই পথৰ সৈতে মিল নাখায়, সের্বাবে ব্যৱহাৰ কৰা হোৱা নাই"
+    },
+    "GUIDANCE_NOT_AVAILABLE": {
+      "speak": false,
+      "en": "Turn-by-turn directions are not available for this route",
+      "hi": "इस मार्ग के लिए मोड़-दर-मोड़ निर्देश उपलब्ध नहीं हैं",
+      "as": "এই পথৰ বাবে বাঁকে-বাঁকে নিৰ্দেশনা নাই"
+    },
+    "HEAVY_RAIN_ON_ROUTE": {
+      "speak": true,
+      "en": "Heavy rain on this route",
+      "hi": "इस मार्ग पर भारी वर्षा",
+      "as": "এই পথত প্ৰবল বৰষুণ"
+    },
+    "HEAVY_RECENT_RAINFALL": {
+      "speak": true,
+      "en": "Heavy rain here recently",
+      "hi": "यहाँ हाल ही में भारी वर्षा हुई है",
+      "as": "ইয়াত শেহতীয়াকৈ প্ৰবল বৰষুণ হৈছে"
+    },
+    "HIGH_WIND_GUSTS": {
+      "speak": true,
+      "en": "Strong wind gusts",
+      "hi": "तेज़ हवा के झोंके",
+      "as": "প্ৰবল বতাহৰ ধপৰ"
+    },
+    "INCIDENT_UNRESOLVED": {
+      "speak": true,
+      "en": "An incident here is not resolved",
+      "hi": "यहाँ की घटना अभी सुलझी नहीं है",
+      "as": "ইয়াৰ ঘটনাটো এতিয়াও সমাধান হোৱা নাই"
+    },
+    "LANDSLIDE_CORROBORATED_INCIDENT_ON_ROUTE": {
+      "speak": false,
+      "en": "Several sources report a landslide on this route.",
+      "hi": "कई स्रोत इस मार्ग पर भूस्खलन बता रहे हैं।",
+      "as": "কেইবাটাও উৎসই এই পথত ভূমিস্খলন হোৱা বুলি জনাইছে।"
+    },
+    "LANDSLIDE_DATA_NOT_CONFIGURED": {
+      "speak": false,
+      "en": "Landslide data is not available - no source is connected.",
+      "hi": "भूस्खलन का डेटा उपलब्ध नहीं है - कोई स्रोत जुड़ा नहीं है।",
+      "as": "ভূমিস্খলনৰ তথ্য নাই - কোনো উৎস সংযোগ কৰা হোৱা নাই।"
+    },
+    "LANDSLIDE_INCIDENT_LOCATION_UNKNOWN": {
+      "speak": false,
+      "en": "A landslide was reported without a location, so it could not be placed on the route.",
+      "hi": "भूस्खलन की सूचना बिना स्थान के मिली, इसलिए इसे मार्ग पर नहीं रखा जा सका।",
+      "as": "ভূমিস্খলনৰ খবৰ স্থান নোহোৱাকৈ আহিছে, সেয়েহে ইয়াক পথত স্থাপন কৰিব পৰা নগ'ল।"
+    },
+    "LANDSLIDE_NO_RECORDED_INCIDENTS": {
+      "speak": false,
+      "en": "No landslide incidents are recorded on this route.",
+      "hi": "इस मार्ग पर कोई भूस्खलन दर्ज नहीं है।",
+      "as": "এই পথত কোনো ভূমিস্খলন লিপিবদ্ধ হোৱা নাই।"
+    },
+    "LANDSLIDE_OFFICIAL_INCIDENT_ON_ROUTE": {
+      "speak": false,
+      "en": "An official landslide report lies on this route.",
+      "hi": "इस मार्ग पर भूस्खलन की आधिकारिक रिपोर्ट है।",
+      "as": "এই পথত ভূমিস্খলনৰ চৰকাৰী প্ৰতিবেদন আছে।"
+    },
+    "LANDSLIDE_OFFICIAL_ROAD_CLOSURE": {
+      "speak": true,
+      "en": "An authority has closed this road after a landslide.",
+      "hi": "भूस्खलन के बाद अधिकारियों ने यह सड़क बंद कर दी है।",
+      "as": "ভূমিস্খলনৰ পিছত কৰ্তৃপক্ষই এই পথ বন্ধ কৰিছে।"
+    },
+    "LANDSLIDE_SOURCE_FAILED": {
+      "speak": false,
+      "en": "Landslide data could not be fetched. Treat as unknown, not as safe.",
+      "hi": "भूस्खलन का डेटा नहीं मिल सका। इसे सुरक्षित नहीं, अज्ञात मानें।",
+      "as": "ভূমিস্খলনৰ তথ্য অনাব পৰা নগ'ল। ইয়াক নিৰাপদ নহয়, অজ্ঞাত বুলি ধৰক।"
+    },
+    "LANDSLIDE_UNVERIFIED_REPORT_ON_ROUTE": {
+      "speak": false,
+      "en": "One unconfirmed landslide report mentions this route.",
+      "hi": "एक असत्यापित रिपोर्ट में इस मार्ग पर भूस्खलन बताया गया है।",
+      "as": "এটা অসত্যাপিত প্ৰতিবেদনত এই পথত ভূমিস্খলনৰ কথা কোৱা হৈছে।"
+    },
+    "LONG_DISTANCE": {
+      "speak": false,
+      "en": "Long distance",
+      "hi": "लंबी दूरी",
+      "as": "দীঘল দূৰত্ব"
+    },
+    "LONG_TRAVEL_DURATION": {
+      "speak": false,
+      "en": "Long time on the road",
+      "hi": "सड़क पर लंबा समय",
+      "as": "পথত দীঘলীয়া সময়"
+    },
+    "LOWER_RISK_ALTERNATIVE": {
+      "speak": true,
+      "en": "A safer route is available",
+      "hi": "एक सुरक्षित मार्ग उपलब्ध है",
+      "as": "এটা নিৰাপদ পথ উপলব্ধ"
+    },
+    "MODERATE_RAIN_ON_ROUTE": {
+      "speak": false,
+      "en": "Moderate rain on this route",
+      "hi": "इस मार्ग पर मध्यम वर्षा",
+      "as": "এই পথত মজলীয়া বৰষুণ"
+    },
+    "MONSOON_SEASON": {
+      "speak": false,
+      "en": "Monsoon season",
+      "hi": "मानसून का मौसम",
+      "as": "বৰষুণৰ কাল"
+    },
+    "NO_BETTER_ALTERNATIVE": {
+      "speak": true,
+      "en": "There is no better route. Drive with care",
+      "hi": "कोई बेहतर मार्ग नहीं है। सावधानी से चलें",
+      "as": "ইয়াতকৈ ভাল পথ নাই। সাৱধানে যাব"
+    },
+    "NO_DISTINCT_BACKUP_CORRIDOR": {
+      "speak": false,
+      "en": "No separate backup route exists",
+      "hi": "कोई अलग वैकल्पिक मार्ग नहीं है",
+      "as": "কোনো পৃথক বিকল্প পথ নাই"
+    },
+    "NO_LANDSLIDE_HISTORY_AVAILABLE": {
+      "speak": false,
+      "en": "No landslide history available",
+      "hi": "भूस्खलन का कोई पुराना रिकॉर्ड नहीं",
+      "as": "ভূমিস্খলনৰ কোনো পুৰণি নথি নাই"
+    },
+    "NO_PLANNED_PACE_AVAILABLE": {
+      "speak": false,
+      "en": "Time left cannot be worked out",
+      "hi": "शेष समय का पता नहीं लगाया जा सकता",
+      "as": "বাকী সময় নিৰ্ণয় কৰিব পৰা নাযায়"
+    },
+    "NO_POSITION_AVAILABLE": {
+      "speak": false,
+      "en": "Location not available",
+      "hi": "स्थान उपलब्ध नहीं",
+      "as": "অৱস্থান উপলব্ধ নহয়"
+    },
+    "NO_PRIMARY_ROUTE": {
+      "speak": false,
+      "en": "No main route on record",
+      "hi": "कोई मुख्य मार्ग दर्ज नहीं",
+      "as": "কোনো মুখ্য পথ নথিভুক্ত নাই"
+    },
+    "NO_ROUTES_PLANNED": {
+      "speak": false,
+      "en": "No route planned yet",
+      "hi": "अभी कोई मार्ग तय नहीं",
+      "as": "এতিয়ালৈকে কোনো পথ নিৰ্ধাৰিত হোৱা নাই"
+    },
+    "NO_ROUTE_SELECTED": {
+      "speak": false,
+      "en": "No route has been chosen for this trip",
+      "hi": "इस यात्रा के लिए कोई मार्ग नहीं चुना गया",
+      "as": "এই যাত্ৰাৰ বাবে কোনো পথ বাছনি কৰা হোৱা নাই"
+    },
+    "NO_SAFE_ROUTE_AVAILABLE": {
+      "speak": false,
+      "en": "No usable route among those assessed. Await dispatch instructions.",
+      "hi": "जांचे गए मार्गों में कोई उपयोग योग्य मार्ग नहीं है। डिस्पैच के निर्देश की प्रतीक्षा करें।",
+      "as": "পৰীক্ষা কৰা পথবোৰৰ ভিতৰত ব্যৱহাৰযোগ্য পথ নাই। ডিছপেচৰ নিৰ্দেশৰ অপেক্ষা কৰক।"
+    },
+    "NO_SELECTED_ROUTE": {
+      "speak": false,
+      "en": "No route has been chosen",
+      "hi": "कोई मार्ग चुना नहीं गया है",
+      "as": "কোনো পথ বাছনি কৰা হোৱা নাই"
+    },
+    "ONLY_ONE_ROUTE_AVAILABLE": {
+      "speak": false,
+      "en": "Only one route available",
+      "hi": "केवल एक ही मार्ग उपलब्ध है",
+      "as": "কেৱল এটা পথহে উপলব্ধ"
+    },
+    "PRE_MONSOON_SEASON": {
+      "speak": false,
+      "en": "Pre-monsoon season",
+      "hi": "मानसून से पहले का मौसम",
+      "as": "বৰষুণৰ আগৰ কাল"
+    },
+    "RAINFALL_NOT_AVAILABLE": {
+      "speak": false,
+      "en": "Rainfall data not available",
+      "hi": "वर्षा की जानकारी उपलब्ध नहीं",
+      "as": "বৰষুণৰ তথ্য উপলব্ধ নহয়"
+    },
+    "REMAINING_TIME_ASSUMES_PLANNED_PACE": {
+      "speak": false,
+      "en": "Time left assumes the planned average speed",
+      "hi": "शेष समय तय औसत गति मानकर बताया गया है",
+      "as": "বাকী সময় নিৰ্ধাৰিত মজলীয়া গতি ধৰি কোৱা হৈছে"
+    },
+    "REPAIR_CLAIM_UNCONFIRMED": {
+      "speak": true,
+      "en": "Repair reported but not confirmed",
+      "hi": "मरम्मत की सूचना है, पुष्टि नहीं हुई",
+      "as": "মেৰামতিৰ খবৰ আছে, নিশ্চিত হোৱা নাই"
+    },
+    "REPEATED_HISTORICAL_FAILURE": {
+      "speak": false,
+      "en": "This stretch has failed before",
+      "hi": "यह हिस्सा पहले भी बाधित हुआ है",
+      "as": "এই অংশত আগতেও সমস্যা হৈছিল"
+    },
+    "RISK_DIFFERENCE_WITHIN_MARGIN": {
+      "speak": false,
+      "en": "The other route is not meaningfully safer",
+      "hi": "दूसरा मार्ग विशेष रूप से सुरक्षित नहीं है",
+      "as": "আনটো পথ উল্লেখযোগ্যভাৱে নিৰাপদ নহয়"
+    },
+    "RISK_INPUTS_NOT_COMPARABLE": {
+      "speak": false,
+      "en": "Routes were assessed on different information",
+      "hi": "मार्गों का आकलन अलग-अलग जानकारी पर हुआ है",
+      "as": "পথবোৰ বেলেগ বেলেগ তথ্যৰ ভিত্তিত মূল্যায়ন কৰা হৈছে"
+    },
+    "RISK_SNAPSHOT_UNAVAILABLE": {
+      "speak": false,
+      "en": "Risk assessment could not be saved",
+      "hi": "जोखिम आकलन सहेजा नहीं जा सका",
+      "as": "বিপদৰ মূল্যায়ন সংৰক্ষণ কৰিব পৰা নগ'ল"
+    },
+    "ROAD_DECLARED_CLOSED": {
+      "speak": true,
+      "en": "This road is closed",
+      "hi": "यह सड़क बंद है",
+      "as": "এই বাটটো বন্ধ"
+    },
+    "ROAD_STATUS_STALE": {
+      "speak": false,
+      "en": "Road information is old",
+      "hi": "सड़क की जानकारी पुरानी है",
+      "as": "বাটৰ তথ্য পুৰণি"
+    },
+    "ROAD_STATUS_UNVERIFIED": {
+      "speak": true,
+      "en": "Road condition not confirmed",
+      "hi": "सड़क की स्थिति की पुष्टि नहीं हुई",
+      "as": "বাটৰ অৱস্থা নিশ্চিত কৰা হোৱা নাই"
+    },
+    "ROUTE_ELIGIBILITY_NOT_ASSESSED": {
+      "speak": false,
+      "en": "Route safety could not be checked, so the change was refused. This is a system fault, not a clear road.",
+      "hi": "मार्ग की सुरक्षा जांची नहीं जा सकी, इसलिए बदलाव अस्वीकार किया गया। यह सिस्टम की खराबी है, सुरक्षित मार्ग नहीं।",
+      "as": "পথৰ সুৰক্ষা পৰীক্ষা কৰিব পৰা নগ'ল, সেয়েহে সলনি নাকচ কৰা হ'ল। ই ছিষ্টেমৰ ত্ৰুটি, নিৰাপদ পথ নহয়।"
+    },
+    "ROUTE_HAS_NO_GEOMETRY": {
+      "speak": false,
+      "en": "Route path not available",
+      "hi": "मार्ग का रास्ता उपलब्ध नहीं",
+      "as": "পথৰ ৰেখা উপলব্ধ নহয়"
+    },
+    "ROUTE_HAZARD_DATA_UNKNOWN": {
+      "speak": false,
+      "en": "Hazard data for this route is unavailable. This is not a clear route - it is an unchecked one.",
+      "hi": "इस मार्ग के खतरे की जानकारी उपलब्ध नहीं है। यह सुरक्षित नहीं, बल्कि अनजांचा मार्ग है।",
+      "as": "এই পথৰ বিপদৰ তথ্য নাই। ই নিৰাপদ নহয়, পৰীক্ষা নকৰা পথ।"
+    },
+    "ROUTE_REJECTED_ACTIVE_HAZARD": {
+      "speak": false,
+      "en": "This route is blocked by an active hazard and cannot be used.",
+      "hi": "यह मार्ग एक सक्रिय खतरे के कारण बंद है और इसका उपयोग नहीं किया जा सकता।",
+      "as": "এই পথটো এটা সক্ৰিয় বিপদৰ বাবে বন্ধ আৰু ব্যৱহাৰ কৰিব নোৱাৰি।"
+    },
+    "ROUTE_REVIEW_HIGH_HAZARD": {
+      "speak": false,
+      "en": "High hazard on this route. A manager must review it before it is used.",
+      "hi": "इस मार्ग पर अधिक खतरा है। उपयोग से पहले प्रबंधक की समीक्षा आवश्यक है।",
+      "as": "এই পথত অধিক বিপদ আছে। ব্যৱহাৰৰ আগতে পৰিচালকৰ পৰ্যালোচনা লাগে।"
+    },
+    "ROUTE_SELECTION_REQUIRES_REVIEW": {
+      "speak": false,
+      "en": "No route can be chosen automatically. A manager must review the options.",
+      "hi": "कोई मार्ग स्वतः नहीं चुना जा सकता। प्रबंधक को विकल्पों की समीक्षा करनी होगी।",
+      "as": "কোনো পথ স্বয়ংক্ৰিয়ভাৱে বাছনি কৰিব নোৱাৰি। পৰিচালকে বিকল্পবোৰ চাব লাগিব।"
+    },
+    "SELECTED_ROUTE_DETERIORATED": {
+      "speak": true,
+      "en": "Conditions on your route have worsened",
+      "hi": "आपके मार्ग की स्थिति बिगड़ गई है",
+      "as": "আপোনাৰ পথৰ অৱস্থা বেয়া হৈছে"
+    },
+    "SELECTED_ROUTE_WITHIN_TOLERANCE": {
+      "speak": false,
+      "en": "Current route is acceptable",
+      "hi": "वर्तमान मार्ग ठीक है",
+      "as": "বৰ্তমানৰ পথ ঠিক আছে"
+    },
+    "SEVERE_CONDITIONS_ON_ROUTE": {
+      "speak": true,
+      "en": "Severe conditions along this whole route",
+      "hi": "इस पूरे मार्ग पर गंभीर मौसम",
+      "as": "এই গোটেই পথত ভয়ংকৰ বতৰ"
+    },
+    "TRIP_NOT_IN_TRANSIT": {
+      "speak": false,
+      "en": "The trip has not started",
+      "hi": "यात्रा शुरू नहीं हुई है",
+      "as": "যাত্ৰা আৰম্ভ হোৱা নাই"
+    },
+    "VEHICLE_OFF_PLANNED_ROUTE": {
+      "speak": true,
+      "en": "You are off the planned route",
+      "hi": "आप तय मार्ग से हट गए हैं",
+      "as": "আপুনি নিৰ্ধাৰিত পথৰ পৰা আঁতৰি গৈছে"
+    },
+    "WEATHER_COVERAGE_PARTIAL": {
+      "speak": false,
+      "en": "Weather known for part of the route only",
+      "hi": "मौसम की जानकारी मार्ग के केवल कुछ हिस्से की है",
+      "as": "পথৰ কিছু অংশৰ বতৰৰ তথ্যহে আছে"
+    },
+    "WEATHER_OBSERVATIONS_STALE": {
+      "speak": false,
+      "en": "Weather readings are old",
+      "hi": "मौसम की जानकारी पुरानी है",
+      "as": "বতৰৰ তথ্য পুৰণি"
+    },
+    "WEATHER_UNAVAILABLE": {
+      "speak": false,
+      "en": "Weather data not available",
+      "hi": "मौसम की जानकारी उपलब्ध नहीं",
+      "as": "বতৰৰ তথ্য উপলব্ধ নহয়"
+    }
+  }
+}

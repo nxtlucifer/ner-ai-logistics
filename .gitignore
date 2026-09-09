@@ -96,3 +96,53 @@ desktop.ini
 logs/
 tmp/
 .scratch/
+
+# ---------------------------------------------------------------------------
+# Local isolated database runtime (LS-7 / LS-12)
+# ---------------------------------------------------------------------------
+# Postgres binaries, cluster data, the password file and every built APK live
+# here. This was previously only in .git/info/exclude, which protects one
+# clone on one machine and nobody else's. Tracked so the protection travels.
+.runtime/
+
+# ---------------------------------------------------------------------------
+# Android build outputs
+# ---------------------------------------------------------------------------
+# EAS artefacts are downloaded, not authored. They are large binaries and a
+# release is identified by its EAS build id, not by a copy in the tree.
+*.apk
+*.aab
+
+# ---------------------------------------------------------------------------
+# Supabase CLI local state
+# ---------------------------------------------------------------------------
+# Written by `supabase link`. Carries the linked project ref and the pooler
+# URL - infrastructure detail that does not belong in a public repository.
+supabase/.temp/
+
+# ---------------------------------------------------------------------------
+# Agent and developer-tool scratch
+# ---------------------------------------------------------------------------
+# Session state, caches, transcripts and per-machine tool credentials written
+# into the tree by assistants and CLIs. None of it is project source, some of
+# it is a live token (.semgrep/guardian.yml), and some of it is a verbatim
+# conversation log (.claude/chat-exports/).
+.claude/
+.artibot/
+.context-os/
+.coworker/
+.codex/
+.thumbgate/
+.agentic-security/
+.semgrep/
+memory/.dreams/
+
+# ---------------------------------------------------------------------------
+# Prompt and conversation dumps
+# ---------------------------------------------------------------------------
+# Working files created while briefing an assistant. Deterministic names, so
+# they can be matched; never part of the project.
+full_user_request*.txt
+latest_user_prompt*.txt
+mission_prompt*.txt
+scratch_user_prompt*.txt

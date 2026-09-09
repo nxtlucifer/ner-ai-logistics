@@ -7,12 +7,17 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.enums import TripStatus, TruckStatus, UserRole
+
+from app.models.enums import DriverStatus, TripStatus, TruckStatus, UserRole
 from app.models.fleet import DriverTruckAssignment
 from tests import factories
 from tests.conftest import auth_headers
 
-pytestmark = pytest.mark.requires_db
+# LS-7: these suites test recommendation/reroute/fleet behaviour, not the
+# hazard policy. `clear_hazard_evidence` supplies sufficient evidence so
+# they exercise what they mean to; absence-of-evidence behaviour lives in
+# tests/test_route_eligibility.py.
+pytestmark = [pytest.mark.requires_db, pytest.mark.usefixtures("clear_hazard_evidence")]
 
 
 @pytest.fixture
@@ -174,6 +179,78 @@ class TestDriverCrud:
             },
         )
         assert login.status_code == 401
+
+    async def test_deactivate_refuses_a_driver_holding_a_dispatched_trip(
+        self, api: AsyncClient, session: AsyncSession, manager_headers: dict
+    ) -> None:
+        """The other side of the dispatchability invariant.
+
+        drivers.status only reaches ON_TRIP when the driver STARTS the trip, so
+        the existing ON_TRIP guard leaves the whole dispatched-but-not-started
+        window open. Disabling the login there strands the trip: it stays
+        ASSIGNED holding a truck, and the only person who could start it can no
+        longer sign in.
+        """
+        driver, _ = await factories.make_driver(session)
+        truck = await factories.make_truck(session)
+        assignment = await factories.make_assignment(session, driver, truck)
+        await factories.make_trip(
+            session, driver, truck, assignment=assignment, status=TripStatus.ASSIGNED
+        )
+
+        r = await api.post(
+            f"/api/drivers/{driver.id}/deactivate", headers=manager_headers
+        )
+        assert r.status_code == 409, r.text
+        assert r.json()["error"]["code"] == "DRIVER_HAS_LIVE_TRIP"
+
+        await session.refresh(driver)
+        assert driver.deleted_at is None
+        assert driver.status is DriverStatus.AVAILABLE
+
+    async def test_deactivate_refuses_a_driver_on_an_active_trip(
+        self, api: AsyncClient, manager_headers: dict, session: AsyncSession
+    ) -> None:
+        """Case C: the trip has started and the driver is on the road.
+
+        The dispatched case is covered above; this is the one where the truck
+        is actually moving. Disabling the login here is worse, not better: the
+        driver loses the app mid-trip and cannot complete the stops, so the
+        trip can never be closed and the truck is never released.
+        """
+        driver, _ = await factories.make_driver(session)
+        truck = await factories.make_truck(session)
+        assignment = await factories.make_assignment(session, driver, truck)
+        await factories.make_trip(
+            session, driver, truck, assignment=assignment, status=TripStatus.ACTIVE
+        )
+
+        r = await api.post(
+            f"/api/drivers/{driver.id}/deactivate", headers=manager_headers
+        )
+
+        assert r.status_code == 409, r.text
+        assert r.json()["error"]["code"] == "DRIVER_HAS_LIVE_TRIP"
+
+    async def test_deactivate_allows_a_driver_whose_trip_is_only_a_draft(
+        self, api: AsyncClient, session: AsyncSession, manager_headers: dict
+    ) -> None:
+        """A DRAFT trip is not the driver's yet, so it must not pin them.
+
+        Blocking here would mean a trip planned onto the wrong driver holds that
+        driver hostage until someone cancels it - a worse failure than the one
+        the guard exists to prevent.
+        """
+        driver, _ = await factories.make_driver(session)
+        truck = await factories.make_truck(session)
+        await factories.make_trip(
+            session, driver, truck, status=TripStatus.DRAFT
+        )
+
+        r = await api.post(
+            f"/api/drivers/{driver.id}/deactivate", headers=manager_headers
+        )
+        assert r.status_code == 200, r.text
 
     async def test_list_is_paginated_with_a_bounded_page_size(
         self, api: AsyncClient, manager_headers: dict

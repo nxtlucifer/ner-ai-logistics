@@ -1,0 +1,44 @@
+{
+  "fixture": "5804D1CF",
+  "scope": "Synthetic local demo; Chrome web approximation of driver; real local API, OSRM and available snapshot data",
+  "checks": [
+    {
+      "name": "Confirmed endpoint form creates one atomic draft",
+      "status": "PASS"
+    },
+    {
+      "name": "Independent reviewer authorization consumed by actual route selection",
+      "status": "PASS"
+    },
+    {
+      "name": "Dispatch persists and manager table shows ASSIGNED",
+      "status": "PASS"
+    },
+    {
+      "name": "Driver accepts once and opens separate assigned-route map",
+      "status": "PASS"
+    },
+    {
+      "name": "Truck verification, trip start and browser GPS capture run through actual APIs",
+      "status": "PASS"
+    },
+    {
+      "name": "Roadside category search reaches a sourced result or explicit unavailable state",
+      "status": "PASS"
+    },
+    {
+      "name": "Explicit Search this area uses visible map bounds",
+      "status": "PASS"
+    },
+    {
+      "name": "Restart restores the accepted trip from server state with no second acceptance (web scope; native token persistence not covered)",
+      "status": "PASS"
+    },
+    {
+      "name": "Manager sees the same active trip and its location freshness",
+      "status": "PASS"
+    }
+  ],
+  "network": [],
+  "status": "PASS"
+}

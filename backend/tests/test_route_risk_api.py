@@ -28,7 +28,9 @@ GEOMETRY = [(26.1445, 91.7362), (26.4, 92.9), (26.7509, 94.2037)]
 class _StubChain:
     """Enough of RoutingChain to plant a route worth assessing."""
 
-    async def route_options(self, origin, destination, *, kind, limit=1):  # noqa: ANN001
+    async def route_options(
+        self, origin, destination, *, kind, limit=1, detailed=False
+    ):  # noqa: ANN001
         from app.services.routing.base import ChainAttempt, ChainOptions
 
         return ChainOptions(

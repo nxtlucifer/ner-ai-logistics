@@ -2,10 +2,10 @@
   "expo": {
     "name": "NER Driver App",
     "slug": "ner-driver-app",
-    "version": "1.0.0",
+    "version": "1.0.10",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true
     },
@@ -16,7 +16,9 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.nxtlucifer.nerlogistics.driver.preview",
+      "versionCode": 10
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -32,6 +34,13 @@
           "isAndroidForegroundServiceEnabled": false
         }
       ]
-    ]
+    ],
+    "extra": {
+      "googleMapsConfigured": false,
+      "eas": {
+        "projectId": "95643483-d607-4044-8494-ac1b19bbd8bc"
+      }
+    },
+    "owner": "nxtlucifer2296"
   }
 }

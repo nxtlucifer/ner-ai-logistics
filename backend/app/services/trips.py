@@ -53,16 +53,38 @@ from app.services.pagination import (
 
 AUDITED_FIELDS = (
     "id", "trip_code", "shipment_id", "truck_id", "driver_id", "assignment_id",
-    "status", "dispatched_at", "started_at", "delivered_at", "closed_at",
+    "status", "dispatched_at", "driver_accepted_at", "driver_accepted_by",
+    "started_at", "delivered_at", "closed_at",
 )
 
 #: Statuses in which a trip is a driver's concern: it is theirs to start, or
 #: already running. Matches the partial index ix_trips_active for the two
 #: in-transit ones.
+#:
+#: This is the ONLY filter `driver_trips.current_trip` applies, so a status
+#: missing here does not merely sort late - it disappears from the driver's
+#: app, and the next QUEUED trip takes its place as "current". A driver may
+#: hold several non-terminal trips at once (dispatch is a queue; see
+#: `current_trip`'s ordering), which is what makes an omission here dangerous
+#: rather than merely untidy.
+#:
+#: INCIDENT is therefore included even though nothing transitions into it yet.
+#: COMMITS_DRIVER_TO_TRUCK already declares that during INCIDENT the driver is
+#: physically with that truck; leaving it out would let the app hand them a
+#: different trip to start, contradicting a fact this codebase asserts
+#: elsewhere. It is not startable - `evaluate_start` refuses anything that is
+#: not ASSIGNED - so including it makes the trip visible and blocking, which is
+#: the correct failure while a stuck truck waits on a human.
+#:
+#: DELIVERED is deliberately absent. It is committed too, but it is settlement
+#: work rather than the thing the driver is doing now, and it is addressed by
+#: id through `_own_delivered_trip` instead. Keeping it out is what lets the
+#: next trip become current once a delivery is made.
 OPEN_TRIP_STATUSES = (
     TripStatus.ASSIGNED,
     TripStatus.ACTIVE,
     TripStatus.DELAYED,
+    TripStatus.INCIDENT,
 )
 
 #: Truck states that make a trip physically impossible.
@@ -129,10 +151,25 @@ async def load_for_update(db: AsyncSession, trip_id: uuid.UUID) -> Trip:
     Every mutating path takes this. Without it, two requests both read the same
     status, both pass the state-machine check, and both write - which is how a
     trip gets started twice, or completed by one caller while another cancels it.
+
+    `populate_existing` is what makes the lock mean anything (LS-9). Without it,
+    a trip already in this session's identity map is handed back with the
+    attribute values of the EARLIER read: SQLAlchemy emits the SELECT ... FOR
+    UPDATE and really takes the lock, then discards the row it just locked
+    because it already has an instance for that primary key. `routes.plan()` is
+    a live path with exactly that shape - it loads the trip, commits to release
+    the connection, spends up to ROUTING_TIMEOUT_SECONDS at a provider, then
+    locks - and `expire_on_commit=False` (app/db/session.py) is set precisely so
+    the commit does NOT expire it in between. Re-reading under the lock is the
+    whole point of taking one, so it is done here, once, rather than left for
+    each of the eight callers to remember.
     """
     trip = (
         await db.execute(
-            select(Trip).where(Trip.id == trip_id).with_for_update()
+            select(Trip)
+            .where(Trip.id == trip_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     if trip is None:
@@ -390,17 +427,50 @@ async def plan(
 
 
 async def _load_driver(db: AsyncSession, driver_id: uuid.UUID) -> Driver:
-    driver = (
+    """Load a driver and assert they may be given a trip.
+
+    Dispatchability is not `drivers.status` alone. The operational status and
+    the login behind it are separate columns that can disagree, and only one of
+    them decides whether the driver can actually pick the trip up. A driver row
+    reading AVAILABLE whose account cannot authenticate yields a trip that is
+    ASSIGNED and unreachable - the driver is rejected at login, so the start
+    endpoint is never called, and the truck stays held by a trip nobody can
+    move. The join is what keeps that combination from being expressible.
+
+    Run for creation AND again for dispatch, deliberately: every fact here can
+    change between planning a trip and sending it.
+    """
+    # FOR UPDATE OF users, not merely a read: the login flag is the one fact
+    # here that another request can flip while this one is deciding. Without
+    # the lock, a dispatch and a deactivation both pass their pre-checks and
+    # both commit - the trip reaches ASSIGNED and the account that owns it is
+    # already disabled. Deactivation takes the same row lock first, so the two
+    # serialise on it and whichever runs second sees the other's committed
+    # result. Only the users row is locked; the driver row is read, not held.
+    row = (
         await db.execute(
-            select(Driver).where(Driver.id == driver_id, Driver.deleted_at.is_(None))
+            select(Driver, User.is_active)
+            .join(User, User.id == Driver.user_id)
+            .where(Driver.id == driver_id, Driver.deleted_at.is_(None))
+            .with_for_update(of=User)
         )
-    ).scalar_one_or_none()
-    if driver is None:
+    ).one_or_none()
+    if row is None:
         raise NotFoundError("Driver not found.")
+    driver, login_is_active = row
     if driver.status is DriverStatus.SUSPENDED:
         raise BusinessRuleError(
             "Driver is suspended and cannot be given a trip.",
             code="DRIVER_SUSPENDED",
+        )
+    if not login_is_active:
+        # 409, not 422: unlike capacity or an expired licence this is a state
+        # that can be undone by reactivating the account, so the request is not
+        # "nobody may" - it is "not while this is true".
+        raise ConflictError(
+            "The driver's login is inactive, so they could not start the trip. "
+            "Reactivate the account first.",
+            code="DRIVER_LOGIN_INACTIVE",
         )
     if driver.licence_expiry < date.today():
         raise BusinessRuleError(
@@ -480,11 +550,36 @@ async def dispatch(
     Re-runs every gate rather than trusting what was true at creation: a licence
     can lapse, a truck can break down, and an assignment can be ended between
     planning a trip and dispatching it.
+
+    LOCK ORDER: users, THEN trips. It must match `drivers.deactivate()`,
+    which takes the same two locks in that order. Both operations touch both
+    rows, so taking them in opposite orders is an ABBA deadlock:
+
+        dispatch    holds trips, waits for users
+        deactivate  holds users, waits for trips
+
+    PostgreSQL resolves that by aborting one side with SQLSTATE 40P01, and
+    nothing in this application handles 40P01 - so the caller meets a 500
+    exactly where the design intends a clean 409. Deactivation cannot yield
+    its ordering: it must hold the login before it looks for live trips, or a
+    dispatch in flight turns a DRAFT trip into an ASSIGNED one behind its
+    check. So dispatch is the side that reorders.
+
+    Reading `driver_id` before the trip is locked is safe because it is
+    write-once: it is set when the trip row is created and no code path
+    updates it afterwards.
     """
+    driver_id = (
+        await db.execute(select(Trip.driver_id).where(Trip.id == trip_id))
+    ).scalar_one_or_none()
+    if driver_id is None:
+        raise NotFoundError("Trip not found.")
+
+    # Locks the users row (FOR UPDATE OF users) and refuses an inactive login.
+    driver = await _load_driver(db, driver_id)
+
     trip = await load_for_update(db, trip_id)
     before = audit.snapshot(trip, AUDITED_FIELDS)
-
-    driver = await _load_driver(db, trip.driver_id)
     truck = await _load_truck(db, trip.truck_id)
     shipment = await shipments.get(db, trip.shipment_id)
     _assert_capacity(shipment, truck)

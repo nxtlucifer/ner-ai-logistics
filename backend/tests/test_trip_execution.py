@@ -965,6 +965,107 @@ class TestDispatch:
         assert response.status_code == 409
         assert response.json()["error"]["code"] == "NO_ACTIVE_ASSIGNMENT"
 
+    async def test_dispatch_refuses_a_driver_whose_login_is_inactive(
+        self, api: AsyncClient, session: AsyncSession, manager_headers: dict
+    ) -> None:
+        """A driver who cannot sign in cannot be given a trip.
+
+        drivers.status and users.is_active are independent columns, and a driver
+        row reading AVAILABLE says nothing about whether the account behind it
+        can authenticate. Dispatching to such a driver produces a trip that is
+        ASSIGNED and unreachable: POST /api/auth/login rejects the account, so
+        the driver can never call the start endpoint, and the truck is held by a
+        trip nobody can move.
+        """
+        driver, _ = await factories.make_driver(session, is_active=False)
+        truck = await factories.make_truck(session)
+        await factories.make_assignment(session, driver, truck)
+        shipment = await factories.make_shipment(session)
+
+        response = await api.post(
+            "/api/trips",
+            headers=manager_headers,
+            json={
+                "trip_code": f"{factories.TEST_TRIP_PREFIX}{uuid.uuid4().hex[:8].upper()}",
+                "shipment_id": str(shipment.id),
+                "truck_id": str(truck.id),
+                "driver_id": str(driver.id),
+            },
+        )
+        assert response.status_code == 409, response.text
+        assert response.json()["error"]["code"] == "DRIVER_LOGIN_INACTIVE"
+
+    async def test_dispatch_rechecks_login_deactivated_after_the_draft(
+        self, api: AsyncClient, session: AsyncSession, manager_headers: dict
+    ) -> None:
+        """The gate is re-run at dispatch, not trusted from creation time.
+
+        This is the race the manager UI cannot close: the page was loaded while
+        the driver could sign in, the account was disabled afterwards, and the
+        dispatch click arrives carrying stale state. The decision belongs to the
+        backend at the moment of the write.
+        """
+        driver, user = await factories.make_driver(session)
+        truck = await factories.make_truck(session)
+        await factories.make_assignment(session, driver, truck)
+        shipment = await factories.make_shipment(session)
+
+        created = await api.post(
+            "/api/trips",
+            headers=manager_headers,
+            json={
+                "trip_code": f"{factories.TEST_TRIP_PREFIX}{uuid.uuid4().hex[:8].upper()}",
+                "shipment_id": str(shipment.id),
+                "truck_id": str(truck.id),
+                "driver_id": str(driver.id),
+            },
+        )
+        assert created.status_code == 201, created.text
+
+        user.is_active = False
+        await session.commit()
+
+        response = await api.post(
+            f"/api/trips/{created.json()['id']}/dispatch", headers=manager_headers
+        )
+        assert response.status_code == 409, response.text
+        assert response.json()["error"]["code"] == "DRIVER_LOGIN_INACTIVE"
+
+        row = await session.get(Trip, uuid.UUID(created.json()["id"]))
+        await session.refresh(row)
+        assert row.status is TripStatus.DRAFT
+        assert row.dispatched_at is None
+
+    async def test_dispatch_succeeds_once_the_login_is_restored(
+        self, api: AsyncClient, session: AsyncSession, manager_headers: dict
+    ) -> None:
+        """Reactivation restores dispatchability - the gate is not a one-way latch."""
+        driver, user = await factories.make_driver(session, is_active=False)
+        truck = await factories.make_truck(session)
+        await factories.make_assignment(session, driver, truck)
+        shipment = await factories.make_shipment(session)
+
+        payload = {
+            "trip_code": f"{factories.TEST_TRIP_PREFIX}{uuid.uuid4().hex[:8].upper()}",
+            "shipment_id": str(shipment.id),
+            "truck_id": str(truck.id),
+            "driver_id": str(driver.id),
+        }
+        blocked = await api.post("/api/trips", headers=manager_headers, json=payload)
+        assert blocked.status_code == 409
+
+        user.is_active = True
+        await session.commit()
+
+        created = await api.post("/api/trips", headers=manager_headers, json=payload)
+        assert created.status_code == 201, created.text
+
+        dispatched = await api.post(
+            f"/api/trips/{created.json()['id']}/dispatch", headers=manager_headers
+        )
+        assert dispatched.status_code == 200, dispatched.text
+        assert dispatched.json()["status"] == "ASSIGNED"
+
     async def test_dispatch_refuses_an_overloaded_truck(
         self, api: AsyncClient, session: AsyncSession, manager_headers: dict
     ) -> None:

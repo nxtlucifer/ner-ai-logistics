@@ -18,7 +18,9 @@ from app.domain.routing import (
     RoutingMalformed,
     RoutingRejected,
     RoutingUnavailable,
+    haversine_m,
     is_distinct_corridor,
+    sample_positions,
 )
 from app.models.enums import RouteKind
 from app.services.routing.base import ChainAttempt, RoutingChain
@@ -230,7 +232,9 @@ class _StubProvider:
         self._options = options
         self.calls = 0
 
-    async def route_options(self, origin, destination, *, kind, limit=1):  # noqa: ANN001
+    async def route_options(
+        self, origin, destination, *, kind, limit=1, detailed=False
+    ):  # noqa: ANN001
         self.calls += 1
         if self._raises is not None:
             raise self._raises
@@ -427,3 +431,104 @@ class TestProviderAlternatives:
             GUWAHATI, JORHAT, kind=RouteKind.PRIMARY, limit=2
         )
         assert len(out) == 1
+
+
+class TestWeatherSamplingIsSpreadByDistance:
+    """Where the five weather samples actually land on a real corridor.
+
+    `sample_positions` feeds `route_risk`, which feeds the recommendation and
+    the reroute assessment. If the samples cluster, every one of those is
+    scored against a corridor it barely looked at.
+
+    Clustering is not hypothetical here. This project asks OSRM for
+    `overview=simplified`, and a simplified polyline keeps MORE vertices where
+    the road bends - which on a NER corridor means the hills, and leaves long
+    straight stretches with almost none. Sampling by index then puts most of
+    the samples in a small part of the route.
+    """
+
+    #: Vertices dense through a hill section, then two long straight legs -
+    #: the shape `overview=simplified` actually produces.
+    HILLY = [
+        (26.10, 91.70), (26.12, 91.75), (26.15, 91.79), (26.17, 91.84),
+        (26.20, 91.88), (26.24, 91.93), (26.28, 91.99), (26.33, 92.05),
+        (26.40, 92.90), (26.75, 94.20),
+    ]
+
+    @staticmethod
+    def _along_km(geometry, point):
+        """How far along `geometry` a point lying ON it sits, and the total.
+
+        Projects onto the SEGMENTS rather than snapping to the nearest vertex.
+        Samples are interpolated, so a nearest-vertex measure would report a
+        sample 66 km along as being at 44 km - and a test whose measurement is
+        wrong can pass for the wrong reason.
+
+        The segment a point belongs to is the one where going via the point
+        adds no detour.
+        """
+        cumulative = [0.0]
+        for i in range(1, len(geometry)):
+            cumulative.append(
+                cumulative[-1] + haversine_m(*geometry[i - 1], *geometry[i])
+            )
+        best_detour, best_along = float("inf"), 0.0
+        for i in range(1, len(geometry)):
+            detour = (
+                haversine_m(*geometry[i - 1], *point)
+                + haversine_m(*point, *geometry[i])
+                - haversine_m(*geometry[i - 1], *geometry[i])
+            )
+            if detour < best_detour:
+                best_detour = detour
+                best_along = cumulative[i - 1] + haversine_m(*geometry[i - 1], *point)
+        return best_along / 1000.0, cumulative[-1] / 1000.0
+
+    def test_samples_are_spread_across_the_whole_corridor(self) -> None:
+        samples = sample_positions(self.HILLY, 5)
+        assert len(samples) == 5
+
+        positions = [self._along_km(self.HILLY, p)[0] for p in samples]
+        total = self._along_km(self.HILLY, samples[0])[1]
+
+        # No more than two of five may fall in the first quarter. Sampling by
+        # index put FOUR of five in the first 17% of this route, leaving 220 km
+        # represented by a single reading - so a storm sitting on that stretch
+        # would be seen once out of five times and scored as if it were local.
+        in_first_quarter = sum(1 for p in positions if p < total * 0.25)
+        assert in_first_quarter <= 2, (
+            f"{in_first_quarter}/5 samples in the first quarter: {positions}"
+        )
+
+        # And the corridor's far half must be represented by more than the
+        # endpoint alone.
+        in_second_half = sum(1 for p in positions if p > total * 0.5)
+        assert in_second_half >= 2, (
+            f"only {in_second_half}/5 samples past halfway: {positions}"
+        )
+
+    def test_the_ends_are_always_sampled(self) -> None:
+        """Origin and destination are the two points a dispatcher assumes are
+        covered."""
+        samples = sample_positions(self.HILLY, 5)
+        assert samples[0] == self.HILLY[0]
+        assert samples[-1] == self.HILLY[-1]
+
+    def test_an_evenly_spaced_line_is_still_evenly_sampled(self) -> None:
+        """The change must not disturb the ordinary case."""
+        even = [(26.0, 91.0 + i * 0.1) for i in range(11)]
+        samples = sample_positions(even, 5)
+        positions = [self._along_km(even, p)[0] for p in samples]
+        total = self._along_km(even, samples[0])[1]
+        for i, p in enumerate(positions):
+            assert p == pytest.approx(total * i / 4, rel=0.15, abs=1.0)
+
+    def test_fewer_vertices_than_samples_returns_them_all(self) -> None:
+        short = [(26.0, 91.0), (26.5, 92.0)]
+        assert sample_positions(short, 5) == short
+
+    def test_degenerate_inputs_do_not_raise(self) -> None:
+        assert sample_positions([], 5) == []
+        assert sample_positions([(26.0, 91.0)], 5) == [(26.0, 91.0)]
+        assert sample_positions(self.HILLY, 0) == []
+        assert sample_positions(self.HILLY, 1) == [self.HILLY[0]]

@@ -1,0 +1,65 @@
+[
+  {
+    "step": 21,
+    "name": "countdown-220",
+    "note": "Same maneuver (new name Nagaon Bypass), closing in.",
+    "panel": "16 km Continue onto Nagaon Bypass",
+    "file": "D:\\Projects\\ner-ai-logistics\\docs\\submission\\evidence\\21-countdown-220.png"
+  },
+  {
+    "step": 22,
+    "name": "countdown-120",
+    "note": "Same maneuver (new name Nagaon Bypass), closing in.",
+    "panel": "10 km Continue onto Nagaon Bypass",
+    "file": "D:\\Projects\\ner-ai-logistics\\docs\\submission\\evidence\\22-countdown-120.png"
+  },
+  {
+    "step": 23,
+    "name": "countdown-40",
+    "note": "Same maneuver (new name Nagaon Bypass), closing in.",
+    "panel": "4.9 km Continue onto Nagaon Bypass",
+    "file": "D:\\Projects\\ner-ai-logistics\\docs\\submission\\evidence\\23-countdown-40.png"
+  },
+  {
+    "step": 24,
+    "name": "emergency-dialler-intercepted",
+    "note": "tel: intents recorded and blocked: []",
+    "panel": "4.9 km Continue onto Nagaon Bypass",
+    "file": "D:\\Projects\\ner-ai-logistics\\docs\\submission\\evidence\\24-emergency-dialler-intercepted.png"
+  },
+  {
+    "step": 25,
+    "name": "replan-preserves-assignment",
+    "note": "Planned a new candidate. selected_route_id unchanged; driver keeps following the approved route.",
+    "panel": "4.9 km Continue onto Nagaon Bypass",
+    "file": "D:\\Projects\\ner-ai-logistics\\docs\\submission\\evidence\\25-replan-preserves-assignment.png"
+  },
+  {
+    "step": 26,
+    "name": "approved-replacement-switched",
+    "note": "Accepted candidate e040cf7f-fe9e-4358-a4b9-b7e65033a370; select -> 200. Map, steps and progress follow one route id.",
+    "panel": "4.9 km Continue onto Nagaon Bypass",
+    "file": "D:\\Projects\\ner-ai-logistics\\docs\\submission\\evidence\\26-approved-replacement-switched.png"
+  },
+  {
+    "step": 27,
+    "name": "stale-hold",
+    "note": "No new fixes for over the configured window: the countdown stops claiming.",
+    "panel": "Guidance paused Your last position is too old to guide from. The route is still shown.",
+    "file": "D:\\Projects\\ner-ai-logistics\\docs\\submission\\evidence\\27-stale-hold.png"
+  },
+  {
+    "step": 28,
+    "name": "contact-lost-hold",
+    "note": "Polling blocked: a cached LIVE label is aged out rather than trusted.",
+    "panel": "35 km Continue",
+    "file": "D:\\Projects\\ner-ai-logistics\\docs\\submission\\evidence\\28-contact-lost-hold.png"
+  },
+  {
+    "step": 29,
+    "name": "permission-revoked-after-live-fix",
+    "note": "Guidance was running (\"31 km Continue\") on a fix the server still calls LIVE. Permission removed: the app pauses on its own state, not on the server's window.",
+    "panel": "(panel not found)",
+    "file": "D:\\Projects\\ner-ai-logistics\\docs\\submission\\evidence\\29-permission-revoked-after-live-fix.png"
+  }
+]

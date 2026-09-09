@@ -7,6 +7,11 @@ argument: argv is visible to other processes and lands in shell history.
 
 Drivers are not created here - a driver account is created together with their
 profile through POST /api/drivers, so the two can never diverge.
+
+AUTHORISED_REVIEWER is creatable here too (LS-11). That role holds
+`route:review_authorize` and deliberately NOT `route:select`, so a reviewer
+cannot act on their own authorisation. It has to be provisioned explicitly -
+there is no path that promotes an existing manager into it, which is the point.
 """
 
 import argparse
@@ -59,7 +64,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Create a manager or admin account.")
     parser.add_argument("--email", required=True)
     parser.add_argument(
-        "--role", default="MANAGER", choices=["MANAGER", "ADMIN"],
+        "--role", default="MANAGER",
+        choices=["MANAGER", "ADMIN", "AUTHORISED_REVIEWER"],
         help="DRIVER accounts are created via POST /api/drivers.",
     )
     parser.add_argument("--name", required=True, dest="display_name")

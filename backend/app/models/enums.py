@@ -30,6 +30,14 @@ class UserRole(_StrEnum):
     ADMIN = "ADMIN"
     MANAGER = "MANAGER"
     DRIVER = "DRIVER"
+    #: Authorises a REQUIRES_REVIEW route so one selection may proceed (LS-11).
+    #:
+    #: A separate role rather than a manager attribute, and deliberately
+    #: WITHOUT `route:select`: the person who accepts a hazard risk must not be
+    #: the person who then acts on it. Keeping the two permissions in different
+    #: roles makes that separation structural instead of a check somebody can
+    #: delete. See app/core/permissions.py.
+    AUTHORISED_REVIEWER = "AUTHORISED_REVIEWER"
 
 
 class DriverStatus(_StrEnum):
@@ -177,6 +185,9 @@ class TripEventKind(_StrEnum):
     ASSIGNED = "ASSIGNED"
     VERIFIED = "VERIFIED"
     DISPATCHED = "DISPATCHED"
+    #: The driver acknowledged the dispatched job. Distinct from STARTED,
+    #: which is the moment the truck begins travelling. Added in 0008.
+    ACCEPTED = "ACCEPTED"
     STARTED = "STARTED"
     STOP_ARRIVED = "STOP_ARRIVED"
     STOP_COMPLETED = "STOP_COMPLETED"
@@ -206,6 +217,24 @@ class AuditAction(_StrEnum):
 
 
 # Names of the PostgreSQL types, so migrations and models cannot drift apart.
+class RouteReviewBasis(_StrEnum):
+    """Which REQUIRES_REVIEW reason a reviewer actually authorised (LS-11).
+
+    Stored rather than inferred, so the record says what the reviewer was
+    looking at. "Nobody has measured this corridor" and "an authority reported
+    an incident on it" are different facts, and an incident review must be able
+    to tell which one a person accepted.
+
+    HIGH_HAZARD_REPORTED exists in the type but is NOT authorisable under the
+    approved policy - the service refuses it. It is kept because PostgreSQL
+    cannot drop an enum value, so removing it now would cost an ALTER TYPE to
+    reinstate if the policy ever widens.
+    """
+
+    HAZARD_DATA_UNKNOWN = "HAZARD_DATA_UNKNOWN"
+    HIGH_HAZARD_REPORTED = "HIGH_HAZARD_REPORTED"
+
+
 ENUM_TYPE_NAMES: dict[type[_StrEnum], str] = {
     UserRole: "user_role",
     DriverStatus: "driver_status",
@@ -224,4 +253,5 @@ ENUM_TYPE_NAMES: dict[type[_StrEnum], str] = {
     RouteState: "route_state",
     TripEventKind: "trip_event_kind",
     AuditAction: "audit_action",
+    RouteReviewBasis: "route_review_basis",
 }

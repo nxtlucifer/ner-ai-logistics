@@ -46,6 +46,7 @@ from app.core.errors import (
     NotFoundError,
     ServiceUnavailableError,
 )
+from app.domain.route_eligibility import Eligibility, EligibilityDecision
 from app.domain.routing import Coordinate as RouteCoordinate
 from app.domain.routing import (
     RouteCandidate,
@@ -53,6 +54,7 @@ from app.domain.routing import (
     RoutingRejected,
     RoutingUnavailable,
     is_distinct_corridor,
+    parse_wkt_point,
 )
 from app.models.enums import AuditAction, RouteKind, RouteState, TripStopKind
 from app.models.identity import User
@@ -133,9 +135,8 @@ async def _endpoints(
         )
 
     def parse(wkt: str) -> RouteCoordinate:
-        inner = wkt[wkt.index("(") + 1 : wkt.rindex(")")]
-        lon_text, lat_text = inner.split()[0], inner.split()[1]
-        return RouteCoordinate(lat=float(lat_text), lon=float(lon_text))
+        lat, lon = parse_wkt_point(wkt)
+        return RouteCoordinate(lat=lat, lon=lon)
 
     pickup = next((r for r in rows if r[1] is TripStopKind.PICKUP), rows[0])
     dropoff = next(
@@ -144,13 +145,56 @@ async def _endpoints(
     return parse(pickup[2]), parse(dropoff[2])
 
 
+def _maneuvers_json(candidate) -> list[dict] | None:
+    """A candidate's turn instructions, ready for the JSONB column.
+
+    None - not `[]` - when the candidate carries none. The column's whole
+    contract is that NULL means "this route cannot drive guidance", and an
+    empty list would read as "this road has no turns", which is never true of
+    a 305 km corridor. See migration 0009.
+    """
+    if not candidate.maneuvers:
+        return None
+    return [
+        {
+            "type": m.type,
+            "modifier": m.modifier,
+            "lat": m.at[0],
+            "lon": m.at[1],
+            "geometry_index": m.geometry_index,
+            "step_distance_m": m.step_distance_m,
+            "duration_s": m.duration_s,
+            "name": m.name,
+            "exit": m.exit,
+        }
+        for m in candidate.maneuvers
+    ]
+
+
 async def plan(
-    db: AsyncSession, trip_id: uuid.UUID, *, actor: User, ip: str | None = None
+    db: AsyncSession,
+    trip_id: uuid.UUID,
+    *,
+    actor: User,
+    ip: str | None = None,
+    detailed: bool = False,
 ) -> PlanResult:
     """Plan a PRIMARY route for a trip and persist it.
 
-    Any previously proposed or selected route for this trip is marked
-    SUPERSEDED rather than deleted - see the module docstring.
+    `detailed=True` asks the provider for turn instructions and full geometry,
+    producing a candidate that CAN drive navigation. It is a new candidate like
+    any other: PROPOSED, assessed by `refuse_if_ineligible` and accepted only
+    through selection. Nothing attaches directions to a route that was planned
+    without them - a route gains guidance by being planned for it, never by
+    having instructions calculated later and stapled on because the endpoints
+    happen to match.
+
+    Obsolete UNSELECTED candidates are marked SUPERSEDED rather than deleted -
+    see the module docstring on why history is kept.
+
+    The route the trip is currently following is NOT touched. Planning offers
+    alternatives; it does not change which road the driver is on. Only an
+    explicit selection or an accepted reroute does that.
     """
     settings = get_settings()
     if not settings.ROUTING_ENABLED:
@@ -192,7 +236,11 @@ async def plan(
         # Two options requested. A second is persisted only if it is a
         # genuinely different corridor - see below.
         result = await build_chain().route_options(
-            origin, destination, kind=RouteKind.PRIMARY, limit=2
+            origin,
+            destination,
+            kind=RouteKind.PRIMARY,
+            limit=2,
+            detailed=detailed,
         )
     except RoutingRejected as exc:
         # Reached, and the answer is no. 422 NO_VIABLE_ROUTE, the code
@@ -238,16 +286,41 @@ async def plan(
     # Taken AFTER the provider call on purpose. Locking first would hold a row
     # lock across an HTTP request to a third party for up to the routing
     # timeout, so one slow provider would block every other write to that trip.
-    await trips.load_for_update(db, trip_id)
+    locked_trip = await trips.load_for_update(db, trip_id)
 
-    superseded = (
-        await db.execute(
-            select(TripRoute).where(
-                TripRoute.trip_id == trip_id,
-                TripRoute.state.in_((RouteState.PROPOSED, RouteState.SELECTED)),
-            )
-        )
-    ).scalars().all()
+    # THE CURRENT ASSIGNMENT SURVIVES PLANNING (LS-10).
+    #
+    # Asking what else is available is not consent to leave the road the truck
+    # is on. This previously superseded every PROPOSED *and SELECTED* route,
+    # which retired the trip's own `selected_route_id` - and SUPERSEDED is
+    # terminal here, not cosmetic: `apply_selection` refuses a superseded route
+    # outright, `route_recommendation` drops it from the candidates, and a
+    # replaced route is deliberately demoted to PROPOSED rather than SUPERSEDED
+    # precisely because superseded means "never again". The trip was left
+    # following a route the rest of the system considered unusable, and the
+    # manager UI - which finds the current route by looking for SELECTED -
+    # could no longer show what the driver was actually on.
+    #
+    # Read from the trip row just locked, NOT from anything read earlier in this
+    # request: `plan` releases the database before calling the provider, so
+    # another transaction can accept a replacement while this one is waiting on
+    # a third party. `load_for_update` re-reads under the lock
+    # (`populate_existing`), so this sees that acceptance rather than the state
+    # that was true when the request began.
+    #
+    # Obsolete UNSELECTED candidates are still superseded. Leaving them alive
+    # would be the opposite mistake: a pile of stale options that all look
+    # choosable.
+    current_route_id = locked_trip.selected_route_id
+
+    obsolete = select(TripRoute).where(
+        TripRoute.trip_id == trip_id,
+        TripRoute.state.in_((RouteState.PROPOSED, RouteState.SELECTED)),
+    )
+    if current_route_id is not None:
+        obsolete = obsolete.where(TripRoute.id != current_route_id)
+
+    superseded = (await db.execute(obsolete)).scalars().all()
 
     route = TripRoute(
         trip_id=trip_id,
@@ -261,6 +334,9 @@ async def plan(
         # value for "no estimate available".
         routing_provider=candidate.provider,
         provider_route_id=candidate.provider_route_id,
+        # None when this candidate was planned without directions. Stored as
+        # given - nothing here derives a turn from the geometry.
+        maneuvers=_maneuvers_json(candidate),
     )
     db.add(route)
     await db.flush()
@@ -276,6 +352,7 @@ async def plan(
                 estimated_duration_min=backup.duration_min,
                 routing_provider=backup.provider,
                 provider_route_id=backup.provider_route_id,
+                maneuvers=_maneuvers_json(backup),
             )
         )
         await db.flush()
@@ -348,19 +425,115 @@ async def ensure_belongs_to_trip(
         raise NotFoundError("Route not found for this trip.")
 
 
-async def select_route(
+async def state_of(db: AsyncSession, route_id: uuid.UUID) -> str:
+    """A route's lifecycle state as a plain string.
+
+    Used to bind a review authorisation to the state the reviewer saw, so one
+    issued against a PROPOSED route cannot be spent after that route was
+    superseded. A column read, not an entity load - the same reason
+    `route_risk._route_facts` reads columns.
+    """
+    state = (
+        await db.execute(
+            select(TripRoute.state).where(TripRoute.id == route_id)
+        )
+    ).scalar_one_or_none()
+    if state is None:
+        raise NotFoundError("Route not found.")
+    return state.value
+
+
+def refuse_if_ineligible(
+    decision: "EligibilityDecision", *, offered_authorization: bool = False
+) -> None:
+    """Raise if this route may not be applied. Pure, so it can be tested alone.
+
+    LS-4. `apply_selection` previously checked only that the route belonged to
+    the trip and was not SUPERSEDED - so a route with a validated active
+    closure could be selected directly through the API, bypassing the
+    recommendation ranking entirely. A disabled button in the manager UI is not
+    a control; the refusal has to live on the server, on the mutation path.
+
+    Refuses REJECTED, REQUIRES_REVIEW and NOT_ASSESSED, each with its own code.
+
+    `offered_authorization` relaxes ONLY the REQUIRES_REVIEW branch, and only
+    to the extent of letting the request continue to the place where an
+    authorisation is really checked (`route_review.claim`, under the trip lock,
+    against the live evidence). REJECTED and NOT_ASSESSED have no parameter
+    that can affect them - the hard limit is expressed as "there is no code
+    path", not as a check somebody could pass the wrong argument to.
+    """
+    if decision is None:
+        # LS-5. Previously this meant "allowed", and EVERY live caller passed
+        # None - so the guard existed and enforced nothing. An omitted
+        # assessment is an integration failure in this application, and the
+        # safe answer to "did anyone check?" being "no" is to refuse.
+        raise BusinessRuleError(
+            "Route eligibility was not assessed; the change was refused.",
+            code="ROUTE_ELIGIBILITY_NOT_ASSESSED",
+        )
+    if decision.eligibility is Eligibility.NOT_ASSESSED:
+        raise BusinessRuleError(
+            "Route eligibility could not be assessed; the change was refused.",
+            code="ROUTE_ELIGIBILITY_NOT_ASSESSED",
+        )
+    if decision.is_rejected:
+        raise BusinessRuleError(
+            "That route is blocked by an active hazard and cannot be selected.",
+            code="ROUTE_REJECTED_ACTIVE_HAZARD",
+        )
+    if decision.eligibility is Eligibility.REQUIRES_REVIEW and not offered_authorization:
+        # A DIFFERENT refusal from a hazard rejection - the road is not known to
+        # be blocked, it is not known to be clear - and it carries its own code
+        # so a manager is told which of those two things happened.
+        #
+        # Since LS-11 this is passable, but ONLY by presenting an audited
+        # authorisation, and only for evidence that is UNKNOWN. Note what this
+        # branch does NOT do: it does not accept the authorisation. It merely
+        # declines to refuse here, so the request can reach the point under the
+        # trip lock where the authorisation is actually validated and spent
+        # against the live evidence. Nothing is approved by getting this far.
+        raise BusinessRuleError(
+            "This route needs review before it can be selected: required "
+            "safety evidence is missing or elevated.",
+            code="ROUTE_SELECTION_REQUIRES_REVIEW",
+        )
+
+
+async def apply_selection(
     db: AsyncSession,
     trip_id: uuid.UUID,
     route_id: uuid.UUID,
     *,
     actor: User,
     ip: str | None = None,
-) -> TripRoute:
-    """Mark one proposed route as the selected one.
+    reason: str = "route selected",
+    eligibility: "EligibilityDecision",
+    authorization_id: uuid.UUID | None = None,
+    assessment=None,
+) -> tuple[TripRoute, uuid.UUID | None]:
+    """Select a route and audit it, WITHOUT committing.
 
-    Scoped by trip_id as well as route_id, so a route belonging to another trip
-    is a 404 rather than a cross-trip write.
+    Split out so a caller that must write more in the same transaction can do
+    so. Accepting a reroute is exactly that: the route change and the
+    `ROUTE_CHANGED` event on the trip's timeline have to land together or not
+    at all, and a version of this that committed would leave a trip whose route
+    moved with no record on the timeline saying why.
+
+    Returns the selected route and the id of the route it replaced, which is
+    the fact a reroute record needs and which is destroyed by the write itself.
+
+    The caller owns the transaction, and therefore owns the commit.
     """
+    # Refused BEFORE the lock is taken. The decision is computed by the caller
+    # from evidence gathered outside any transaction, because a hazard lookup
+    # is network I/O and holding a row lock across it spends the database
+    # budget waiting on somebody else's server - the rule route_risk already
+    # follows.
+    refuse_if_ineligible(
+        eligibility, offered_authorization=authorization_id is not None
+    )
+
     # Lock the trip first. Selecting demotes every other SELECTED route and
     # writes trips.selected_route_id, so two concurrent selections would
     # otherwise each demote the other's choice and leave the trip pointing at
@@ -383,6 +556,33 @@ async def select_route(
             code="ROUTE_SUPERSEDED",
         )
 
+    # SPEND THE AUTHORISATION HERE, and only here (LS-11).
+    #
+    # After the trip lock and after the route has been re-read under it, so the
+    # `route_state_at_issue` binding is checked against the state this
+    # transaction actually holds. The claim is one conditional UPDATE inside
+    # THIS transaction, and the caller commits it together with the route
+    # change - so a failure anywhere below rolls the consumption back too and
+    # an authorisation is never spent on a selection that did not happen.
+    if eligibility.eligibility is Eligibility.REQUIRES_REVIEW:
+        if authorization_id is None:  # pragma: no cover - guarded above
+            raise BusinessRuleError(
+                "This route needs review before it can be selected.",
+                code="ROUTE_SELECTION_REQUIRES_REVIEW",
+            )
+        from app.services import route_review
+
+        await route_review.claim(
+            db,
+            authorization_id,
+            trip_id=trip_id,
+            route_id=route_id,
+            route_state=route.state.value,
+            actor=actor,
+            decision=eligibility,
+            assessment=assessment,
+        )
+
     before = audit.snapshot(route, AUDITED_FIELDS)
     others = (
         await db.execute(
@@ -393,6 +593,11 @@ async def select_route(
             )
         )
     ).scalars().all()
+    # Demoted to PROPOSED, deliberately NOT SUPERSEDED. A superseded route is
+    # one that can never be taken again, and weather is not permanent: a
+    # corridor abandoned this afternoon may be the right road this evening, and
+    # marking it dead would make the reroute a one-way door.
+    previous_selected_id = others[0].id if others else None
     for other in others:
         other.state = RouteState.PROPOSED
 
@@ -411,8 +616,43 @@ async def select_route(
         actor_user_id=actor.id,
         before=before,
         after=audit.snapshot(route, AUDITED_FIELDS),
-        reason="route selected",
+        reason=reason,
         ip_address=ip,
+    )
+    return route, previous_selected_id
+
+
+async def select_route(
+    db: AsyncSession,
+    trip_id: uuid.UUID,
+    route_id: uuid.UUID,
+    *,
+    actor: User,
+    ip: str | None = None,
+    authorization_id: uuid.UUID | None = None,
+) -> TripRoute:
+    """Mark one proposed route as the selected one.
+
+    Scoped by trip_id as well as route_id, so a route belonging to another trip
+    is a 404 rather than a cross-trip write.
+    """
+    # Computed BEFORE apply_selection takes the trip lock, and computed HERE
+    # rather than accepted from the caller: the API layer must not be able to
+    # hand in an eligibility of its own.
+    from app.services import route_risk as route_risk_service
+
+    decision, assessment = await route_risk_service.eligibility_and_evidence_for_route(
+        db, route_id
+    )
+    route, _ = await apply_selection(
+        db,
+        trip_id,
+        route_id,
+        actor=actor,
+        ip=ip,
+        eligibility=decision,
+        authorization_id=authorization_id,
+        assessment=assessment,
     )
     await db.commit()
     await db.refresh(route)

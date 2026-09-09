@@ -22,6 +22,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { ApiError, api, type TrackingConfig } from '../api/client'
 import { expoLocationAdapter } from './adapter'
+import { createQueueStore } from './queueStorage'
 import {
   LocationTracker,
   type TrackerState,
@@ -43,6 +44,11 @@ const IDLE: TrackerState = {
   lastAcceptedAt: null,
   droppedCount: 0,
   lastError: null,
+  lastPosition: null,
+  // No durable store is wired into the app yet, so the honest value here is
+  // 'memory' - the queue works and is bounded, and it does not survive the OS
+  // killing the app. The tracker reports 'durable' only when one is supplied.
+  persistence: 'memory',
 }
 
 /** How often to consider sending. The engine decides whether there is anything. */
@@ -106,6 +112,11 @@ export function useLocationTracking(
         classify: classifyUploadError,
         now: () => Date.now(),
         newId: randomId,
+        // DRV-001: without this the tracker falls back to MemoryQueueStore and
+        // the unsent queue dies with the process. Android kills backgrounded
+        // apps routinely, and a driver in a dead zone is exactly when the queue
+        // matters most.
+        queueStore: createQueueStore(),
       },
       {
         movingIntervalSeconds: moving,

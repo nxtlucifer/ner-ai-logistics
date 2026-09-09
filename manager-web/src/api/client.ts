@@ -16,8 +16,14 @@
  * the API base URL uses that prefix - never a key or token.
  */
 
+import { getSupabase } from './supabaseClient'
+import { UNAVAILABLE_OPERATIONS, supabaseManagerApi } from './supabaseManagerApi'
+
+export const BACKEND_TARGET: string =
+  import.meta.env.VITE_BACKEND ?? (import.meta.env.VITE_SUPABASE_URL ? 'supabase' : 'local')
+
 export const API_BASE_URL: string =
-  import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
+  BACKEND_TARGET === 'supabase' ? '' : (import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000')
 
 // --- Error model ----------------------------------------------------------
 
@@ -182,6 +188,19 @@ async function withRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
 
 /** Exchange the refresh cookie for a new access token. */
 export function refreshSession(): Promise<string | null> {
+  if (BACKEND_TARGET === 'supabase') {
+    return (async () => {
+      try {
+        const { data, error } = await getSupabase().auth.getSession()
+        if (error || !data.session) return null
+        accessToken = data.session.access_token
+        return accessToken
+      } catch {
+        return null
+      }
+    })()
+  }
+
   if (refreshInFlight) return refreshInFlight
 
   refreshInFlight = withRefreshLock(async () => {
@@ -304,6 +323,16 @@ export interface Driver {
   licence_number: string
   licence_expiry: string
   status: DriverStatus
+  /**
+   * Whether the account behind this driver can still sign in.
+   *
+   * Not the same fact as `status`, and the difference is the point: `status`
+   * says whether the person is free to take work, this says whether they can
+   * reach the app at all. A driver can read AVAILABLE here and still be
+   * refused at dispatch with DRIVER_LOGIN_INACTIVE, because a trip they
+   * cannot start is a trip that strands a truck.
+   */
+  login_is_active: boolean
   created_at: string
 }
 
@@ -500,6 +529,173 @@ export interface TripRoute {
   created_at: string
   /** [[lat, lon], ...] in travel order. */
   geometry: [number, number][]
+  /**
+   * Whether this is the route the trip is ACTUALLY following — the row
+   * `trips.selected_route_id` points at.
+   *
+   * Not the same question as `state === 'SELECTED'`, and this is the field to
+   * trust. Trips whose assignment was retired by a planning request before
+   * that was fixed still point at a row reading `SUPERSEDED`; the driver is
+   * following it, and inferring "current" from the lifecycle state hides it.
+   */
+  is_current: boolean
+  estimated_fuel_litres?: number | string | null
+}
+
+export interface RouteRiskSummary {
+  /**
+   * Null when no assessment was made at all - see `band`.
+   *
+   * Nullable rather than 0 on purpose. Zero is a legitimate score meaning "we
+   * looked and found nothing wrong"; null means "nobody looked". Collapsing the
+   * two is the single failure mode this domain cannot afford, and it is what a
+   * hardcoded fixture used to do here.
+   */
+  score: number | null
+  /**
+   * `UNASSESSED` when the intelligence plane could not be reached, or is not
+   * configured for this deployment. It is NOT a synonym for LOW: an unassessed
+   * route is an unchecked road, not a clear one.
+   */
+  band: 'LOW' | 'MODERATE' | 'HIGH' | 'UNASSESSED'
+  unavailable: string[]
+  reason_codes: string[]
+}
+
+export interface RouteTradeoff {
+  /** Positive means the recommendation takes LONGER than the baseline. */
+  duration_delta_min: number | null
+  distance_delta_km: number | null
+  /** Negative means the recommendation is SAFER. */
+  risk_delta_points: number
+  fuel_delta_litres?: number | null
+}
+
+/**
+ * A named person's single-use acceptance of incomplete hazard evidence.
+ *
+ * NOT a statement that the road is clear. After this is consumed the route
+ * still assesses UNKNOWN and every screen still says the evidence is
+ * incomplete - that is the whole design, and any UI that renders this as
+ * "safe" or "verified" is wrong.
+ */
+export interface ReviewAuthorization {
+  id: string
+  trip_id: string
+  route_id: string
+  basis: string
+  rationale: string
+  reviewer_user_id: string
+  issued_at: string
+  expires_at: string
+  consumed_at: string | null
+  consumed_by_trip_id?: string | null
+  revoked_at: string | null
+  revoked_by?: string | null
+  policy_version: string
+  evidence_version: string
+  evidence_digest?: string | null
+  /** The assessment as the reviewer saw it. Incomplete, shown as incomplete. */
+  evidence_snapshot: Record<string, unknown>
+}
+
+export type RouteEligibility =
+  | 'ELIGIBLE'
+  | 'REQUIRES_REVIEW'
+  | 'REJECTED'
+  | 'NOT_ASSESSED'
+
+export interface RouteComparison {
+  route_id: string
+  kind: RouteKind
+  distance_km: number | null
+  estimated_duration_min: number | null
+  risk: RouteRiskSummary
+  /**
+   * Decided by the server from this route's own hazard evidence.
+   *
+   * Never re-derive this here. `risk.reason_codes` says WHY; this says WHAT,
+   * and a client holding its own copy of the eligibility rule is a client
+   * asserting its own eligibility.
+   */
+  eligibility: RouteEligibility
+}
+
+export interface RouteRecommendation {
+  recommended_route_id: string | null
+  baseline_route_id: string | null
+  /**
+   * False when the answer does NOT rest on a like-for-like comparison: only
+   * one route existed, or the candidates were scored from different evidence.
+   * Read this before the recommendation itself.
+   */
+  comparable: boolean
+  reason_codes: string[]
+  tradeoff: RouteTradeoff | null
+  candidates: RouteComparison[]
+  unavailable_inputs: string[]
+  margin_points: number
+  version: string
+}
+
+/**
+ * Whether anything should be raised about the road a moving truck is on.
+ *
+ * Three outcomes, and ALERT_ONLY is the one to read first: the road has
+ * deteriorated and there is NOTHING better to offer. On a single corridor -
+ * most of the North East - that is the common case, and a UI that only knows
+ * how to render a proposal falls silent exactly when it matters.
+ */
+export interface RerouteAssessment {
+  outcome: 'NO_ACTION' | 'ALERT_ONLY' | 'PROPOSE'
+  selected_route_id: string | null
+  selected_risk_score: number | null
+  selected_risk_band: string | null
+  /** Populated only for PROPOSE. Null on ALERT_ONLY, deliberately. */
+  proposed_route_id: string | null
+  reason_codes: string[]
+  comparison: RouteRecommendation | null
+  unavailable_inputs: string[]
+  floor_points: number
+  /**
+   * The second trigger: how severe the CONDITIONS alone must be, regardless of
+   * how long the trip is.
+   *
+   * `floor_points` is measured against a score that includes distance and
+   * duration, which a short trip structurally cannot reach - heavy rain along
+   * a whole 150 km corridor scores 53 against a floor of 60. Exposure is a
+   * property of the journey, not of the storm sitting on it, so conditions get
+   * their own threshold.
+   */
+  severe_conditions_points: number
+  margin_points: number
+  version: string
+}
+
+export interface RerouteAccepted {
+  trip_id: string
+  previous_route_id: string
+  selected_route_id: string
+  selected_route_kind: RouteKind
+}
+
+export interface AiStatus {
+  available: boolean
+  provider: string | null
+  model: string | null
+  detail: string | null
+  languages: Record<string, string>
+}
+
+export interface AiAnswer {
+  answer: string
+  generated: boolean
+  model: string | null
+  facts_as_of: string | null
+  severity: 'INFO' | 'WARNING' | 'CRITICAL'
+  source_mode: 'LIVE_DATA' | 'CACHED_DATA' | 'GENERAL'
+  actions: string[]
+  disclaimer: string | null
 }
 
 export interface RoutePlanResult {
@@ -528,7 +724,88 @@ export interface TripPlanCreate {
 
 // --- Endpoints ------------------------------------------------------------
 
-export const api = {
+// --- Address search -------------------------------------------------------
+
+/** One autocomplete row. `place_id` is the only thing that resolves. */
+export interface AddressSuggestion {
+  place_id: string
+  primary_text: string
+  secondary_text: string
+}
+
+export interface AddressSuggestions {
+  /**
+   * False when no provider is configured on the SERVER.
+   *
+   * Distinct from an empty list, which means a provider looked and found
+   * nothing. The client must not collapse the two: one is a setup step, the
+   * other is a different search term.
+   */
+  available: boolean
+  provider: string | null
+  suggestions: AddressSuggestion[]
+  /** Set when a configured provider refused - quota, a bad key, a dead API. */
+  error: string | null
+}
+
+/** A resolved endpoint. The address and the coordinate arrive together. */
+export interface ResolvedAddress {
+  place_id: string
+  address: string
+  lat: number
+  lon: number
+  /** Google requires attribution wherever its results are displayed. */
+  attribution: string
+}
+
+export interface ResolvedMapLink {
+  latitude: number
+  longitude: number
+  label: string | null
+  normalized_url: string
+  resolved_via: string
+}
+
+export const restApi = {
+  /**
+   * Address suggestions for the trip planner.
+   *
+   * The KEY IS NOT HERE. Google is called by the backend, which holds the
+   * credential; a `VITE_`-prefixed key would be inlined into this bundle.
+   */
+  addressSuggestions: (q: string, sessionToken: string, signal?: AbortSignal) =>
+    request<AddressSuggestions>(
+      `/api/geocoding/suggest?q=${encodeURIComponent(q)}` +
+        `&session_token=${encodeURIComponent(sessionToken)}`,
+      { signal },
+    ),
+
+  /** Resolve one suggestion to an address and a coordinate. */
+  resolveAddress: (placeId: string, sessionToken: string) =>
+    request<ResolvedAddress>(
+      `/api/geocoding/details?place_id=${encodeURIComponent(placeId)}` +
+        `&session_token=${encodeURIComponent(sessionToken)}`,
+    ),
+
+  /** Resolve a Google Maps URL / short link via SSRF-protected edge function. */
+  resolveMapLink: async (url: string): Promise<ResolvedMapLink> => {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://znaveeefzgfxsblsobdb.supabase.co'
+    const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
+    const resp = await fetch(`${supabaseUrl}/functions/v1/resolve-map-link`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(anonKey ? { apikey: anonKey, Authorization: `Bearer ${anonKey}` } : {}),
+      },
+      body: JSON.stringify({ url }),
+    })
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}))
+      throw new Error(err.error || `Failed to resolve Google Maps link (HTTP ${resp.status})`)
+    }
+    return (await resp.json()) as ResolvedMapLink
+  },
+
   health: () => request<{ status: string }>('/health'),
   ready: () => request<ReadyResponse>('/ready'),
 
@@ -617,9 +894,90 @@ export const api = {
     request<RoutePlanResult>(`/api/trips/${tripId}/routes/recalculate`, {
       method: 'POST',
     }),
-  selectRoute: (tripId: string, routeId: string) =>
-    request<TripRoute>(`/api/trips/${tripId}/routes/${routeId}/select`, {
+  /**
+   * `authorizationId` is optional and only ever relaxes REQUIRES_REVIEW.
+   *
+   * It never touches REJECTED or NOT_ASSESSED, and presenting one asserts
+   * nothing: the server revalidates it against the live evidence inside the
+   * selection's own transaction and spends it there, or refuses.
+   */
+  selectRoute: (tripId: string, routeId: string, authorizationId?: string) =>
+    request<TripRoute>(
+      `/api/trips/${tripId}/routes/${routeId}/select` +
+        (authorizationId ? `?authorization_id=${authorizationId}` : ''),
+      { method: 'POST' },
+    ),
+
+  /** The live authorisation for a route, or null. Expired ones are returned
+   *  too, so a screen can say "expired" rather than showing nothing - which
+   *  looks identical to never having been reviewed. */
+  reviewAuthorization: (tripId: string, routeId: string) =>
+    request<ReviewAuthorization | null>(
+      `/api/trips/${tripId}/routes/${routeId}/review-authorization`,
+    ),
+
+  /**
+   * A reviewer accepts THIS evidence for ONE selection of THIS route.
+   *
+   * `rationale` is the only thing sent. Everything bound to the record - the
+   * evidence digest and snapshot, policy and evidence versions, basis, issue
+   * and expiry times - is computed server-side from the route's own
+   * assessment. Requires `route:review_authorize`, which MANAGER does not have.
+   */
+  authorizeReview: (tripId: string, routeId: string, rationale: string) =>
+    request<ReviewAuthorization>(
+      `/api/trips/${tripId}/routes/${routeId}/review-authorization`,
+      { method: 'POST', body: { rationale } },
+    ),
+
+  revokeReviewAuthorization: (
+    tripId: string,
+    routeId: string,
+    authorizationId: string,
+  ) =>
+    request<ReviewAuthorization>(
+      `/api/trips/${tripId}/routes/${routeId}` +
+        `/review-authorization/${authorizationId}`,
+      { method: 'DELETE' },
+    ),
+
+  /**
+   * Compare this trip's live routes and advise one.
+   *
+   * A CONSIDERED READ, not a feed. Each call costs up to ten requests to a
+   * free weather service, so it is triggered by an operator asking - never
+   * polled, and never fired merely because a row was clicked.
+   */
+  routeRecommendation: (tripId: string) =>
+    request<RouteRecommendation>(`/api/trips/${tripId}/routes/recommendation`),
+
+  /** Same cost, same rule: ask, do not poll. */
+  rerouteAssessment: (tripId: string) =>
+    request<RerouteAssessment>(`/api/trips/${tripId}/reroute`),
+
+  /**
+   * Move a moving trip onto another route, because a person decided to.
+   *
+   * `fromRouteId` is the route that was on screen when the manager decided. If
+   * the trip has since been rerouted by someone else the server answers 409
+   * ROUTE_SUPERSEDED rather than moving it off a road this manager never saw.
+   */
+  acceptReroute: (
+    tripId: string,
+    fromRouteId: string,
+    toRouteId: string,
+    authorizationId?: string,
+  ) =>
+    request<RerouteAccepted>(`/api/trips/${tripId}/reroute/accept`, {
       method: 'POST',
+      body: {
+        from_route_id: fromRouteId,
+        to_route_id: toRouteId,
+        // Omitted entirely when absent, so the ordinary reroute contract is
+        // unchanged. Only ever relaxes REQUIRES_REVIEW, and only after the
+        // server revalidates it against the live evidence.
+        ...(authorizationId ? { authorization_id: authorizationId } : {}),
+      },
     }),
 
   // `signal` is threaded through so a poll can be cancelled on unmount rather
@@ -628,7 +986,55 @@ export const api = {
     request<FleetSnapshot>('/api/fleet/active', { signal }),
   tripTrack: (id: string, limit = 200) =>
     request<TrackSnapshot>(`/api/trips/${id}/track?limit=${limit}`),
+  aiStatus: async (): Promise<AiStatus> => {
+    return {
+      available: false,
+      provider: null,
+      model: null,
+      detail: 'Rest API does not host edge functions',
+      languages: {},
+    }
+  },
+  aiAsk: async (_body: {
+    mode: 'assistant' | 'safety' | 'translate'
+    question: string
+    guidance?: string
+    source_language?: string
+    target_language?: string
+  }): Promise<AiAnswer> => {
+    return {
+      answer: 'Rest API fallback explanation.',
+      generated: false,
+      model: null,
+      facts_as_of: new Date().toISOString(),
+      severity: 'INFO',
+      source_mode: 'GENERAL',
+      actions: [],
+      disclaimer: null,
+    }
+  },
 }
+
+export type ManagerApi = typeof restApi
+
+/**
+ * Why a control cannot work right now, or null if it can.
+ *
+ * The one place a page should ask before rendering an action. On the local
+ * FastAPI transport everything is implemented, so this is always null; on the
+ * hosted Supabase transport some operations have no implementation yet and the
+ * control must say so instead of throwing when pressed.
+ */
+export function unavailableReason(operation: string): string | null {
+  if (BACKEND_TARGET !== 'supabase') return null
+  return UNAVAILABLE_OPERATIONS[operation] ?? null
+}
+
+export const api: ManagerApi =
+  BACKEND_TARGET === 'supabase'
+    ? (supabaseManagerApi as unknown as ManagerApi)
+    : restApi
+
 
 function toQuery(params: Record<string, unknown>): string {
   const entries = Object.entries(params).filter(

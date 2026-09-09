@@ -1,0 +1,11 @@
+{
+  "name": "ner-demo-tools",
+  "private": true,
+  "description": "Demonstration helpers. Separate from the applications on purpose: Playwright is a demo dependency and has no business in the driver or manager build.",
+  "scripts": {
+    "simulate": "node simulate-journey.js"
+  },
+  "dependencies": {
+    "playwright": "^1.63.0"
+  }
+}

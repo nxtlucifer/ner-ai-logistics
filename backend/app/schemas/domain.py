@@ -84,6 +84,13 @@ class DriverRead(ReadModel):
     licence_number: str
     licence_expiry: date
     status: DriverStatus
+    #: The LOGIN behind the driver, which is not the same fact as `status`.
+    #: A manager looking at a driver list needs both: `status` says whether the
+    #: person is free to take work, this says whether they can reach the app at
+    #: all. A driver reading AVAILABLE here with `login_is_active` false cannot
+    #: be dispatched - the backend refuses with DRIVER_LOGIN_INACTIVE - and a
+    #: UI that showed only `status` would present them as ready to go.
+    login_is_active: bool
     created_at: datetime
     # base_salary_monthly is deliberately absent: salary is admin-only and is
     # exposed by a separate payroll contract, not by the general driver read.

@@ -1,0 +1,7438 @@
+{
+ "schema": "ner-places-snapshot-v1",
+ "source": {
+  "name": "OpenStreetMap contributors, via Overpass API",
+  "attribution": "(c) OpenStreetMap contributors, ODbL",
+  "endpoint": "https://overpass-api.de/api/interpreter",
+  "licence": "ODbL 1.0",
+  "retrieved_at": "2026-09-05T17:34:43.799254+00:00",
+  "method": "One-off bounded developer query. The application does NOT call Overpass at runtime; it reads this file."
+ },
+ "coverage": {
+  "description": "Guwahati - Jorhat corridor, Assam",
+  "bbox": {
+   "south": 25.9,
+   "west": 91.4,
+   "north": 27.1,
+   "east": 94.5
+  },
+  "categories": [
+   "EMERGENCY",
+   "HOTEL",
+   "REST",
+   "TYRES"
+  ],
+  "result_cap_per_category": 400,
+  "limits": "Only the tags listed in the acquisition script. Absence means NOT MAPPED in OpenStreetMap at retrieval time, not absence in reality. Nothing here is verified against the business."
+ },
+ "counts": {
+  "EMERGENCY": 281,
+  "TYRES": 118,
+  "HOTEL": 311,
+  "REST": 10
+ },
+ "places": [
+  {
+   "provider_id": "osm:node/1578252835",
+   "category": "EMERGENCY",
+   "name": "Mahendra Mohan Choudhury Hospital",
+   "lat": 26.1854322,
+   "lon": 91.7404472,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/1580625967",
+   "category": "EMERGENCY",
+   "name": "Latasil Police Station",
+   "lat": 26.1899295,
+   "lon": 91.7519454,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:node/1987734179",
+   "category": "EMERGENCY",
+   "name": "Sanjivani Hospital",
+   "lat": 26.7575886,
+   "lon": 94.201555,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/2319238560",
+   "category": "EMERGENCY",
+   "name": "Bashistha Police Station",
+   "lat": 26.1126488,
+   "lon": 91.7948727,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:node/2383182545",
+   "category": "EMERGENCY",
+   "name": "IMSR",
+   "lat": 26.7490914,
+   "lon": 94.1774577,
+   "osm_tags": {
+    "amenity": "hospital",
+    "emergency": "yes"
+   }
+  },
+  {
+   "provider_id": "osm:node/3555178742",
+   "category": "EMERGENCY",
+   "name": "Tezpur Police Station",
+   "lat": 26.6230515,
+   "lon": 92.7969708,
+   "osm_tags": {
+    "amenity": "police",
+    "operator": "Assam Police"
+   }
+  },
+  {
+   "provider_id": "osm:node/3637659886",
+   "category": "EMERGENCY",
+   "name": "Jorhat Main Police Station",
+   "lat": 26.7549643,
+   "lon": 94.2113717,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:node/3643359269",
+   "category": "EMERGENCY",
+   "name": "Jorhat Fire Station",
+   "lat": 26.7548007,
+   "lon": 94.2114172,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:node/4089848038",
+   "category": "EMERGENCY",
+   "name": "Baghchung Police station",
+   "lat": 26.7157686,
+   "lon": 94.2127683,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:node/4101022014",
+   "category": "EMERGENCY",
+   "name": "Govt Dispensary",
+   "lat": 26.5068894,
+   "lon": 94.4130927,
+   "osm_tags": {
+    "amenity": "hospital",
+    "emergency": "no"
+   }
+  },
+  {
+   "provider_id": "osm:node/4376993579",
+   "category": "EMERGENCY",
+   "name": "Royal Bhutan Police",
+   "lat": 26.7945994,
+   "lon": 91.5037985,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:node/4377010747",
+   "category": "EMERGENCY",
+   "name": "Samdrup Jongkhar Hospital",
+   "lat": 26.8002591,
+   "lon": 91.5086783,
+   "osm_tags": {
+    "amenity": "hospital",
+    "contact:phone": "+97577232566",
+    "emergency": "yes",
+    "healthcare": "hospital",
+    "operator": "Dr. Kezang Dorji"
+   }
+  },
+  {
+   "provider_id": "osm:node/4544430044",
+   "category": "EMERGENCY",
+   "name": "NE Homeopathic College and Hospital",
+   "lat": 27.0816216,
+   "lon": 93.6034293,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/4612201889",
+   "category": "EMERGENCY",
+   "name": "Burha Police Outpost",
+   "lat": 26.4516961,
+   "lon": 91.7878252,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:node/4672136360",
+   "category": "EMERGENCY",
+   "name": "Peerless Hospital",
+   "lat": 26.1090489,
+   "lon": 91.7190636,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/4689339043",
+   "category": "EMERGENCY",
+   "name": "GU Hospital",
+   "lat": 26.1548233,
+   "lon": 91.6660347,
+   "osm_tags": {
+    "amenity": "hospital",
+    "emergency": "no",
+    "operator": "Gauhati University"
+   }
+  },
+  {
+   "provider_id": "osm:node/4871891718",
+   "category": "EMERGENCY",
+   "name": "Nongpoh Civil Hospital",
+   "lat": 25.909543,
+   "lon": 91.8768375,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/4905334117",
+   "category": "EMERGENCY",
+   "name": "Khanapara Police Station",
+   "lat": 26.1166579,
+   "lon": 91.8314579,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:node/4920050258",
+   "category": "EMERGENCY",
+   "name": "hatigaon police station",
+   "lat": 26.1266082,
+   "lon": 91.7868419,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:node/4920054783",
+   "category": "EMERGENCY",
+   "name": "Hm Hospital and Research Centre Pvt.Ltd",
+   "lat": 26.1310276,
+   "lon": 91.7858925,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/5265565022",
+   "category": "EMERGENCY",
+   "name": "Garamur fire & emergency services station",
+   "lat": 26.9747805,
+   "lon": 94.1579109,
+   "osm_tags": {
+    "amenity": "fire_station"
+   }
+  },
+  {
+   "provider_id": "osm:node/5596194222",
+   "category": "EMERGENCY",
+   "name": "Udalguri PHC",
+   "lat": 26.7478202,
+   "lon": 92.0974002,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/5596194223",
+   "category": "EMERGENCY",
+   "name": "Udalguri Police Station",
+   "lat": 26.7490438,
+   "lon": 92.0978302,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:node/6063760985",
+   "category": "EMERGENCY",
+   "name": "Jomotsangkha BHU I",
+   "lat": 26.8978849,
+   "lon": 92.110132,
+   "osm_tags": {
+    "amenity": "hospital",
+    "contact:phone": "+97517286393",
+    "healthcare": "hospital",
+    "operator": "Dr.Narayan Raizal"
+   }
+  },
+  {
+   "provider_id": "osm:node/6093127315",
+   "category": "EMERGENCY",
+   "name": null,
+   "lat": 26.2075432,
+   "lon": 91.6776942,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6098806650",
+   "category": "EMERGENCY",
+   "name": "Baptist Christian Hospital",
+   "lat": 26.6523508,
+   "lon": 92.7729652,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6132273487",
+   "category": "EMERGENCY",
+   "name": "4th APBn",
+   "lat": 26.1428801,
+   "lon": 91.7548577,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:node/6156178612",
+   "category": "EMERGENCY",
+   "name": "Bhagaduttapur Police station",
+   "lat": 26.1338779,
+   "lon": 91.7666261,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:node/6168636020",
+   "category": "EMERGENCY",
+   "name": "Gauhati Medical College and Hospital (GMCH)",
+   "lat": 26.1595109,
+   "lon": 91.7686637,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6197603548",
+   "category": "EMERGENCY",
+   "name": "GMCH Dental College",
+   "lat": 26.1602914,
+   "lon": 91.7701374,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6197607043",
+   "category": "EMERGENCY",
+   "name": "GMCH Postmortem Ward",
+   "lat": 26.1600421,
+   "lon": 91.7711596,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6205680429",
+   "category": "EMERGENCY",
+   "name": "Sanjevani Hospital",
+   "lat": 26.160924,
+   "lon": 91.7094281,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6205680430",
+   "category": "EMERGENCY",
+   "name": "Swagat Super Speciality Surgical Institute",
+   "lat": 26.1603733,
+   "lon": 91.7073624,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6902810705",
+   "category": "EMERGENCY",
+   "name": "Rahman Hospitals Private Limited",
+   "lat": 26.1350283,
+   "lon": 91.8095034,
+   "osm_tags": {
+    "amenity": "hospital",
+    "contact:phone": "361233444",
+    "emergency": "yes",
+    "opening_hours": "24/7"
+   }
+  },
+  {
+   "provider_id": "osm:node/6908120446",
+   "category": "EMERGENCY",
+   "name": "Boriatari Memorial Hospital",
+   "lat": 27.0952799,
+   "lon": 93.6782125,
+   "osm_tags": {
+    "amenity": "hospital",
+    "contact:phone": "3602246257"
+   }
+  },
+  {
+   "provider_id": "osm:node/6908120471",
+   "category": "EMERGENCY",
+   "name": "Faith Hospital",
+   "lat": 25.9051075,
+   "lon": 93.7196231,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6908120476",
+   "category": "EMERGENCY",
+   "name": "Zion Hospital and Research Centre",
+   "lat": 25.9161945,
+   "lon": 93.7476133,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6908120501",
+   "category": "EMERGENCY",
+   "name": "Nikos Hospital And Research Centre",
+   "lat": 25.9086408,
+   "lon": 93.715467,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6908120513",
+   "category": "EMERGENCY",
+   "name": "Polo Hospital Pvt Ltd",
+   "lat": 27.0843407,
+   "lon": 93.6054642,
+   "osm_tags": {
+    "amenity": "hospital",
+    "contact:phone": "3602217651"
+   }
+  },
+  {
+   "provider_id": "osm:node/6908445869",
+   "category": "EMERGENCY",
+   "name": "Metro Hospital, Dimapur",
+   "lat": 25.9140329,
+   "lon": 93.716442,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6911724111",
+   "category": "EMERGENCY",
+   "name": "Tolaram Bafna Kamrup District Civil Hospital",
+   "lat": 26.2074223,
+   "lon": 91.6771799,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913038500",
+   "category": "EMERGENCY",
+   "name": "HGM Nursing Home",
+   "lat": 26.5106294,
+   "lon": 93.965819,
+   "osm_tags": {
+    "amenity": "hospital",
+    "emergency": "yes",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913038505",
+   "category": "EMERGENCY",
+   "name": "Aruna Memorial Hospital",
+   "lat": 26.1658526,
+   "lon": 91.7691153,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913038510",
+   "category": "EMERGENCY",
+   "name": "Dr Bhubaneswar Borooah Cancer Institue",
+   "lat": 26.1653519,
+   "lon": 91.7470568,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913038537",
+   "category": "EMERGENCY",
+   "name": "Nightingale Hospital",
+   "lat": 26.1504675,
+   "lon": 91.7821106,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913038542",
+   "category": "EMERGENCY",
+   "name": "Hayat Hospital, Kamrup",
+   "lat": 26.1390895,
+   "lon": 91.7463206,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913038550",
+   "category": "EMERGENCY",
+   "name": "Dr. Dhani Ram Baruah Heart Institute and Research Centre",
+   "lat": 26.1254312,
+   "lon": 91.9388831,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913038555",
+   "category": "EMERGENCY",
+   "name": "Sun Valley Hospital, Guwahati",
+   "lat": 26.1382811,
+   "lon": 91.8010202,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913038569",
+   "category": "EMERGENCY",
+   "name": "Haji Abdul Majid Memorial Hospital and Research Centre",
+   "lat": 26.0158947,
+   "lon": 92.8684401,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913054603",
+   "category": "EMERGENCY",
+   "name": "North East Cancer Hospital And Research Institute",
+   "lat": 26.1007508,
+   "lon": 91.8699154,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913054638",
+   "category": "EMERGENCY",
+   "name": "Arya Hospital (A Unit Of North Eastern Medical Research Institute Ltd)",
+   "lat": 26.1746258,
+   "lon": 91.7525876,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913054639",
+   "category": "EMERGENCY",
+   "name": "Pratiksha Hospitals",
+   "lat": 26.158658,
+   "lon": 91.8118054,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913054780",
+   "category": "EMERGENCY",
+   "name": "Agile Hospitals Pvt Ltd",
+   "lat": 26.1221319,
+   "lon": 91.8062693,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913054790",
+   "category": "EMERGENCY",
+   "name": "Sanjivani Hospital, Jorhat",
+   "lat": 26.7466487,
+   "lon": 94.2021123,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913054830",
+   "category": "EMERGENCY",
+   "name": "Satribari Christian Hospital",
+   "lat": 26.1769282,
+   "lon": 91.7465553,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913054930",
+   "category": "EMERGENCY",
+   "name": "Guwahati Netralaya Eye Hospital",
+   "lat": 26.1714995,
+   "lon": 91.7376155,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913054937",
+   "category": "EMERGENCY",
+   "name": "KGMT Multispeciality Hospital, Hatigarh",
+   "lat": 26.1719851,
+   "lon": 91.7814441,
+   "osm_tags": {
+    "amenity": "hospital",
+    "emergency": "yes",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913054942",
+   "category": "EMERGENCY",
+   "name": "Guwahati Eye Hospital",
+   "lat": 26.1717757,
+   "lon": 91.7608166,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913054952",
+   "category": "EMERGENCY",
+   "name": "Wintrobe Hospital",
+   "lat": 26.1854972,
+   "lon": 91.7560047,
+   "osm_tags": {
+    "amenity": "hospital",
+    "contact:phone": "3612519860",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913054957",
+   "category": "EMERGENCY",
+   "name": "Institute Of Human Reproduction",
+   "lat": 26.1669226,
+   "lon": 91.7312439,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913054967",
+   "category": "EMERGENCY",
+   "name": "Marwari Hospital and Research Centre",
+   "lat": 26.1721356,
+   "lon": 91.7404117,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913054968",
+   "category": "EMERGENCY",
+   "name": "Midland Hospital",
+   "lat": 26.1617305,
+   "lon": 91.7798576,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913054978",
+   "category": "EMERGENCY",
+   "name": "City Heart Hospital",
+   "lat": 26.1724967,
+   "lon": 91.7714274,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913054985",
+   "category": "EMERGENCY",
+   "name": "Dispur Hospitals Pvt Ltd",
+   "lat": 26.1496128,
+   "lon": 91.7867147,
+   "osm_tags": {
+    "amenity": "hospital",
+    "contact:phone": "9207043831"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913175903",
+   "category": "EMERGENCY",
+   "name": "Gnrc Six-mile Hospital",
+   "lat": 26.1311817,
+   "lon": 91.8079403,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913175912",
+   "category": "EMERGENCY",
+   "name": "G N R C Heart Institute",
+   "lat": 26.1389733,
+   "lon": 91.7943965,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913288139",
+   "category": "EMERGENCY",
+   "name": "Nemcare Hospital",
+   "lat": 26.1634946,
+   "lon": 91.7683697,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913288140",
+   "category": "EMERGENCY",
+   "name": "Down Town Hospital Ltd.",
+   "lat": 26.1392003,
+   "lon": 91.7994256,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913288175",
+   "category": "EMERGENCY",
+   "name": "Vivekananda Kendra-Nrl Hospital",
+   "lat": 26.5914174,
+   "lon": 93.7494734,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913288176",
+   "category": "EMERGENCY",
+   "name": "Lifeline Hospital and Research Centre",
+   "lat": 26.5159925,
+   "lon": 93.9748279,
+   "osm_tags": {
+    "amenity": "hospital",
+    "emergency": "yes",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913288181",
+   "category": "EMERGENCY",
+   "name": "Titabar SDC Hospital",
+   "lat": 26.594792,
+   "lon": 94.1924442,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913293231",
+   "category": "EMERGENCY",
+   "name": "Skylark Hospital",
+   "lat": 26.6302423,
+   "lon": 92.7974206,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913293236",
+   "category": "EMERGENCY",
+   "name": "E M M Hospital And Research Centre",
+   "lat": 26.6218315,
+   "lon": 92.7955672,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6913293278",
+   "category": "EMERGENCY",
+   "name": "B. K Memorial Hospital, Tezpur",
+   "lat": 26.6252346,
+   "lon": 92.8004099,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/6979404985",
+   "category": "EMERGENCY",
+   "name": "Majuli Police Station",
+   "lat": 26.9447337,
+   "lon": 94.1645906,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:node/7018601750",
+   "category": "EMERGENCY",
+   "name": "Tulsibari Police Out Post",
+   "lat": 26.5042854,
+   "lon": 91.5962308,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:node/7037458773",
+   "category": "EMERGENCY",
+   "name": "Golaghat Fire Brigade",
+   "lat": 26.498313,
+   "lon": 93.9610084,
+   "osm_tags": {
+    "amenity": "fire_station",
+    "operator": "Government of Assam"
+   }
+  },
+  {
+   "provider_id": "osm:node/7100882264",
+   "category": "EMERGENCY",
+   "name": "District Hospital, Dimapur",
+   "lat": 25.904959,
+   "lon": 93.731523,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7150731714",
+   "category": "EMERGENCY",
+   "name": "Sonapur District Hospital",
+   "lat": 26.1212135,
+   "lon": 91.9761266,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7150731759",
+   "category": "EMERGENCY",
+   "name": "Azara 30 Bedded Rural Hospital(F.R.U)",
+   "lat": 26.124633,
+   "lon": 91.617525,
+   "osm_tags": {
+    "amenity": "hospital",
+    "contact:phone": "3612843518"
+   }
+  },
+  {
+   "provider_id": "osm:node/7150731781",
+   "category": "EMERGENCY",
+   "name": "Pandu FRU Hospital",
+   "lat": 26.1606497,
+   "lon": 91.6887221,
+   "osm_tags": {
+    "amenity": "hospital",
+    "contact:phone": "3612670201"
+   }
+  },
+  {
+   "provider_id": "osm:node/7150731834",
+   "category": "EMERGENCY",
+   "name": "Govt. Ayurvedic College & Hospital",
+   "lat": 26.1495333,
+   "lon": 91.6674002,
+   "osm_tags": {
+    "amenity": "hospital",
+    "contact:phone": "36125770455"
+   }
+  },
+  {
+   "provider_id": "osm:node/7150731850",
+   "category": "EMERGENCY",
+   "name": "Guimara Hospital",
+   "lat": 26.115257,
+   "lon": 91.46451,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7150731854",
+   "category": "EMERGENCY",
+   "name": "CHC, Howraghat",
+   "lat": 26.1146348,
+   "lon": 93.0355876,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "centre"
+   }
+  },
+  {
+   "provider_id": "osm:node/7150731870",
+   "category": "EMERGENCY",
+   "name": "Kampur Hospital",
+   "lat": 26.1671521,
+   "lon": 92.6537353,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7150745468",
+   "category": "EMERGENCY",
+   "name": "Government Hospital, Dighaljuli Gaon",
+   "lat": 26.8602879,
+   "lon": 92.5577894,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7150745473",
+   "category": "EMERGENCY",
+   "name": "Nonaipara Hospital",
+   "lat": 26.845787,
+   "lon": 91.871661,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7150745499",
+   "category": "EMERGENCY",
+   "name": "Borgang Model Hospital",
+   "lat": 26.8361293,
+   "lon": 93.2919997,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7150745509",
+   "category": "EMERGENCY",
+   "name": "Kalabari Model Hospital",
+   "lat": 26.8809204,
+   "lon": 93.7538581,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7150745518",
+   "category": "EMERGENCY",
+   "name": "Narayanpur Model Hospital",
+   "lat": 26.9666701,
+   "lon": 93.8661852,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153254922",
+   "category": "EMERGENCY",
+   "name": "CHC, Borholla",
+   "lat": 26.449904,
+   "lon": 94.1326737,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "centre"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153254932",
+   "category": "EMERGENCY",
+   "name": "Dakshingaon Hospital",
+   "lat": 26.4107888,
+   "lon": 91.5113527,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153254935",
+   "category": "EMERGENCY",
+   "name": "Kachomari Hospital",
+   "lat": 26.1961824,
+   "lon": 93.9295837,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153254940",
+   "category": "EMERGENCY",
+   "name": "Kaoimari Nurul Hussain F.R.U",
+   "lat": 26.4671094,
+   "lon": 92.8179123,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153254945",
+   "category": "EMERGENCY",
+   "name": "Mowamari Model Hospital",
+   "lat": 26.4657206,
+   "lon": 92.8538766,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153254955",
+   "category": "EMERGENCY",
+   "name": "Bhurbandha Model Hospital",
+   "lat": 26.3070013,
+   "lon": 92.3635211,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153254987",
+   "category": "EMERGENCY",
+   "name": "Duni Model Hospital",
+   "lat": 26.4604684,
+   "lon": 91.8283762,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153254992",
+   "category": "EMERGENCY",
+   "name": "Urangial Hospital",
+   "lat": 26.4256728,
+   "lon": 94.1294188,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153254994",
+   "category": "EMERGENCY",
+   "name": "Maternity & Child Health Hospital, Mohkhuli",
+   "lat": 26.3666002,
+   "lon": 92.714374,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153254998",
+   "category": "EMERGENCY",
+   "name": "Ga-Khajua Hospital",
+   "lat": 26.3642822,
+   "lon": 92.5542803,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153255060",
+   "category": "EMERGENCY",
+   "name": "Dagaon Hospital",
+   "lat": 26.441283,
+   "lon": 92.613613,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153255108",
+   "category": "EMERGENCY",
+   "name": "Morigaon Civil Hospital",
+   "lat": 26.252273,
+   "lon": 92.3548836,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153255124",
+   "category": "EMERGENCY",
+   "name": "Rupohi Model Hospital",
+   "lat": 26.4156418,
+   "lon": 92.7428996,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153255125",
+   "category": "EMERGENCY",
+   "name": "B.P. Civil Hospital",
+   "lat": 26.344804,
+   "lon": 92.689441,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153255155",
+   "category": "EMERGENCY",
+   "name": "Kondoli Model Hospital",
+   "lat": 26.226166,
+   "lon": 92.7730114,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153255156",
+   "category": "EMERGENCY",
+   "name": "S.M.K. Civil Hospital",
+   "lat": 26.4477049,
+   "lon": 91.4364392,
+   "osm_tags": {
+    "amenity": "hospital",
+    "contact:phone": "3624223503"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386670",
+   "category": "EMERGENCY",
+   "name": "Orang Tea Estate Hospital",
+   "lat": 26.7253552,
+   "lon": 92.3190642,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386671",
+   "category": "EMERGENCY",
+   "name": "Kanaklata Civil Hospital",
+   "lat": 26.628821,
+   "lon": 92.796941,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386677",
+   "category": "EMERGENCY",
+   "name": "Jalukanibari Hospital",
+   "lat": 26.6456268,
+   "lon": 94.1876136,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386683",
+   "category": "EMERGENCY",
+   "name": "Hattigor T.E. NHRM Hospital",
+   "lat": 26.7787135,
+   "lon": 91.9323039,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386690",
+   "category": "EMERGENCY",
+   "name": "Bhooteachang Hospital, Bhooteachang",
+   "lat": 26.7952297,
+   "lon": 91.891026,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386692",
+   "category": "EMERGENCY",
+   "name": "Panisheli Hospital",
+   "lat": 26.662206,
+   "lon": 91.767289,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386696",
+   "category": "EMERGENCY",
+   "name": "Sirajuli Model Hospital",
+   "lat": 26.699467,
+   "lon": 92.400363,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386699",
+   "category": "EMERGENCY",
+   "name": "Majuli Hospital",
+   "lat": 26.803012,
+   "lon": 91.945076,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386700",
+   "category": "EMERGENCY",
+   "name": "Civil Hospital, Milanpur",
+   "lat": 26.6883632,
+   "lon": 92.7403561,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386704",
+   "category": "EMERGENCY",
+   "name": "Bamunjuli Tea Estate Hospital",
+   "lat": 26.8156567,
+   "lon": 91.8313484,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386707",
+   "category": "EMERGENCY",
+   "name": "Charingia CHC",
+   "lat": 26.6003726,
+   "lon": 93.9488146,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "centre"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386710",
+   "category": "EMERGENCY",
+   "name": "Suola Tea Estate Hospital",
+   "lat": 26.718317,
+   "lon": 91.75147,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386714",
+   "category": "EMERGENCY",
+   "name": "Rowta Model Hospital",
+   "lat": 26.716299,
+   "lon": 92.193553,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386751",
+   "category": "EMERGENCY",
+   "name": "Shyampur hospital",
+   "lat": 26.498934,
+   "lon": 92.216719,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386758",
+   "category": "EMERGENCY",
+   "name": "Udalguri Civil Hospital",
+   "lat": 26.719912,
+   "lon": 92.078817,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386764",
+   "category": "EMERGENCY",
+   "name": "Balichang Model Hospital",
+   "lat": 26.830727,
+   "lon": 93.073837,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386768",
+   "category": "EMERGENCY",
+   "name": "Sub-Divisional Hospital, Biswanath Charali",
+   "lat": 26.72667,
+   "lon": 93.147765,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386775",
+   "category": "EMERGENCY",
+   "name": "Paneri Tea Estate Hospital",
+   "lat": 26.7449311,
+   "lon": 91.8913927,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386777",
+   "category": "EMERGENCY",
+   "name": "Dimakuchi Tea Estate Hospital",
+   "lat": 26.743026,
+   "lon": 91.843191,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386779",
+   "category": "EMERGENCY",
+   "name": "155 Base Hospital",
+   "lat": 26.6555774,
+   "lon": 92.7876709,
+   "osm_tags": {
+    "amenity": "hospital",
+    "contact:phone": "3712236133"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386789",
+   "category": "EMERGENCY",
+   "name": "Pakribari Hospital",
+   "lat": 26.7827777,
+   "lon": 92.0497212,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386806",
+   "category": "EMERGENCY",
+   "name": "FRU, Teok",
+   "lat": 26.835227,
+   "lon": 94.4086004,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386811",
+   "category": "EMERGENCY",
+   "name": "Bandarmari Hospital",
+   "lat": 26.7270612,
+   "lon": 92.6484096,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386814",
+   "category": "EMERGENCY",
+   "name": "Atterikhat Tea Estate Hospital",
+   "lat": 26.7267163,
+   "lon": 91.7513379,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386817",
+   "category": "EMERGENCY",
+   "name": "Nagsankar Hospital",
+   "lat": 26.734572,
+   "lon": 92.991403,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386833",
+   "category": "EMERGENCY",
+   "name": "Kwuari Hospital",
+   "lat": 26.768397,
+   "lon": 93.1439,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386835",
+   "category": "EMERGENCY",
+   "name": "Dekargaon Hospital",
+   "lat": 26.680182,
+   "lon": 92.765946,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386863",
+   "category": "EMERGENCY",
+   "name": "Bhergaon Model Hospital",
+   "lat": 26.638823,
+   "lon": 91.824156,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386865",
+   "category": "EMERGENCY",
+   "name": "Kusumtala Model Hospital",
+   "lat": 26.7363291,
+   "lon": 92.9650646,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386869",
+   "category": "EMERGENCY",
+   "name": "Mazrowmari Hospital",
+   "lat": 26.7311844,
+   "lon": 92.3662962,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386873",
+   "category": "EMERGENCY",
+   "name": "Borengajuli Tea Estate Hospital",
+   "lat": 26.7397494,
+   "lon": 91.8072736,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386874",
+   "category": "EMERGENCY",
+   "name": "Swahid Kamala Miri Civil Hospital Bokakhat",
+   "lat": 26.641792,
+   "lon": 93.598697,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386888",
+   "category": "EMERGENCY",
+   "name": "Lorimukh Hospital",
+   "lat": 26.494423,
+   "lon": 92.809737,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386890",
+   "category": "EMERGENCY",
+   "name": "Dusutimukh hospital",
+   "lat": 26.6970438,
+   "lon": 93.820751,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7153386892",
+   "category": "EMERGENCY",
+   "name": "Behali Hospital",
+   "lat": 26.801021,
+   "lon": 93.348082,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7532769918",
+   "category": "EMERGENCY",
+   "name": "Nalbari Multispeciality Hospital",
+   "lat": 26.4409882,
+   "lon": 91.4358691,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7532769952",
+   "category": "EMERGENCY",
+   "name": "Nalbari Eye Hospital",
+   "lat": 26.4385256,
+   "lon": 91.4430654,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7532769956",
+   "category": "EMERGENCY",
+   "name": "Medinova Hospital",
+   "lat": 26.447815,
+   "lon": 91.4301451,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7532769973",
+   "category": "EMERGENCY",
+   "name": "Indu Eye Hospital",
+   "lat": 26.4423588,
+   "lon": 91.4429223,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7532769999",
+   "category": "EMERGENCY",
+   "name": "United Hospital",
+   "lat": 26.44448,
+   "lon": 91.4322423,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7532770001",
+   "category": "EMERGENCY",
+   "name": "Dakhingaon State Hospital",
+   "lat": 26.4371946,
+   "lon": 91.447095,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7532770006",
+   "category": "EMERGENCY",
+   "name": "Fuleswari Nurshing Home",
+   "lat": 26.443121,
+   "lon": 91.43806,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7537159748",
+   "category": "EMERGENCY",
+   "name": "Hojai Civil Hospital",
+   "lat": 26.0017261,
+   "lon": 92.8481676,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7537159756",
+   "category": "EMERGENCY",
+   "name": "Ananta Memorial Hospital",
+   "lat": 26.6351609,
+   "lon": 92.7839754,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7537159770",
+   "category": "EMERGENCY",
+   "name": "Garmari Hospital",
+   "lat": 26.2587936,
+   "lon": 92.2321557,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7537159776",
+   "category": "EMERGENCY",
+   "name": "Sultan Hospital & Research Centre",
+   "lat": 26.236991,
+   "lon": 92.3474653,
+   "osm_tags": {
+    "amenity": "hospital",
+    "opening_hours": "24/7"
+   }
+  },
+  {
+   "provider_id": "osm:node/7537159783",
+   "category": "EMERGENCY",
+   "name": "Eye Hospital",
+   "lat": 26.0057065,
+   "lon": 92.845938,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7537159787",
+   "category": "EMERGENCY",
+   "name": "Dew Care Hospital & Research Centre",
+   "lat": 26.3564691,
+   "lon": 92.6644501,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7537159814",
+   "category": "EMERGENCY",
+   "name": "M G Model Hospital",
+   "lat": 26.117993,
+   "lon": 92.19398,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7537159840",
+   "category": "EMERGENCY",
+   "name": "Old Civil Hospital",
+   "lat": 26.7042538,
+   "lon": 92.477102,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7537159848",
+   "category": "EMERGENCY",
+   "name": "Jagiroad Health and Service Hospital",
+   "lat": 26.1191121,
+   "lon": 92.1944842,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7537159859",
+   "category": "EMERGENCY",
+   "name": "Dristidaan Eye Hospital",
+   "lat": 26.7029297,
+   "lon": 92.4781376,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7537680964",
+   "category": "EMERGENCY",
+   "name": "Dr. Nitin Dutta Eye Foundation Hospital",
+   "lat": 26.1676312,
+   "lon": 91.7788063,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7537681005",
+   "category": "EMERGENCY",
+   "name": "Eye Clinic",
+   "lat": 26.1310897,
+   "lon": 91.8088994,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7537681013",
+   "category": "EMERGENCY",
+   "name": "Sarma Gynae & Obs Clinic",
+   "lat": 26.1304526,
+   "lon": 91.8079674,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7537681034",
+   "category": "EMERGENCY",
+   "name": "Outpatient clinic1",
+   "lat": 26.1313723,
+   "lon": 91.8085923,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7540578844",
+   "category": "EMERGENCY",
+   "name": "K P Memorial Hospital",
+   "lat": 26.7425645,
+   "lon": 93.1541613,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7540578866",
+   "category": "EMERGENCY",
+   "name": "City Orthopaedic Hospital",
+   "lat": 26.7669056,
+   "lon": 94.2071066,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7540578869",
+   "category": "EMERGENCY",
+   "name": "K.K.Civil Hospital",
+   "lat": 26.5096254,
+   "lon": 93.9642533,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7540578884",
+   "category": "EMERGENCY",
+   "name": "Netraloi Eye Hospital",
+   "lat": 26.7427548,
+   "lon": 93.1550986,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7540578916",
+   "category": "EMERGENCY",
+   "name": "Chandraprabha Eye Hospital",
+   "lat": 26.7621573,
+   "lon": 94.208063,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7540578917",
+   "category": "EMERGENCY",
+   "name": "KKC Hospital",
+   "lat": 26.5121084,
+   "lon": 93.9673357,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7540578931",
+   "category": "EMERGENCY",
+   "name": "Mission Hospital",
+   "lat": 26.7385005,
+   "lon": 94.2010669,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7540578948",
+   "category": "EMERGENCY",
+   "name": "JK Hospital",
+   "lat": 26.742704,
+   "lon": 93.1561416,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7541546151",
+   "category": "EMERGENCY",
+   "name": "Maternity & Child Welfare Hospital",
+   "lat": 26.1458262,
+   "lon": 91.7274383,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7541546161",
+   "category": "EMERGENCY",
+   "name": "Critical Care Hospital",
+   "lat": 26.1454737,
+   "lon": 91.7411135,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7541546188",
+   "category": "EMERGENCY",
+   "name": "Central Hospital, Maligaon",
+   "lat": 26.1509561,
+   "lon": 91.694464,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7614502539",
+   "category": "EMERGENCY",
+   "name": "City Hospital",
+   "lat": 25.906627,
+   "lon": 93.731253,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7614502541",
+   "category": "EMERGENCY",
+   "name": "Unit Hospital",
+   "lat": 26.2704552,
+   "lon": 94.4469613,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7614502542",
+   "category": "EMERGENCY",
+   "name": "Sanis Hospital",
+   "lat": 26.2057603,
+   "lon": 94.2004138,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7614502559",
+   "category": "EMERGENCY",
+   "name": "Dimapur Hospital and Research Centre",
+   "lat": 25.9055101,
+   "lon": 93.7500946,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7614502562",
+   "category": "EMERGENCY",
+   "name": "N.Ezung Hospital",
+   "lat": 26.091946,
+   "lon": 94.257752,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7614502568",
+   "category": "EMERGENCY",
+   "name": "Fellowship Nursing Home",
+   "lat": 25.9142282,
+   "lon": 93.7096698,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7614502573",
+   "category": "EMERGENCY",
+   "name": "Nagaland Multispeciality Hospital & Research Centre",
+   "lat": 25.908579,
+   "lon": 93.716553,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7614502593",
+   "category": "EMERGENCY",
+   "name": "JK Hospital",
+   "lat": 25.909739,
+   "lon": 93.712297,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7614502620",
+   "category": "EMERGENCY",
+   "name": "Shamrock Hospital",
+   "lat": 25.9083545,
+   "lon": 93.7035979,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/7615441766",
+   "category": "EMERGENCY",
+   "name": "Niba Hospital",
+   "lat": 27.0973479,
+   "lon": 93.6770975,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/9404347698",
+   "category": "EMERGENCY",
+   "name": "Catholic Hospital",
+   "lat": 25.9178545,
+   "lon": 93.4412065,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/9463171417",
+   "category": "EMERGENCY",
+   "name": "Katonibari T.E. Hospital",
+   "lat": 26.6721971,
+   "lon": 94.3079145,
+   "osm_tags": {
+    "amenity": "hospital",
+    "opening_hours": "Mo-Fr 09:00-15:00"
+   }
+  },
+  {
+   "provider_id": "osm:node/9653476116",
+   "category": "EMERGENCY",
+   "name": null,
+   "lat": 26.4524994,
+   "lon": 92.3923023,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/10208806688",
+   "category": "EMERGENCY",
+   "name": "ORC",
+   "lat": 27.0452751,
+   "lon": 91.4792651,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital",
+    "operator": "Village Health Worker"
+   }
+  },
+  {
+   "provider_id": "osm:node/10285608845",
+   "category": "EMERGENCY",
+   "name": "Dr. J.K. Saikia Homeopathic Medical College & Hospital",
+   "lat": 26.7319159,
+   "lon": 94.2210406,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/10747634647",
+   "category": "EMERGENCY",
+   "name": "Samdrupchhoeling BHU I",
+   "lat": 26.8838784,
+   "lon": 91.7087938,
+   "osm_tags": {
+    "amenity": "hospital",
+    "contact:phone": "+97517909502",
+    "healthcare": "hospital",
+    "operator": "Dr.Ugyen Thinley"
+   }
+  },
+  {
+   "provider_id": "osm:node/10824034339",
+   "category": "EMERGENCY",
+   "name": "Merapani Police Station",
+   "lat": 26.3227932,
+   "lon": 94.089834,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:node/10947365834",
+   "category": "EMERGENCY",
+   "name": "SP Office",
+   "lat": 26.7588761,
+   "lon": 94.2089182,
+   "osm_tags": {
+    "amenity": "police",
+    "operator": "Government"
+   }
+  },
+  {
+   "provider_id": "osm:node/11032189484",
+   "category": "EMERGENCY",
+   "name": null,
+   "lat": 26.4512331,
+   "lon": 92.0292256,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/11116277110",
+   "category": "EMERGENCY",
+   "name": "Raha Police Station",
+   "lat": 26.2292919,
+   "lon": 92.5207528,
+   "osm_tags": {
+    "amenity": "police",
+    "operator": "Assam Police"
+   }
+  },
+  {
+   "provider_id": "osm:node/11133587107",
+   "category": "EMERGENCY",
+   "name": "Fire and Emergency Services Station, Raha",
+   "lat": 26.2340279,
+   "lon": 92.5260134,
+   "osm_tags": {
+    "amenity": "fire_station"
+   }
+  },
+  {
+   "provider_id": "osm:node/11281494243",
+   "category": "EMERGENCY",
+   "name": "Swasti Hospital",
+   "lat": 26.4282202,
+   "lon": 91.6290284,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/11285583169",
+   "category": "EMERGENCY",
+   "name": "Hollongi Police Checkpoint",
+   "lat": 26.9590547,
+   "lon": 93.5902534,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:node/11351332651",
+   "category": "EMERGENCY",
+   "name": "ONGC Medical Section Jorhat",
+   "lat": 26.7538629,
+   "lon": 94.2029298,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/11357212788",
+   "category": "EMERGENCY",
+   "name": null,
+   "lat": 26.2015666,
+   "lon": 93.1341127,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/11357461273",
+   "category": "EMERGENCY",
+   "name": "water supply office",
+   "lat": 26.1040401,
+   "lon": 93.0259084,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/11357461274",
+   "category": "EMERGENCY",
+   "name": "Arogyao clinic",
+   "lat": 26.1056779,
+   "lon": 93.0282789,
+   "osm_tags": {
+    "amenity": "hospital",
+    "emergency": "yes",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/11357461275",
+   "category": "EMERGENCY",
+   "name": "Chowdhury Pharmacy",
+   "lat": 26.1060055,
+   "lon": 93.0289923,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital",
+    "operator": "Nakib"
+   }
+  },
+  {
+   "provider_id": "osm:node/11368386087",
+   "category": "EMERGENCY",
+   "name": "Ruksana Medical",
+   "lat": 26.1059221,
+   "lon": 93.0298574,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital",
+    "operator": "Dr.Kafil Uddin Borbhuyan"
+   }
+  },
+  {
+   "provider_id": "osm:node/11687780154",
+   "category": "EMERGENCY",
+   "name": "Wipro GE Healthcare Private Ltd.",
+   "lat": 26.1651971,
+   "lon": 91.7795015,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/11833697370",
+   "category": "EMERGENCY",
+   "name": "Apollo Excelcare Hospital",
+   "lat": 26.1280003,
+   "lon": 91.6814189,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/12470636101",
+   "category": "EMERGENCY",
+   "name": "151 Base Hospital",
+   "lat": 26.1035923,
+   "lon": 91.797421,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/12973082004",
+   "category": "EMERGENCY",
+   "name": "state police accountability commission, assam",
+   "lat": 26.1728706,
+   "lon": 91.7633521,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:node/12976265036",
+   "category": "EMERGENCY",
+   "name": "MARWARI HOSPITAL",
+   "lat": 26.171787,
+   "lon": 91.7403051,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/12976374613",
+   "category": "EMERGENCY",
+   "name": "APOLLO HOSPITAL",
+   "lat": 26.1745848,
+   "lon": 91.7727582,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/12976833828",
+   "category": "EMERGENCY",
+   "name": "KIMS HOSPITAL CLINIC",
+   "lat": 26.1665774,
+   "lon": 91.7793794,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/12977236602",
+   "category": "EMERGENCY",
+   "name": "Eye care medico",
+   "lat": 26.1442034,
+   "lon": 91.7815068,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016771424",
+   "category": "EMERGENCY",
+   "name": "Gate Hospitals",
+   "lat": 26.1781709,
+   "lon": 91.8040736,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016790569",
+   "category": "EMERGENCY",
+   "name": "KGMT HOSPITAL",
+   "lat": 26.1723864,
+   "lon": 91.781511,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/13152710101",
+   "category": "EMERGENCY",
+   "name": "লংকা বি পি এইচ চি",
+   "lat": 25.9174131,
+   "lon": 92.9550879,
+   "osm_tags": {
+    "amenity": "hospital",
+    "opening_hours": "24/7"
+   }
+  },
+  {
+   "provider_id": "osm:node/13152868701",
+   "category": "EMERGENCY",
+   "name": "লংকা বি পি এইচ",
+   "lat": 25.9175556,
+   "lon": 92.9551526,
+   "osm_tags": {
+    "amenity": "hospital",
+    "opening_hours": "24/7"
+   }
+  },
+  {
+   "provider_id": "osm:node/13294142201",
+   "category": "EMERGENCY",
+   "name": "Mercy Hospital",
+   "lat": 26.347434,
+   "lon": 92.6639524,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/13323617001",
+   "category": "EMERGENCY",
+   "name": "Orthocare Hospital",
+   "lat": 26.6514037,
+   "lon": 92.7961644,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/13506229594",
+   "category": "EMERGENCY",
+   "name": "H.M. Hospital , Hatigaon",
+   "lat": 26.130908,
+   "lon": 91.786135,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511238160",
+   "category": "EMERGENCY",
+   "name": "Latasil Police Station",
+   "lat": 26.1899395,
+   "lon": 91.7519146,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511289074",
+   "category": "EMERGENCY",
+   "name": "WINTROBE HOSPITAL",
+   "lat": 26.1851882,
+   "lon": 91.756084,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511399119",
+   "category": "EMERGENCY",
+   "name": "ADVANCE NEUROSCIENCE HOSPITAL",
+   "lat": 26.1450407,
+   "lon": 91.7852575,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511618593",
+   "category": "EMERGENCY",
+   "name": "Name care hospital",
+   "lat": 26.1641904,
+   "lon": 91.7693287,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511670283",
+   "category": "EMERGENCY",
+   "name": "NEMCARE HOSPITAL",
+   "lat": 26.1641904,
+   "lon": 91.7691448,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516613210",
+   "category": "EMERGENCY",
+   "name": "DOCTORS CHAMBER",
+   "lat": 26.1414434,
+   "lon": 91.726007,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516613211",
+   "category": "EMERGENCY",
+   "name": "SEEMA MEDICOS",
+   "lat": 26.1413861,
+   "lon": 91.7259884,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516940946",
+   "category": "EMERGENCY",
+   "name": "Guwahati Netralaya eye hospital",
+   "lat": 26.1713661,
+   "lon": 91.737574,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/13522423677",
+   "category": "EMERGENCY",
+   "name": "Fancy bazaar police out post",
+   "lat": 26.1825586,
+   "lon": 91.7372664,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:node/13522626388",
+   "category": "EMERGENCY",
+   "name": "Latasil Police Station",
+   "lat": 26.1900236,
+   "lon": 91.7519449,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:node/13523388563",
+   "category": "EMERGENCY",
+   "name": "Vision hospital",
+   "lat": 26.1760095,
+   "lon": 91.7400173,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/13528656001",
+   "category": "EMERGENCY",
+   "name": "Nalbari Medical College and Hospital (NMCH)",
+   "lat": 26.412844,
+   "lon": 91.512999,
+   "osm_tags": {
+    "amenity": "hospital",
+    "opening_hours": "24/7"
+   }
+  },
+  {
+   "provider_id": "osm:node/13859586303",
+   "category": "EMERGENCY",
+   "name": "Nagaon Medical College and Hospital",
+   "lat": 26.3658031,
+   "lon": 92.7130899,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/13900375901",
+   "category": "EMERGENCY",
+   "name": "Nidan Hospital",
+   "lat": 26.3344145,
+   "lon": 92.6621693,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:node/13958505401",
+   "category": "EMERGENCY",
+   "name": "Morigaon Police Station (মৰিগাওঁ আৰক্ষী নিৱেশ)",
+   "lat": 26.2503662,
+   "lon": 92.3410649,
+   "osm_tags": {
+    "amenity": "police",
+    "opening_hours": "24/7"
+   }
+  },
+  {
+   "provider_id": "osm:node/13958510201",
+   "category": "EMERGENCY",
+   "name": "Morigaon Police Reserve (মৰিগাওঁ আৰক্ষী চকী)",
+   "lat": 26.2539351,
+   "lon": 92.3559713,
+   "osm_tags": {
+    "amenity": "police",
+    "opening_hours": "24/7"
+   }
+  },
+  {
+   "provider_id": "osm:way/129818618",
+   "category": "EMERGENCY",
+   "name": "Ramakrishna Mission Hospital, Lower Subansiri",
+   "lat": 27.0859985,
+   "lon": 93.6091631,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:way/261074468",
+   "category": "EMERGENCY",
+   "name": "GMCH Emergency Centre",
+   "lat": 26.1601295,
+   "lon": 91.7670612,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:way/358944917",
+   "category": "EMERGENCY",
+   "name": "Jorhat Fire Station",
+   "lat": 26.7547948,
+   "lon": 94.2114259,
+   "osm_tags": {
+    "amenity": "fire_station"
+   }
+  },
+  {
+   "provider_id": "osm:way/358944929",
+   "category": "EMERGENCY",
+   "name": "Jorhat Medical College and Hospital(JMCH)",
+   "lat": 26.7422634,
+   "lon": 94.196052,
+   "osm_tags": {
+    "amenity": "hospital",
+    "emergency": "yes",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:way/358944931",
+   "category": "EMERGENCY",
+   "name": "Jorhat People Friendly Police Station",
+   "lat": 26.755071,
+   "lon": 94.2113829,
+   "osm_tags": {
+    "amenity": "police",
+    "opening_hours": "24/7"
+   }
+  },
+  {
+   "provider_id": "osm:way/494668025",
+   "category": "EMERGENCY",
+   "name": "Bethany Hospital Outreach",
+   "lat": 25.9003255,
+   "lon": 91.877919,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:way/638488504",
+   "category": "EMERGENCY",
+   "name": "Veterinary Hospital",
+   "lat": 27.0242502,
+   "lon": 93.9148298,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital",
+    "operator": "Govt. of Assam"
+   }
+  },
+  {
+   "provider_id": "osm:way/640949367",
+   "category": "EMERGENCY",
+   "name": "Maenjiwoong BHU II",
+   "lat": 26.9933284,
+   "lon": 92.0140909,
+   "osm_tags": {
+    "amenity": "hospital",
+    "contact:phone": "+975 17670879;+975 17700977",
+    "healthcare": "hospital",
+    "operator": "Pema Tshewang;Dawa Gyeltshen"
+   }
+  },
+  {
+   "provider_id": "osm:way/662931043",
+   "category": "EMERGENCY",
+   "name": "Tezpur Medical College and Hospital",
+   "lat": 26.6803619,
+   "lon": 92.6536516,
+   "osm_tags": {
+    "amenity": "hospital",
+    "contact:phone": "3762370107"
+   }
+  },
+  {
+   "provider_id": "osm:way/735410640",
+   "category": "EMERGENCY",
+   "name": "Mangaldoi Civil Hospital Blood Bank",
+   "lat": 26.4374467,
+   "lon": 92.036641,
+   "osm_tags": {
+    "amenity": "hospital",
+    "contact:phone": "3713222024",
+    "healthcare": "hospital",
+    "opening_hours": "24/7"
+   }
+  },
+  {
+   "provider_id": "osm:way/735440614",
+   "category": "EMERGENCY",
+   "name": "Kushal Konwar (KK) Civil Hospital Complex",
+   "lat": 26.5099706,
+   "lon": 93.9650331,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:way/736461152",
+   "category": "EMERGENCY",
+   "name": "Apollo Hospitals",
+   "lat": 26.1540188,
+   "lon": 91.7811817,
+   "osm_tags": {
+    "amenity": "hospital",
+    "emergency": "yes",
+    "healthcare": "hospital",
+    "operator": "Apollo Hospitals"
+   }
+  },
+  {
+   "provider_id": "osm:way/738302618",
+   "category": "EMERGENCY",
+   "name": "GMC HOSPITAL",
+   "lat": 26.1594255,
+   "lon": 91.7686706,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:way/738302621",
+   "category": "EMERGENCY",
+   "name": "Advance Neuro Science Hospital",
+   "lat": 26.1451545,
+   "lon": 91.7855418,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:way/749313307",
+   "category": "EMERGENCY",
+   "name": "Assam Police Quarters",
+   "lat": 26.5103061,
+   "lon": 93.9743835,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:way/749313308",
+   "category": "EMERGENCY",
+   "name": "City Police Station",
+   "lat": 26.5107153,
+   "lon": 93.9738617,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:way/765906739",
+   "category": "EMERGENCY",
+   "name": "Civil Hospital, Mangaldai",
+   "lat": 26.4377723,
+   "lon": 92.0366361,
+   "osm_tags": {
+    "amenity": "hospital",
+    "contact:phone": "3713222784",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:way/806033601",
+   "category": "EMERGENCY",
+   "name": "GMCH PEDIATRIC DIVISION",
+   "lat": 26.1596201,
+   "lon": 91.769999,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:way/806448412",
+   "category": "EMERGENCY",
+   "name": "Choudhury Eye Clinic",
+   "lat": 26.4365694,
+   "lon": 92.0334027,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:way/806448458",
+   "category": "EMERGENCY",
+   "name": "Ceragem centre",
+   "lat": 26.4455091,
+   "lon": 92.0340956,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:way/806448491",
+   "category": "EMERGENCY",
+   "name": null,
+   "lat": 26.1539888,
+   "lon": 91.6940927,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:way/833415498",
+   "category": "EMERGENCY",
+   "name": "GNRC Institute of Medical Science",
+   "lat": 26.2021448,
+   "lon": 91.6939491,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:way/974109965",
+   "category": "EMERGENCY",
+   "name": "RBP old Office",
+   "lat": 27.0292798,
+   "lon": 91.4247593,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:way/974109974",
+   "category": "EMERGENCY",
+   "name": "PG police station",
+   "lat": 27.0295162,
+   "lon": 91.4245964,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:way/974999884",
+   "category": "EMERGENCY",
+   "name": "Pemathang BHU II",
+   "lat": 26.9008246,
+   "lon": 91.7449781,
+   "osm_tags": {
+    "amenity": "hospital",
+    "contact:phone": "+975 17670879;+975 17700977",
+    "healthcare": "hospital",
+    "operator": "Pema Tshewang, Dawa Gyeltshen"
+   }
+  },
+  {
+   "provider_id": "osm:way/979396682",
+   "category": "EMERGENCY",
+   "name": "Wangphoog BHU II",
+   "lat": 26.9643657,
+   "lon": 91.6106994,
+   "osm_tags": {
+    "amenity": "hospital",
+    "contact:phone": "+975 17670879;+975 17700977",
+    "healthcare": "hospital",
+    "operator": "Pema Tshewang;Dawa Gyeltshen"
+   }
+  },
+  {
+   "provider_id": "osm:way/1009909600",
+   "category": "EMERGENCY",
+   "name": "Thoongkhar BHU II",
+   "lat": 27.0814948,
+   "lon": 91.5717243,
+   "osm_tags": {
+    "amenity": "hospital",
+    "contact:phone": "+975 17666924;+975 17975648",
+    "healthcare": "hospital",
+    "operator": "Gang Dorji;Tandin Dorji"
+   }
+  },
+  {
+   "provider_id": "osm:way/1010204462",
+   "category": "EMERGENCY",
+   "name": "Tshelingore ORC",
+   "lat": 27.052128,
+   "lon": 91.4933007,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital",
+    "operator": "Village Health Worker"
+   }
+  },
+  {
+   "provider_id": "osm:way/1027045115",
+   "category": "EMERGENCY",
+   "name": "Orong BHU II",
+   "lat": 26.9317882,
+   "lon": 91.4952282,
+   "osm_tags": {
+    "amenity": "hospital",
+    "contact:phone": "+975 17670879;+975 17700977",
+    "healthcare": "hospital",
+    "operator": "Pema Tshewang, Dawa Gyeltshen"
+   }
+  },
+  {
+   "provider_id": "osm:way/1061738709",
+   "category": "EMERGENCY",
+   "name": null,
+   "lat": 27.0334294,
+   "lon": 91.4257952,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:way/1061738727",
+   "category": "EMERGENCY",
+   "name": "Police Office Denchi",
+   "lat": 27.0175574,
+   "lon": 91.4033626,
+   "osm_tags": {
+    "amenity": "police",
+    "opening_hours": "24/7"
+   }
+  },
+  {
+   "provider_id": "osm:way/1090894532",
+   "category": "EMERGENCY",
+   "name": "Wokha, District Hospital",
+   "lat": 26.0790996,
+   "lon": 94.2591204,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:way/1101790973",
+   "category": "EMERGENCY",
+   "name": null,
+   "lat": 26.5889665,
+   "lon": 93.4009509,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:way/1111196179",
+   "category": "EMERGENCY",
+   "name": "Gomdar BHU I",
+   "lat": 26.9941873,
+   "lon": 91.5518869,
+   "osm_tags": {
+    "amenity": "hospital",
+    "contact:phone": "77875750",
+    "healthcare": "hospital",
+    "operator": "Dr. Kezang Dorji"
+   }
+  },
+  {
+   "provider_id": "osm:way/1116183301",
+   "category": "EMERGENCY",
+   "name": "Pemagatshel Hospital",
+   "lat": 27.0291365,
+   "lon": 91.4226825,
+   "osm_tags": {
+    "amenity": "hospital",
+    "contact:phone": "+97517663542",
+    "healthcare": "hospital",
+    "operator": "Dr. Bhim Nath Subedy"
+   }
+  },
+  {
+   "provider_id": "osm:way/1117552898",
+   "category": "EMERGENCY",
+   "name": null,
+   "lat": 26.5894914,
+   "lon": 93.4096896,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:way/1155270084",
+   "category": "EMERGENCY",
+   "name": "Martshala BHU II",
+   "lat": 26.942975,
+   "lon": 91.6839316,
+   "osm_tags": {
+    "amenity": "hospital",
+    "contact:phone": "+975 17670879;+975 17700977",
+    "healthcare": "hospital",
+    "operator": "Pema Tshewang;Dawa Gyeltshen"
+   }
+  },
+  {
+   "provider_id": "osm:way/1157757784",
+   "category": "EMERGENCY",
+   "name": "Gonpa Singma BHU",
+   "lat": 27.0364195,
+   "lon": 91.4596196,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:way/1159922434",
+   "category": "EMERGENCY",
+   "name": "Dewathang RBA Hospital",
+   "lat": 26.8612368,
+   "lon": 91.4672407,
+   "osm_tags": {
+    "amenity": "hospital",
+    "contact:phone": "+97577330945",
+    "healthcare": "hospital",
+    "operator": "Dr. Deepsika Kaflay"
+   }
+  },
+  {
+   "provider_id": "osm:way/1217672059",
+   "category": "EMERGENCY",
+   "name": null,
+   "lat": 27.0108247,
+   "lon": 92.6460745,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:way/1217793677",
+   "category": "EMERGENCY",
+   "name": "GMC HOSPITAL",
+   "lat": 26.1593343,
+   "lon": 91.7691763,
+   "osm_tags": {
+    "amenity": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:way/1217793682",
+   "category": "EMERGENCY",
+   "name": "GMC DENTAL HOSPITAL AND COLLEGE",
+   "lat": 26.160285,
+   "lon": 91.7700909,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:way/1245640790",
+   "category": "EMERGENCY",
+   "name": null,
+   "lat": 26.6534925,
+   "lon": 94.3189656,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:way/1254970091",
+   "category": "EMERGENCY",
+   "name": null,
+   "lat": 26.4122616,
+   "lon": 91.514681,
+   "osm_tags": {
+    "amenity": "hospital",
+    "emergency": "yes",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:way/1304575005",
+   "category": "EMERGENCY",
+   "name": "Maligaon Railway Hospital",
+   "lat": 26.152101,
+   "lon": 91.694912,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:way/1334976165",
+   "category": "EMERGENCY",
+   "name": null,
+   "lat": 26.1706553,
+   "lon": 91.7626832,
+   "osm_tags": {
+    "amenity": "hospital",
+    "healthcare": "hospital"
+   }
+  },
+  {
+   "provider_id": "osm:way/1335030804",
+   "category": "EMERGENCY",
+   "name": "sonapur police station",
+   "lat": 26.1180392,
+   "lon": 91.9705295,
+   "osm_tags": {
+    "amenity": "police"
+   }
+  },
+  {
+   "provider_id": "osm:way/1347725323",
+   "category": "EMERGENCY",
+   "name": "Donyi Polo Airport Fire Station",
+   "lat": 26.9715313,
+   "lon": 93.6403846,
+   "osm_tags": {
+    "amenity": "fire_station"
+   }
+  },
+  {
+   "provider_id": "osm:node/11687980145",
+   "category": "TYRES",
+   "name": "Qadri Tire Shop",
+   "lat": 26.1473534,
+   "lon": 91.7877618,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/11871195833",
+   "category": "TYRES",
+   "name": null,
+   "lat": 26.173766,
+   "lon": 91.7573526,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/11930693824",
+   "category": "TYRES",
+   "name": "Monajir Tyre Repairing",
+   "lat": 26.1584442,
+   "lon": 91.6608386,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/11931201513",
+   "category": "TYRES",
+   "name": "AJ Motors",
+   "lat": 26.1593571,
+   "lon": 91.663335,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/11931207353",
+   "category": "TYRES",
+   "name": "M/S Choudhury Motors & Car Decorator",
+   "lat": 26.1594918,
+   "lon": 91.6636768,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/11931226049",
+   "category": "TYRES",
+   "name": "Mukut Motor Works",
+   "lat": 26.1595066,
+   "lon": 91.6638892,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/11932310567",
+   "category": "TYRES",
+   "name": "Swastik Tyres",
+   "lat": 26.1581418,
+   "lon": 91.6770912,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/11932365320",
+   "category": "TYRES",
+   "name": "M/S Noor Motors Works",
+   "lat": 26.158017,
+   "lon": 91.6756343,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/11932385681",
+   "category": "TYRES",
+   "name": "Bhai Bhai Maruti Workshop",
+   "lat": 26.1580235,
+   "lon": 91.6758379,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/11932411409",
+   "category": "TYRES",
+   "name": "City Maruti Works",
+   "lat": 26.1581265,
+   "lon": 91.6770161,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/11932499292",
+   "category": "TYRES",
+   "name": "City Tyres Service",
+   "lat": 26.1582842,
+   "lon": 91.6793816,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/11932615180",
+   "category": "TYRES",
+   "name": "M/S. Maa Kamakhya Engineering Works",
+   "lat": 26.1647052,
+   "lon": 91.7158964,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/11932617596",
+   "category": "TYRES",
+   "name": "M/S Barua Motor Works",
+   "lat": 26.1646081,
+   "lon": 91.7158067,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/11933176561",
+   "category": "TYRES",
+   "name": "Khalsa Maruti & Diesel Works",
+   "lat": 26.1665863,
+   "lon": 91.7189164,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/11933265562",
+   "category": "TYRES",
+   "name": "Goswami Maruti Service",
+   "lat": 26.1662196,
+   "lon": 91.7182573,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/11933270400",
+   "category": "TYRES",
+   "name": "Maramy Motor Works",
+   "lat": 26.166185,
+   "lon": 91.7181703,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/11933278897",
+   "category": "TYRES",
+   "name": "Maa Sarada Engineering Motor Works",
+   "lat": 26.1662595,
+   "lon": 91.7183616,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/11933281893",
+   "category": "TYRES",
+   "name": "Kamakhya Motors",
+   "lat": 26.1667346,
+   "lon": 91.719076,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/11933291855",
+   "category": "TYRES",
+   "name": "Automotive E Studio",
+   "lat": 26.1684678,
+   "lon": 91.7211768,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/11933302086",
+   "category": "TYRES",
+   "name": "Haloi Enginearing",
+   "lat": 26.1703986,
+   "lon": 91.7238038,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/11933306892",
+   "category": "TYRES",
+   "name": "Sar Wheels",
+   "lat": 26.1685352,
+   "lon": 91.7212249,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/11933319146",
+   "category": "TYRES",
+   "name": "Tyre Point",
+   "lat": 26.1769086,
+   "lon": 91.7352101,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/11933323766",
+   "category": "TYRES",
+   "name": "Sahara Tyre",
+   "lat": 26.1754802,
+   "lon": 91.7360435,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/11933331821",
+   "category": "TYRES",
+   "name": "Tyre India Sales And Service",
+   "lat": 26.176885,
+   "lon": 91.7352409,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/11933345244",
+   "category": "TYRES",
+   "name": "Siraj Tyres",
+   "lat": 26.1754038,
+   "lon": 91.7360622,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/11933347895",
+   "category": "TYRES",
+   "name": "P. P. Tyres",
+   "lat": 26.1756455,
+   "lon": 91.7360363,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/11933349612",
+   "category": "TYRES",
+   "name": "Shimla Tyres",
+   "lat": 26.1754167,
+   "lon": 91.7360608,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/11933542800",
+   "category": "TYRES",
+   "name": "Kimm Tyre Service",
+   "lat": 26.1769439,
+   "lon": 91.7549121,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/11934124441",
+   "category": "TYRES",
+   "name": "Punjab Engineering Works",
+   "lat": 26.1779211,
+   "lon": 91.74209,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/11934304227",
+   "category": "TYRES",
+   "name": "Supreme Motors",
+   "lat": 26.1805849,
+   "lon": 91.7472807,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/11942078666",
+   "category": "TYRES",
+   "name": "Thakuria auto wheels",
+   "lat": 26.1384488,
+   "lon": 91.6348403,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/11942284555",
+   "category": "TYRES",
+   "name": "3D wheel aligment",
+   "lat": 26.1501974,
+   "lon": 91.6508887,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/11942702080",
+   "category": "TYRES",
+   "name": "Winni Wheels",
+   "lat": 26.1767371,
+   "lon": 91.7546193,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/11946853593",
+   "category": "TYRES",
+   "name": "Grand Auto Engineering Works",
+   "lat": 26.1673883,
+   "lon": 91.7198233,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/11946871875",
+   "category": "TYRES",
+   "name": "S. S. Tyres",
+   "lat": 26.1672677,
+   "lon": 91.7197315,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/11947631981",
+   "category": "TYRES",
+   "name": "MRF Tyres",
+   "lat": 26.1766316,
+   "lon": 91.7547599,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/11947637342",
+   "category": "TYRES",
+   "name": "Zobo Tyres",
+   "lat": 26.1766174,
+   "lon": 91.7547535,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/11947637905",
+   "category": "TYRES",
+   "name": "Apollo Tyres",
+   "lat": 26.1766326,
+   "lon": 91.7547436,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/12327002581",
+   "category": "TYRES",
+   "name": "G.M Tyre",
+   "lat": 26.1585644,
+   "lon": 91.6613403,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/12327002582",
+   "category": "TYRES",
+   "name": "11 s Automotive",
+   "lat": 26.1586378,
+   "lon": 91.661655,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/12327044500",
+   "category": "TYRES",
+   "name": "Maruti Suzuki",
+   "lat": 26.1642006,
+   "lon": 91.7154052,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/12969295181",
+   "category": "TYRES",
+   "name": "Bike Xpart",
+   "lat": 26.1562118,
+   "lon": 91.789458,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/12974687072",
+   "category": "TYRES",
+   "name": "DURGA SCOOTER WORKS",
+   "lat": 26.1689389,
+   "lon": 91.7544132,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/12974701408",
+   "category": "TYRES",
+   "name": "ENGINEERING WORKS",
+   "lat": 26.1686055,
+   "lon": 91.7473736,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/12974701409",
+   "category": "TYRES",
+   "name": "MECHANICAL ENGINEERING WORKS & PARTS REPAIRING",
+   "lat": 26.1686123,
+   "lon": 91.7473313,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/12976374619",
+   "category": "TYRES",
+   "name": "BHAWANI REPAIRING CENTRE",
+   "lat": 26.1733669,
+   "lon": 91.7721451,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/12976738004",
+   "category": "TYRES",
+   "name": "Maruti Suzuki",
+   "lat": 26.1443911,
+   "lon": 91.7787133,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/12977874496",
+   "category": "TYRES",
+   "name": "m/s tirupati steals",
+   "lat": 26.1149082,
+   "lon": 91.7984129,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/12977883471",
+   "category": "TYRES",
+   "name": "r.s tire",
+   "lat": 26.1166801,
+   "lon": 91.7983817,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/12978184762",
+   "category": "TYRES",
+   "name": "teghiya tyre",
+   "lat": 26.1133102,
+   "lon": 91.801385,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/12978184763",
+   "category": "TYRES",
+   "name": "raza tyre",
+   "lat": 26.1132813,
+   "lon": 91.8014199,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/12978271749",
+   "category": "TYRES",
+   "name": "Maruti Suzuki",
+   "lat": 26.4594328,
+   "lon": 91.4494145,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/12978974969",
+   "category": "TYRES",
+   "name": "gs sustom",
+   "lat": 26.1137678,
+   "lon": 91.8030372,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/12978974974",
+   "category": "TYRES",
+   "name": "service centere",
+   "lat": 26.1146965,
+   "lon": 91.8066754,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/12978974976",
+   "category": "TYRES",
+   "name": "manpreet diesel",
+   "lat": 26.1151969,
+   "lon": 91.8080241,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016658215",
+   "category": "TYRES",
+   "name": null,
+   "lat": 26.1788641,
+   "lon": 91.8194495,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016658216",
+   "category": "TYRES",
+   "name": null,
+   "lat": 26.1788457,
+   "lon": 91.8191906,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016711429",
+   "category": "TYRES",
+   "name": "ANVI AUTO PARTS",
+   "lat": 26.1509303,
+   "lon": 91.72965,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016711435",
+   "category": "TYRES",
+   "name": "ANSARI TYRE AND SERVICE",
+   "lat": 26.154318,
+   "lon": 91.7307942,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016725320",
+   "category": "TYRES",
+   "name": "MAA DURGA WHEELZ",
+   "lat": 26.1789347,
+   "lon": 91.811736,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016738661",
+   "category": "TYRES",
+   "name": "A.A. AUTOMOBILE AGENCY",
+   "lat": 26.1790725,
+   "lon": 91.8101624,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016738663",
+   "category": "TYRES",
+   "name": "PURNIMA AUTOMOBILE",
+   "lat": 26.1791209,
+   "lon": 91.8096892,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016753658",
+   "category": "TYRES",
+   "name": "Maruti Suzuki, NEXA Service Center",
+   "lat": 26.1629137,
+   "lon": 91.8340539,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016771421",
+   "category": "TYRES",
+   "name": "Auto Care Automobile",
+   "lat": 26.177961,
+   "lon": 91.8039804,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016771426",
+   "category": "TYRES",
+   "name": "Northeast Tyre n AC Care",
+   "lat": 26.1786405,
+   "lon": 91.8044315,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016775060",
+   "category": "TYRES",
+   "name": "SIMNA TYRE ZONE",
+   "lat": 26.1253968,
+   "lon": 91.7198963,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016775061",
+   "category": "TYRES",
+   "name": "NEW DIAMOND TYRE SERVICE",
+   "lat": 26.1254885,
+   "lon": 91.719897,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016775077",
+   "category": "TYRES",
+   "name": "N.B. TYRE SEEVICE",
+   "lat": 26.1285893,
+   "lon": 91.7206065,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016775085",
+   "category": "TYRES",
+   "name": "S.P. TYRE",
+   "lat": 26.1303994,
+   "lon": 91.7210605,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016775086",
+   "category": "TYRES",
+   "name": "M.P. TYRE",
+   "lat": 26.1304584,
+   "lon": 91.7210684,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016784516",
+   "category": "TYRES",
+   "name": "DECARBONZ",
+   "lat": 26.1764074,
+   "lon": 91.8034864,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016785383",
+   "category": "TYRES",
+   "name": "Maa Kamakhya Motorworks",
+   "lat": 26.1660141,
+   "lon": 91.7178931,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/13394379701",
+   "category": "TYRES",
+   "name": "Renault, Asago Automotive Pvt Ltd, Guwahati",
+   "lat": 26.1110054,
+   "lon": 91.7618514,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/13447876460",
+   "category": "TYRES",
+   "name": "ONE PITSTOP",
+   "lat": 26.1357706,
+   "lon": 91.8104933,
+   "osm_tags": {
+    "opening_hours": "Mo-Su 08:00-20:00",
+    "phone": "+91-69008-99147",
+    "shop": "tyres",
+    "toilets": "yes"
+   }
+  },
+  {
+   "provider_id": "osm:node/13506189521",
+   "category": "TYRES",
+   "name": "TYRE PUNCTURE",
+   "lat": 26.1592593,
+   "lon": 91.7818084,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13506189527",
+   "category": "TYRES",
+   "name": "MUSKAN  A/C GAS",
+   "lat": 26.1579916,
+   "lon": 91.7822305,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/13506189530",
+   "category": "TYRES",
+   "name": "NEW TIRE",
+   "lat": 26.1580962,
+   "lon": 91.7821777,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13506212446",
+   "category": "TYRES",
+   "name": "GOOD YEAR",
+   "lat": 26.1765197,
+   "lon": 91.7353876,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13506243379",
+   "category": "TYRES",
+   "name": "BAROOAH SERVICING CENTRE",
+   "lat": 26.1571891,
+   "lon": 91.7824641,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/13506558264",
+   "category": "TYRES",
+   "name": "THE CAR CONCEPT",
+   "lat": 26.1697496,
+   "lon": 91.7470287,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511037724",
+   "category": "TYRES",
+   "name": "M.H. Tyre service",
+   "lat": 26.1184465,
+   "lon": 91.7092941,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511364141",
+   "category": "TYRES",
+   "name": "apollo tyres",
+   "lat": 26.1153879,
+   "lon": 91.8093349,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511364175",
+   "category": "TYRES",
+   "name": "JK TYRE",
+   "lat": 26.1772356,
+   "lon": 91.7758005,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511376549",
+   "category": "TYRES",
+   "name": "Good Year",
+   "lat": 26.177389,
+   "lon": 91.7760447,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511376550",
+   "category": "TYRES",
+   "name": "Autocare",
+   "lat": 26.1773531,
+   "lon": 91.7760326,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511618597",
+   "category": "TYRES",
+   "name": "Raja Automotive",
+   "lat": 26.1644931,
+   "lon": 91.7689654,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511655642",
+   "category": "TYRES",
+   "name": "Assam Hood",
+   "lat": 26.1743022,
+   "lon": 91.7313904,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511655647",
+   "category": "TYRES",
+   "name": "Alaka",
+   "lat": 26.1748471,
+   "lon": 91.731264,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511655648",
+   "category": "TYRES",
+   "name": "Balajee enterprises",
+   "lat": 26.1749056,
+   "lon": 91.7313482,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511655649",
+   "category": "TYRES",
+   "name": "Micropaulin",
+   "lat": 26.1749045,
+   "lon": 91.7313427,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511655675",
+   "category": "TYRES",
+   "name": "tyre corner",
+   "lat": 26.1771765,
+   "lon": 91.7349612,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511655691",
+   "category": "TYRES",
+   "name": "prince tyres",
+   "lat": 26.1775474,
+   "lon": 91.7355093,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511708014",
+   "category": "TYRES",
+   "name": "Champion Motors",
+   "lat": 26.1776418,
+   "lon": 91.7356179,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13512401028",
+   "category": "TYRES",
+   "name": "MOHAN TYRE STORE",
+   "lat": 26.1747696,
+   "lon": 91.7783383,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13514744025",
+   "category": "TYRES",
+   "name": "MARUTI FRIENDS AUTOMOBILES",
+   "lat": 26.1588817,
+   "lon": 91.687152,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516514276",
+   "category": "TYRES",
+   "name": "BAROOAH SERVICING CENTRE",
+   "lat": 26.15737,
+   "lon": 91.7824388,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516514282",
+   "category": "TYRES",
+   "name": "NEO CAR CARE",
+   "lat": 26.1274639,
+   "lon": 91.8057157,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516600020",
+   "category": "TYRES",
+   "name": "M/S SAMBHU BHAI TYRE SHOP",
+   "lat": 26.1687197,
+   "lon": 91.7642531,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516613213",
+   "category": "TYRES",
+   "name": "MANASH STORE",
+   "lat": 26.1411378,
+   "lon": 91.7258591,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516613216",
+   "category": "TYRES",
+   "name": "RCJ AUTO FORGE PYT . LTD",
+   "lat": 26.1407217,
+   "lon": 91.7256512,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516613243",
+   "category": "TYRES",
+   "name": "DIPTI STORE",
+   "lat": 26.14788,
+   "lon": 91.7372625,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516639219",
+   "category": "TYRES",
+   "name": "M.H TYRE STORE",
+   "lat": 26.1184105,
+   "lon": 91.7092509,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516794549",
+   "category": "TYRES",
+   "name": "ECM SOLUTION",
+   "lat": 26.1838411,
+   "lon": 91.7461339,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516855315",
+   "category": "TYRES",
+   "name": "Tyre corner",
+   "lat": 26.1769305,
+   "lon": 91.7350772,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516855316",
+   "category": "TYRES",
+   "name": "Ralco Tyres",
+   "lat": 26.176833,
+   "lon": 91.7351902,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516855317",
+   "category": "TYRES",
+   "name": "Good Year",
+   "lat": 26.1768045,
+   "lon": 91.7352194,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516855318",
+   "category": "TYRES",
+   "name": "A.R Enterprises",
+   "lat": 26.1767349,
+   "lon": 91.7352747,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516855326",
+   "category": "TYRES",
+   "name": "P.P Tyres",
+   "lat": 26.1755167,
+   "lon": 91.7359682,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516855327",
+   "category": "TYRES",
+   "name": "Neog tyre service",
+   "lat": 26.1754295,
+   "lon": 91.7360058,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516855328",
+   "category": "TYRES",
+   "name": "Sahara Tyre",
+   "lat": 26.1752838,
+   "lon": 91.7360284,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13517338012",
+   "category": "TYRES",
+   "name": null,
+   "lat": 26.1269578,
+   "lon": 91.7966519,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13517338014",
+   "category": "TYRES",
+   "name": "KAJAL WHEELZ",
+   "lat": 26.1270351,
+   "lon": 91.7966323,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13517338018",
+   "category": "TYRES",
+   "name": "SPEED POINT",
+   "lat": 26.1275189,
+   "lon": 91.7963456,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13517338020",
+   "category": "TYRES",
+   "name": "AJMER TYRES",
+   "lat": 26.1275908,
+   "lon": 91.7963184,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13517680427",
+   "category": "TYRES",
+   "name": "KIRAN TYRES",
+   "lat": 26.1358994,
+   "lon": 91.7917478,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/13522630901",
+   "category": "TYRES",
+   "name": "Harnam motors co. (MD)",
+   "lat": 26.1836205,
+   "lon": 91.780262,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/13522630904",
+   "category": "TYRES",
+   "name": "auto care",
+   "lat": 26.1835769,
+   "lon": 91.7806077,
+   "osm_tags": {
+    "shop": "car_repair"
+   }
+  },
+  {
+   "provider_id": "osm:node/13522630937",
+   "category": "TYRES",
+   "name": "Assam tyre house",
+   "lat": 26.183879,
+   "lon": 91.7804541,
+   "osm_tags": {
+    "shop": "tyres"
+   }
+  },
+  {
+   "provider_id": "osm:node/1124867446",
+   "category": "HOTEL",
+   "name": "Wild Mahseer",
+   "lat": 26.820864,
+   "lon": 92.7985097,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/1577816064",
+   "category": "HOTEL",
+   "name": "Hotel Blue Moon",
+   "lat": 26.1913525,
+   "lon": 91.7532184,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/1578252819",
+   "category": "HOTEL",
+   "name": "Hotel Brahmaputra Ashok",
+   "lat": 26.1909754,
+   "lon": 91.7508093,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/2550840105",
+   "category": "HOTEL",
+   "name": "Saramati Hotel",
+   "lat": 25.9054982,
+   "lon": 93.7381439,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/3547429771",
+   "category": "HOTEL",
+   "name": "Niribili Guest House",
+   "lat": 26.7018843,
+   "lon": 92.8290719,
+   "osm_tags": {
+    "operator": "Tezpur University",
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/3637659880",
+   "category": "HOTEL",
+   "name": "Hotel Heritage",
+   "lat": 26.7612075,
+   "lon": 94.2058427,
+   "osm_tags": {
+    "operator": "Private",
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/3637659881",
+   "category": "HOTEL",
+   "name": "Hotel Landmark",
+   "lat": 26.7612046,
+   "lon": 94.2061004,
+   "osm_tags": {
+    "operator": "Private",
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/3637659882",
+   "category": "HOTEL",
+   "name": "Hotel Paradise",
+   "lat": 26.7611486,
+   "lon": 94.2059729,
+   "osm_tags": {
+    "operator": "Private",
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/4282136389",
+   "category": "HOTEL",
+   "name": "Hotel Biswanath",
+   "lat": 26.1797559,
+   "lon": 91.7525509,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/4290772890",
+   "category": "HOTEL",
+   "name": "h b lodge",
+   "lat": 26.6218642,
+   "lon": 92.7977296,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/4398594116",
+   "category": "HOTEL",
+   "name": "Menjong",
+   "lat": 26.7950612,
+   "lon": 91.5040412,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/4398597797",
+   "category": "HOTEL",
+   "name": "Shambala",
+   "lat": 26.7949372,
+   "lon": 91.5040792,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/4398599684",
+   "category": "HOTEL",
+   "name": "TLT Hotel",
+   "lat": 26.795114,
+   "lon": 91.5050395,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/4398600683",
+   "category": "HOTEL",
+   "name": "Hotel Park",
+   "lat": 26.7953354,
+   "lon": 91.5045841,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/4398601173",
+   "category": "HOTEL",
+   "name": "Hotel Friends",
+   "lat": 26.7953768,
+   "lon": 91.5039579,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/4398603036",
+   "category": "HOTEL",
+   "name": "Pema Sambab",
+   "lat": 26.7948401,
+   "lon": 91.5041203,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/4544266989",
+   "category": "HOTEL",
+   "name": "Subansiri Lodge",
+   "lat": 26.9849211,
+   "lon": 94.1692592,
+   "osm_tags": {
+    "phone": "8474843362",
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/4571961449",
+   "category": "HOTEL",
+   "name": null,
+   "lat": 26.583482,
+   "lon": 93.405537,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/4571961457",
+   "category": "HOTEL",
+   "name": null,
+   "lat": 26.5832261,
+   "lon": 93.4029342,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/4573850557",
+   "category": "HOTEL",
+   "name": "Guest house",
+   "lat": 26.1322171,
+   "lon": 91.8101336,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/4618338605",
+   "category": "HOTEL",
+   "name": "D Mukta Lodge",
+   "lat": 26.1840021,
+   "lon": 91.7698601,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/4634061589",
+   "category": "HOTEL",
+   "name": "MD 's",
+   "lat": 26.7611767,
+   "lon": 94.2164053,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/4681491693",
+   "category": "HOTEL",
+   "name": "Mona Lisa",
+   "lat": 26.3507514,
+   "lon": 92.6777173,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/4681491694",
+   "category": "HOTEL",
+   "name": "Janata Paradise",
+   "lat": 26.7607767,
+   "lon": 94.2058894,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/4681502996",
+   "category": "HOTEL",
+   "name": "Monodrome",
+   "lat": 26.1233441,
+   "lon": 92.1990103,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/4720041990",
+   "category": "HOTEL",
+   "name": "Green Reed Resort",
+   "lat": 26.5893438,
+   "lon": 93.4128355,
+   "osm_tags": {
+    "phone": "09432590224",
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/4741392531",
+   "category": "HOTEL",
+   "name": "Crescend lodge",
+   "lat": 26.6246901,
+   "lon": 92.7948903,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/4760915622",
+   "category": "HOTEL",
+   "name": null,
+   "lat": 26.7946928,
+   "lon": 91.5042441,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/4868269923",
+   "category": "HOTEL",
+   "name": "Hotel City Park",
+   "lat": 26.1813384,
+   "lon": 91.7411759,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/5023586422",
+   "category": "HOTEL",
+   "name": "Wild Grass",
+   "lat": 26.595293,
+   "lon": 93.451587,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/5238269934",
+   "category": "HOTEL",
+   "name": "Borgos Resort",
+   "lat": 26.600961,
+   "lon": 93.3961515,
+   "osm_tags": {
+    "opening_hours": "24/7",
+    "phone": "+913776262777",
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/5265475222",
+   "category": "HOTEL",
+   "name": "Kamalabari satra guest house",
+   "lat": 26.9369044,
+   "lon": 94.1565916,
+   "osm_tags": {
+    "phone": "03775273302",
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/5432562322",
+   "category": "HOTEL",
+   "name": null,
+   "lat": 26.1945711,
+   "lon": 93.8623624,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/5459478932",
+   "category": "HOTEL",
+   "name": "Jyoti home",
+   "lat": 26.947806,
+   "lon": 94.166079,
+   "osm_tags": {
+    "operator": "Jyoti",
+    "phone": "+919435657282",
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/5486215222",
+   "category": "HOTEL",
+   "name": "Damali lodge",
+   "lat": 25.970751,
+   "lon": 93.4358445,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/6028755985",
+   "category": "HOTEL",
+   "name": "Hotel Swagatham",
+   "lat": 26.7545342,
+   "lon": 94.2119462,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6063537485",
+   "category": "HOTEL",
+   "name": "Sundarban Guest House",
+   "lat": 26.1792898,
+   "lon": 91.7528794,
+   "osm_tags": {
+    "phone": "03612730722",
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6089170185",
+   "category": "HOTEL",
+   "name": "H.B. Lodge",
+   "lat": 26.1349631,
+   "lon": 91.8103635,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6089194686",
+   "category": "HOTEL",
+   "name": "River View Bamboo Cottage",
+   "lat": 26.9913874,
+   "lon": 94.1584928,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6089194690",
+   "category": "HOTEL",
+   "name": "Hotel Centre Point",
+   "lat": 27.0874768,
+   "lon": 93.6124426,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6093127316",
+   "category": "HOTEL",
+   "name": "Hotel Red Rose",
+   "lat": 26.209115,
+   "lon": 91.6861006,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6093127322",
+   "category": "HOTEL",
+   "name": "Hotel KRC Palace",
+   "lat": 26.6264988,
+   "lon": 92.790122,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6110416388",
+   "category": "HOTEL",
+   "name": "Hotel Basant",
+   "lat": 26.6252627,
+   "lon": 92.7969511,
+   "osm_tags": {
+    "opening_hours": "24/7",
+    "operator": "C/O Dr P. K. Barman & Jayanta Barman",
+    "phone": "+913712 230831",
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6241259485",
+   "category": "HOTEL",
+   "name": "Praashanti Tourist Lodge",
+   "lat": 26.6192855,
+   "lon": 92.7946457,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6248454786",
+   "category": "HOTEL",
+   "name": "Hotel Kaustav",
+   "lat": 26.6244875,
+   "lon": 92.799818,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6251721585",
+   "category": "HOTEL",
+   "name": "Aranya Tourist Lodge",
+   "lat": 26.5823466,
+   "lon": 93.4034962,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6347019885",
+   "category": "HOTEL",
+   "name": "The Ornate",
+   "lat": 26.1783312,
+   "lon": 91.7566559,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6472916085",
+   "category": "HOTEL",
+   "name": "Maa Vaishnavi Lodge",
+   "lat": 26.7646663,
+   "lon": 94.2031976,
+   "osm_tags": {
+    "phone": "9957194936",
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6770842986",
+   "category": "HOTEL",
+   "name": "Hotel Acacia",
+   "lat": 25.906887,
+   "lon": 93.7309498,
+   "osm_tags": {
+    "opening_hours": "24/7",
+    "phone": "+913862237102",
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6855110385",
+   "category": "HOTEL",
+   "name": "Hotel Europa Inn",
+   "lat": 25.9118098,
+   "lon": 93.7281935,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6875849885",
+   "category": "HOTEL",
+   "name": "SPOT ON 49590 Hotel Rihno",
+   "lat": 25.9063486,
+   "lon": 93.7316207,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6875851285",
+   "category": "HOTEL",
+   "name": "Hotel Acacia",
+   "lat": 25.9068233,
+   "lon": 93.7309742,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6875855385",
+   "category": "HOTEL",
+   "name": "Cedar Hotel",
+   "lat": 25.9065562,
+   "lon": 93.7328248,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6884187085",
+   "category": "HOTEL",
+   "name": "hotel N.C. 600 rupees",
+   "lat": 26.6201104,
+   "lon": 92.794926,
+   "osm_tags": {
+    "phone": "03712232470",
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6884187185",
+   "category": "HOTEL",
+   "name": "Kaziranga wildlife society guesthouse 600rupee",
+   "lat": 26.5833108,
+   "lon": 93.4029643,
+   "osm_tags": {
+    "operator": "Bitu  Gogol",
+    "phone": "8638124823",
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/6926039588",
+   "category": "HOTEL",
+   "name": "Annapurna Hotel",
+   "lat": 27.0877713,
+   "lon": 93.6115217,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6926040186",
+   "category": "HOTEL",
+   "name": "Hotel Nefa",
+   "lat": 27.0877469,
+   "lon": 93.6113716,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6926045885",
+   "category": "HOTEL",
+   "name": "Hotel DawnLand",
+   "lat": 27.0877213,
+   "lon": 93.6125799,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6926048485",
+   "category": "HOTEL",
+   "name": "Hotel Pine Ridge",
+   "lat": 27.0875103,
+   "lon": 93.6113319,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6926053585",
+   "category": "HOTEL",
+   "name": "Hotel Green Land",
+   "lat": 27.0875963,
+   "lon": 93.6114676,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6926053586",
+   "category": "HOTEL",
+   "name": "Hotel Paramount",
+   "lat": 27.0932639,
+   "lon": 93.6209675,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6926053587",
+   "category": "HOTEL",
+   "name": "Hotel Kosing",
+   "lat": 27.0976247,
+   "lon": 93.6253776,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6926053685",
+   "category": "HOTEL",
+   "name": "Hotel Shangri La",
+   "lat": 27.0877197,
+   "lon": 93.6116718,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/6926061287",
+   "category": "HOTEL",
+   "name": "Hotel Park",
+   "lat": 27.0985483,
+   "lon": 93.6260905,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/7069483485",
+   "category": "HOTEL",
+   "name": "Royal Palace",
+   "lat": 26.0919811,
+   "lon": 91.5544946,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/7080101386",
+   "category": "HOTEL",
+   "name": "LUHIT RIVER VIEW BAMBOO COTTAGE",
+   "lat": 26.9964082,
+   "lon": 94.1626406,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/7080101585",
+   "category": "HOTEL",
+   "name": "AYANG: OKUM",
+   "lat": 26.9924336,
+   "lon": 94.1500734,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/7196104986",
+   "category": "HOTEL",
+   "name": "Blissful Eyrie",
+   "lat": 26.1578522,
+   "lon": 91.8170066,
+   "osm_tags": {
+    "opening_hours": "24/7",
+    "operator": "Jili M. Ryan",
+    "phone": "+919599692372",
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/7197474186",
+   "category": "HOTEL",
+   "name": "Nature Hunt Eco Camp",
+   "lat": 26.5929147,
+   "lon": 93.4454063,
+   "osm_tags": {
+    "operator": "Ronnie",
+    "phone": "09435515011",
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/7332615886",
+   "category": "HOTEL",
+   "name": "Crappy motel",
+   "lat": 26.0994751,
+   "lon": 92.3091789,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/7371232737",
+   "category": "HOTEL",
+   "name": "Hote Senti",
+   "lat": 25.9135606,
+   "lon": 93.7289326,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/7980110484",
+   "category": "HOTEL",
+   "name": "Tourist Lodge",
+   "lat": 26.1064418,
+   "lon": 94.2540848,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/9507661351",
+   "category": "HOTEL",
+   "name": "Luit Vista",
+   "lat": 26.1929529,
+   "lon": 91.7671411,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/10209283017",
+   "category": "HOTEL",
+   "name": null,
+   "lat": 27.0313907,
+   "lon": 91.4290934,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/10271364509",
+   "category": "HOTEL",
+   "name": "MAHESWAR LAND",
+   "lat": 26.9840944,
+   "lon": 94.1650998,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/10774805005",
+   "category": "HOTEL",
+   "name": null,
+   "lat": 26.6253761,
+   "lon": 92.7998596,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/10794733106",
+   "category": "HOTEL",
+   "name": "Dhanshree Resort",
+   "lat": 26.5855372,
+   "lon": 93.4100081,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11127382948",
+   "category": "HOTEL",
+   "name": "Raha PWD Inspection Bunglow",
+   "lat": 26.2284158,
+   "lon": 92.5190254,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/11263711137",
+   "category": "HOTEL",
+   "name": "WAII International Hotel",
+   "lat": 27.0123699,
+   "lon": 92.644932,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11283249769",
+   "category": "HOTEL",
+   "name": "Hotel Payul",
+   "lat": 27.0132108,
+   "lon": 92.6372182,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11301344511",
+   "category": "HOTEL",
+   "name": "Oriole DRDA Guest House",
+   "lat": 26.5847017,
+   "lon": 93.4065595,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/11357212710",
+   "category": "HOTEL",
+   "name": "water resource inspection bungalow",
+   "lat": 26.2021797,
+   "lon": 93.1244841,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/11357212789",
+   "category": "HOTEL",
+   "name": "anand ronghang",
+   "lat": 26.2015703,
+   "lon": 93.1337715,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/11357559359",
+   "category": "HOTEL",
+   "name": "CHITRALEKHA LODGE",
+   "lat": 26.137972,
+   "lon": 91.7970351,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/11357559361",
+   "category": "HOTEL",
+   "name": "THREE LITTLE BIRDS HOMESTAY",
+   "lat": 26.136567,
+   "lon": 91.7995999,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/11491801169",
+   "category": "HOTEL",
+   "name": "Risong family guest house",
+   "lat": 26.9844895,
+   "lon": 94.1538131,
+   "osm_tags": {
+    "phone": "+919957186356",
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/11638123269",
+   "category": "HOTEL",
+   "name": "The Bhowmick's Bungalow",
+   "lat": 26.625198,
+   "lon": 92.7998312,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/11687800724",
+   "category": "HOTEL",
+   "name": "The Springbuck Homestay",
+   "lat": 26.1665186,
+   "lon": 91.777922,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/11747250669",
+   "category": "HOTEL",
+   "name": "KRC Homestay",
+   "lat": 26.6260787,
+   "lon": 92.7901672,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11795618871",
+   "category": "HOTEL",
+   "name": "Grand Lotus Hotel, Dimapur",
+   "lat": 25.9097721,
+   "lon": 93.7273322,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11829002098",
+   "category": "HOTEL",
+   "name": "Graham Sojourn Homestay",
+   "lat": 26.1883975,
+   "lon": 91.7539949,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/11876655579",
+   "category": "HOTEL",
+   "name": "Mukta Lodge",
+   "lat": 26.18376,
+   "lon": 91.771215,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11886084069",
+   "category": "HOTEL",
+   "name": "Hotel Prabesh",
+   "lat": 26.3086336,
+   "lon": 92.7034264,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11931242235",
+   "category": "HOTEL",
+   "name": "Hotel NE Gateway",
+   "lat": 26.1580735,
+   "lon": 91.6735367,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11931261867",
+   "category": "HOTEL",
+   "name": "Hotel Times",
+   "lat": 26.1579963,
+   "lon": 91.6744267,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11932409961",
+   "category": "HOTEL",
+   "name": "City Lodge",
+   "lat": 26.1586471,
+   "lon": 91.68467,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11932463744",
+   "category": "HOTEL",
+   "name": "Hotel Victoria Fooding and Lodging",
+   "lat": 26.1805508,
+   "lon": 91.7510694,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11932486754",
+   "category": "HOTEL",
+   "name": "Hotel Maitri Residency",
+   "lat": 26.180297,
+   "lon": 91.7511331,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11932500556",
+   "category": "HOTEL",
+   "name": "Hotel Coronation",
+   "lat": 26.1805014,
+   "lon": 91.7511892,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11932509416",
+   "category": "HOTEL",
+   "name": "Hotel Classic",
+   "lat": 26.1803381,
+   "lon": 91.751099,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11932521054",
+   "category": "HOTEL",
+   "name": "Suro Guest House",
+   "lat": 26.1797735,
+   "lon": 91.7514749,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/11932533836",
+   "category": "HOTEL",
+   "name": "Hotel MM",
+   "lat": 26.179701,
+   "lon": 91.7516952,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11932551852",
+   "category": "HOTEL",
+   "name": "Hotel Atithi",
+   "lat": 26.1784673,
+   "lon": 91.7509588,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11933466042",
+   "category": "HOTEL",
+   "name": "Hotel Arya",
+   "lat": 26.1765329,
+   "lon": 91.7555671,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11933477333",
+   "category": "HOTEL",
+   "name": "Hotel Daffodils",
+   "lat": 26.1806511,
+   "lon": 91.7497637,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11933494534",
+   "category": "HOTEL",
+   "name": "Hotel Santi",
+   "lat": 26.1806667,
+   "lon": 91.7498777,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11933510589",
+   "category": "HOTEL",
+   "name": "Hotel Bijoya",
+   "lat": 26.1776475,
+   "lon": 91.7544231,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11933524182",
+   "category": "HOTEL",
+   "name": "Hotlel Kalpan",
+   "lat": 26.1758719,
+   "lon": 91.7565331,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11933578702",
+   "category": "HOTEL",
+   "name": "Naga Hotel Fooding",
+   "lat": 26.1774333,
+   "lon": 91.7544164,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11933604671",
+   "category": "HOTEL",
+   "name": "Aashi Apsara",
+   "lat": 26.1777402,
+   "lon": 91.7545612,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11934453378",
+   "category": "HOTEL",
+   "name": "Hotel Guwahati Junction",
+   "lat": 26.1785771,
+   "lon": 91.7522715,
+   "osm_tags": {
+    "tourism": "motel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11934454380",
+   "category": "HOTEL",
+   "name": "N.E. Century Guest House",
+   "lat": 26.1785356,
+   "lon": 91.7523549,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/11937538240",
+   "category": "HOTEL",
+   "name": "Hotel Griham Inn",
+   "lat": 26.1807223,
+   "lon": 91.750108,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11937542594",
+   "category": "HOTEL",
+   "name": "Hotel Bhargav",
+   "lat": 26.1807232,
+   "lon": 91.7500506,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11937548128",
+   "category": "HOTEL",
+   "name": "Hotel P.C.S.",
+   "lat": 26.1806826,
+   "lon": 91.7500558,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11939560477",
+   "category": "HOTEL",
+   "name": "Bhargav Inn",
+   "lat": 26.1801988,
+   "lon": 91.7509141,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11939568337",
+   "category": "HOTEL",
+   "name": "Spectra Inn",
+   "lat": 26.1804362,
+   "lon": 91.7508582,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11939591064",
+   "category": "HOTEL",
+   "name": "Bishram Lodge",
+   "lat": 26.1799761,
+   "lon": 91.7509494,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11939624973",
+   "category": "HOTEL",
+   "name": "Hotel Ashok Palace",
+   "lat": 26.1794853,
+   "lon": 91.7511908,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11939630810",
+   "category": "HOTEL",
+   "name": "Hotel Gitanjali;Studio Melody",
+   "lat": 26.1795341,
+   "lon": 91.7511579,
+   "osm_tags": {
+    "shop": "musical_instrument",
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11939638070",
+   "category": "HOTEL",
+   "name": "Hotel Maharaja",
+   "lat": 26.179376,
+   "lon": 91.7512014,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11942550136",
+   "category": "HOTEL",
+   "name": "Hotel Rodali Residency",
+   "lat": 26.1784832,
+   "lon": 91.7519535,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11942563842",
+   "category": "HOTEL",
+   "name": "Hotel Trimury International",
+   "lat": 26.1785895,
+   "lon": 91.7518305,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11942569237",
+   "category": "HOTEL",
+   "name": "Hotel Ansuna Residency",
+   "lat": 26.1777652,
+   "lon": 91.7529946,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11942582498",
+   "category": "HOTEL",
+   "name": "Hotel Mahalaxmi",
+   "lat": 26.1784214,
+   "lon": 91.7520655,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11942600345",
+   "category": "HOTEL",
+   "name": "Sangai Manipuri Rice Hotel",
+   "lat": 26.1777792,
+   "lon": 91.7531056,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11942602174",
+   "category": "HOTEL",
+   "name": "Hotel Nandan",
+   "lat": 26.1782148,
+   "lon": 91.7522489,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11942620549",
+   "category": "HOTEL",
+   "name": "Hotel Fame City",
+   "lat": 26.1778819,
+   "lon": 91.7529354,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11942671921",
+   "category": "HOTEL",
+   "name": "Hotel Bijita",
+   "lat": 26.1775445,
+   "lon": 91.7534247,
+   "osm_tags": {
+    "tourism": "motel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11942680856",
+   "category": "HOTEL",
+   "name": "Hotel Haris",
+   "lat": 26.1768918,
+   "lon": 91.7541304,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11942684268",
+   "category": "HOTEL",
+   "name": "Hotel Puja Palace",
+   "lat": 26.1766984,
+   "lon": 91.7546273,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11942695610",
+   "category": "HOTEL",
+   "name": "Hotel Fortune",
+   "lat": 26.1766495,
+   "lon": 91.7545857,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11947547054",
+   "category": "HOTEL",
+   "name": "Boby Lodge",
+   "lat": 26.1766819,
+   "lon": 91.754705,
+   "osm_tags": {
+    "tourism": "motel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11947620957",
+   "category": "HOTEL",
+   "name": "Bhanu Lodge",
+   "lat": 26.1766224,
+   "lon": 91.7547253,
+   "osm_tags": {
+    "tourism": "motel"
+   }
+  },
+  {
+   "provider_id": "osm:node/11947807813",
+   "category": "HOTEL",
+   "name": "Hotel Brahmaputra",
+   "lat": 26.175262,
+   "lon": 91.7568154,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12595552573",
+   "category": "HOTEL",
+   "name": "orchid Apartment,Block-B,Flat no-07,3rd floor",
+   "lat": 26.1809666,
+   "lon": 91.7597277,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/12595601978",
+   "category": "HOTEL",
+   "name": "safarnama",
+   "lat": 26.1808031,
+   "lon": 91.7595186,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/12595633945",
+   "category": "HOTEL",
+   "name": "Mahmud's PG",
+   "lat": 26.1804373,
+   "lon": 91.7595555,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/12595635690",
+   "category": "HOTEL",
+   "name": "RASHID RESIDENCE",
+   "lat": 26.1804993,
+   "lon": 91.7608421,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12595641640",
+   "category": "HOTEL",
+   "name": "Solace manzil (SN farid's residence)",
+   "lat": 26.1808353,
+   "lon": 91.76049,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12595734216",
+   "category": "HOTEL",
+   "name": "SRI KAPIL HOTEL & RESTAURANT",
+   "lat": 26.1791486,
+   "lon": 91.7565416,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12595741741",
+   "category": "HOTEL",
+   "name": "chinese hut",
+   "lat": 26.1784897,
+   "lon": 91.7566055,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12595814193",
+   "category": "HOTEL",
+   "name": "treebo hotel spring brook",
+   "lat": 26.1776295,
+   "lon": 91.7562254,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/12595837698",
+   "category": "HOTEL",
+   "name": "Electro Cooling Appliances",
+   "lat": 26.175643,
+   "lon": 91.7572516,
+   "osm_tags": {
+    "tourism": "motel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12663216296",
+   "category": "HOTEL",
+   "name": "P K G Guest House",
+   "lat": 26.5665881,
+   "lon": 93.7742916,
+   "osm_tags": {
+    "phone": "+917002881929",
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/12969266126",
+   "category": "HOTEL",
+   "name": "Greentech residency",
+   "lat": 26.1738856,
+   "lon": 91.7575309,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12969266127",
+   "category": "HOTEL",
+   "name": "Park Plaza Hotels",
+   "lat": 26.1737325,
+   "lon": 91.7573255,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12969290351",
+   "category": "HOTEL",
+   "name": "THE GUWAHATI ADDRESS",
+   "lat": 26.1729432,
+   "lon": 91.7775607,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12969385109",
+   "category": "HOTEL",
+   "name": "Magic Square",
+   "lat": 26.183466,
+   "lon": 91.7417548,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12969418424",
+   "category": "HOTEL",
+   "name": "M/S DURGA LODGE",
+   "lat": 26.1672145,
+   "lon": 91.769185,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12970716166",
+   "category": "HOTEL",
+   "name": "OYO cozy home",
+   "lat": 26.1552558,
+   "lon": 91.7901514,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12972353861",
+   "category": "HOTEL",
+   "name": "Hotel Nova",
+   "lat": 26.1819411,
+   "lon": 91.7407506,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12972875420",
+   "category": "HOTEL",
+   "name": "Dynasty",
+   "lat": 26.1818683,
+   "lon": 91.7416706,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12973082006",
+   "category": "HOTEL",
+   "name": "mongo tree bed and breakfast",
+   "lat": 26.17273,
+   "lon": 91.7637797,
+   "osm_tags": {
+    "tourism": "motel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12974493234",
+   "category": "HOTEL",
+   "name": "Maa kamakhya guesthouse",
+   "lat": 26.1687464,
+   "lon": 91.7476409,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12976302902",
+   "category": "HOTEL",
+   "name": "Rahul store",
+   "lat": 26.1753272,
+   "lon": 91.7623386,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12976302934",
+   "category": "HOTEL",
+   "name": "RAHUL HOTEL",
+   "lat": 26.1753269,
+   "lon": 91.762325,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12976322142",
+   "category": "HOTEL",
+   "name": "Barman hotel",
+   "lat": 26.1447296,
+   "lon": 91.7764966,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12976374605",
+   "category": "HOTEL",
+   "name": "THE PALM SUITES",
+   "lat": 26.1756873,
+   "lon": 91.7731994,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/12976374640",
+   "category": "HOTEL",
+   "name": "BIBHASHREE GUEST HOUSE",
+   "lat": 26.1708304,
+   "lon": 91.7709808,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/12976374641",
+   "category": "HOTEL",
+   "name": "HOTEL GALAXY INN",
+   "lat": 26.1706754,
+   "lon": 91.770931,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12976455558",
+   "category": "HOTEL",
+   "name": "HOTEL PALACE",
+   "lat": 26.1817369,
+   "lon": 91.7413945,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12976455563",
+   "category": "HOTEL",
+   "name": "HOTEL CITY PARK",
+   "lat": 26.1817634,
+   "lon": 91.7411967,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12976577185",
+   "category": "HOTEL",
+   "name": "Hotel shibani",
+   "lat": 26.1445006,
+   "lon": 91.7773167,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12977182581",
+   "category": "HOTEL",
+   "name": "Rava baideo hotel",
+   "lat": 26.1445042,
+   "lon": 91.7800466,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12977236619",
+   "category": "HOTEL",
+   "name": "LAKHI HOTEL",
+   "lat": 26.1447167,
+   "lon": 91.7841292,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12977874479",
+   "category": "HOTEL",
+   "name": "krishna inn",
+   "lat": 26.1157669,
+   "lon": 91.7982878,
+   "osm_tags": {
+    "tourism": "motel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12977883480",
+   "category": "HOTEL",
+   "name": "rudrakhsh inn",
+   "lat": 26.1159654,
+   "lon": 91.798362,
+   "osm_tags": {
+    "tourism": "motel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12978095764",
+   "category": "HOTEL",
+   "name": "ratnamouli palace",
+   "lat": 26.1138858,
+   "lon": 91.7982709,
+   "osm_tags": {
+    "tourism": "motel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12978223010",
+   "category": "HOTEL",
+   "name": "J.L.HOTEL",
+   "lat": 26.4558541,
+   "lon": 91.447103,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/12978271753",
+   "category": "HOTEL",
+   "name": "ANTARA HOTEL OR RESTAURANT",
+   "lat": 26.4621148,
+   "lon": 91.4510245,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016660405",
+   "category": "HOTEL",
+   "name": "New Barak Hotel",
+   "lat": 26.1300148,
+   "lon": 91.7795447,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016660406",
+   "category": "HOTEL",
+   "name": "New Barak Hotel",
+   "lat": 26.1296543,
+   "lon": 91.7795487,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016714257",
+   "category": "HOTEL",
+   "name": "Lohia House",
+   "lat": 26.1818226,
+   "lon": 91.7370031,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016725308",
+   "category": "HOTEL",
+   "name": "CHAI & CHID",
+   "lat": 26.178818,
+   "lon": 91.8133879,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016737143",
+   "category": "HOTEL",
+   "name": "Kutubbudin Hotel",
+   "lat": 26.1281759,
+   "lon": 91.7792785,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016737151",
+   "category": "HOTEL",
+   "name": "Bismillah Hotel",
+   "lat": 26.1288411,
+   "lon": 91.779333,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016737152",
+   "category": "HOTEL",
+   "name": "Hotel Sky Land",
+   "lat": 26.1288642,
+   "lon": 91.7793454,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016737154",
+   "category": "HOTEL",
+   "name": "Hotel Tripti",
+   "lat": 26.128936,
+   "lon": 91.7793737,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016737156",
+   "category": "HOTEL",
+   "name": null,
+   "lat": 26.1289799,
+   "lon": 91.7793676,
+   "osm_tags": {
+    "tourism": "motel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016738657",
+   "category": "HOTEL",
+   "name": "PARAMPARA",
+   "lat": 26.1790238,
+   "lon": 91.8106282,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016738658",
+   "category": "HOTEL",
+   "name": "ASARBAD HOTEL",
+   "lat": 26.1790384,
+   "lon": 91.8106087,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016745465",
+   "category": "HOTEL",
+   "name": "Ashik Hotel",
+   "lat": 26.1290637,
+   "lon": 91.7796569,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016745468",
+   "category": "HOTEL",
+   "name": "Dispur Residency",
+   "lat": 26.1290847,
+   "lon": 91.7797438,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016755584",
+   "category": "HOTEL",
+   "name": "CITY HOTEL",
+   "lat": 26.1792323,
+   "lon": 91.8063321,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016771340",
+   "category": "HOTEL",
+   "name": "Munni Hotel",
+   "lat": 26.1417616,
+   "lon": 91.7863943,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016771346",
+   "category": "HOTEL",
+   "name": "Orchard Hotel",
+   "lat": 26.1419852,
+   "lon": 91.78649,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016771349",
+   "category": "HOTEL",
+   "name": "Anjalee's Lodge",
+   "lat": 26.1422581,
+   "lon": 91.7866002,
+   "osm_tags": {
+    "tourism": "motel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016771431",
+   "category": "HOTEL",
+   "name": "Bipanchi hotel",
+   "lat": 26.1789838,
+   "lon": 91.8051436,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016771460",
+   "category": "HOTEL",
+   "name": "Kanchan Sweet And Foods",
+   "lat": 26.1790275,
+   "lon": 91.8125189,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016775052",
+   "category": "HOTEL",
+   "name": "PARBEZ HOTEL",
+   "lat": 26.1248542,
+   "lon": 91.7198344,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016775090",
+   "category": "HOTEL",
+   "name": "BINA SWEETS HOTEL",
+   "lat": 26.1326307,
+   "lon": 91.7222139,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016779672",
+   "category": "HOTEL",
+   "name": "Alam Homoeo Clinic",
+   "lat": 26.129058,
+   "lon": 91.7801466,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016779674",
+   "category": "HOTEL",
+   "name": "Mariyam Hotel",
+   "lat": 26.1290385,
+   "lon": 91.7802023,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016784504",
+   "category": "HOTEL",
+   "name": "NORTHEAST KITCHEN",
+   "lat": 26.1780012,
+   "lon": 91.8042074,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016790558",
+   "category": "HOTEL",
+   "name": "BARBEE'S FOOD CORNER",
+   "lat": 26.1727364,
+   "lon": 91.7846733,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016790568",
+   "category": "HOTEL",
+   "name": "C.P.W.D GUEST HOUSE",
+   "lat": 26.1724752,
+   "lon": 91.7822705,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016790583",
+   "category": "HOTEL",
+   "name": "OM BISHNU HOTEL",
+   "lat": 26.172595,
+   "lon": 91.7809821,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016798815",
+   "category": "HOTEL",
+   "name": "Mamar Dukan",
+   "lat": 26.178984,
+   "lon": 91.8131339,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016799657",
+   "category": "HOTEL",
+   "name": "GUN GUN HOTEL & RESTAURENT",
+   "lat": 26.1368363,
+   "lon": 91.7248014,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016801062",
+   "category": "HOTEL",
+   "name": "Rizwan Hotel",
+   "lat": 26.1288711,
+   "lon": 91.7793798,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016801065",
+   "category": "HOTEL",
+   "name": "Dosti Hotel",
+   "lat": 26.1285823,
+   "lon": 91.7793437,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016989449",
+   "category": "HOTEL",
+   "name": "BISWAS HOTEL",
+   "lat": 26.1740025,
+   "lon": 91.7849844,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016989454",
+   "category": "HOTEL",
+   "name": "MANISHA HOTEL",
+   "lat": 26.1737427,
+   "lon": 91.7849813,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13016989457",
+   "category": "HOTEL",
+   "name": "BLUE HEAVEN",
+   "lat": 26.1732318,
+   "lon": 91.7850425,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13022630803",
+   "category": "HOTEL",
+   "name": "Lala Hotel",
+   "lat": 26.1800401,
+   "lon": 91.741208,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13022630806",
+   "category": "HOTEL",
+   "name": "Mansarovar Hotel",
+   "lat": 26.180233,
+   "lon": 91.7409013,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13152642501",
+   "category": "HOTEL",
+   "name": "ময়ুৰ হোটেল",
+   "lat": 25.9154142,
+   "lon": 92.9564238,
+   "osm_tags": {
+    "opening_hours": "24/7",
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13293941001",
+   "category": "HOTEL",
+   "name": "Hotel Prabesh",
+   "lat": 26.3088655,
+   "lon": 92.7038815,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13296594801",
+   "category": "HOTEL",
+   "name": "Prashaanti Tourist Lodge",
+   "lat": 26.3479628,
+   "lon": 92.6807025,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13359609101",
+   "category": "HOTEL",
+   "name": "Sui Hotel",
+   "lat": 26.1842466,
+   "lon": 91.7404102,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13369199001",
+   "category": "HOTEL",
+   "name": "Irroi Kaziranga",
+   "lat": 26.6074353,
+   "lon": 93.4637754,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13470328305",
+   "category": "HOTEL",
+   "name": "Morning Mist Homestay",
+   "lat": 26.7421521,
+   "lon": 94.2303977,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13473455645",
+   "category": "HOTEL",
+   "name": "Hotel Nilakhi",
+   "lat": 26.9544948,
+   "lon": 94.2875232,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13475468736",
+   "category": "HOTEL",
+   "name": "Hotel Murari",
+   "lat": 26.9528622,
+   "lon": 94.2600933,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13506162740",
+   "category": "HOTEL",
+   "name": "Jaiswal Hotel & Meat House",
+   "lat": 26.1714595,
+   "lon": 91.7593166,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13506197161",
+   "category": "HOTEL",
+   "name": "KAY DEE GUEST HOUSE",
+   "lat": 26.1267838,
+   "lon": 91.7865617,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/13506229576",
+   "category": "HOTEL",
+   "name": "Kay Dee Guest House",
+   "lat": 26.1268091,
+   "lon": 91.786542,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/13506229584",
+   "category": "HOTEL",
+   "name": "madina hotel",
+   "lat": 26.1286549,
+   "lon": 91.7863805,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13506229585",
+   "category": "HOTEL",
+   "name": "Pakija Hotel11",
+   "lat": 26.128692,
+   "lon": 91.7863834,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13506229600",
+   "category": "HOTEL",
+   "name": "Hydrabadi chicken Biryani11",
+   "lat": 26.1318463,
+   "lon": 91.7860281,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13506243378",
+   "category": "HOTEL",
+   "name": "THE BAMBOO GROOVE GUEST HOUSE",
+   "lat": 26.1571942,
+   "lon": 91.7824576,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/13506245540",
+   "category": "HOTEL",
+   "name": "MD Guest House",
+   "lat": 26.1809667,
+   "lon": 91.756167,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/13506245542",
+   "category": "HOTEL",
+   "name": "Hotel Prince B",
+   "lat": 26.1808188,
+   "lon": 91.756158,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13506245551",
+   "category": "HOTEL",
+   "name": "Hotel orchid",
+   "lat": 26.1801823,
+   "lon": 91.7563754,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13506245561",
+   "category": "HOTEL",
+   "name": "The ornate",
+   "lat": 26.1791845,
+   "lon": 91.7565543,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13506245564",
+   "category": "HOTEL",
+   "name": null,
+   "lat": 26.1787963,
+   "lon": 91.756607,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13506276156",
+   "category": "HOTEL",
+   "name": "Miraya Homestay",
+   "lat": 26.1914865,
+   "lon": 91.7533244,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/13506276171",
+   "category": "HOTEL",
+   "name": "Achala Home",
+   "lat": 26.1917527,
+   "lon": 91.7549622,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13509359743",
+   "category": "HOTEL",
+   "name": "ACHYUT EXPRESS TOWER",
+   "lat": 26.177055,
+   "lon": 91.7571352,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511037728",
+   "category": "HOTEL",
+   "name": "Your Biryani Hub11",
+   "lat": 26.1298338,
+   "lon": 91.7862481,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511365119",
+   "category": "HOTEL",
+   "name": "LAKHI HOTEL",
+   "lat": 26.1662639,
+   "lon": 91.7687474,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511365120",
+   "category": "HOTEL",
+   "name": "HOTEL RASHMI",
+   "lat": 26.1665896,
+   "lon": 91.7689018,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511599349",
+   "category": "HOTEL",
+   "name": "THE APPLE TREE",
+   "lat": 26.1623914,
+   "lon": 91.779954,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511618571",
+   "category": "HOTEL",
+   "name": "Ruchi",
+   "lat": 26.165639,
+   "lon": 91.7684611,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511618582",
+   "category": "HOTEL",
+   "name": "Rongali Bhojanalaya",
+   "lat": 26.1628301,
+   "lon": 91.770893,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511618586",
+   "category": "HOTEL",
+   "name": "hotel cozy home",
+   "lat": 26.1632369,
+   "lon": 91.7703885,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511618591",
+   "category": "HOTEL",
+   "name": "usha louge",
+   "lat": 26.1640077,
+   "lon": 91.7695442,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511618594",
+   "category": "HOTEL",
+   "name": "Food joint",
+   "lat": 26.1643327,
+   "lon": 91.7691714,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511618596",
+   "category": "HOTEL",
+   "name": "Royal in guest house",
+   "lat": 26.1644693,
+   "lon": 91.7689952,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511637344",
+   "category": "HOTEL",
+   "name": "oyo",
+   "lat": 26.1786143,
+   "lon": 91.751804,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511655645",
+   "category": "HOTEL",
+   "name": "Baba Loknath Hotel",
+   "lat": 26.1746302,
+   "lon": 91.7312935,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511655646",
+   "category": "HOTEL",
+   "name": "Baba Loknath Hotel & fast food",
+   "lat": 26.174819,
+   "lon": 91.7312039,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511655662",
+   "category": "HOTEL",
+   "name": "Hotel new Castle",
+   "lat": 26.1759344,
+   "lon": 91.7328009,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511655673",
+   "category": "HOTEL",
+   "name": "Hotel Eureka grand",
+   "lat": 26.1767975,
+   "lon": 91.734175,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511655678",
+   "category": "HOTEL",
+   "name": "Hotel Shah",
+   "lat": 26.1771854,
+   "lon": 91.7350472,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511655680",
+   "category": "HOTEL",
+   "name": "Ankit foods",
+   "lat": 26.1772851,
+   "lon": 91.7351986,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511670284",
+   "category": "HOTEL",
+   "name": "HOTEL COSY HOME",
+   "lat": 26.1632539,
+   "lon": 91.7703589,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511687411",
+   "category": "HOTEL",
+   "name": "India guest house",
+   "lat": 26.1644917,
+   "lon": 91.7689526,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511688915",
+   "category": "HOTEL",
+   "name": "LAKHI HOTEL",
+   "lat": 26.1662779,
+   "lon": 91.7687369,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511688919",
+   "category": "HOTEL",
+   "name": "HOTEL SAI NIVAS",
+   "lat": 26.1665522,
+   "lon": 91.768882,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13511702311",
+   "category": "HOTEL",
+   "name": "BABA LOKNATH HOTEL",
+   "lat": 26.1728861,
+   "lon": 91.7548054,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516553677",
+   "category": "HOTEL",
+   "name": "Akashi Ganga Restautant",
+   "lat": 26.1751372,
+   "lon": 91.7574753,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516553680",
+   "category": "HOTEL",
+   "name": "sweet",
+   "lat": 26.1749421,
+   "lon": 91.7577535,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516553681",
+   "category": "HOTEL",
+   "name": "Baruah's Inn",
+   "lat": 26.1749123,
+   "lon": 91.7577877,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516749870",
+   "category": "HOTEL",
+   "name": "HARI OM HOTEL",
+   "lat": 26.1322057,
+   "lon": 91.8067262,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516749871",
+   "category": "HOTEL",
+   "name": "NISHA HOTEL",
+   "lat": 26.1321614,
+   "lon": 91.8067574,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516794541",
+   "category": "HOTEL",
+   "name": "HOTEL",
+   "lat": 26.1832452,
+   "lon": 91.745478,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516794542",
+   "category": "HOTEL",
+   "name": "HOTEL RIALTO",
+   "lat": 26.1834237,
+   "lon": 91.7456192,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516794544",
+   "category": "HOTEL",
+   "name": "HOTEL PRESIDENT",
+   "lat": 26.1835414,
+   "lon": 91.7457815,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516794548",
+   "category": "HOTEL",
+   "name": "ZAIKA MURADABADI & HYDRABADI CHICKEN",
+   "lat": 26.1837661,
+   "lon": 91.7460319,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516794552",
+   "category": "HOTEL",
+   "name": "SWAGATAM INN",
+   "lat": 26.1840959,
+   "lon": 91.7464943,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516794561",
+   "category": "HOTEL",
+   "name": "STAR LODGE",
+   "lat": 26.1848108,
+   "lon": 91.7472833,
+   "osm_tags": {
+    "tourism": "motel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516940935",
+   "category": "HOTEL",
+   "name": "Maa hotel",
+   "lat": 26.171887,
+   "lon": 91.7359541,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13516996112",
+   "category": "HOTEL",
+   "name": "LUIT GUEST HOUSE",
+   "lat": 26.1851178,
+   "lon": 91.7638739,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/13517182657",
+   "category": "HOTEL",
+   "name": "Babli Hotel",
+   "lat": 26.1718783,
+   "lon": 91.7402909,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13517213181",
+   "category": "HOTEL",
+   "name": "Abhay Hotel",
+   "lat": 26.1691496,
+   "lon": 91.7434689,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13522630927",
+   "category": "HOTEL",
+   "name": "the jatli's food hub",
+   "lat": 26.183299,
+   "lon": 91.7828929,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13522630943",
+   "category": "HOTEL",
+   "name": "purnima hotel",
+   "lat": 26.1839741,
+   "lon": 91.7798484,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13523765801",
+   "category": "HOTEL",
+   "name": "Luit Hotel",
+   "lat": 26.9714303,
+   "lon": 94.1570378,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13543346581",
+   "category": "HOTEL",
+   "name": "Mouchak Sweets And Savouires",
+   "lat": 26.7545542,
+   "lon": 94.2117893,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13660622601",
+   "category": "HOTEL",
+   "name": "Honest Hotel & Resort",
+   "lat": 26.2017095,
+   "lon": 93.1363651,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13686381657",
+   "category": "HOTEL",
+   "name": "Hotel Nilkantha",
+   "lat": 26.6417094,
+   "lon": 93.5744888,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13686480389",
+   "category": "HOTEL",
+   "name": "Lambu Dhaba",
+   "lat": 26.6355765,
+   "lon": 93.5555429,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13690641462",
+   "category": "HOTEL",
+   "name": "Maina Hotel",
+   "lat": 26.7523722,
+   "lon": 94.1824893,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13744404567",
+   "category": "HOTEL",
+   "name": "Hotel Tibet",
+   "lat": 26.1806075,
+   "lon": 91.7491254,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/13952000201",
+   "category": "HOTEL",
+   "name": "Honest Hotel and Resort",
+   "lat": 26.2018802,
+   "lon": 93.1364141,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/14004834455",
+   "category": "HOTEL",
+   "name": "The Red Roof Inn",
+   "lat": 26.7359429,
+   "lon": 94.2138108,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:node/14056346001",
+   "category": "HOTEL",
+   "name": "Kiranshree Grand",
+   "lat": 26.1155873,
+   "lon": 91.5999722,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:way/358944907",
+   "category": "HOTEL",
+   "name": "Hotel Paradise/ Hotel heritage/ Hotel New Park",
+   "lat": 26.7608667,
+   "lon": 94.2063885,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:way/501917489",
+   "category": "HOTEL",
+   "name": "Vivanta by Taj",
+   "lat": 26.1252233,
+   "lon": 91.8173988,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:way/510467015",
+   "category": "HOTEL",
+   "name": "PYBSS",
+   "lat": 27.0934126,
+   "lon": 93.6215493,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:way/518568483",
+   "category": "HOTEL",
+   "name": null,
+   "lat": 26.1411779,
+   "lon": 91.6735797,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:way/564616787",
+   "category": "HOTEL",
+   "name": "Hotel Renaissance",
+   "lat": 26.1460294,
+   "lon": 91.7917704,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:way/564716444",
+   "category": "HOTEL",
+   "name": "Hotel Lily",
+   "lat": 26.1280022,
+   "lon": 91.811675,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:way/579306249",
+   "category": "HOTEL",
+   "name": "Hotel Shoolin Grand",
+   "lat": 26.1363529,
+   "lon": 91.8027087,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:way/975061937",
+   "category": "HOTEL",
+   "name": "Dungkhag Guesthouse",
+   "lat": 26.8816407,
+   "lon": 91.7094173,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:way/975181634",
+   "category": "HOTEL",
+   "name": "CGI Guest House",
+   "lat": 26.8708508,
+   "lon": 91.481129,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:way/1065781646",
+   "category": "HOTEL",
+   "name": "Central Government Touring Officers Guest House",
+   "lat": 26.1722065,
+   "lon": 91.7822001,
+   "osm_tags": {
+    "operator": "Central Public Works Department",
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:way/1094424994",
+   "category": "HOTEL",
+   "name": "Sneha Bhawan",
+   "lat": 26.5900666,
+   "lon": 93.4044474,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:way/1097897640",
+   "category": "HOTEL",
+   "name": "Bonani Tourist Lodge",
+   "lat": 26.5826973,
+   "lon": 93.4038575,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:way/1099634496",
+   "category": "HOTEL",
+   "name": "Le-Nong Homestay",
+   "lat": 26.590231,
+   "lon": 93.4018759,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:way/1099634510",
+   "category": "HOTEL",
+   "name": "Hyrax Home Stay",
+   "lat": 26.5905793,
+   "lon": 93.4023726,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:way/1099634517",
+   "category": "HOTEL",
+   "name": "Pallabi Home Stay",
+   "lat": 26.5906677,
+   "lon": 93.4026032,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:way/1099634543",
+   "category": "HOTEL",
+   "name": "A.G. Lodge",
+   "lat": 26.5917775,
+   "lon": 93.3989787,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:way/1099922554",
+   "category": "HOTEL",
+   "name": "Prashaanti Tourism Complex",
+   "lat": 26.6601343,
+   "lon": 93.5662519,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:way/1107471158",
+   "category": "HOTEL",
+   "name": null,
+   "lat": 25.9130684,
+   "lon": 94.2031302,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:way/1117551026",
+   "category": "HOTEL",
+   "name": "N.R. Resort",
+   "lat": 26.5911293,
+   "lon": 93.4194332,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:way/1117551069",
+   "category": "HOTEL",
+   "name": "Kaziranga Guesthouse",
+   "lat": 26.5895289,
+   "lon": 93.4046819,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:way/1119048884",
+   "category": "HOTEL",
+   "name": "Jonaki Kareng",
+   "lat": 26.5835956,
+   "lon": 93.4024534,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:way/1216687921",
+   "category": "HOTEL",
+   "name": null,
+   "lat": 27.0133769,
+   "lon": 92.632993,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:way/1219256688",
+   "category": "HOTEL",
+   "name": "The Castelton Mansion",
+   "lat": 26.1323382,
+   "lon": 91.802587,
+   "osm_tags": {
+    "phone": "+91 9864323486",
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:way/1223807880",
+   "category": "HOTEL",
+   "name": "CHAUDHARY HOTEL",
+   "lat": 26.6891167,
+   "lon": 94.4004202,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:way/1303671661",
+   "category": "HOTEL",
+   "name": "Islam Hotel",
+   "lat": 26.4029123,
+   "lon": 92.4562954,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:way/1367385674",
+   "category": "HOTEL",
+   "name": null,
+   "lat": 26.5665821,
+   "lon": 93.7742952,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:way/1411432669",
+   "category": "HOTEL",
+   "name": "Leo Residency",
+   "lat": 26.1562757,
+   "lon": 91.7895493,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:way/1498519818",
+   "category": "HOTEL",
+   "name": null,
+   "lat": 26.5842966,
+   "lon": 93.4080954,
+   "osm_tags": {
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:way/1498519819",
+   "category": "HOTEL",
+   "name": "Red River Retreat",
+   "lat": 26.5839728,
+   "lon": 93.4081316,
+   "osm_tags": {
+    "phone": "+91-6901418701",
+    "tourism": "hotel"
+   }
+  },
+  {
+   "provider_id": "osm:way/1531570189",
+   "category": "HOTEL",
+   "name": "AAU Guest House",
+   "lat": 26.7249866,
+   "lon": 94.2001802,
+   "osm_tags": {
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:way/1531570310",
+   "category": "HOTEL",
+   "name": "Scientist Guest House, AAU",
+   "lat": 26.7248285,
+   "lon": 94.2008527,
+   "osm_tags": {
+    "operator": "AAU",
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:way/1534181393",
+   "category": "HOTEL",
+   "name": "CCS Guest House",
+   "lat": 26.7247957,
+   "lon": 94.2016841,
+   "osm_tags": {
+    "operator": "AAU",
+    "tourism": "guest_house"
+   }
+  },
+  {
+   "provider_id": "osm:node/6944734361",
+   "category": "REST",
+   "name": "ISBT Waiting Room",
+   "lat": 26.1160969,
+   "lon": 91.7217693,
+   "osm_tags": {
+    "highway": "rest_area",
+    "opening_hours": "24/7"
+   }
+  },
+  {
+   "provider_id": "osm:node/11358393191",
+   "category": "REST",
+   "name": "SULTAN MOTOR WORKS",
+   "lat": 26.6922569,
+   "lon": 94.4082936,
+   "osm_tags": {
+    "highway": "services"
+   }
+  },
+  {
+   "provider_id": "osm:node/11871195832",
+   "category": "REST",
+   "name": "WEE REPAIR SALES AND SERVICES",
+   "lat": 26.173608,
+   "lon": 91.7573102,
+   "osm_tags": {
+    "highway": "services"
+   }
+  },
+  {
+   "provider_id": "osm:node/12976907982",
+   "category": "REST",
+   "name": "MAHENDRA [QWIK SERVICE]",
+   "lat": 26.1538151,
+   "lon": 91.7836727,
+   "osm_tags": {
+    "highway": "services"
+   }
+  },
+  {
+   "provider_id": "osm:node/12978184761",
+   "category": "REST",
+   "name": "akhilesh road carrier",
+   "lat": 26.1132813,
+   "lon": 91.8013072,
+   "osm_tags": {
+    "highway": "services"
+   }
+  },
+  {
+   "provider_id": "osm:node/13391675300",
+   "category": "REST",
+   "name": null,
+   "lat": 26.5457058,
+   "lon": 92.1977968,
+   "osm_tags": {
+    "highway": "rest_area"
+   }
+  },
+  {
+   "provider_id": "osm:node/13423555201",
+   "category": "REST",
+   "name": "Tribal Rest House",
+   "lat": 26.3450753,
+   "lon": 92.6750711,
+   "osm_tags": {
+    "highway": "rest_area"
+   }
+  },
+  {
+   "provider_id": "osm:way/1185710172",
+   "category": "REST",
+   "name": "Anupama Service Station",
+   "lat": 26.5604377,
+   "lon": 92.9434154,
+   "osm_tags": {
+    "highway": "services",
+    "opening_hours": "08:00-22:00",
+    "operator": "Indian Oil",
+    "toilets": "yes"
+   }
+  },
+  {
+   "provider_id": "osm:way/1317045431",
+   "category": "REST",
+   "name": null,
+   "lat": 26.1296261,
+   "lon": 92.3537122,
+   "osm_tags": {
+    "highway": "services"
+   }
+  },
+  {
+   "provider_id": "osm:way/1317045432",
+   "category": "REST",
+   "name": null,
+   "lat": 26.1295719,
+   "lon": 92.3523791,
+   "osm_tags": {
+    "highway": "services"
+   }
+  }
+ ]
+}

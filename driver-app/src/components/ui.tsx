@@ -38,14 +38,19 @@ export function Button({
       style={({ pressed }) => [
         styles.button,
         variant === 'secondary' && styles.buttonSecondary,
-        pressed && !isOff && styles.buttonPressed,
+        pressed && !isOff && (variant === 'secondary' ? { backgroundColor: COLORS.soft } : styles.buttonPressed),
         isOff && styles.buttonDisabled,
       ]}
     >
       {busy ? (
-        <ActivityIndicator color={COLORS.text} />
+        // The spinner takes the LABEL's colour, not always the light one. On
+        // the mint primary a #F5F8F6 spinner is 2.1:1 — a driver watching to
+        // see whether their tap registered gets a blank green box.
+        <ActivityIndicator
+          color={variant === 'secondary' ? COLORS.text : COLORS.onAccent}
+        />
       ) : (
-        <Text style={styles.buttonLabel}>{label}</Text>
+        <Text style={[styles.buttonLabel, { color: variant === 'secondary' || isOff ? COLORS.text : COLORS.onAccent }]}>{label}</Text>
       )}
     </Pressable>
   )
@@ -79,6 +84,7 @@ export function Field({
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
+        accessibilityLabel={label}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
@@ -131,7 +137,7 @@ export function errorMessage(error: unknown): { title: string; detail: string } 
     return {
       title: 'No connection',
       detail:
-        'Cannot reach the server. Check your signal and try again - nothing was sent.',
+        'Cannot confirm the server response. Check your signal and refresh the trip before retrying.',
     }
   }
   if (error instanceof ApiError) {
@@ -181,7 +187,7 @@ const styles = StyleSheet.create({
     minHeight: TOUCH_TARGET,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 10,
+    borderRadius: 8,
     backgroundColor: COLORS.accent,
     paddingHorizontal: 20,
   },
@@ -204,16 +210,20 @@ const styles = StyleSheet.create({
   input: {
     minHeight: TOUCH_TARGET,
     borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 10,
-    backgroundColor: '#020617',
+    // `borderStrong` and a sunken well, not `border` on a card: a box you may
+    // type into has to look different from a box you may only read. On `card`
+    // the old input was the same colour as the panel behind it, so the field
+    // was located entirely by its 1px hairline.
+    borderColor: COLORS.borderStrong,
+    borderRadius: 8,
+    backgroundColor: COLORS.sunken,
     paddingHorizontal: 14,
     color: COLORS.text,
     fontSize: 16,
   },
   fieldHint: { color: COLORS.faint, fontSize: 12, marginTop: 6 },
 
-  banner: { borderWidth: 1, borderRadius: 10, padding: 14, marginBottom: 16 },
+  banner: { borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 16 },
   bannerTitle: { fontSize: 15, fontWeight: '700' },
   bannerDetail: { color: COLORS.muted, fontSize: 13, marginTop: 6, lineHeight: 19 },
 

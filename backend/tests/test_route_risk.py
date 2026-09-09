@@ -15,6 +15,8 @@ from app.domain.route_risk import (
     AVAILABLE,
     BAND_HIGH,
     BAND_LOW,
+    CONDITION_COMPONENT_CODES,
+    EXPOSURE_COMPONENT_CODES,
     FACTOR_DISTANCE,
     FACTOR_DURATION,
     FACTOR_FUEL,
@@ -25,6 +27,8 @@ from app.domain.route_risk import (
     NOT_AVAILABLE,
     REASON_HEAVY_RAIN,
     REASON_HIGH_WIND,
+    RAIN_HEAVY_MM,
+    RAIN_MODERATE_MM,
     REASON_MODERATE_RAIN,
     REASON_WEATHER_STALE,
     REASON_WEATHER_UNAVAILABLE,
@@ -82,6 +86,22 @@ class TestInputAvailability:
         assert risk.inputs[FACTOR_DISTANCE] == AVAILABLE
         assert risk.inputs[FACTOR_DURATION] == AVAILABLE
         assert risk.inputs[FACTOR_WEATHER] == AVAILABLE
+
+    def test_fuel_marked_available_when_provided(self) -> None:
+        from app.domain.fuel_model import estimate_fuel
+
+        fuel = estimate_fuel(distance_km=305, payload_kg=8000)
+        risk = assess(
+            distance_km=305,
+            duration_min=360,
+            observations=[obs(rain=0.0)],
+            fuel=fuel,
+            now=BASE,
+        )
+        assert risk.inputs[FACTOR_FUEL] == AVAILABLE
+        assert FACTOR_FUEL not in risk.unavailable
+        assert risk.fuel is not None
+        assert risk.fuel.litres is not None
 
     def test_no_observations_marks_weather_unavailable_not_calm(self) -> None:
         """The failure this check exists for.
@@ -269,3 +289,135 @@ class TestNoFabricatedIntelligence:
         risk = assess(distance_km=0, duration_min=0, observations=[obs(rain=0.0)])
         assert risk.score == 0
         assert risk.components == ()
+
+
+class TestRainSaturationIsDeliberateAndBounded:
+    """What the rain component can and cannot distinguish.
+
+    `intensity = min(1.0, peak / RAIN_HEAVY_MM)` saturates at 7.5 mm/h. Above
+    that, only COVERAGE moves the score - so a heavy shower and a cloudburst,
+    both falling along the whole corridor, score the same.
+
+    That is a deliberate consequence of bounded, published component ceilings
+    that sum to 100, and it is the same saturation the distance, duration and
+    recurrence components use. It is pinned here rather than left implicit,
+    because it is also a real LIMIT on what the recommendation can tell apart:
+    given two corridors, one under 8 mm/h and one under 40 mm/h, the rain
+    component rates them equally and the choice falls through to duration and
+    distance. A route with a cloudburst on it can therefore be recommended for
+    being half an hour shorter.
+
+    Raising the ceiling is not a free fix. The reroute floor of 60 is
+    calibrated against THIS curve - measured, heavy rain end-to-end on a
+    305 km / 221 min route scores exactly 60 - so stretching the intensity
+    scale would drop heavy rain below the floor and stop the reroute feature
+    firing at all. Re-tuning both together needs calibration data this project
+    does not have, and doing it by eye would be the kind of unvalidated change
+    docs/AI_MODELS.md exists to forbid.
+    """
+
+    @staticmethod
+    def _score(rain: float, count: int = 5) -> int:
+        return assess(
+            distance_km=305.0,
+            duration_min=221.0,
+            observations=[obs(rain=rain) for _ in range(count)],
+            now=BASE,
+        ).score
+
+    def test_intensity_saturates_at_the_heavy_threshold(self) -> None:
+        at_heavy = self._score(RAIN_HEAVY_MM)
+        well_past = self._score(RAIN_HEAVY_MM * 6)
+        assert at_heavy == well_past, (
+            "the saturation this test documents has changed; the reroute floor "
+            "of 60 is calibrated against it and must be re-checked"
+        )
+
+    def test_the_reroute_floor_is_actually_reachable(self) -> None:
+        """The check that matters operationally.
+
+        If realistic monsoon rain could not push a corridor to 60, the whole
+        reroute feature would be unreachable in production while every test
+        stayed green.
+        """
+        from app.domain.reroute import DETERIORATION_FLOOR
+
+        assert self._score(RAIN_HEAVY_MM + 0.5) >= DETERIORATION_FLOOR
+
+    def test_calm_and_moderate_stay_below_the_floor(self) -> None:
+        """And it must not fire on ordinary weather, or it will be ignored."""
+        from app.domain.reroute import DETERIORATION_FLOOR
+
+        assert self._score(0.0) < DETERIORATION_FLOOR
+        assert self._score(RAIN_MODERATE_MM) < DETERIORATION_FLOOR
+
+    def test_coverage_still_separates_two_wet_routes(self) -> None:
+        """Above saturation, coverage is the only discriminator left - so it
+        has to work."""
+        soaked = self._score(RAIN_HEAVY_MM * 3, count=5)
+        patchy = assess(
+            distance_km=305.0,
+            duration_min=221.0,
+            observations=[
+                obs(rain=RAIN_HEAVY_MM * 3),
+                *[obs(rain=0.0) for _ in range(4)],
+            ],
+            now=BASE,
+        ).score
+        assert soaked > patchy
+
+
+class TestEveryComponentIsClassified:
+    """A new component must land on one side of the conditions/exposure line.
+
+    `RouteRisk.condition_points` drives the reroute trigger, and it sums only
+    the CONDITION components. A component that belongs to neither set is
+    invisible to that trigger - so a future visibility or flood factor could be
+    added, scored, shown on screen, and still never raise an alert.
+
+    That is the same shape of gap as NER-B01, where a trip status was missing
+    from the one filter that mattered. This closes it by construction: the two
+    sets must together cover everything `assess` can emit.
+    """
+
+    def test_the_two_sets_do_not_overlap(self) -> None:
+        assert not (CONDITION_COMPONENT_CODES & EXPOSURE_COMPONENT_CODES)
+
+    def test_every_emitted_component_is_on_one_side_or_the_other(self) -> None:
+        classified = CONDITION_COMPONENT_CODES | EXPOSURE_COMPONENT_CODES
+        emitted: set[str] = set()
+
+        # Every combination that produces a component at all.
+        for rain, gust, km, mins in (
+            (12.0, 70.0, 500.0, 500.0),
+            (3.0, 45.0, 100.0, 90.0),
+            (0.0, 0.0, 500.0, 500.0),
+        ):
+            result = assess(
+                distance_km=km,
+                duration_min=mins,
+                observations=[obs(rain=rain, gust=gust) for _ in range(5)],
+                now=BASE,
+            )
+            emitted.update(c.code for c in result.components)
+
+        assert emitted, "no components were produced; the sweep is not exercising"
+        unclassified = emitted - classified
+        assert not unclassified, (
+            f"{sorted(unclassified)} belong to neither CONDITION nor EXPOSURE, "
+            "so the reroute trigger cannot see them"
+        )
+
+    def test_condition_points_excludes_exposure(self) -> None:
+        """The whole reason the property exists."""
+        result = assess(
+            distance_km=500.0,
+            duration_min=500.0,
+            observations=[obs(rain=0.0, gust=0.0) for _ in range(5)],
+            now=BASE,
+        )
+        assert result.score > 0, "distance and duration should have scored"
+        assert result.condition_points == 0, (
+            "exposure leaked into the conditions total, which would let a long "
+            "dull trip raise a severe-weather alert"
+        )

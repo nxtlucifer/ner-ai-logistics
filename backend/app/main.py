@@ -12,9 +12,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.ai import router as ai_router
 from app.api.auth import router as auth_router
 from app.api.driver import router as driver_router
 from app.api.fleet import assignments_router, drivers_router, trucks_router
+from app.api.geocoding import router as geocoding_router
 from app.api.health import router as health_router
 from app.api.trips import fleet_router, shipments_router, trips_router
 from app.core.config import get_settings
@@ -100,6 +102,8 @@ def create_app() -> FastAPI:
     app.include_router(shipments_router)
     app.include_router(trips_router)
     app.include_router(fleet_router)
+    app.include_router(geocoding_router)
+    app.include_router(ai_router)
     return app
 
 

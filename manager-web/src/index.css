@@ -1,1 +1,283 @@
 @import 'tailwindcss';
+
+/* ---------------------------------------------------------------------------
+   NER Fleet Intelligence — TERRAIN design language.
+
+   The token NAMES here are load-bearing: `text-muted`, `border-line`,
+   `bg-primary` and the rest are used across ~380 call sites, so this file
+   retunes VALUES to the Terrain palette rather than renaming anything.
+   Retokenising beats a rewrite — the components were already correct about
+   which semantic slot they wanted, they were just pointed at a navy/blue
+   brand. `--color-navy` is now charcoal; the name stays so the diff stays
+   reviewable rather than touching 380 call sites to say the same thing.
+
+   TERRAIN'S ONE HARD RULE ON HUE:
+     green  = primary action and success
+     blue   = route geometry and keyboard focus, NOTHING else
+     amber  = caution
+     red    = emergency / error
+   Blue therefore lives in `--color-route`, not in `--color-primary`. A button
+   that is blue in this product is a bug: it is claiming to be a road.
+
+   Contrast checked against the surface each token actually sits on:
+     ink     #101820 on surface #FFFFFF -> 18.1:1
+     muted   #52615A on surface #FFFFFF ->  6.5:1
+     muted   #52615A on canvas  #F6F8F7 ->  4.6:1  (AA body text)
+     primary #087F5B on surface #FFFFFF ->  5.0:1  (AA), white on it -> 5.0:1
+     warning #B45309 on surface #FFFFFF ->  5.0:1  (AA)
+     danger  #B42318 on surface #FFFFFF ->  6.7:1  (AA)
+     route   #2563EB on surface #FFFFFF ->  5.2:1  (AA)
+   `-strong` variants are the saturated fills for map strokes and dots, where
+   the colour sits under white rather than carrying text.
+   --------------------------------------------------------------------------- */
+@theme {
+  /* Neutral ground — warm-grey, not blue-grey. The console reads calmer for
+     it, and it stops the canvas competing with the route blue drawn on it. */
+  --color-canvas: #F6F8F7;
+  --color-surface: #FFFFFF;
+  --color-soft: #EEF3F0;
+  --color-ink: #101820;
+  --color-muted: #52615A;
+  --color-line: #D5DEDA;
+  /* Control outline. Darker than --color-line: a border that has to read as
+     "you may type here" needs more weight than one merely dividing two cards. */
+  --color-outline: #75847D;
+
+  /* Charcoal shell. Named `navy` for continuity with existing call sites. */
+  --color-navy: #101820;
+  --color-navy-surface: #1D2A32;
+  --color-navy-line: #2C3B44;
+  /* Brand eyebrow / quiet emphasis ON DARK ONLY. 9.2:1 on the charcoal shell,
+     1.9:1 on white — never put this on a light surface. */
+  --color-aqua: #34D399;
+
+  /* Action — green. */
+  --color-primary: #087F5B;
+  --color-primary-hover: #066449;
+  --color-primary-soft: #E7F1EC;
+
+  /* Route geometry and focus — blue, reserved. */
+  --color-route: #2563EB;
+  --color-route-soft: #EAF0FE;
+
+  /* Semantic status. -soft = tint behind text, -strong = saturated fill. */
+  --color-ok: #087F5B;
+  --color-ok-soft: #E7F1EC;
+  --color-ok-strong: #10B981;
+  --color-warning: #B45309;
+  --color-warning-soft: #FBF1E3;
+  --color-warning-strong: #F59E0B;
+  --color-danger: #B42318;
+  --color-danger-soft: #FCEFED;
+  --color-danger-strong: #DC2626;
+
+  /* Type */
+  --font-display: Sora, 'Segoe UI', system-ui, sans-serif;
+  --font-sans: Inter, 'Segoe UI', system-ui, sans-serif;
+
+  /* Radii — Terrain: controls 8, cards/panels 12, floating sheets 20. */
+  --radius-control: 8px;
+  --radius-card: 12px;
+  --radius-panel: 20px;
+
+  /* Elevation. Two layers each: a tight contact shadow that seats the element
+     on the canvas, and a wide diffuse one that gives it air. A single blurred
+     shadow is what makes an interface look cheap — the contact layer is the
+     part the eye reads as "this object is really there". Tinted with the ink
+     hue, never pure black, so nothing greys out the warm canvas underneath. */
+  --shadow-card: 0 1px 2px rgb(16 24 32 / 0.05), 0 1px 3px rgb(16 24 32 / 0.04);
+  --shadow-panel: 0 1px 2px rgb(16 24 32 / 0.05), 0 8px 24px -6px rgb(16 24 32 / 0.10);
+  --shadow-float: 0 2px 4px rgb(16 24 32 / 0.06), 0 16px 40px -12px rgb(16 24 32 / 0.18);
+}
+
+html { color-scheme: light; background: var(--color-canvas); }
+body {
+  margin: 0;
+  color: var(--color-ink);
+  /* Indian-script glyphs are picked up from the platform families below when a
+     localised string has no cover in Inter. Listing them here rather than
+     shipping the fonts keeps the bundle unchanged and avoids a network font on
+     a screen a dispatcher may open offline. This is a fallback chain, not a
+     claim of coverage: a script with no platform font still renders tofu. */
+  font-family: var(--font-sans), 'Noto Sans Devanagari', 'Noto Sans Bengali',
+    'Noto Sans Gujarati', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+h1, h2, .font-display { font-family: var(--font-display); letter-spacing: -0.02em; }
+
+/* Tabular figures everywhere a number is compared against another number:
+   KPI counts, distances, ETAs. Proportional digits make a column of numbers
+   jitter as they update, which reads as instability on a live console. */
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* Terrain micro-caps eyebrow — the "PEOPLE / GOODS / A STRONGER NORTHEAST"
+   register. Wide tracking is the whole effect; at this size the line is
+   unreadable without it, which is why the tracking lives here and is not left
+   to each call site to remember.
+
+   In `@layer components` deliberately. Tailwind 4 orders its layers
+   theme -> base -> components -> utilities, and an UNLAYERED rule outranks
+   every layered one — so declaring this at top level would make `.eyebrow`
+   beat a `text-[9.5px]` sitting right beside it on the same element, which is
+   the opposite of what anyone writing that class expects. Inside `components`
+   the utilities win, and `.eyebrow` behaves like the default it is meant to
+   be. */
+@layer components {
+  .eyebrow {
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.4;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+}
+
+input, select, textarea { min-height: 44px; }
+input, select, button, textarea { max-width: 100%; }
+table th, table td { padding-right: 16px; }
+
+/* --- Shell ---------------------------------------------------------------- */
+
+.app-shell { min-height: 100dvh; display: grid; grid-template-columns: 216px minmax(0, 1fr); background: var(--color-canvas); }
+
+/* The rail is one continuous charcoal plane with a barely-there vertical
+   gradient. Flat #101820 across 1024px of height reads as a dead slab; the
+   small lift at the top gives it a light source without becoming "a gradient". */
+.app-rail {
+  background: linear-gradient(180deg, #16212A 0%, var(--color-navy) 42%, #0C131A 100%);
+  color: #F5F8F6;
+  /* Hairline seam. Sharper than a border and it costs no grid pixel. */
+  box-shadow: inset -1px 0 0 rgb(255 255 255 / 0.06);
+}
+.rail-inner { position: sticky; top: 0; display: flex; flex-direction: column; min-height: 100dvh; padding: 32px 16px 20px; gap: 32px; }
+.brand { padding: 0 12px; }
+.brand-title { display: block; font-family: var(--font-display); font-size: 21px; font-weight: 700; line-height: 1.2; letter-spacing: -.5px; }
+.brand-caption { display: block; color: var(--color-aqua); font-size: 10px; font-weight: 600; letter-spacing: 1.7px; margin-top: 12px; }
+.brand > span:last-child { display: inline-block; margin: 12px 0 0; }
+.main-nav { display: flex; flex-direction: column; gap: 4px; }
+
+/* 3px inset accent bar rather than a left border on the link box: a border
+   shifts the label 3px when a tab activates, and that jump, repeated down a
+   nav of seven items, is the most obvious "unfinished" tell a sidebar has. */
+.nav-link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 12px 16px;
+  border-radius: var(--radius-control);
+  font-size: 14px;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.nav-link::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 3px;
+  height: 0;
+  border-radius: 0 3px 3px 0;
+  background: var(--color-aqua);
+  transform: translateY(-50%);
+  transition: height 160ms ease;
+}
+.nav-idle { color: #9FB0A8; }
+.nav-idle:hover { background: var(--color-navy-surface); color: #F5F8F6; }
+.nav-active { background: var(--color-navy-surface); font-weight: 700; color: #F5F8F6; }
+.nav-active::before { height: 22px; }
+
+.rail-account { margin-top: auto; padding: 16px 8px 0; border-top: 1px solid var(--color-navy-line); display: flex; flex-direction: column; gap: 12px; overflow-wrap: anywhere; }
+.account-name { color: #F5F8F6; font-size: 13px; font-weight: 600; }
+.account-role { color: #8B9C93; font-size: 11px; margin-top: 4px; }
+.rail-account button { color: #F5F8F6; border-color: var(--color-navy-line); background: transparent; }
+.rail-account button:hover { background: var(--color-navy-surface); }
+
+.workspace { min-width: 0; padding: 32px; max-width: 1800px; width: 100%; margin: auto; }
+.workspace h1 { font-family: var(--font-display); font-size: 28px; font-weight: 700; letter-spacing: -.8px; }
+
+.dispatch-grid { display: grid; grid-template-columns: minmax(320px, .85fr) minmax(0, 1.15fr); gap: 24px; align-items: start; }
+.dispatch-review { min-width: 0; }
+
+/* Map-first. 2.4fr : 1fr puts the GIS canvas at ~70% of the workspace, inside
+   the 65-75% the design calls for, with the inspector never below 320px where
+   its two-column rows start wrapping. */
+.fleet-layout { display: grid; grid-template-columns: minmax(0, 2.4fr) minmax(320px, 1fr); gap: 20px; align-items: start; }
+.fleet-main { min-width: 0; display: grid; gap: 20px; }
+/* Matches the map clamp so the two panes read as one instrument rather than a
+   tall map beside a short card. The inspector scrolls internally when a
+   selected truck fills it; the min-height only governs the empty state. */
+.fleet-detail { min-width: 0; min-height: clamp(420px, calc(100dvh - 300px), 760px); max-height: calc(100dvh - 80px); overflow: auto; position: sticky; top: 24px; }
+.fleet-detail > section { min-height: 100%; }
+@media (max-width: 1100px) { .fleet-layout { grid-template-columns: minmax(0,1fr); } .fleet-detail { max-height: none; position: static; } }
+
+.skip-link { position: absolute; left: 12px; top: -100px; z-index: 9999; padding: 12px; background: var(--color-surface); color: var(--color-primary); border-radius: var(--radius-control); box-shadow: var(--shadow-float); }
+.skip-link:focus { top: 12px; }
+.maplibregl-ctrl-group button { min-height: 36px; min-width: 36px; }
+
+@media (max-width: 1150px) { .dispatch-grid { grid-template-columns: minmax(0,1fr); } .workspace { padding: 24px; } }
+@media (max-width: 800px) {
+ .app-shell { display: block; }
+ .app-rail { box-shadow: inset 0 -1px 0 rgb(255 255 255 / 0.06); }
+ .rail-inner { position: static; min-height: 0; padding: 16px; gap: 16px; }
+ .brand { padding: 0; } .brand-title br { display: none; } .brand-title { font-size: 19px; }
+ .brand-caption { display: inline-block; margin-top: 4px; margin-right: 8px; }
+ .main-nav { flex-direction: row; flex-wrap: wrap; gap: 4px; }
+ .nav-link { min-height: 44px; padding: 8px 12px; }
+ /* Horizontal rail: the accent reads as an underline, not a left bar. */
+ .nav-link::before { left: 12px; right: 12px; top: auto; bottom: 4px; width: auto; height: 0; transform: none; border-radius: 3px; }
+ .nav-active::before { height: 2px; }
+ .rail-account { margin: 0; padding-top: 12px; flex-direction: row; align-items: center; justify-content: space-between; }
+ .workspace { padding: 20px 16px; }
+}
+
+/* ---------------------------------------------------------------------------
+   Operator-console defaults.
+
+   These are deliberately GLOBAL rather than per-component. Every one of them
+   fixes a defect that is invisible to the person writing the component and
+   only shows up for somebody using a keyboard, somebody who gets motion sick,
+   or somebody on a trackpad wondering whether a control is clickable.
+   Componentising them would mean each new hand-rolled element re-acquires the
+   bug, which is exactly how the inputs on four pages ended up without a
+   focus ring while the shared `Field` had one.
+   --------------------------------------------------------------------------- */
+
+/* A visible focus indicator on every focusable element.
+   :focus-visible, not :focus — a mouse click on a card should not leave a ring
+   behind it, but Tab must always land somewhere the eye can find. Route blue,
+   per Terrain: focus and route are the two things blue is allowed to mean, and
+   it stays legible on the charcoal rail as well as on the light canvas. */
+:focus-visible {
+  outline: 3px solid var(--color-route);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Browsers default <button> to an arrow cursor. On a console where almost
+   every control is a button, that reads as "not clickable". Disabled controls
+   keep the default, because there the arrow is telling the truth. */
+button:not(:disabled),
+[role='button']:not([aria-disabled='true']),
+summary {
+  cursor: pointer;
+}
+
+/* Respect a stated preference for less motion.
+   The map is already handled — MapLibre 6 checks the same media query itself,
+   so its camera eases become instant without anything here. This covers the
+   CSS transitions and the one spinner. `animation: none` would freeze the
+   spinner mid-rotation and read as a hang, so it is slowed to a pulse that
+   still says "working" without spinning. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .animate-spin {
+    animation-duration: 1.5s !important;
+  }
+}

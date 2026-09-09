@@ -57,6 +57,7 @@ export function useFleetPoll(): FleetPoll {
     inFlight.current = controller
     try {
       const data = await api.activeFleet(controller.signal)
+      if (controller.signal.aborted) return
       setSnapshot(data)
       setError(null)
       failures.current = 0
@@ -67,7 +68,7 @@ export function useFleetPoll(): FleetPoll {
       setError(err)
     } finally {
       if (inFlight.current === controller) inFlight.current = null
-      setIsInitialising(false)
+      if (!controller.signal.aborted) setIsInitialising(false)
     }
   }, [])
 

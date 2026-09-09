@@ -15,7 +15,7 @@ from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.api.deps import DbSession, get_client_ip, require_permission
 from app.core import permissions as perm
@@ -32,7 +32,7 @@ from app.models.enums import (
     TripStopStatus,
 )
 from app.models.identity import User
-from app.schemas.common import Coordinate, ReadModel
+from app.schemas.common import APIModel, Coordinate, ReadModel
 from app.schemas.domain import (
     ShipmentCreate,
     ShipmentRead,
@@ -40,6 +40,9 @@ from app.schemas.domain import (
     TripPlanCreate,
     TripRead,
 )
+from app.services import reroute as reroute_service
+from app.services import route_recommendation as route_recommendation_service
+from app.services import route_review as review_service
 from app.services import route_risk as route_risk_service
 from app.services import routes as route_service
 from app.services import shipments as shipment_service
@@ -315,6 +318,16 @@ class TripRouteRead(ReadModel):
     created_at: datetime
     #: [[lat, lon], ...] in travel order, ready for the map.
     geometry: list[list[float]]
+    #: Whether this is the route the trip is ACTUALLY following, i.e. the row
+    #: `trips.selected_route_id` points at.
+    #:
+    #: Server-computed, and not the same question as `state == SELECTED`
+    #: (LS-10). A client that infers "current" from the lifecycle state gets it
+    #: wrong for any trip whose assignment was retired by a planning request
+    #: before that was fixed: those rows are still the trip's selection while
+    #: reading SUPERSEDED. The trip row is the authority on what is current, so
+    #: the answer comes from there rather than from each client's guess.
+    is_current: bool = False
 
 
 class RiskComponentRead(ReadModel):
@@ -355,6 +368,82 @@ class RouteRiskRead(ReadModel):
     assessed_at: datetime
 
 
+class RouteComparisonRead(ReadModel):
+    """One route as the recommendation weighed it.
+
+    Absolute figures, not deltas. The deltas live on `tradeoff`, once, against
+    the baseline; repeating them per candidate is how two numbers that should
+    agree come to disagree after a refactor.
+    """
+
+    route_id: uuid.UUID
+    kind: RouteKind
+    distance_km: float | None
+    #: Typed to match `TripRouteRead`, which describes the same column. Two
+    #: schemas rendering one integer column differently is how a UI comes to
+    #: show "221" on one screen and "221.0" on another.
+    estimated_duration_min: int | None
+    risk: RouteRiskRead
+    #: ELIGIBLE / REQUIRES_REVIEW / REJECTED / NOT_ASSESSED, derived server-side
+    #: from this candidate's own hazard evidence.
+    #:
+    #: Sent explicitly (LS-10) so a chooser does not have to re-derive it by
+    #: pattern-matching reason codes. That derivation is the eligibility rule,
+    #: and a client that owns a copy of it is a client asserting its own
+    #: eligibility - the exact thing `eligibility_for_route` exists to prevent.
+    #: `risk.reason_codes` still carries WHY; this says WHAT.
+    eligibility: str
+
+
+class RouteTradeoffRead(ReadModel):
+    """What the recommendation costs against the baseline, in real units.
+
+    Signs are from the baseline's point of view: positive duration means the
+    recommendation takes longer, negative risk means it is safer.
+
+    There is deliberately no percentage. "33 points lower" is checkable against
+    the components that produced it; "54% safer" is a claim about probability
+    of harm, and nothing in this system measures that.
+
+    `None` means the underlying estimate was absent. It is never rendered as
+    zero - a route with no duration estimate is not an instant one.
+    """
+
+    duration_delta_min: float | None
+    distance_delta_km: float | None
+    risk_delta_points: int
+
+
+class RouteRecommendationRead(ReadModel):
+    """Which route to take, why, and what the answer could not see.
+
+    Explainable Route Recommendation V1: a published comparison rule over
+    deterministic inputs (app/domain/route_recommendation.py). NOT a model.
+    There is no `confidence` and no `model_version`, for the same reason
+    `RouteRiskRead` has none.
+
+    `comparable` is the field to read first. False means the answer does not
+    rest on a like-for-like comparison - either there was only one route, or
+    the candidates were scored from different evidence and comparing their
+    scores would measure the gap in what we know rather than a difference
+    between the roads. A single-road corridor returning one route is a truthful
+    answer, not a degraded one, and no backup is invented to fill the space.
+    """
+
+    recommended_route_id: uuid.UUID | None
+    baseline_route_id: uuid.UUID | None
+    comparable: bool
+    reason_codes: list[str]
+    tradeoff: RouteTradeoffRead | None
+    candidates: list[RouteComparisonRead]
+    #: Every factor missing from any candidate, so a partial answer reads as
+    #: partial rather than as a complete one.
+    unavailable_inputs: list[str]
+    #: The published margin the decision used, in risk points.
+    margin_points: int
+    version: str
+
+
 class RoutePlanResult(ReadModel):
     route: TripRouteRead
     #: Which provider answered, and whether the primary had to be skipped. A
@@ -367,7 +456,9 @@ class RoutePlanResult(ReadModel):
     backup_planned: bool
 
 
-def _route_read(row, geometry_wkt: str) -> TripRouteRead:
+def _route_read(
+    row, geometry_wkt: str, *, current_route_id: uuid.UUID | None = None
+) -> TripRouteRead:
     # WKT is lon-lat; the API speaks lat-lon everywhere else. The swap lives in
     # `parse_wkt_linestring` next to its inverse `to_wkt`, so there is exactly
     # one place to check the ordering rather than a second copy here.
@@ -381,6 +472,7 @@ def _route_read(row, geometry_wkt: str) -> TripRouteRead:
         routing_provider=row.routing_provider,
         created_at=row.created_at,
         geometry=points,
+        is_current=current_route_id is not None and row.id == current_route_id,
     )
 
 
@@ -400,9 +492,16 @@ async def list_routes(
     evidence in an incident review, and hiding it here would make the API look
     like rerouting overwrites.
     """
-    await trip_service.get(db, trip_id)  # 404 before disclosing anything
+    trip = await trip_service.get(db, trip_id)  # 404 before disclosing anything
     rows = await route_service.list_for_trip(db, trip_id)
-    return [_route_read(r, await route_service.geometry_wkt(db, r.id)) for r in rows]
+    return [
+        _route_read(
+            r,
+            await route_service.geometry_wkt(db, r.id),
+            current_route_id=trip.selected_route_id,
+        )
+        for r in rows
+    ]
 
 
 @trips_router.post(
@@ -416,24 +515,205 @@ async def recalculate_route(
     db: DbSession,
     actor: Annotated[User, Depends(require_permission(perm.ROUTE_PLAN))],
     ip: ClientIp,
+    detailed: Annotated[
+        bool,
+        Query(
+            description=(
+                "Ask the provider for full geometry and turn-by-turn steps in "
+                "the same response, so the new candidate can drive navigation."
+            )
+        ),
+    ] = False,
 ) -> RoutePlanResult:
     """Insert a new route and supersede the previous one. Never an update.
+
+    `detailed` is OFF by default, and the default is a cost decision rather
+    than an oversight: full geometry plus steps is a far larger provider
+    response than the simplified overview a planning screen needs, and most
+    plans are comparisons that are never driven. A route meant to be navigated
+    is planned with `detailed=true`, which stores the maneuvers alongside the
+    geometry they describe.
+
+    The two arrive TOGETHER, from one provider response, which is the property
+    that matters: it is what makes it impossible for a route to end up carrying
+    directions for a different road.
+
+    Planning does not select. A detailed candidate is a candidate - it goes
+    through the same assessment and acceptance as any other before a driver
+    follows it.
 
     Errors follow docs/API_CONTRACTS.md section 9:
       503 ROUTING_UNAVAILABLE - every provider is unreachable; retrying may work
       422 NO_VIABLE_ROUTE     - a provider answered and no route exists
     Those are different answers and must stay distinguishable to the manager.
     """
-    result = await route_service.plan(db, trip_id, actor=actor, ip=ip)
+    result = await route_service.plan(
+        db, trip_id, actor=actor, ip=ip, detailed=detailed
+    )
+    # Read back rather than assuming. Planning does not select (LS-10), so this
+    # is False today - but stating it from the trip row means the contract stays
+    # honest if that ever changes, instead of hard-coding a fact about a
+    # different function.
+    trip = await trip_service.get(db, trip_id)
     return RoutePlanResult(
         route=_route_read(
-            result.route, await route_service.geometry_wkt(db, result.route.id)
+            result.route,
+            await route_service.geometry_wkt(db, result.route.id),
+            current_route_id=trip.selected_route_id,
         ),
         provider=result.provider,
         used_fallback=result.used_fallback,
         providers_attempted=list(result.attempted),
         backup_planned=result.backup_planned,
     )
+
+
+class ReviewAuthorizationRequest(APIModel):
+    """A reviewer accepting incomplete hazard evidence for one selection.
+
+    `rationale` is the ONLY field. Everything that is bound - the trip, the
+    route, the evidence digest and snapshot, the policy and evidence versions,
+    the basis, the issue and expiry times - is computed server-side from the
+    route's own assessment. There is deliberately no field by which a client
+    could assert what it is authorising, which is the same rule
+    `eligibility_for_route` follows.
+    """
+
+    rationale: Annotated[str, Field(min_length=20, max_length=2000)]
+
+
+class ReviewAuthorizationRead(ReadModel):
+    """An issued authorisation, as the manager and reviewer screens show it.
+
+    Note what is NOT here: any statement that the route is safe. The evidence
+    snapshot is reported exactly as assessed, and the route continues to report
+    UNKNOWN to every other endpoint after this is consumed.
+    """
+
+    id: uuid.UUID
+    trip_id: uuid.UUID
+    route_id: uuid.UUID
+    basis: str
+    rationale: str
+    reviewer_user_id: uuid.UUID
+    issued_at: datetime
+    expires_at: datetime
+    consumed_at: datetime | None
+    revoked_at: datetime | None
+    policy_version: str
+    evidence_version: str
+    #: The assessment as the reviewer saw it. Incomplete evidence, shown as
+    #: incomplete.
+    evidence_snapshot: dict
+
+
+def _review_read(row) -> ReviewAuthorizationRead:
+    return ReviewAuthorizationRead(
+        id=row.id,
+        trip_id=row.trip_id,
+        route_id=row.route_id,
+        basis=row.basis.value,
+        rationale=row.rationale,
+        reviewer_user_id=row.reviewer_user_id,
+        issued_at=row.issued_at,
+        expires_at=row.expires_at,
+        consumed_at=row.consumed_at,
+        revoked_at=row.revoked_at,
+        policy_version=row.policy_version,
+        evidence_version=row.evidence_version,
+        evidence_snapshot=row.evidence_snapshot,
+    )
+
+
+@trips_router.get(
+    "/{trip_id}/routes/{route_id}/review-authorization",
+    response_model=ReviewAuthorizationRead | None,
+    summary="The live review authorisation for a route, if any",
+)
+async def get_review_authorization(
+    trip_id: uuid.UUID,
+    route_id: uuid.UUID,
+    db: DbSession,
+    actor: Annotated[User, Depends(require_permission(perm.ROUTE_READ))],
+) -> ReviewAuthorizationRead | None:
+    """Null when none exists. An expired one is still returned, so a screen can
+    say "this expired" rather than showing nothing - which looks identical to
+    never having been reviewed."""
+    await trip_service.get(db, trip_id)
+    await route_service.ensure_belongs_to_trip(db, trip_id, route_id)
+    row = await review_service.live_for_route(db, trip_id, route_id)
+    return _review_read(row) if row is not None else None
+
+
+@trips_router.post(
+    "/{trip_id}/routes/{route_id}/review-authorization",
+    response_model=ReviewAuthorizationRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Authorise one selection of a route with incomplete hazard evidence",
+)
+async def create_review_authorization(
+    trip_id: uuid.UUID,
+    route_id: uuid.UUID,
+    payload: ReviewAuthorizationRequest,
+    db: DbSession,
+    actor: Annotated[
+        User, Depends(require_permission(perm.ROUTE_REVIEW_AUTHORIZE))
+    ],
+    ip: ClientIp,
+) -> ReviewAuthorizationRead:
+    """A named person accepts THIS evidence for ONE selection of THIS route.
+
+    Refuses 422 when the route is REJECTED (a closed road is not reviewable),
+    NOT_ASSESSED (an integration failure to fix, not uncertainty to approve),
+    already ELIGIBLE (nothing to authorise), or its evidence is of a kind the
+    approved policy does not permit - today, anything other than UNKNOWN.
+
+    This does NOT change the assessment. The route still reports UNKNOWN
+    afterwards and every screen still says the evidence is incomplete.
+    """
+    await trip_service.get(db, trip_id)
+    await route_service.ensure_belongs_to_trip(db, trip_id, route_id)
+
+    decision, assessment = (
+        await route_risk_service.eligibility_and_evidence_for_route(db, route_id)
+    )
+    route_state = await route_service.state_of(db, route_id)
+    row = await review_service.issue(
+        db,
+        trip_id,
+        route_id,
+        reviewer=actor,
+        rationale=payload.rationale,
+        decision=decision,
+        assessment=assessment,
+        route_state=route_state,
+        ip=ip,
+    )
+    return _review_read(row)
+
+
+@trips_router.delete(
+    "/{trip_id}/routes/{route_id}/review-authorization/{authorization_id}",
+    response_model=ReviewAuthorizationRead,
+    summary="Revoke an unspent review authorisation",
+)
+async def revoke_review_authorization(
+    trip_id: uuid.UUID,
+    route_id: uuid.UUID,
+    authorization_id: uuid.UUID,
+    db: DbSession,
+    actor: Annotated[
+        User, Depends(require_permission(perm.ROUTE_REVIEW_AUTHORIZE))
+    ],
+    ip: ClientIp,
+) -> ReviewAuthorizationRead:
+    """Withdraw it before it is used. A consumed one cannot be revoked."""
+    await trip_service.get(db, trip_id)
+    await route_service.ensure_belongs_to_trip(db, trip_id, route_id)
+    row = await review_service.revoke(
+        db, authorization_id, actor=actor, reason="revoked by reviewer", ip=ip
+    )
+    return _review_read(row)
 
 
 @trips_router.post(
@@ -447,12 +727,56 @@ async def select_route(
     db: DbSession,
     actor: Annotated[User, Depends(require_permission(perm.ROUTE_SELECT))],
     ip: ClientIp,
+    authorization_id: uuid.UUID | None = None,
 ) -> TripRouteRead:
-    """`route_id` is scoped by `trip_id`, so another trip's route is a 404."""
+    """`route_id` is scoped by `trip_id`, so another trip's route is a 404.
+
+    `authorization_id` is optional and only ever RELAXES REQUIRES_REVIEW, never
+    REJECTED or NOT_ASSESSED. It is validated and spent server-side against the
+    live evidence, inside this selection's own transaction - presenting an id
+    asserts nothing.
+    """
     row = await route_service.select_route(
-        db, trip_id, route_id, actor=actor, ip=ip
+        db,
+        trip_id,
+        route_id,
+        actor=actor,
+        ip=ip,
+        authorization_id=authorization_id,
     )
-    return _route_read(row, await route_service.geometry_wkt(db, row.id))
+    # This call is what made it current, so it is current by construction.
+    return _route_read(
+        row, await route_service.geometry_wkt(db, row.id), current_route_id=row.id
+    )
+
+
+def risk_read(risk) -> RouteRiskRead:
+    """RouteRisk -> wire. One implementation, so the standalone risk endpoint,
+    the per-candidate blocks inside a recommendation and the driver's offline
+    package can never drift into describing the same score three different
+    ways.
+
+    Public rather than underscored because `app/api/driver.py` uses it too: a
+    helper shared across routers is not a private one, and importing a private
+    name across modules is how a refactor quietly breaks a caller it could not
+    see.
+    """
+    return RouteRiskRead(
+        score=risk.score,
+        band=risk.band,
+        components=[
+            RiskComponentRead(
+                code=c.code, label=c.label, points=c.points, detail=c.detail
+            )
+            for c in risk.components
+        ],
+        inputs=risk.inputs,
+        unavailable=list(risk.unavailable),
+        reason_codes=list(risk.reason_codes),
+        observations_used=risk.observations_used,
+        observations_stale=risk.observations_stale,
+        assessed_at=risk.assessed_at,
+    )
 
 
 @trips_router.get(
@@ -480,22 +804,235 @@ async def route_risk(
     await trip_service.get(db, trip_id)  # 404 before disclosing anything
     await route_service.ensure_belongs_to_trip(db, trip_id, route_id)
 
-    risk = await route_risk_service.assess_route(db, route_id)
-    return RouteRiskRead(
-        score=risk.score,
-        band=risk.band,
-        components=[
-            RiskComponentRead(
-                code=c.code, label=c.label, points=c.points, detail=c.detail
+    return risk_read(await route_risk_service.assess_route(db, route_id))
+
+
+def _as_uuid(value: str | None) -> uuid.UUID | None:
+    """Domain layers carry route ids as strings; the wire carries UUIDs."""
+    return uuid.UUID(value) if value else None
+
+
+def _recommendation_read(result, candidates) -> RouteRecommendationRead:
+    """Recommendation -> wire. Shared by the planning endpoint and the reroute
+    assessment, so a proposal and a recommendation cannot come to describe the
+    same comparison in two different shapes."""
+    return RouteRecommendationRead(
+        recommended_route_id=_as_uuid(result.recommended_route_id),
+        baseline_route_id=_as_uuid(result.baseline_route_id),
+        comparable=result.comparable,
+        reason_codes=list(result.reason_codes),
+        tradeoff=(
+            RouteTradeoffRead(
+                duration_delta_min=result.tradeoff.duration_delta_min,
+                distance_delta_km=result.tradeoff.distance_delta_km,
+                risk_delta_points=result.tradeoff.risk_delta_points,
             )
-            for c in risk.components
+            if result.tradeoff is not None
+            else None
+        ),
+        candidates=[
+            RouteComparisonRead(
+                route_id=uuid.UUID(c.route_id),
+                kind=RouteKind(c.kind),
+                distance_km=c.distance_km,
+                estimated_duration_min=c.duration_min,
+                risk=risk_read(c.risk),
+                # `decision` DERIVES this from the risk the candidate already
+                # carries - see RouteCandidate.decision on why it is not an
+                # argument anybody can forget to pass.
+                eligibility=c.decision.eligibility.value,
+            )
+            for c in candidates
         ],
-        inputs=risk.inputs,
-        unavailable=list(risk.unavailable),
-        reason_codes=list(risk.reason_codes),
-        observations_used=risk.observations_used,
-        observations_stale=risk.observations_stale,
-        assessed_at=risk.assessed_at,
+        unavailable_inputs=list(result.unavailable_inputs),
+        margin_points=result.margin_points,
+        version=result.version,
+    )
+
+
+@trips_router.get(
+    "/{trip_id}/routes/recommendation",
+    response_model=RouteRecommendationRead,
+    summary="Compare this trip's live routes and advise one",
+)
+async def route_recommendation(
+    trip_id: uuid.UUID,
+    db: DbSession,
+    actor: Annotated[User, Depends(require_permission(perm.ROUTE_READ))],
+) -> RouteRecommendationRead:
+    """Every live route scored against current conditions, then compared.
+
+    Read-only and NOT persisted, for the same reason the risk endpoint is not:
+    advice built on this hour's weather must not still be on screen next hour
+    looking current. It is a considered read, not a feed - each call costs up
+    to ten requests to a free weather service, so a client must not poll it.
+
+    The route that would be taken anyway is the baseline, and a switch is
+    advised only when the alternative is lower risk by a published margin. A
+    smaller gap is noise on inputs this coarse, and a detour is not free.
+
+    Superseded and blocked routes are excluded: history is evidence, but advice
+    is about what to do next.
+    """
+    await trip_service.get(db, trip_id)  # 404 before disclosing anything
+
+    result, candidates = await route_recommendation_service.recommend_for_trip(
+        db, trip_id
+    )
+    return _recommendation_read(result, candidates)
+
+
+
+class RerouteAssessmentRead(ReadModel):
+    """Whether anything should be raised about the road a truck is on.
+
+    Three outcomes, and `ALERT_ONLY` is the one to read first:
+
+        NO_ACTION     nothing to say
+        ALERT_ONLY    the road has deteriorated and there is NOTHING better
+        PROPOSE       the road has deteriorated and a better one exists
+
+    `ALERT_ONLY` exists because much of the North East is a single corridor.
+    A system that can only propose alternatives falls silent in exactly the
+    situation that matters most; saying "this road is bad and there is no
+    better one" is what makes a dispatcher pick up the phone.
+
+    Read-only. NOTHING here changes a trip. A route changes only when a person
+    posts to the accept endpoint - there is no scheduler and no code path from
+    this response to a write. This is a deterministic threshold and comparison
+    (app/domain/reroute.py), not a model: no `confidence`, no `model_version`.
+
+    `proposed_route_id` is null on `ALERT_ONLY` on purpose. Returning the
+    least-bad alternative there would read as advice to take it.
+    """
+
+    outcome: str
+    selected_route_id: uuid.UUID | None
+    selected_risk_score: int | None
+    selected_risk_band: str | None
+    proposed_route_id: uuid.UUID | None
+    reason_codes: list[str]
+    #: The full comparison behind a proposal, with the tradeoff of taking it.
+    #: Null when no comparison was possible or none was needed.
+    comparison: RouteRecommendationRead | None
+    unavailable_inputs: list[str]
+    #: The risk score the current road must reach before an alternative is even
+    #: considered, and how much better that alternative must be. Published so
+    #: they can be argued with rather than inferred from behaviour.
+    floor_points: int
+    #: The second trigger: how severe the CONDITIONS alone must be, regardless
+    #: of trip length. `floor_points` is measured against a score that includes
+    #: distance and duration, which a short trip cannot reach - and a cloudburst
+    #: does not become acceptable because the trip is short.
+    severe_conditions_points: int
+    margin_points: int
+    version: str
+
+
+class RerouteAcceptRequest(APIModel):
+    """A person's decision to move a moving trip onto another route.
+
+    `from_route_id` is required, and is not redundant. It is the route the
+    manager was looking at when they decided; if the trip has since been
+    rerouted by someone else, applying this would move it off a road this
+    manager never saw. Mismatch is a 409 asking them to reload, not a silent
+    overwrite.
+    """
+
+    from_route_id: uuid.UUID
+    to_route_id: uuid.UUID
+    #: Optional. Only ever relaxes REQUIRES_REVIEW, and only after the server
+    #: revalidates it against the live evidence inside the mutation's own
+    #: transaction. A closed road is unaffected by it.
+    authorization_id: uuid.UUID | None = None
+
+
+class RerouteAcceptedRead(ReadModel):
+    """What the trip is now following, after a person changed it."""
+
+    trip_id: uuid.UUID
+    previous_route_id: uuid.UUID
+    selected_route_id: uuid.UUID
+    selected_route_kind: RouteKind
+
+
+@trips_router.get(
+    "/{trip_id}/reroute",
+    response_model=RerouteAssessmentRead,
+    summary="Should this moving trip change route",
+)
+async def reroute_assessment(
+    trip_id: uuid.UUID,
+    db: DbSession,
+    actor: Annotated[User, Depends(require_permission(perm.ROUTE_READ))],
+) -> RerouteAssessmentRead:
+    """Score the road the truck is on, and the roads beside it.
+
+    Read-only and not persisted. An assessment is a statement about current
+    conditions; a stored one goes on looking current after it stops being true.
+
+    A trip that is not in transit returns `NO_ACTION` without calling any
+    provider at all - it cannot be rerouted, so the weather requests would buy
+    an answer already determined. That matters because this is the endpoint a
+    fleet view is most tempted to call once per row.
+    """
+    result, candidates = await reroute_service.assess(db, trip_id)
+    return RerouteAssessmentRead(
+        outcome=result.outcome,
+        selected_route_id=_as_uuid(result.selected_route_id),
+        selected_risk_score=result.selected_risk_score,
+        selected_risk_band=result.selected_risk_band,
+        proposed_route_id=_as_uuid(result.proposed_route_id),
+        reason_codes=list(result.reason_codes),
+        comparison=(
+            _recommendation_read(result.comparison, candidates)
+            if result.comparison is not None
+            else None
+        ),
+        unavailable_inputs=list(result.unavailable_inputs),
+        floor_points=result.floor_points,
+        severe_conditions_points=result.severe_conditions_points,
+        margin_points=result.margin_points,
+        version=result.version,
+    )
+
+
+@trips_router.post(
+    "/{trip_id}/reroute/accept",
+    response_model=RerouteAcceptedRead,
+    summary="Apply a reroute a person has accepted",
+)
+async def reroute_accept(
+    trip_id: uuid.UUID,
+    payload: RerouteAcceptRequest,
+    db: DbSession,
+    actor: Annotated[User, Depends(require_permission(perm.ROUTE_SELECT))],
+    ip: ClientIp,
+) -> RerouteAcceptedRead:
+    """Move a trip that is under way onto a different route.
+
+    The only way a moving trip's route changes. Nothing applies a proposal on
+    its own: this endpoint requires an authenticated person with ROUTE_SELECT,
+    and the route change plus its timeline event land in one transaction.
+
+    No risk assessment runs here. Re-scoring at the moment of the click would
+    let a weather blip between reading the proposal and acting on it override a
+    decision that is the manager's to make.
+    """
+    trip, route = await reroute_service.accept(
+        db,
+        trip_id,
+        from_route_id=payload.from_route_id,
+        to_route_id=payload.to_route_id,
+        actor=actor,
+        ip=ip,
+        authorization_id=payload.authorization_id,
+    )
+    return RerouteAcceptedRead(
+        trip_id=trip.id,
+        previous_route_id=payload.from_route_id,
+        selected_route_id=route.id,
+        selected_route_kind=route.kind,
     )
 
 

@@ -1,0 +1,29 @@
+{
+  "label": "SYNTHETIC - LS-9 demonstration only. NOT a real landslide bulletin and NOT a real road closure.",
+  "description": "A verified active closure on the Guwahati-Jorhat corridor. OFFICIAL verification + road_blocked=true is the only combination that reaches CRITICAL in assess_corridor, and CRITICAL is the only band in REJECTING_BANDS - so this yields REJECTED and the route cannot be selected or rerouted onto by anyone.",
+  "coordinate_provenance": "latitude/longitude are sample[3] of the LS-9 demo route's own persisted geometry (backend route_risk.ROUTE_SAMPLES=5 over the real OSRM Guwahati-Jorhat line). Pinned from the route rather than guessed, so the incident is provably inside ON_ROUTE_BUFFER_M (5000 m) of a sampled position instead of being near the corridor by luck. It is a real place on that road - the NH-715 stretch by Bokakhat, below the Karbi Anglong hills - not an invented point.",
+  "coverage": {
+    "min_lat": 25.5,
+    "min_lon": 91.0,
+    "max_lat": 27.5,
+    "max_lon": 95.0
+  },
+  "source_state": "AVAILABLE",
+  "incidents": [
+    {
+      "incident_id": "SYNTHETIC-LS9-CLOSURE-001",
+      "latitude": 26.626497,
+      "longitude": 93.530169,
+      "location_name": "SYNTHETIC test incident - not a real report",
+      "district": "Golaghat",
+      "state": "Assam",
+      "road_name": "NH-715",
+      "highway_code": "NH-715",
+      "road_blocked": true,
+      "verification_status": "OFFICIAL",
+      "sources": [
+        { "name": "ls9-scenario-fixture (SYNTHETIC)", "source_type": "OFFICIAL_AGENCY" }
+      ]
+    }
+  ]
+}

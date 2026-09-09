@@ -1,0 +1,29 @@
+# NON-CANONICAL. The manager ships on Vercel - see manager-web/vercel.json and
+# docs/DEPLOYMENT_ENV_MATRIX.md (CANONICAL_MANAGER_HOST).
+#
+# This file is kept as a working fallback, not as a second production target.
+# Two live manager URLs means two places VITE_INTELLIGENCE_BASE_URL can be
+# wrong, and the driver APK can only be built against one of them.
+#
+# If this ever becomes the canonical host, invert the note in both files and
+# in the deployment matrix in the same commit. Set Base directory to
+# `manager-web` in the Netlify UI; this file cannot set it for a subdirectory.
+#
+# VITE_INTELLIGENCE_BASE_URL must be set as a Netlify environment variable.
+# It CANNOT come from manager-web/.env.production - that file is gitignored.
+
+[build]
+  publish = "dist"
+  command = "npm run build"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-Frame-Options = "DENY"

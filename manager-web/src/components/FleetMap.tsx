@@ -22,22 +22,47 @@
  * re-centres every ten seconds cannot be read, let alone worked with.
  */
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   LngLatBounds,
   Map as MapLibreMap,
   Marker,
   NavigationControl,
+  setWorkerUrl,
   type GeoJSONSource,
   type StyleSpecification,
 } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
+// Point MapLibre at a worker the bundler actually emits.
+//
+// Left alone, MapLibre derives the worker URL at RUNTIME from its own
+// `import.meta.url` and guesses a sibling file:
+//
+//     new URL('./maplibre-gl-worker.mjs', import.meta.url)
+//
+// That string is built at runtime, so no bundler can see it and none emits the
+// file. In a production build the request resolves to /assets/…-worker.mjs,
+// which does not exist, and the SPA fallback answers it with index.html - a
+// 200 with `Content-Type: text/html`, which the browser rejects for a module
+// worker. MapLibre then has no worker, so every GeoJSON source stays unparsed:
+// `isSourceLoaded()` never turns true and nothing is drawn. Raster tiles and
+// DOM markers never touch the worker, so the map still LOOKS healthy while the
+// planned route and the observed GPS track are silently missing.
+//
+// `?worker&url` makes the reference static, so Vite bundles the worker with its
+// shared chunks and hands back the emitted asset's URL. This is one statement
+// at module scope, not an effect: it must run before any Map is constructed,
+// and this module is the only place that constructs one.
+import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
+
+setWorkerUrl(maplibreWorkerUrl)
 
 import type { FleetTrip, Freshness, Position } from '../api/client'
+import { drawableSegments, isolatedFixes, splitTrack } from './track'
 
 /** Assam, so an empty map still opens somewhere meaningful to these operators. */
-const NER_CENTRE: [number, number] = [92.9376, 26.2006]
-const NER_ZOOM = 6
+export const NER_CENTRE: [number, number] = [92.9376, 26.2006]
+export const NER_ZOOM = 6
 
 const MARKER_COLOUR: Record<Freshness, string> = {
   LIVE: '#34d399',
@@ -48,7 +73,7 @@ const MARKER_COLOUR: Record<Freshness, string> = {
   NO_LOCATION: '#64748b',
 }
 
-const OSM_STYLE: StyleSpecification = {
+export const OSM_STYLE: StyleSpecification = {
   version: 8,
   sources: {
     osm: {
@@ -79,6 +104,8 @@ export interface FleetMapProps {
    * class of mistake as plotting a truck that has never reported.
    */
   plannedRoute?: [number, number][]
+  /** Draft preview: frame once when the chosen route changes. */
+  previewRouteId?: string
 }
 
 interface MarkerHandle {
@@ -152,14 +179,23 @@ export default function FleetMap({
   onSelect,
   track,
   plannedRoute,
+  previewRouteId,
 }: FleetMapProps) {
   const container = useRef<HTMLDivElement | null>(null)
   const map = useRef<MapLibreMap | null>(null)
   const markers = useRef(new Map<string, MarkerHandle>())
   const ready = useRef(false)
+  const [loaded, setLoaded] = useState(false)
+  const [mapError, setMapError] = useState(false)
   // Held in a ref so the marker click handler never closes over a stale prop.
   const selectRef = useRef(onSelect)
   selectRef.current = onSelect
+  // Layer visibility. Two lines that mean different things need to be
+  // separable: the only way to be sure a break in the observed track is a hole
+  // in the data rather than the planned route showing through is to turn the
+  // other one off.
+  const [showPlanned, setShowPlanned] = useState(true)
+  const [showObserved, setShowObserved] = useState(true)
 
   // Create once. The map is imperative and long-lived; re-creating it on a
   // prop change would drop the operator's zoom and pan on every poll.
@@ -176,8 +212,10 @@ export default function FleetMap({
       attributionControl: { compact: true },
     })
     instance.addControl(new NavigationControl({}), 'top-right')
+    instance.on('error', () => setMapError(true))
     instance.on('load', () => {
       ready.current = true
+      setLoaded(true)
       // Planned route FIRST, so it sits beneath the observed track. Where the
       // two diverge, what actually happened stays on top.
       instance.addSource('planned-route', {
@@ -190,11 +228,12 @@ export default function FleetMap({
         source: 'planned-route',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          // Dashed and violet against the observed track's solid sky blue.
-          // Distinguishable without relying on colour alone, which matters for
-          // a dispatcher who may be colour-blind and is why the dash is here
-          // rather than a second shade.
-          'line-color': '#a78bfa',
+          // Terrain route blue, dashed, against the observed track's solid ink.
+          // The DASH is what carries the distinction, not the hue: a dispatcher
+          // with a red-green or blue-yellow deficiency still reads "planned"
+          // from the broken line. The colour comment used to say violet and sky
+          // blue, neither of which had been on this map for some time.
+          'line-color': '#2563EB',
           'line-width': 4,
           'line-opacity': 0.7,
           'line-dasharray': [2, 2],
@@ -211,9 +250,29 @@ export default function FleetMap({
         source: 'observed-track',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': '#38bdf8',
+          'line-color': '#101820',
           'line-width': 3,
           'line-opacity': 0.85,
+        },
+      })
+
+      // A fix with no neighbour close enough in time to draw a line to is a
+      // place the truck was seen, and that is all it is. Drawn as a point, so
+      // it can never read as a journey.
+      instance.addSource('observed-fixes', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+      instance.addLayer({
+        id: 'observed-fixes',
+        type: 'circle',
+        source: 'observed-fixes',
+        paint: {
+          'circle-radius': 4,
+          'circle-color': '#101820',
+          'circle-opacity': 0.9,
+          'circle-stroke-width': 1,
+          'circle-stroke-color': '#FFFFFF',
         },
       })
     })
@@ -280,21 +339,44 @@ export default function FleetMap({
       | undefined
     if (!source) return
 
-    // Reversed: the API returns newest first, a line reads oldest to newest.
-    const coordinates = [...track]
-      .reverse()
-      .map((p) => [p.location.lon, p.location.lat] as [number, number])
+    // ONE LINE PER OBSERVED RUN, never one line through every fix.
+    //
+    // `splitTrack` orders the fixes oldest-first and cuts the sequence wherever
+    // the next one cannot honestly be joined to the last: a silence longer than
+    // the server's own out-of-contact window, a speed no truck reaches, or a
+    // pair that cannot be ordered at all. See `track.ts` for the measured case
+    // that made this necessary.
+    const segments = splitTrack(track)
+    const fixes = instance.getSource('observed-fixes') as
+      | GeoJSONSource
+      | undefined
 
-    source.setData(
-      coordinates.length >= 2
-        ? {
-            type: 'Feature',
-            geometry: { type: 'LineString', coordinates },
-            properties: {},
-          }
-        : { type: 'FeatureCollection', features: [] },
-    )
-  }, [track])
+    source.setData({
+      type: 'FeatureCollection',
+      features: drawableSegments(segments).map((segment) => ({
+        type: 'Feature' as const,
+        geometry: {
+          type: 'LineString' as const,
+          coordinates: segment.points.map(
+            (p) => [p.location.lon, p.location.lat] as [number, number],
+          ),
+        },
+        properties: { brokenBy: segment.brokenBy },
+      })),
+    })
+
+    fixes?.setData({
+      type: 'FeatureCollection',
+      features: isolatedFixes(segments).map((p) => ({
+        type: 'Feature' as const,
+        geometry: {
+          type: 'Point' as const,
+          coordinates: [p.location.lon, p.location.lat] as [number, number],
+        },
+        properties: {},
+      })),
+    })
+  }, [track, loaded])
 
   // The PLANNED route for the selected trip. Same shape as above, different
   // source, so the two can never be confused for one another in the data.
@@ -321,7 +403,22 @@ export default function FleetMap({
           }
         : { type: 'FeatureCollection', features: [] },
     )
-  }, [plannedRoute])
+  }, [plannedRoute, loaded])
+
+  // Apply layer visibility. Separate from the data effects so toggling does not
+  // rebuild a source.
+  useEffect(() => {
+    const instance = map.current
+    if (!instance || !ready.current) return
+    const set = (id: string, on: boolean) => {
+      if (instance.getLayer(id)) {
+        instance.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none')
+      }
+    }
+    set('planned-route', showPlanned)
+    set('observed-track', showObserved)
+    set('observed-fixes', showObserved)
+  }, [showPlanned, showObserved, track, plannedRoute, loaded])
 
   // Camera follows SELECTION, which is an operator action - never a poll.
   useEffect(() => {
@@ -340,9 +437,54 @@ export default function FleetMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTripId])
 
+  useEffect(() => {
+    const instance = map.current
+    if (!instance || !loaded || !previewRouteId || !plannedRoute?.length) return
+    const corners = plannedRoute.map(([lat, lon]) => [lon, lat] as [number, number])
+    const bounds = corners.reduce((b, point) => b.extend(point), new LngLatBounds(corners[0], corners[0]))
+    instance.fitBounds(bounds, { padding: 64, maxZoom: 14, duration: 0 })
+    const pins = [corners[0], corners.at(-1)!].map((point, index) => {
+      const label = document.createElement('span')
+      label.textContent = index === 0 ? 'Pickup' : 'Destination'
+      label.style.cssText = 'background:white;color:#14282F;padding:6px 10px;border:2px solid #2457D6;border-radius:20px;font:600 12px system-ui'
+      return new Marker({ element: label }).setLngLat(point).addTo(instance)
+    })
+    return () => { pins.forEach(pin => pin.remove()) }
+    // Camera follows a deliberate corridor change, never a GPS poll.
+  }, [previewRouteId, loaded])
+
   return (
-    <div className="relative h-[460px] overflow-hidden rounded-xl border border-slate-800">
+    // MAP-FIRST. A fixed 460px made the GIS canvas about half the viewport on a
+    // laptop and left it unchanged on a 1080p desk monitor, where there was
+    // room to spare. The clamp keeps it at roughly two thirds of the viewport
+    // across the whole supported range - ~61% at 1366x768, ~67% at 1440x900,
+    // ~70% at 1920x1080 - with a floor so it never collapses on a short window
+    // and a ceiling so it does not dwarf the fleet list beneath it.
+    <div className="relative h-[clamp(420px,calc(100dvh-300px),760px)] overflow-hidden rounded-[14px] border border-line">
       <div ref={container} className="h-full w-full" />
+      {mapError ? <p role="status" className="absolute top-16 left-3 right-12 rounded-lg bg-warning-soft p-3 text-xs text-warning">Some map data could not load. Check your connection. Route details remain available.</p> : null}
+      {/*
+        TWO HARDCODED HAZARD BANNERS WERE REMOVED FROM HERE.
+
+        They read "Monitored Monsoon Corridor: Kaziranga Sector" and "Landslide
+        Hazard Exposure: NH715 Sector 4", pinned to the top-right of the map on
+        every screen, for every trip, in every region. Neither was derived from
+        anything: no snapshot, no assessment, no trip. They carried honest
+        qualifiers - HISTORICAL HAZARD AREA, STATIC REFERENCE - but a fixed
+        string dressed as a hazard readout on an operational GIS console is the
+        same class of thing this codebase refuses to do with weather and GPS,
+        and a viewer has no way to tell it apart from a live detection.
+
+        They also sat over the corridor a dispatcher is trying to read, on a
+        screen whose whole design goal is map dominance.
+
+        Real hazard rendering already exists and is data-driven: risk segments
+        come through the route assessment and are drawn on the line itself.
+      */}
+      {/* One row, not two absolute offsets. The second button used to be pinned
+          at left-24, which assumed the first was under 6rem wide - "Region
+          overview" is not, so they overlapped on the review panel. */}
+      <div className="absolute left-3 top-3 flex flex-wrap items-start gap-2">
       <button
         type="button"
         onClick={() => {
@@ -373,10 +515,76 @@ export default function FleetMap({
             duration: 600,
           })
         }}
-        className="absolute left-3 top-3 rounded-md border border-slate-700 bg-slate-900/90 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800"
+        className="rounded-md border border-line bg-surface/90 px-3 py-1.5 text-xs font-medium text-ink hover:bg-soft"
       >
-        Fit fleet
+        {previewRouteId ? 'Region overview' : 'Fit fleet'}
       </button>
+      {/* Fitting the SELECTED trip, not the fleet. "Fit fleet" frames the
+          markers - where each truck is now - which for one truck is a street
+          view. Reviewing what a trip did needs its whole planned corridor and
+          its whole observed track in frame at once. */}
+      <button
+        type="button"
+        disabled={!selectedTripId}
+        onClick={() => {
+          const instance = map.current
+          if (!instance) return
+          const corners: [number, number][] = [
+            ...(plannedRoute ?? []).map(
+              ([lat, lon]) => [lon, lat] as [number, number],
+            ),
+            ...track.map(
+              (p) => [p.location.lon, p.location.lat] as [number, number],
+            ),
+          ]
+          if (corners.length === 0) return
+          const bounds = corners.reduce(
+            (acc, c) => acc.extend(c),
+            new LngLatBounds(corners[0], corners[0]),
+          )
+          instance.fitBounds(bounds, { padding: 48, duration: 600 })
+        }}
+        className="rounded-md border border-line bg-surface/90 px-3 py-1.5 text-xs font-medium text-ink hover:bg-soft disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        Fit trip
+      </button>
+      </div>
+      {/* The legend is not decoration. Two lines on one map that mean
+          different things need saying which is which, and the gap rule is a
+          claim about the data that the operator is entitled to see stated. */}
+      <div className="absolute bottom-3 left-3 max-w-[15rem] rounded-md border border-line bg-surface/90 px-3 py-2 text-[11px] leading-relaxed text-ink">
+        <label className="flex cursor-pointer items-center gap-2">
+          <input
+            type="checkbox"
+            checked={showPlanned}
+            onChange={(e) => setShowPlanned(e.target.checked)}
+            className="h-3.5 w-3.5 !min-h-0 accent-route"
+          />
+          <span
+            aria-hidden
+            className="h-0 w-6 shrink-0 border-t-2 border-dashed"
+            style={{ borderColor: '#2563EB' }}
+          />
+          <span>Planned route</span>
+        </label>
+        <label className="mt-1 flex cursor-pointer items-center gap-2">
+          <input
+            type="checkbox"
+            checked={showObserved}
+            onChange={(e) => setShowObserved(e.target.checked)}
+            className="h-3.5 w-3.5 !min-h-0 accent-ink"
+          />
+          <span
+            aria-hidden
+            className="h-0 w-6 shrink-0 border-t-2"
+            style={{ borderColor: '#101820' }}
+          />
+          <span>Observed track</span>
+        </label>
+        <p className="mt-1.5 text-muted">
+          The observed track breaks where GPS stopped. A gap is not a road.
+        </p>
+      </div>
     </div>
   )
 }

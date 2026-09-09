@@ -1,5 +1,62 @@
 # Overnight Engineering Progress
 
+**No credentials, tokens, keys or personal data in this file. Ever.**
+
+---
+
+## CURRENT SESSION - CONNECTION-RESET RECOVERY (2026-09-03)
+
+Everything below the ARCHIVED marker is from an earlier run whose starting HEAD
+was `7914251`. It is superseded and must not be trusted as a checkpoint.
+
+| | |
+| --- | --- |
+| CURRENT_TIME | 2026-09-03 ~22:10 |
+| CURRENT_HEAD | `f850de456d03bdcf776bafd1bcd8377f89b763c0` (== origin/main) |
+| CURRENT_WORKTREE_STATUS | 34 modified, 44 untracked, 0 staged, 0 conflicts |
+| DIFF | +11,008 / -1,419 tracked; 10,084 untracked lines |
+| OTHER_WRITER_ACTIVE | NO - no file touched in 6h; newest 2026-09-02 23:00 |
+
+### COMPLETED_TASK
+DRV-001 - durable GPS queue. `PersistentQueueStore` existed, was tested, and was
+wired to nothing; `useLocationTracking` built a `LocationTracker` with no
+`queueStore`, so the app silently ran on `MemoryQueueStore` and lost every
+unsent fix on restart.
+
+FILES_CHANGED: src/tracking/queueStorage.ts (new), queueStorage.test.ts (new),
+useLocationTracking.ts, package.json (+@react-native-async-storage/async-storage
+2.2.0 via `npx expo install`, +eas-cli devDependency), eas.json (new).
+
+TESTS_RUN / RESULTS: driver 98 passed, tsc 0; manager 64 passed, tsc 0.
+RUNTIME: driver web app boots clean, login -> trip -> stops -> actions all work.
+
+### KNOWN_RISKS
+- Queue-survives-restart is proven by unit test only. Browser has no location
+  permission, so no fixes are ever produced to queue. Native runtime proof
+  NEEDS_TESTING on a device.
+- Adding a native module requires `expo start --clear`; a stale Metro cache
+  produced a blank screen and a misleading `Unable to resolve module ./hooks`.
+
+### BLOCKERS
+- DRV-002: a standalone APK has no Expo dev server, so `resolveBaseUrl()` falls
+  back to `http://localhost:8000`, which on a phone means the phone itself.
+  `EXPO_PUBLIC_API_BASE_URL` must be set to a phone-reachable host at build
+  time. eas.json carries a deliberate REPLACE-ME placeholder.
+- EAS authentication is user-only (`npx eas login`). APK/EAS is deferred.
+
+### CURRENT_TASK
+Recovery verification - complete.
+
+### NEXT_TASK
+Driver mission Task 1: wire the offline trip package into the UI. Backend
+`GET /api/driver/me/trip/offline-package` and `src/offline/packageStore.ts`
+both exist and are a dead path - no screen calls either. Then Task 2,
+connectivity state.
+
+---
+
+## ARCHIVED - superseded session (starting HEAD 7914251)
+
 Recovery checkpoint for an autonomous run. Read this first after any restart,
 then verify `git status` and `git rev-parse HEAD` before trusting it.
 

@@ -34,7 +34,11 @@ const REFRESH_KEY = 'ner_driver_refresh'
 export const hasSecureStorage = Platform.OS !== 'web'
 
 export async function saveRefreshToken(token: string): Promise<void> {
-  if (!hasSecureStorage) return // the HttpOnly cookie is doing this job
+  // On web there is deliberately nowhere safe to put this - see the module
+  // docstring. NOT because the HttpOnly cookie covers it: this client sends
+  // `credentials: 'omit'` precisely so it never touches that cookie, so the
+  // web session simply ends at reload.
+  if (!hasSecureStorage) return
   try {
     await SecureStore.setItemAsync(REFRESH_KEY, token, {
       keychainAccessible: SecureStore.WHEN_UNLOCKED,

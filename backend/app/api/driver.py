@@ -14,10 +14,18 @@ from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
+from sqlalchemy import func, select
 
 from app.api.deps import CurrentDriver, CurrentUser, DbSession, get_client_ip
-from app.core.errors import ConflictError, NotFoundError
-from app.domain import telemetry_policy as policy
+from app.core.errors import BusinessRuleError, ConflictError, NotFoundError
+from app.domain import route_progress, telemetry_policy as policy
+from app.domain.places import (
+    BoundingBox,
+    PlaceCategory,
+    PlaceQueryError,
+    SearchAnchor,
+)
+from app.domain.routing import parse_wkt_linestring
 from app.models.enums import (
     AssignmentStatus,
     DriverStatus,
@@ -26,9 +34,19 @@ from app.models.enums import (
     TripStopStatus,
     TruckStatus,
 )
+from app.api.trips import RouteRiskRead, risk_read
+from app.models.operations import TripRoute
 from app.schemas.common import APIModel, ReadModel
 from app.schemas.domain import AssignmentVerify, GpsBatchAccepted, GpsBatchIn
-from app.services import driver_self, driver_trips, telemetry, trips
+from app.services import (
+    driver_self,
+    driver_trips,
+    navigation,
+    offline_package,
+    places,
+    telemetry,
+    trips,
+)
 
 router = APIRouter(prefix="/api/driver", tags=["driver"])
 
@@ -211,6 +229,37 @@ class TrackingConfig(ReadModel):
     fresh_seconds: int
 
 
+class RouteProgressRead(ReadModel):
+    """How far along the PLANNED corridor the truck is.
+
+    Measured by projecting the last observed fix onto the planned line, which
+    is why `off_route_m` is here: the planned route and the observed track are
+    different objects, and the distance between them is what says whether the
+    rest of these numbers mean anything.
+
+    THERE IS NO ETA HERE, DELIBERATELY. A routing provider's duration is a
+    free-flow estimate over a road graph - it knows nothing about this load,
+    this driver's break, or a checkpoint queue. `remaining_at_planned_pace_min`
+    is the remaining distance at the average speed the provider's own figures
+    imply, the name says so, and `REMAINING_TIME_ASSUMES_PLANNED_PACE` travels
+    with it. A field called `eta` would be a promise nothing in this system
+    stands behind.
+
+    Every value is null rather than zero when it cannot be computed. A truck
+    with no fix has not arrived.
+    """
+
+    fraction_complete: float | None
+    travelled_distance_km: float | None
+    remaining_distance_km: float | None
+    off_route_m: float | None
+    on_route: bool | None
+    remaining_at_planned_pace_min: float | None
+    planned_average_speed_kmph: float | None
+    reason_codes: list[str]
+    version: str
+
+
 class CurrentTrip(ReadModel):
     id: uuid.UUID
     trip_code: str
@@ -231,6 +280,37 @@ class CurrentTrip(ReadModel):
     tracking_expected: bool
     tracking: TrackingConfig
     last_fix: LastFix | None
+    #: Null only when the trip has no selected route at all. Otherwise present,
+    #: with its own reason codes explaining any gaps inside it.
+    progress: RouteProgressRead | None
+    #: THE ROUTE IDENTITY, and the only thing on this payload that says WHICH
+    #: road the driver is being sent down.
+    #:
+    #: The geometry itself is deliberately NOT here. It is tens of kilobytes,
+    #: it does not change between selections, and this payload is re-read every
+    #: ten seconds - sending a polyline on every poll to detect the rare
+    #: occasion it changed is the wrong trade. The map fetches geometry from
+    #: `/me/trip/offline-package` and re-fetches it exactly when this id moves.
+    #:
+    #: It is also what lets a client prove the map, the steps and the progress
+    #: it is showing all belong to the SAME approved route rather than to three
+    #: reads that happened to interleave with a reroute.
+    selected_route_id: uuid.UUID | None
+    #: When THIS driver acknowledged the job, or null if they have not.
+    #:
+    #: The app shows **Accept trip** while this is null and **Resume
+    #: navigation** once it is set, and it opens the Map page only after the
+    #: server has returned a non-null value here - so the redirect follows a
+    #: persisted server fact rather than an optimistic local flag.
+    #:
+    #: It is NOT a start gate. `can_start` above remains the only thing that
+    #: says whether travel may begin, and it does not consult this field. A
+    #: driver who has accepted a blocked trip still sees the blocker.
+    #:
+    #: Cleared when the trip is reassigned, so it always means "the driver
+    #: reading this payload accepted it" - never an acknowledgment inherited
+    #: from whoever held the job before.
+    driver_accepted_at: datetime | None
 
 
 class TripActionRequest(APIModel):
@@ -249,6 +329,67 @@ def _stop_view(stop) -> TripStopView:
         address=stop.address,
         planned_arrival_at=stop.planned_arrival_at,
         actual_arrival_at=stop.actual_arrival_at,
+    )
+
+
+async def _progress_view(db, trip, position) -> "RouteProgressRead | None":
+    """Progress along the trip's SELECTED route, if it has one.
+
+    Null only when no route is selected, because progress along a corridor
+    nobody chose is not a degraded answer - there is no corridor. Every other
+    gap, including having no position at all, is expressed INSIDE the object
+    through its reason codes, so the app has one shape to render rather than
+    two.
+
+    ONE extra statement per trip screen, and it has to stay one: this endpoint
+    is polled by the driver app over a mobile link, so a second round trip to
+    the same row by primary key is a cost paid on every poll, by every driver,
+    forever. Geometry and both estimates come back together.
+
+    `distance_km` is the provider's own total, and it is what a manager is
+    shown for the same trip; passing it keeps the driver's remaining-plus-
+    travelled from disagreeing with that figure, because the stored geometry is
+    `overview=simplified` and is therefore shorter than the road.
+
+    The assessment itself is arithmetic - no provider, no write.
+    """
+    if trip.selected_route_id is None:
+        return None
+
+    row = (
+        await db.execute(
+            select(
+                func.ST_AsText(TripRoute.geometry),
+                TripRoute.estimated_duration_min,
+                TripRoute.distance_km,
+            ).where(TripRoute.id == trip.selected_route_id)
+        )
+    ).first()
+    if row is None:
+        # `trips.selected_route_id` is a FK, so this is unreachable short of a
+        # manual delete. Answered rather than crashed: a driver on the road
+        # loses a progress panel, not their trip screen.
+        return None
+
+    wkt, duration, distance = row
+    geometry = parse_wkt_linestring(wkt) if wkt else []
+
+    result = route_progress.assess(
+        geometry=geometry,
+        position=(position.lat, position.lon) if position is not None else None,
+        planned_duration_min=float(duration) if duration is not None else None,
+        planned_distance_km=float(distance) if distance is not None else None,
+    )
+    return RouteProgressRead(
+        fraction_complete=result.fraction_complete,
+        travelled_distance_km=result.travelled_distance_km,
+        remaining_distance_km=result.remaining_distance_km,
+        off_route_m=result.off_route_m,
+        on_route=result.on_route,
+        remaining_at_planned_pace_min=result.remaining_at_planned_pace_min,
+        planned_average_speed_kmph=result.planned_average_speed_kmph,
+        reason_codes=list(result.reason_codes),
+        version=result.version,
     )
 
 
@@ -278,6 +419,8 @@ async def _trip_view(db, driver, trip) -> CurrentTrip:
         else None
     )
 
+    progress = await _progress_view(db, trip, position)
+
     return CurrentTrip(
         id=trip.id,
         trip_code=trip.trip_code,
@@ -294,6 +437,18 @@ async def _trip_view(db, driver, trip) -> CurrentTrip:
         ),
         start_blocked_reason=(
             None if in_progress else (blocker.message if blocker else None)
+        ),
+        progress=progress,
+        selected_route_id=trip.selected_route_id,
+        # Reported ONLY when this driver is the one who accepted. A trip
+        # handed to somebody else carries the previous driver's timestamp in
+        # the row, and returning it here would open the new driver's app on a
+        # job it claimed they had already accepted. Comparing rather than
+        # clearing means no reassignment path has to remember to do anything.
+        driver_accepted_at=(
+            trip.driver_accepted_at
+            if trip.driver_accepted_by == driver.id
+            else None
         ),
         tracking_expected=in_progress,
         tracking=TrackingConfig(**policy.tracking_config()),
@@ -314,6 +469,475 @@ async def my_trip(driver: CurrentDriver, db: DbSession) -> CurrentTrip | None:
     """
     trip = await driver_trips.current_trip(db, driver)
     return None if trip is None else await _trip_view(db, driver, trip)
+
+
+class OfflineRouteRead(ReadModel):
+    """A corridor as coordinates the phone can draw with no network."""
+
+    route_id: uuid.UUID
+    kind: str
+    distance_km: float | None
+    estimated_duration_min: int | None
+    #: [[lat, lon], ...] in travel order.
+    geometry: list[list[float]]
+
+
+class OfflineStopRead(ReadModel):
+    stop_id: uuid.UUID
+    sequence: int
+    kind: str
+    name: str | None
+    address: str | None
+    lat: float | None
+    lon: float | None
+
+
+class OfflinePackageRead(ReadModel):
+    """Everything the driver needs for this journey with no network.
+
+    WHAT THIS IS AND IS NOT
+
+    It carries the route already chosen - geometry, stops, estimates - so a
+    phone in a valley has the journey in front of it. It does NOT contain a
+    routing engine: computing a NEW route offline needs a road graph on the
+    device and is not built. A driver following a known road needs the road,
+    not a solver.
+
+    `basemap` is `BUNDLED_NONE`, and the reason is legal rather than technical:
+    the OSM Foundation tile usage policy prohibits prefetch and "download area
+    for offline use" against tile.openstreetmap.org, which is this project's
+    tile source. The gap is reported rather than filled by a policy violation,
+    because a driver discovering it in a valley is worse than being told now.
+
+    EVERYTHING TIME-SENSITIVE CARRIES ITS OWN TIMESTAMP
+
+    `risk` is a SNAPSHOT taken when the package was built, never a live
+    reading. The app must render it against `risk_captured_at` and let it go
+    stale on screen using the device clock alone. A weather panel that still
+    reads LIGHT RAIN ten hours into a signal blackout is the failure this
+    field exists to prevent.
+
+    `package_hash` covers only the durable parts - identity, stops, route
+    geometry - so a device can ask "has the corridor changed" without the
+    answer flipping every time the weather does.
+    """
+
+    trip_id: uuid.UUID
+    trip_code: str
+    captured_at: datetime
+    selected_route: OfflineRouteRead | None
+    backup_route: OfflineRouteRead | None
+    stops: list[OfflineStopRead]
+    risk: RouteRiskRead | None
+    risk_captured_at: datetime | None
+    basemap: str
+    reason_codes: list[str]
+    package_hash: str
+    version: str
+
+
+@router.get(
+    "/me/trip/offline-package",
+    response_model=OfflinePackageRead,
+    summary="Download this trip for offline use",
+)
+async def my_offline_package(
+    driver: CurrentDriver, db: DbSession
+) -> OfflinePackageRead:
+    """The driver's own current trip, packaged to survive losing the network.
+
+    Subject taken from the token like every other route here - no trip id in
+    the path, nothing to bend.
+
+    404 when there is no current trip. Unlike `GET /me/trip`, which returns
+    null because "between trips" is a normal screen, asking to download a
+    journey that does not exist is a request that cannot be satisfied, and an
+    app that got `null` back would have to guess whether to retry.
+    """
+    trip = await driver_trips.current_trip(db, driver)
+    if trip is None:
+        raise NotFoundError("You have no trip to download right now.")
+
+    package = await offline_package.build_for_trip(db, trip)
+
+    def route_read(route) -> OfflineRouteRead | None:
+        if route is None:
+            return None
+        return OfflineRouteRead(
+            route_id=route.route_id,
+            kind=route.kind.value,
+            distance_km=route.distance_km,
+            estimated_duration_min=route.estimated_duration_min,
+            geometry=route.geometry,
+        )
+
+    return OfflinePackageRead(
+        trip_id=package.trip_id,
+        trip_code=package.trip_code,
+        captured_at=package.captured_at,
+        selected_route=route_read(package.selected_route),
+        backup_route=route_read(package.backup_route),
+        stops=[
+            OfflineStopRead(
+                stop_id=s.stop_id,
+                sequence=s.sequence,
+                kind=s.kind,
+                name=s.name,
+                address=s.address,
+                lat=s.lat,
+                lon=s.lon,
+            )
+            for s in package.stops
+        ],
+        risk=risk_read(package.risk) if package.risk is not None else None,
+        risk_captured_at=package.risk_captured_at,
+        basemap=package.basemap,
+        reason_codes=list(package.reason_codes),
+        package_hash=package.package_hash,
+        version=package.version,
+    )
+
+
+class NavigationManeuverRead(ReadModel):
+    """One instruction, positioned along the route it belongs to."""
+
+    type: str
+    modifier: str | None
+    lat: float
+    lon: float
+    geometry_index: int
+    #: Distance along the route from its start to this maneuver. Subtract
+    #: travelled distance from this to get "in X m, turn left".
+    distance_from_start_m: float
+    #: Distance from this maneuver to the NEXT one; 0.0 at arrival. Published
+    #: for leg display. It is NOT the distance to this turn - rendering it as
+    #: such is wrong by one step.
+    step_distance_m: float
+    #: Free-flow provider seconds for that leg. Not an ETA.
+    duration_s: float | None
+    name: str | None
+    exit: int | None
+
+
+class NavigationPackageRead(ReadModel):
+    """Turn instructions for the route this trip currently follows.
+
+    `available` is false whenever guidance cannot be driven, and
+    `reason_codes` says why - no selected route, no stored maneuvers, or stored
+    maneuvers that do not describe this geometry. `geometry` is still returned
+    in those cases: losing directions is not losing the road.
+
+    `route_id` and `route_revision` bind the package to one corridor. A client
+    holding a cached package must compare both before drawing it, so
+    instructions from a superseded route cannot appear over a new one.
+
+    Units are explicit rather than implied by field names: metres and seconds,
+    coordinates as (lat, lon) like the rest of this API.
+    """
+
+    trip_id: uuid.UUID
+    trip_code: str
+    route_id: uuid.UUID | None
+    route_revision: str | None
+    available: bool
+    reason_codes: list[str]
+    geometry: list[list[float]]
+    maneuvers: list[NavigationManeuverRead]
+    distance_m: float | None
+    #: Provider free-flow duration. NOT an arrival estimate.
+    duration_s: float | None
+    provider: str | None
+    provider_route_id: str | None
+    #: When the package was assembled - not when the route was approved, and not
+    #: how fresh any GPS fix is. Three different clocks, kept apart.
+    captured_at: datetime
+    coordinate_format: str
+    distance_unit: str
+    duration_unit: str
+    version: str
+
+
+@router.get(
+    "/me/trip/navigation",
+    response_model=NavigationPackageRead,
+    summary="Turn instructions for this driver's current route",
+)
+async def my_navigation_package(
+    driver: CurrentDriver, db: DbSession
+) -> NavigationPackageRead:
+    """Directions for the corridor this driver's trip is following.
+
+    Subject comes from the token, like every other route in this file. There is
+    no trip id in the path and nothing to bend: a driver cannot request another
+    driver's guidance because there is no parameter in which to ask.
+
+    404 when there is no current trip, matching `/me/trip/offline-package` - a
+    request for directions on a journey that does not exist cannot be satisfied,
+    and returning null would leave the app guessing whether to retry.
+
+    Having a trip but no usable guidance is NOT a 404. It is a 200 with
+    `available: false` and a reason, because that is a state the map has to
+    render rather than an error it should retry.
+    """
+    trip = await driver_trips.current_trip(db, driver)
+    if trip is None:
+        raise NotFoundError("You have no trip to navigate right now.")
+
+    package = await navigation.build_for_trip(db, trip)
+
+    return NavigationPackageRead(
+        trip_id=package.trip_id,
+        trip_code=package.trip_code,
+        route_id=package.route_id,
+        route_revision=package.route_revision,
+        available=package.available,
+        reason_codes=list(package.reason_codes),
+        geometry=package.geometry,
+        maneuvers=[
+            NavigationManeuverRead(
+                type=m.type,
+                modifier=m.modifier,
+                lat=m.lat,
+                lon=m.lon,
+                geometry_index=m.geometry_index,
+                distance_from_start_m=m.distance_from_start_m,
+                step_distance_m=m.step_distance_m,
+                duration_s=m.duration_s,
+                name=m.name,
+                exit=m.exit,
+            )
+            for m in package.maneuvers
+        ],
+        distance_m=package.distance_m,
+        duration_s=package.duration_s,
+        provider=package.provider,
+        provider_route_id=package.provider_route_id,
+        captured_at=package.captured_at,
+        coordinate_format=package.coordinate_format,
+        distance_unit=package.distance_unit,
+        duration_unit=package.duration_unit,
+        version=package.version,
+    )
+
+
+class PlaceContactRead(ReadModel):
+    """Every field independently null. Null means nobody recorded it."""
+
+    phone: str | None
+    opening_hours: str | None
+    operator: str | None
+
+
+class PlaceAccessRead(ReadModel):
+    """Access as MAPPED. A missing value is unknown, never permitted."""
+
+    hgv: str | None
+    max_height: str | None
+    access: str | None
+    fee: str | None
+    toilets: str | None
+    lit: str | None
+
+
+class PlaceRead(ReadModel):
+    provider_id: str
+    category: str
+    name: str | None
+    lat: float
+    lon: float
+    contact: PlaceContactRead
+    access: PlaceAccessRead
+    #: APPROXIMATE STRAIGHT-LINE metres, or null. Never a driving distance and
+    #: never rendered as one - a shop across a river is 200 m away and 20 km
+    #: to reach. No road distance or travel time is computed here at all.
+    straight_line_m: float | None
+    #: Every source element behind this record. More than one means several
+    #: mapped elements were judged to be the same place - LIKELY, not
+    #: certainly, so the ids travel so the judgement stays checkable.
+    provider_ids: list[str]
+    #: Fields where merged elements disagreed. Kept rather than resolved; the
+    #: UI marks the shown value as disputed.
+    conflicts: dict[str, list[str]]
+
+
+class PlaceSourceRead(ReadModel):
+    name: str
+    attribution: str
+    licence: str
+    retrieved_at: datetime
+    coverage_description: str
+    limits: str
+    #: False for the corridor snapshot. The app must not describe it as a live
+    #: availability feed.
+    is_live: bool
+    raw_records: int
+    unique_places: int
+    merged_duplicates: int
+
+
+class PlacesResponse(ReadModel):
+    """Results AND whether anybody could look.
+
+    `state` is not decoration. AVAILABLE with an empty list means nothing of
+    that kind is mapped here; OUTSIDE_COVERAGE means the area was never
+    searched; UNAVAILABLE means the lookup failed. Rendering all three as "no
+    results" is the defect this field exists to prevent.
+    """
+
+    state: str
+    anchor: str
+    places: list[PlaceRead]
+    source: PlaceSourceRead | None
+    truncated: bool
+    error: str | None
+
+
+def _place_read(place) -> PlaceRead:
+    return PlaceRead(
+        provider_id=place.provider_id,
+        category=place.category.value,
+        name=place.name,
+        lat=place.lat,
+        lon=place.lon,
+        contact=PlaceContactRead(
+            phone=place.contact.phone,
+            opening_hours=place.contact.opening_hours,
+            operator=place.contact.operator,
+        ),
+        access=PlaceAccessRead(
+            hgv=place.access.hgv,
+            max_height=place.access.max_height,
+            access=place.access.access,
+            fee=place.access.fee,
+            toilets=place.access.toilets,
+            lit=place.access.lit,
+        ),
+        straight_line_m=place.straight_line_m,
+        provider_ids=list(place.provider_ids),
+        conflicts={k: list(v) for k, v in place.conflicts.items()},
+    )
+
+
+@router.get(
+    "/me/trip/places",
+    response_model=PlacesResponse,
+    summary="Roadside services near the driver's own trip",
+)
+async def my_trip_places(
+    driver: CurrentDriver,
+    db: DbSession,
+    category: PlaceCategory,
+    south: float,
+    west: float,
+    north: float,
+    east: float,
+    anchor: SearchAnchor = SearchAnchor.MAP_AREA,
+    anchor_lat: float | None = None,
+    anchor_lon: float | None = None,
+    limit: int = 40,
+) -> PlacesResponse:
+    """Mapped roadside services, scoped to the authenticated driver.
+
+    SERVED FROM A LOCAL SNAPSHOT. No request leaves this process - see
+    `app/services/places/snapshot.py` for why the app does not call Overpass at
+    runtime. That also makes "changing category issues no external request"
+    true by construction.
+
+    BOUNDED. The box is validated on construction (max 5 degrees, no
+    inversion) and the result count is capped, so there is no query shape that
+    asks for a region.
+
+    `anchor=ROUTE_CORRIDOR` filters to the driver's OWN authorised route, read
+    here rather than accepted from the client - a caller cannot pass geometry
+    and have services matched against a road they invented.
+    """
+    try:
+        box = BoundingBox(
+            min_lat=south, min_lon=west, max_lat=north, max_lon=east
+        )
+    except PlaceQueryError as exc:
+        raise BusinessRuleError(str(exc)) from exc
+
+    route: list[tuple[float, float]] | None = None
+    if anchor is SearchAnchor.ROUTE_CORRIDOR:
+        trip = await driver_trips.current_trip(db, driver)
+        if trip is None or trip.selected_route_id is None:
+            raise NotFoundError(
+                "You have no selected route to search along right now."
+            )
+        row = (
+            await db.execute(
+                select(func.ST_AsText(TripRoute.geometry)).where(
+                    TripRoute.id == trip.selected_route_id
+                )
+            )
+        ).first()
+        wkt = row[0] if row else None
+        route = parse_wkt_linestring(wkt) if wkt else None
+        if not route:
+            raise NotFoundError("Your selected route has no usable geometry.")
+
+    result = places.find(
+        box=box,
+        category=category,
+        anchor=anchor,
+        anchor_lat=anchor_lat,
+        anchor_lon=anchor_lon,
+        route=route,
+        limit=limit,
+    )
+
+    source = None
+    if result.source is not None:
+        counts = places.snapshot_counts()
+        source = PlaceSourceRead(
+            name=result.source.name,
+            attribution=result.source.attribution,
+            licence=result.source.licence,
+            retrieved_at=result.source.retrieved_at,
+            coverage_description=result.source.coverage_description,
+            limits=result.source.limits,
+            is_live=result.source.is_live,
+            raw_records=counts["raw_records"],
+            unique_places=counts["unique_places"],
+            merged_duplicates=counts["merged_duplicates"],
+        )
+
+    return PlacesResponse(
+        state=result.state.value,
+        anchor=(result.anchor or anchor).value,
+        places=[_place_read(p) for p in result.places],
+        source=source,
+        truncated=result.truncated,
+        error=result.error,
+    )
+
+
+@router.post(
+    "/me/trip/accept",
+    response_model=CurrentTrip,
+    summary="Acknowledge the dispatched trip",
+)
+async def accept_my_trip(
+    payload: TripActionRequest,
+    driver: CurrentDriver,
+    user: CurrentUser,
+    db: DbSession,
+    ip: ClientIp,
+) -> CurrentTrip:
+    """The driver accepts the job. This does NOT start travel.
+
+    Subject taken from the token like every other route here, so there is no
+    trip id to bend - `payload.trip_id` can only NARROW, and a mismatch is
+    refused as a stale screen rather than used to look anything up.
+
+    Idempotent: accepting twice returns the first acceptance unchanged and
+    writes one timeline event, so a double tap or a retry after a lost
+    response is safe. See `driver_trips.accept` for why this is an
+    acknowledgment and not a gate.
+    """
+    trip = await driver_trips.accept(db, driver, user, trip_id=payload.trip_id, ip=ip)
+    return await _trip_view(db, driver, trip)
 
 
 @router.post("/me/trip/start", response_model=CurrentTrip, summary="Start the trip")

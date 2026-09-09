@@ -1,0 +1,241 @@
+{
+  "$comment": [
+    "Offline logistics phrasebook.",
+    "",
+    "WHY A PHRASEBOOK AND NOT A TRANSLATOR",
+    "This build has no speech recognition and no machine translation, online",
+    "or offline. Shipping a microphone button backed by nothing would be a",
+    "fake feature, and a driver who trusts it once at a roadside and gets",
+    "silence will never trust the app again. A phrasebook is smaller, it is",
+    "honest, and at a broken-down truck at night it is very often the thing",
+    "that actually works: point at the sentence and hand over the phone.",
+    "",
+    "THE PHRASES ARE OPERATIONAL, NOT TOURISTIC",
+    "Every entry earns its place by being something a driver on a highway",
+    "actually needs to say to a stranger: breakdown, injury, police, fuel,",
+    "blocked road, safe parking. There is no 'good morning'.",
+    "",
+    "LANGUAGES ARE THE PHRASEBOOK'S OWN, NOT THE APP'S",
+    "The app UI ships en/hi/as. This file adds bn, because Bengali is widely",
+    "spoken across the region a NER driver crosses and a phrasebook target",
+    "costs nothing but the string - there is no provider to support it and",
+    "nothing to claim. Deliberately typed separately from `Language` in",
+    "reasonCodes so adding a phrasebook target can never silently imply the",
+    "app UI has been translated.",
+    "",
+    "REVIEW STATUS",
+    "hi, as and bn are UNREVIEWED by native speakers, as recorded for",
+    "i18n/reason_codes.json and src/safety/guide.json. The screen says so.",
+    "A phrase shown to a stranger and misunderstood is the failure mode here,",
+    "so this caveat is on screen rather than in this comment alone."
+  ],
+  "version": "phrasebook-v1",
+  "revised": "2026-09-04",
+  "languages": [
+    { "code": "en", "name": "English" },
+    { "code": "hi", "name": "हिन्दी" },
+    { "code": "as", "name": "অসমীয়া" },
+    { "code": "bn", "name": "বাংলা" }
+  ],
+  "categories": [
+    {
+      "id": "EMERGENCY",
+      "en": "Emergency",
+      "hi": "आपातकाल",
+      "as": "জৰুৰীকালীন",
+      "bn": "জরুরি",
+      "phrases": [
+        {
+          "id": "CALL_POLICE",
+          "en": "Please call the police.",
+          "hi": "कृपया पुलिस को बुलाइए।",
+          "as": "অনুগ্ৰহ কৰি আৰক্ষীক মাতক।",
+          "bn": "দয়া করে পুলিশ ডাকুন।"
+        },
+        {
+          "id": "CALL_AMBULANCE",
+          "en": "Please call an ambulance.",
+          "hi": "कृपया एम्बुलेंस बुलाइए।",
+          "as": "অনুগ্ৰহ কৰি এম্বুলেন্স মাতক।",
+          "bn": "দয়া করে অ্যাম্বুলেন্স ডাকুন।"
+        },
+        {
+          "id": "NEAREST_HOSPITAL",
+          "en": "Where is the nearest hospital?",
+          "hi": "सबसे नज़दीकी अस्पताल कहाँ है?",
+          "as": "আটাইতকৈ ওচৰৰ চিকিৎসালয় ক'ত?",
+          "bn": "সবচেয়ে কাছের হাসপাতাল কোথায়?"
+        },
+        {
+          "id": "SOMEONE_INJURED",
+          "en": "Someone is injured and needs help.",
+          "hi": "कोई घायल है और उसे मदद चाहिए।",
+          "as": "কোনোবা আঘাতপ্ৰাপ্ত হৈছে আৰু সহায়ৰ প্ৰয়োজন।",
+          "bn": "একজন আহত হয়েছেন, সাহায্য দরকার।"
+        }
+      ]
+    },
+    {
+      "id": "BREAKDOWN",
+      "en": "Breakdown",
+      "hi": "गाड़ी खराब",
+      "as": "গাড়ী বিকল",
+      "bn": "গাড়ি বিকল",
+      "phrases": [
+        {
+          "id": "TRUCK_BROKEN",
+          "en": "My truck has broken down.",
+          "hi": "मेरा ट्रक खराब हो गया है।",
+          "as": "মোৰ ট্ৰাকখন বিকল হৈ পৰিছে।",
+          "bn": "আমার ট্রাক বিকল হয়ে গেছে।"
+        },
+        {
+          "id": "NEED_MECHANIC",
+          "en": "I need a mechanic.",
+          "hi": "मुझे मैकेनिक चाहिए।",
+          "as": "মোক এজন মেকানিকৰ প্ৰয়োজন।",
+          "bn": "আমার একজন মেকানিক দরকার।"
+        },
+        {
+          "id": "TYRE_PUNCTURE",
+          "en": "I have a puncture. Where can I get it repaired?",
+          "hi": "पंचर हो गया है। कहाँ ठीक हो सकता है?",
+          "as": "পাংচাৰ হৈছে। ক'ত মেৰামতি কৰিব পাৰিম?",
+          "bn": "পাংচার হয়েছে। কোথায় সারানো যাবে?"
+        },
+        {
+          "id": "NEED_DIESEL",
+          "en": "Where is the nearest fuel station?",
+          "hi": "सबसे नज़दीकी पेट्रोल पंप कहाँ है?",
+          "as": "আটাইতকৈ ওচৰৰ ফিলিং ষ্টেচন ক'ত?",
+          "bn": "সবচেয়ে কাছের পেট্রোল পাম্প কোথায়?"
+        },
+        {
+          "id": "CAN_YOU_TOW",
+          "en": "Can you help me tow the truck?",
+          "hi": "क्या आप ट्रक खिंचवाने में मदद कर सकते हैं?",
+          "as": "ট্ৰাকখন টানি নিয়াত সহায় কৰিব পাৰিবনে?",
+          "bn": "ট্রাকটি টেনে নিতে সাহায্য করতে পারবেন?"
+        }
+      ]
+    },
+    {
+      "id": "ROAD",
+      "en": "Road and route",
+      "hi": "सड़क और रास्ता",
+      "as": "পথ আৰু বাট",
+      "bn": "রাস্তা ও পথ",
+      "phrases": [
+        {
+          "id": "ROAD_BLOCKED",
+          "en": "This road is blocked.",
+          "hi": "यह रास्ता बंद है।",
+          "as": "এই পথটো বন্ধ হৈ আছে।",
+          "bn": "এই রাস্তা বন্ধ।"
+        },
+        {
+          "id": "ROAD_SAFE_TRUCK",
+          "en": "Is this road safe for a truck?",
+          "hi": "क्या यह रास्ता ट्रक के लिए सुरक्षित है?",
+          "as": "এই পথটো ট্ৰাকৰ বাবে নিৰাপদ নে?",
+          "bn": "এই রাস্তা কি ট্রাকের জন্য নিরাপদ?"
+        },
+        {
+          "id": "LANDSLIDE_AHEAD",
+          "en": "Is there a landslide ahead?",
+          "hi": "क्या आगे भूस्खलन हुआ है?",
+          "as": "আগত ভূমিস্খলন হৈছে নেকি?",
+          "bn": "সামনে কি ভূমিধস হয়েছে?"
+        },
+        {
+          "id": "HOW_FAR",
+          "en": "How far is it from here?",
+          "hi": "यहाँ से कितनी दूर है?",
+          "as": "ইয়াৰ পৰা কিমান দূৰ?",
+          "bn": "এখান থেকে কত দূর?"
+        },
+        {
+          "id": "WHICH_WAY",
+          "en": "Which way should I take?",
+          "hi": "मुझे किस रास्ते से जाना चाहिए?",
+          "as": "মই কোনটো বাটেৰে যাম?",
+          "bn": "আমি কোন পথে যাব?"
+        }
+      ]
+    },
+    {
+      "id": "NEEDS",
+      "en": "Basic needs",
+      "hi": "बुनियादी ज़रूरतें",
+      "as": "মৌলিক প্ৰয়োজন",
+      "bn": "মৌলিক প্রয়োজন",
+      "phrases": [
+        {
+          "id": "DRINKING_WATER",
+          "en": "I need drinking water.",
+          "hi": "मुझे पीने का पानी चाहिए।",
+          "as": "মোক খোৱা পানী লাগে।",
+          "bn": "আমার খাবার জল দরকার।"
+        },
+        {
+          "id": "SAFE_PARKING",
+          "en": "I need a safe place to park the truck.",
+          "hi": "मुझे ट्रक खड़ा करने के लिए सुरक्षित जगह चाहिए।",
+          "as": "ট্ৰাকখন ৰাখিবলৈ মোক এটা নিৰাপদ ঠাই লাগে।",
+          "bn": "ট্রাক রাখার জন্য আমার নিরাপদ জায়গা দরকার।"
+        },
+        {
+          "id": "TOILET",
+          "en": "Where is the toilet?",
+          "hi": "शौचालय कहाँ है?",
+          "as": "শৌচাগাৰ ক'ত?",
+          "bn": "শৌচাগার কোথায়?"
+        },
+        {
+          "id": "PHONE_CHARGE",
+          "en": "May I charge my phone here?",
+          "hi": "क्या मैं यहाँ अपना फ़ोन चार्ज कर सकता हूँ?",
+          "as": "মই ইয়াত মোৰ ফোনটো চাৰ্জ কৰিব পাৰিমনে?",
+          "bn": "আমি কি এখানে আমার ফোন চার্জ করতে পারি?"
+        }
+      ]
+    },
+    {
+      "id": "TALKING",
+      "en": "Making yourself understood",
+      "hi": "बात समझाना",
+      "as": "কথা বুজাব বিচৰা",
+      "bn": "কথা বোঝানো",
+      "phrases": [
+        {
+          "id": "DONT_SPEAK",
+          "en": "I do not speak this language. Please read this.",
+          "hi": "मैं यह भाषा नहीं बोलता। कृपया यह पढ़िए।",
+          "as": "মই এই ভাষা নাজানো। অনুগ্ৰহ কৰি এইটো পঢ়ক।",
+          "bn": "আমি এই ভাষা বলতে পারি না। দয়া করে এটি পড়ুন।"
+        },
+        {
+          "id": "PLEASE_SLOWLY",
+          "en": "Please speak slowly.",
+          "hi": "कृपया धीरे बोलिए।",
+          "as": "অনুগ্ৰহ কৰি লাহেকৈ কওক।",
+          "bn": "দয়া করে ধীরে বলুন।"
+        },
+        {
+          "id": "WRITE_IT",
+          "en": "Please write it down.",
+          "hi": "कृपया लिख दीजिए।",
+          "as": "অনুগ্ৰহ কৰি লিখি দিয়ক।",
+          "bn": "দয়া করে লিখে দিন।"
+        },
+        {
+          "id": "THANK_YOU",
+          "en": "Thank you for your help.",
+          "hi": "आपकी मदद के लिए धन्यवाद।",
+          "as": "আপোনাৰ সহায়ৰ বাবে ধন্যবাদ।",
+          "bn": "আপনার সাহায্যের জন্য ধন্যবাদ।"
+        }
+      ]
+    }
+  ]
+}

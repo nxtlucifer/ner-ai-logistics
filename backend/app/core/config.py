@@ -38,6 +38,10 @@ LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
 
 DatabaseProvider = Literal["supabase", "local"]
 
+#: Which identity provider mints the tokens this service accepts. See the
+#: AUTH_PROVIDER setting below for what each value means.
+AuthProvider = Literal["local", "supabase"]
+
 
 def _host_of(url: str) -> str:
     """Extract the hostname from a SQLAlchemy URL, without its credentials."""
@@ -161,6 +165,47 @@ class Settings(BaseSettings):
     #: a dispatcher waiting on a risk panel is a worse experience than one told
     #: promptly that conditions are unknown.
     WEATHER_TIMEOUT_SECONDS: float = 6.0
+
+    # --- Address search (Google Places API (New)) ---
+    #
+    # Unlike ROUTING_PRIMARY_KEY and WEATHER_PROVIDER_KEY, this key setting DOES
+    # exist, because unlike those there is a provider written to receive it
+    # (`app/services/geocoding.py`) and the credential goes somewhere. Absent is
+    # the supported default: address search reports itself unavailable and the
+    # manager plans with the map picker instead.
+    #
+    # It is deliberately NOT a VITE_ variable. Vite inlines those into the
+    # browser bundle; this must stay server-side.
+    GOOGLE_PLACES_API_KEY: str | None = None
+    GEOCODING_TIMEOUT_SECONDS: float = 6.0
+
+    # --- Local AI ---
+    #
+    # One model, three surfaces (`app/services/inference.py`). The default host
+    # is loopback and non-loopback is refused unless deliberately allowed,
+    # because pointing this at a hosted endpoint would silently send a driver's
+    # trip context off the machine while everything still appeared to work.
+    AI_ENABLED: bool = True
+    OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
+    AI_MODEL: str = "llama3.2:3b"
+    AI_ALLOW_NON_LOCAL_HOST: bool = False
+    #: Short: this only decides whether to show the AI panel at all.
+    AI_STATUS_TIMEOUT_SECONDS: float = 2.0
+    #: Generous: a 3B model on a CPU laptop is slow, and a timeout that fires
+    #: mid-answer looks like a bug rather than a slow machine.
+    AI_TIMEOUT_SECONDS: float = 60.0
+    #: Bounds on what may be sent and returned. An unbounded local decode on a
+    #: shared laptop starves the GPS ingestion path.
+    AI_MAX_PROMPT_CHARS: int = 4000
+    AI_MAX_OUTPUT_TOKENS: int = 200
+
+    # --- Gemini Developer API (Server Proxy) ---
+    GEMINI_API_KEY: str | None = None
+    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_TIMEOUT_SECONDS: float = 8.0
+    GEMINI_MAX_OUTPUT_TOKENS: int = 512
+    GEMINI_RPM_LIMIT: int = 10
+
     #: Off makes route risk return with weather NOT_AVAILABLE rather than
     #: reaching the network - for an offline demo, and for tests that must not
     #: depend on anyone's uptime.
@@ -185,9 +230,24 @@ class Settings(BaseSettings):
 
     # --- Supabase project (non-secret identifiers) ---
     SUPABASE_URL: str | None = None
-    # Publishable/anon key. Safe for clients by design, but not needed yet - the
-    # clients talk to FastAPI, never to Supabase directly.
+    # Publishable/anon key. Safe for clients by design. The manager web app and
+    # the driver APK now hold their own Supabase session and talk to Supabase
+    # directly for operational state, so this service does not need it.
     SUPABASE_ANON_KEY: str | None = None
+
+    # --- Identity provider ---
+    #
+    # `local`    - this service issues and verifies its own JWTs. The original
+    #              single-backend deployment.
+    # `supabase` - callers authenticate against Supabase Auth and present a
+    #              Supabase access token. This is what a hosted deployment of
+    #              the intelligence plane (routing / accessibility / navigation)
+    #              runs, because the clients hold a Supabase session and never
+    #              one of ours.
+    #
+    # Authorization is unaffected either way: roles are always read from our
+    # `users` table, never from the token. See app/auth/verifier.py.
+    AUTH_PROVIDER: AuthProvider = "local"
 
     DB_POOL_SIZE: int = 5
     DB_MAX_OVERFLOW: int = 10
