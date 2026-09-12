@@ -618,13 +618,14 @@ So: ROUTE_AI_ARCHITECTURE_VERIFIED = YES, and the honest phrase for judges is
 
 ## 8. Gates (all green at handoff)
 
-12 Sep (late night, after the parity pass): Backend **1074 passed / 5
-skipped** (isolated DB; terrain, flood, warnings off) · Driver **583/583** (46
-files) · Manager **166/166** · Typecheck PASS ×2 · Manager build PASS · Expo
-export PASS · judge-flow rehearsals 3/3 DELIVERED in the browser
-(`.runtime/rehearsal/rehearse3.sh`, logs `.runtime/evidence/rehearsal_N.log`) ·
-core demo 3/3 x 11/11 on the PHYSICAL phone (`phone_e2e.py`) · UI sweep 33
-states clean (`sweep.mjs`) · phone recogniser matrix 12/12 locales.
+13 Sep (01:30, REMOTE): Backend **1075 passed / 5 skipped** (isolated DB) ·
+Driver **583/583** · Manager **166/166** · Typecheck PASS ×2 · Manager build
+PASS · Expo export PASS · **laptop-off remote core demo** (installed APK <->
+Render <-> Supabase, every laptop service stopped, `adb reverse` removed):
+r1 10/11 (the one-time Android location prompt), r2 11/11, r3 11/11
+(`.runtime/evidence/remote_e2e_rN.log`, `phone-e2e-rN-*.png`) · public
+manager sweep 9/9 pages clean · browser judge flow 3/3 (local) · phone
+recogniser matrix 12/12 locales.
 
 Visual audit is a matrix, not a spot check: Trip · Navigate · Safety · More ·
 Assistant, at 360 / 390 / 412, in Day AND Night - 30 states, every one with no
