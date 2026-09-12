@@ -38,6 +38,26 @@ const legacyApiBase = process.env.EXPO_PUBLIC_API_BASE_URL ?? ''
 
 const problems = []
 
+// ONE TRANSPORT (12 Sep): the demo profiles talk REST to the hosted FastAPI
+// (EXPO_PUBLIC_BACKEND=local). Then the rule is the opposite of the Supabase
+// one: the API base MUST be set, and it must be a public https origin or a
+// private LAN / loopback http address (the lan-demo profile), never a public
+// http host. The Supabase checks below do not apply to that transport.
+if (process.env.EXPO_PUBLIC_BACKEND === 'local') {
+  let ok = false
+  try {
+    const u = new URL(legacyApiBase)
+    const privateHttp = /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(u.hostname)
+    ok = u.protocol === 'https:' || (u.protocol === 'http:' && privateHttp)
+  } catch {}
+  if (!ok) {
+    console.error('Release configuration REJECTED: EXPO_PUBLIC_BACKEND=local needs EXPO_PUBLIC_API_BASE_URL as a public https origin or a private-LAN http address. (value not printed)')
+    process.exit(1)
+  }
+  console.log(`Release configuration OK -> REST transport, ${new URL(legacyApiBase).hostname}`)
+  process.exit(0)
+}
+
 const supabaseProblem = releaseConfigProblem({ url, key, expectedRef })
 if (supabaseProblem) problems.push(supabaseProblem)
 
