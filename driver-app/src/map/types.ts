@@ -78,6 +78,12 @@ export interface DriverRouteMapProps {
    * guess would be a marker on a guess.
    */
   hazards?: readonly { latitude: number; longitude: number; year: number | null; name: string | null }[]
+  /**
+   * MapTiler hillshade over the OSM base - visual terrain context only,
+   * never evidence. Drawn only when a key is configured; a dead tile server
+   * removes the shading and leaves the map exactly as it was.
+   */
+  hillshade?: boolean
   /** Tapping a pin selects it; the screen opens the details panel. */
   onSelectPlace?: (place: Place) => void
   /**

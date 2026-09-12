@@ -50,6 +50,9 @@ logger = logging.getLogger(__name__)
 
 USER_AGENT: Final[str] = "ner-fleet-intelligence/0.1 (SIH26002; terrain)"
 SOURCE: Final[str] = "Copernicus DEM GLO-90 via Open-Meteo"
+#: Named when at least one batch came from the fallback, so the profile never
+#: claims a single dataset it was not entirely built from.
+SOURCE_FALLBACK: Final[str] = "Copernicus DEM GLO-90 via Open-Meteo + SRTM 30 m via OpenTopoData"
 
 #: ~500 m between samples: the DEM is 90 m, a hairpin is shorter than that,
 #: and a loaded truck feels a grade over hundreds of metres. Finer buys
@@ -74,9 +77,30 @@ RETRY_DELAY_S: Final[float] = 120.0
 
 
 class OpenMeteoElevationProvider:
-    def __init__(self, base_url: str, *, timeout_s: float) -> None:
+    def __init__(self, base_url: str, *, timeout_s: float, fallback_url: str = "") -> None:
         self._url = base_url.rstrip("/") + "/v1/elevation"
         self._timeout = timeout_s
+        # OpenTopoData (no key): 100 locations per request, 1 request/s,
+        # 1,000/day. Only asked when an Open-Meteo batch fails (its daily
+        # quota ran out on 12 Sep and terrain went NOT_AVAILABLE for hours).
+        self._fallback = fallback_url.rstrip("/") + "/v1/srtm30m" if fallback_url else ""
+        self.used_fallback = False
+
+    async def _fallback_heights(
+        self, client: httpx.AsyncClient, chunk: list[tuple[float, float]]
+    ) -> list[float | None]:
+        if not self._fallback:
+            raise ValueError("no fallback configured")
+        await asyncio.sleep(1.0)  # ponytail: provider's 1 req/s, per call not per process
+        response = await client.get(
+            self._fallback, params={"locations": "|".join(f"{lat:.5f},{lon:.5f}" for lat, lon in chunk)}
+        )
+        response.raise_for_status()
+        results = response.json().get("results")
+        if not isinstance(results, list) or len(results) != len(chunk):
+            raise ValueError("fallback results do not match request")
+        self.used_fallback = True
+        return [r.get("elevation") if isinstance(r.get("elevation"), (int, float)) else None for r in results]
 
     async def elevations(
         self, points: list[tuple[float, float]]
@@ -110,14 +134,20 @@ class OpenMeteoElevationProvider:
                     )
                 except (httpx.HTTPError, ValueError) as error:
                     logger.info("terrain batch %d unavailable: %r", start // BATCH, error)
-                    out.extend([None] * len(chunk))
+                    try:
+                        out.extend(await self._fallback_heights(client, chunk))
+                    except (httpx.HTTPError, ValueError) as fallback_error:
+                        logger.info("terrain fallback batch %d unavailable: %r", start // BATCH, fallback_error)
+                        out.extend([None] * len(chunk))
         return out
 
 
 def build_provider() -> OpenMeteoElevationProvider:
     settings = get_settings()
     return OpenMeteoElevationProvider(
-        settings.WEATHER_PROVIDER_URL, timeout_s=settings.WEATHER_TIMEOUT_SECONDS
+        settings.WEATHER_PROVIDER_URL,
+        timeout_s=settings.WEATHER_TIMEOUT_SECONDS,
+        fallback_url=settings.TERRAIN_FALLBACK_URL,
     )
 
 
@@ -161,8 +191,9 @@ async def _fetch(
     distances = [d for _, _, d in sampled]
     spacing = distances[-1] / (len(sampled) - 1)
 
+    provider = build_provider()
     try:
-        heights = await build_provider().elevations(points)
+        heights = await provider.elevations(points)
     except Exception:  # noqa: BLE001 - a DEM outage must not break planning
         logger.warning("terrain provider failed", exc_info=True)
         return None
@@ -171,7 +202,7 @@ async def _fetch(
         points,
         heights,
         spacing_m=spacing,
-        source=SOURCE,
+        source=SOURCE_FALLBACK if getattr(provider, "used_fallback", False) else SOURCE,
         fetched_at=datetime.now(UTC),
         distances_m=distances,
     )

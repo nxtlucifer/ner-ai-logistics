@@ -169,3 +169,33 @@ async def test_the_recommendation_path_carries_the_same_evidence(monkeypatch) ->
     assert risk.inputs[FACTOR_ELEVATION] == AVAILABLE
     assert risk.inputs[FACTOR_HISTORICAL_INCIDENTS] == AVAILABLE
     assert risk.terrain is not None and risk.history is not None
+
+
+async def test_open_meteo_failure_falls_back_to_opentopodata_and_says_so(monkeypatch) -> None:
+    """Quota gone on Open-Meteo (12 Sep) must not take terrain with it; the
+    profile then names BOTH datasets rather than claiming one."""
+    import httpx
+    from unittest.mock import AsyncMock
+
+    hosts: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        hosts.append(request.url.host)
+        if "open-meteo" in request.url.host:
+            return httpx.Response(429, json={"error": True, "reason": "Daily API request limit exceeded"})
+        n = request.url.params["locations"].count("|") + 1
+        return httpx.Response(200, json={"results": [{"elevation": 1200.0}] * n, "status": "OK"})
+
+    real_client = terrain_service.httpx.AsyncClient
+    monkeypatch.setattr(
+        terrain_service.httpx, "AsyncClient", lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw)
+    )
+    monkeypatch.setattr(terrain_service.asyncio, "sleep", AsyncMock())
+    provider = terrain_service.OpenMeteoElevationProvider(
+        "https://api.open-meteo.com", timeout_s=5, fallback_url="https://api.opentopodata.org"
+    )
+    heights = await provider.elevations([(25.5, 91.8), (25.6, 91.9)])
+    assert heights == [1200.0, 1200.0]
+    assert provider.used_fallback is True
+    assert hosts == ["api.open-meteo.com", "api.opentopodata.org"]
+    assert "OpenTopoData" in terrain_service.SOURCE_FALLBACK

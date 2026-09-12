@@ -45,7 +45,7 @@ import 'leaflet/dist/leaflet.css'
 
 import { boundsOf } from './geo'
 import { routeCameraKey } from './routeDisplay'
-import { ARROW_STYLE, sceneLayers } from './scene'
+import { ARROW_STYLE, HILLSHADE_ATTRIBUTION, HILLSHADE_URL, sceneLayers } from './scene'
 import type { DriverRouteMapProps } from './types'
 
 /** Assam, so a map with no route still opens somewhere meaningful. */
@@ -88,6 +88,7 @@ export default function DriverRouteMap({
   selectedPlaceId = null,
   terrainSegments = [],
   hazards = [],
+  hillshade = false,
   onSelectPlace,
   onViewportChange,
   onFollowChange,
@@ -142,6 +143,17 @@ export default function DriverRouteMap({
       map.current = null
     }
   }, [])
+
+  // Relief shading between the base tiles and the route. Its own failure
+  // removes only itself: a hillshade that cannot load is not an error state.
+  useEffect(() => {
+    const instance = map.current
+    if (instance === null || !hillshade || HILLSHADE_URL === null) return
+    const layer = L.tileLayer(HILLSHADE_URL, { maxNativeZoom: 12, maxZoom: 19, opacity: 0.55, attribution: HILLSHADE_ATTRIBUTION })
+    layer.on('tileerror', () => layer.remove())
+    layer.addTo(instance)
+    return () => { layer.remove() }
+  }, [hillshade])
 
   // Report the visible area on `moveend` only - not on every frame of a pan,
   // which would fire hundreds of times and is why this is not a render-path

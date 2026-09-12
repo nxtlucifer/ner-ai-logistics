@@ -218,6 +218,9 @@ class Settings(BaseSettings):
     # WEATHER_TIMEOUT_SECONDS on purpose - one provider, one budget. Off makes
     # the terrain factor report NOT_AVAILABLE rather than reach the network.
     TERRAIN_ENABLED: bool = True
+    # Elevation fallback when an Open-Meteo batch fails (quota, outage):
+    # OpenTopoData SRTM 30 m, no key, 1 req/s, 1,000/day. Empty = no fallback.
+    TERRAIN_FALLBACK_URL: str = "https://api.opentopodata.org"
 
     # --- River discharge context (GloFAS via Open-Meteo, no key) ---
     #

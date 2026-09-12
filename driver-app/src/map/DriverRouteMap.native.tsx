@@ -25,7 +25,7 @@ import { WebView, type WebViewMessageEvent } from 'react-native-webview'
 
 import { boundsOf } from './geo'
 import { routeCameraKey } from './routeDisplay'
-import { ARROW_STYLE, sceneLayers } from './scene'
+import { ARROW_STYLE, HILLSHADE_ATTRIBUTION, HILLSHADE_URL, sceneLayers } from './scene'
 import type { DriverRouteMapProps } from './types'
 
 /** Assam, so a map with no route still opens somewhere meaningful. */
@@ -55,6 +55,7 @@ window.scene=function(layers){drawn.forEach(function(l){l.remove()});drawn=[];la
  else if(s.k==='dot')l=L.circleMarker(s.p,{radius:s.r,color:s.c,weight:s.w,fillColor:s.f,fillOpacity:s.o});
  else l=L.marker(s.p,{icon:L.divIcon({className:'',html:'<div style="${ARROW_STYLE}transform:rotate('+s.h+'deg)"></div>',iconSize:[22,22],iconAnchor:[11,11]})});
  if(s.tip)l.bindTooltip(esc(s.tip));if(s.id)l.on('click',function(){send({t:'place',id:s.id})});l.addTo(map);drawn.push(l)})};
+var hill=null;window.hill=function(u){if(hill){hill.remove();hill=null}if(!u)return;hill=L.tileLayer(u,{maxNativeZoom:12,maxZoom:19,opacity:.55,attribution:${JSON.stringify(HILLSHADE_ATTRIBUTION)}});hill.on('tileerror',function(){if(hill){hill.remove();hill=null}});hill.addTo(map)};
 window.cam=function(c){if(c.fit)map.fitBounds(c.fit,{padding:[40,40],animate:c.animate});else if(c.view)map.setView(c.view,Math.max(map.getZoom(),c.zoom),{animate:true});else if(c.pan)map.panTo(c.pan,{animate:true})};
 send({t:'ready'});}
 </script></body></html>`
@@ -75,6 +76,7 @@ export default function DriverRouteMap({
   selectedPlaceId = null,
   terrainSegments = [],
   hazards = [],
+  hillshade = false,
   onSelectPlace,
   onViewportChange,
   onFollowChange,
@@ -115,6 +117,10 @@ export default function DriverRouteMap({
     lastScene.current = json
     run('window.scene(' + json + ')')
   }, [ready, run, points, progressFraction, backupPoints, showBackup, terrainSegments, hazards, stops, position, positionKind, accuracyM, positionAgeSeconds, headingDeg, places, selectedPlaceId])
+
+  useEffect(() => {
+    if (ready) run(`window.hill(${JSON.stringify(hillshade ? HILLSHADE_URL : null)})`)
+  }, [ready, run, hillshade])
 
   function fitRoute(animate = true, keepFollowing = false) {
     if (!keepFollowing) setFollowing(false)

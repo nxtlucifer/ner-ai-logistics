@@ -27,6 +27,18 @@ export const LAST_KNOWN = '#B45309'
  *  divIcon and the WebView page both paste it verbatim. */
 export const ARROW_STYLE = `width:0;height:0;border-left:11px solid transparent;border-right:11px solid transparent;border-bottom:22px solid ${LIVE};filter:drop-shadow(0 0 2px #fff);`
 
+/**
+ * MapTiler hillshade tiles (relief shading), or null without a key. The key
+ * is a client key inlined at build time from EXPO_PUBLIC_MAPTILER_KEY and is
+ * restricted per origin/app in the MapTiler dashboard; it is never in source.
+ * Terrain-RGB from the same account is elevation ENCODING - the risk engine's
+ * elevation evidence stays Copernicus/SRTM through the backend.
+ */
+export const HILLSHADE_URL: string | null = process.env.EXPO_PUBLIC_MAPTILER_KEY
+  ? `https://api.maptiler.com/tiles/hillshade/{z}/{x}/{y}.webp?key=${process.env.EXPO_PUBLIC_MAPTILER_KEY}`
+  : null
+export const HILLSHADE_ATTRIBUTION = '&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a>'
+
 /** Marker colour per service kind: none reuses route blue or live green. */
 export const CATEGORY_COLOUR: Record<string, string> = {
   EMERGENCY: '#B42318',

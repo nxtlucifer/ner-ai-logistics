@@ -789,6 +789,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
         onSelectPlace={places.select}
         terrainSegments={showHazards ? risk?.terrain?.segments ?? [] : []}
         hazards={showHazards ? risk?.landslide_history?.events ?? [] : []}
+        hillshade={showHazards}
         onViewportChange={setViewport}
         onFollowChange={setFollowing}
         cameraTrigger={cameraTrigger}
