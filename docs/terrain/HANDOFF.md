@@ -545,6 +545,42 @@ the off-route/reroute steps real; the proposal is a 2,449 km road, and it loads.
 
 ---
 
+## 6h. REMOTE (13 Sep, 00:30) - the laptop is no longer required
+
+- API: **https://ner-intelligence.onrender.com** (Render, Docker, Singapore,
+  free plan - sleeps after 15 min idle, first request then takes ~30-50 s;
+  open `/health` five minutes before a demo). `/ready` = Supabase Postgres
+  17.6 + PostGIS. ONE transport: its own `/api/auth/login` + JWT.
+- Manager: **https://ner-manager.onrender.com** (Render static site, built
+  from `manager-web` with `--mode remote-demo`, `VITE_BACKEND=local`,
+  `VITE_API_BASE_URL` = the API above; SPA rewrite in `render.yaml`).
+- Database: the Supabase project (session pooler, ap-south-1) - the same
+  data the local clone was taken from; migrations already at 0010.
+- Driver: `eas build -p android --profile remote-demo` -> APK
+  (`.runtime/rasta-driver-remote-demo.apk`, package
+  `com.nxtlucifer.nerlogistics.driver.preview`), installed on the phone.
+  It talks to the API above over the phone's own internet - no adb reverse,
+  no Metro, no LAN.
+- Blueprint: `render.yaml` at the repo ROOT (Render requires that); the one
+  secret typed in the dashboard is `DATABASE_URL`; `SECRET_KEY` is generated
+  by Render. Every push to `main` redeploys both services.
+- Found while going remote: (1) the refresh cookie was `SameSite=Strict`, and
+  every *.onrender.com host is its own site, so the manager was logged out on
+  every reload - `REFRESH_COOKIE_SAMESITE=none` on Render
+  (`app/core/config.py`); (2) the hosted database had no driver<->truck
+  assignment for the demo pair (dispatch 409 NO_ACTIVE_ASSIGNMENT) -
+  `demo.py reset` now creates one; (3) `adb shell input text` eats `$`/`&` in
+  the driver password - `phone.py login` quotes it for the device shell.
+- Tooling against the remote: `DEMO_BASE=https://ner-intelligence.onrender.com
+  python .runtime/demo.py check|reset|dispatch|authorise|status`, the same
+  for `phone_e2e.py`; `MANAGER_URL=https://ner-manager.onrender.com
+  SKIP_DRIVER=1 node .runtime/rehearsal/sweep.mjs` for the public manager.
+- Laptop-off procedure (what was actually done): stop :8010/:8123/:5173 and
+  `pg_ctl stop`, `adb reverse --remove-all`, launch the APK, sign in, then
+  `phone_e2e.py` with `DEMO_BASE` set - the laptop is only the keyboard.
+
+---
+
 ## 6g. What "AI" means here - verified 12 Sep, do not overclaim
 
 - **Personal Route AI** (`driver-app/src/navigation/routeAi.ts`) is a
