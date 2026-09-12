@@ -88,11 +88,6 @@ services:
         sync: false
       - key: SECRET_KEY
         generateValue: true
-      # Only needed if this service also serves the AI endpoints. The driver's
-      # assistant currently goes to the gemini-ai Edge Function instead, which
-      # already holds this key server-side, so leave unset unless that changes.
-      - key: GEMINI_API_KEY
-        sync: false
 
   # The manager web, built here against the API service above. ONE transport:
   # the same REST client the local demo and every test use (VITE_BACKEND=local).
