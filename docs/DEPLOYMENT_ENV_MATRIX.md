@@ -24,7 +24,7 @@ against one of them.
 | Deployable | `CANONICAL_HOST` | Descriptor | Notes |
 | :--- | :--- | :--- | :--- |
 | **Manager web** | **`CANONICAL_MANAGER_HOST = vercel`** | `manager-web/vercel.json` | Set the Vercel project **Root Directory** to `manager-web`. `manager-web/netlify.toml` is kept as a documented fallback and is **not** a second production target. |
-| Hosted intelligence plane | `render` | `backend/render.yaml` | Blueprint deploy. Health check `/health`, not `/ready`. |
+| Hosted intelligence plane | `render` | `render.yaml` | Blueprint deploy. Health check `/health`, not `/ready`. |
 | Data / auth | `supabase` | `supabase/` | System of record. |
 | Driver APK | `eas` | `driver-app/eas.json` | Built **after** the Render URL exists. |
 
@@ -36,7 +36,7 @@ bug.
 
 ## 1. Hosted intelligence plane (FastAPI, Render)
 
-Set in the Render dashboard. `backend/render.yaml` declares them; the four
+Set in the Render dashboard. `render.yaml` declares them; the four
 marked `sync: false` are deliberately left empty in the file.
 
 | Variable | Required | Secret | Source | Example format | Production value location |

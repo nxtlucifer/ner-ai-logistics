@@ -24,7 +24,7 @@ Deploy-critical files that are **not on GitHub at all**:
 | File | Git status |
 | :--- | :--- |
 | `backend/Dockerfile` | untracked |
-| `backend/render.yaml` | untracked |
+| `render.yaml` | untracked |
 | `backend/app/auth/verifier.py` | modified, uncommitted |
 | `supabase/migrations/20260909100000_manager_select_route.sql` | untracked |
 
@@ -47,7 +47,7 @@ The artifacts are already correct. I verified rather than assumed.
 | Check | Result |
 | :--- | :--- |
 | `backend/Dockerfile` | present, python:3.11-slim, non-root uid 10001, `$PORT` honoured, single worker (pool sized for Supabase's session pooler) |
-| `backend/render.yaml` | present, docker runtime, region singapore, plan free |
+| `render.yaml` | present, docker runtime, region singapore, plan free |
 | **Health endpoint** | **`/health` → 200.** `/ready` → 200. **`/api/health` → 404** — that was the wrong assumption; the system router is mounted at root while application routers are under `/api` |
 | `healthCheckPath` in render.yaml | already `/health`, and the file explains why not `/ready` (a Supabase blip would make the platform kill a healthy process) |
 | Env var names | **every** var in `render.yaml` matches a real `Settings` field — no silent mismatch |
@@ -266,7 +266,7 @@ paths. **I have not run any of this**, per your standing instruction.
 
 1. Render → **New** → **Blueprint**
 2. Connect `nxtlucifer/ner-ai-logistics`
-3. Render reads `backend/render.yaml` — root directory **`backend`**, runtime
+3. Render reads `render.yaml` — root directory **`backend`**, runtime
    **Docker**, health check path **`/health`** (already set)
 4. Fill the four dashboard values marked `sync: false`:
    - `DATABASE_URL` — the Supabase **session pooler** connection string

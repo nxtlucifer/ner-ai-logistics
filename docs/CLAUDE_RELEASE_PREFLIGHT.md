@@ -184,7 +184,7 @@ Full table in **`docs/DEPLOYMENT_ENV_MATRIX.md`** (Step 6, written).
 | `backend/app/**`, `driver-app/src/**`, `manager-web/src/**`, `supabase/functions/**` | the application |
 | `backend/tests/**`, `**/*.test.ts(x)`, `driver-app/vitest.config.ts` | the evidence; a suite that cannot run proves nothing |
 | `supabase/migrations/**`, `backend/alembic/**`, `supabase/rollback/**` | schema history, including the atomic-route RPC |
-| `backend/Dockerfile`, `backend/render.yaml`, `driver-app/eas.json`, `driver-app/app.config.js`, `driver-app/scripts/**`, `.easignore` | **without these Render cannot build anything** |
+| `backend/Dockerfile`, `render.yaml`, `driver-app/eas.json`, `driver-app/app.config.js`, `driver-app/scripts/**`, `.easignore` | **without these Render cannot build anything** |
 | `docs/**`, `design-system/**`, `CLAUDE.md`, `AGENTS.md` | the decision record |
 | `backend/scripts/**`, `scripts/**` | operational tooling (RLS harness, demo seeding, verification) |
 

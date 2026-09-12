@@ -493,14 +493,14 @@ place to stop →" on HOLD/REROUTE decisions. Verified in the browser at 24 km a
 **Remote (laptop off) - prepared, not deployed.** Nothing is hosted today: no
 Render service exists, the manager is not on Vercel, and this session may not
 push to GitHub. The path is already written down in `docs/CLAUDE_HOSTING_READINESS.md`
-and `backend/render.yaml`; what changed: ONE transport. Manager (`.env.remote-demo`,
+and `render.yaml`; what changed: ONE transport. Manager (`.env.remote-demo`,
 `vite build --mode remote-demo`) and driver (`eas.json` profile `remote-demo`)
 both use the REST client against the hosted FastAPI (`AUTH_PROVIDER=local`,
 `DATABASE_PROVIDER=supabase` with the Supabase session-pooler URL as the managed
 Postgres). The Supabase client transport is left in place but must not carry
 the demo: it has no `routeRisk`/`requestReroute`. Exact owner steps:
 1. Push the repo to GitHub (git is out of scope for the agent).
-2. Render → New → Blueprint → `backend/render.yaml`; set DATABASE_URL (pooler
+2. Render → New → Blueprint → `render.yaml`; set DATABASE_URL (pooler
    string), SECRET_KEY, CORS_ORIGINS=https://<vercel host>. Free plan sleeps
    after 15 min idle - open /health five minutes before the demo.
 3. Put the Render URL into `manager-web/.env.remote-demo` and
