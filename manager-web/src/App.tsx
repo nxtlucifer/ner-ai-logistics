@@ -97,9 +97,11 @@ function Shell() {
         <div className="rail-inner">
           <div className="brand">
             <span className="brand-title">NER Fleet<br />Intelligence</span><span className="brand-caption">TERRAIN COMMAND</span>
-            <span className="ml-2 rounded-full bg-warning-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning">
-              Dev
-            </span>
+            {import.meta.env.DEV ? (
+              <span className="ml-2 rounded-full bg-warning-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning">
+                Dev
+              </span>
+            ) : null}
           </div>
 
           <nav aria-label="Main navigation" className="main-nav">
