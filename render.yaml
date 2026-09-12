@@ -73,6 +73,10 @@ services:
       # is not subject to CORS, so it does not belong here.
       - key: CORS_ORIGINS
         value: https://ner-manager.onrender.com
+      # The manager is on another *.onrender.com site: a strict refresh
+      # cookie would never come back. See app/core/config.py.
+      - key: REFRESH_COOKIE_SAMESITE
+        value: none
       # Free data sources this service reads (no keys). Off = factor NOT_AVAILABLE.
       - key: WEATHER_ENABLED
         value: "true"

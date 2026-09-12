@@ -218,6 +218,14 @@ class Settings(BaseSettings):
     # WEATHER_TIMEOUT_SECONDS on purpose - one provider, one budget. Off makes
     # the terrain factor report NOT_AVAILABLE rather than reach the network.
     TERRAIN_ENABLED: bool = True
+
+    # SameSite for the HttpOnly refresh cookie: "strict" (default) when the
+    # manager web and this API share a site, "none" when they are on
+    # different sites (Render: ner-manager.onrender.com vs
+    # ner-intelligence.onrender.com). "none" is only honoured with `secure`,
+    # which every non-development environment sets; CSRF exposure is limited
+    # to /api/auth/refresh, whose response a cross-origin page cannot read.
+    REFRESH_COOKIE_SAMESITE: Literal["strict", "lax", "none"] = "strict"
     # Elevation fallback when an Open-Meteo batch fails (quota, outage):
     # OpenTopoData SRTM 30 m, no key, 1 req/s, 1,000/day. Empty = no fallback.
     TERRAIN_FALLBACK_URL: str = "https://api.opentopodata.org"

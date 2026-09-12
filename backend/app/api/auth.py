@@ -100,7 +100,12 @@ def _set_refresh_cookie(response: Response, token: str) -> None:
         value=token,
         httponly=True,
         secure=not settings.is_development,
-        samesite="strict",
+        # "strict" when the web client is served from the same site as this
+        # API; "none" (with secure) when it is not - on Render every
+        # *.onrender.com host is its own site (public-suffix list), so a
+        # strict cookie is simply never sent back and every reload logs the
+        # manager out. See REFRESH_COOKIE_SAMESITE.
+        samesite=settings.REFRESH_COOKIE_SAMESITE,
         path="/api/auth",
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600,
     )
