@@ -54,8 +54,11 @@ NOT_AVAILABLE: Final[str] = "NOT_AVAILABLE"
 #: point: it is the difference between "risk 37" and "risk 37, computed without
 #: any landslide data".
 if TYPE_CHECKING:  # pragma: no cover - typing only, no runtime import
-    from app.domain.landslide import LandslideAssessment
+    from app.domain.landslide import LandslideAssessment, LandslideHistory
+    from app.domain.flood import FloodContext
+    from app.domain.warnings import OfficialWarnings
     from app.domain.fuel_model import FuelEstimate
+    from app.domain.terrain import TerrainProfile
 
 #: Points each landslide severity contributes to a route's score.
 #:
@@ -94,16 +97,26 @@ FACTOR_TRUCK_RESTRICTIONS: Final[str] = "truck_restrictions"
 FACTOR_HISTORICAL_INCIDENTS: Final[str] = "historical_incidents"
 FACTOR_ELEVATION: Final[str] = "elevation"
 FACTOR_FUEL: Final[str] = "fuel_model"
+FACTOR_OFFICIAL_WARNINGS: Final[str] = "official_warnings"
 
 UNAVAILABLE_FACTORS: Final[tuple[str, ...]] = (
-    # FACTOR_LANDSLIDE and FACTOR_FUEL are COMPUTED dynamically
-    # based on provider and physics availability.
-    FACTOR_FLOOD,
+    # FACTOR_LANDSLIDE, FACTOR_FUEL, FACTOR_ELEVATION, FACTOR_FLOOD and
+    # FACTOR_HISTORICAL_INCIDENTS are COMPUTED from provider availability.
     FACTOR_ROAD_QUALITY,
     FACTOR_TRUCK_RESTRICTIONS,
-    FACTOR_HISTORICAL_INCIDENTS,
-    FACTOR_ELEVATION,
 )
+
+#: Points a corridor's RECORDED landslide history contributes. History is
+#: exposure, not a closure: HIGH here is a road that has slid three or more
+#: times in the inventory, and it is deliberately below a current CAUTION
+#: report's weight plus terrain, so a reported slide today still outranks a
+#: decade of news. See app/domain/landslide.py assess_history.
+HISTORY_POINTS: Final[dict[str, int]] = {
+    "HIGH": 15,
+    "MODERATE": 8,
+    "LOW": 0,
+    "UNKNOWN": 0,
+}
 
 # --- Reason codes ---------------------------------------------------------
 #
@@ -170,7 +183,15 @@ CONDITION_COMPONENT_CODES: Final[frozenset[str]] = frozenset(
 #: together and their union can be checked against the components actually
 #: emitted - see tests/test_route_risk.py.
 EXPOSURE_COMPONENT_CODES: Final[frozenset[str]] = frozenset(
-    {"DURATION_EXPOSURE", "DISTANCE_EXPOSURE"}
+    {
+        "DURATION_EXPOSURE",
+        "DISTANCE_EXPOSURE",
+        # Static facts about the corridor. Neither changes mid-trip, so
+        # neither can be the thing that TRIGGERS a reroute - they are why a
+        # rain trigger on this road matters more than on a flat one.
+        "TERRAIN_EXPOSURE",
+        "LANDSLIDE_HISTORY_EXPOSURE",
+    }
 )
 
 
@@ -216,6 +237,15 @@ class RouteRisk:
     #: required field on a widely-built dataclass does.
     landslide: "LandslideAssessment | None" = None
     fuel: "FuelEstimate | None" = None
+    #: Carried for the same reason as `landslide`: the wire model and the
+    #: driver's offline package describe the evidence, not just the number.
+    terrain: "TerrainProfile | None" = None
+    history: "LandslideHistory | None" = None
+    #: River discharge context (GloFAS). Context, never a flood claim - see
+    #: app/domain/flood.py.
+    flood: "FloodContext | None" = None
+    #: NDMA SACHET alerts naming a district on the corridor - see app/domain/warnings.py.
+    warnings: "OfficialWarnings | None" = None
     assessed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @property
@@ -335,6 +365,10 @@ def assess(
     observations: list[WeatherObservation] | None = None,
     landslide: "LandslideAssessment | None" = None,
     fuel: "FuelEstimate | None" = None,
+    terrain: "TerrainProfile | None" = None,
+    history: "LandslideHistory | None" = None,
+    flood: "FloodContext | None" = None,
+    warnings: "OfficialWarnings | None" = None,
     now: datetime | None = None,
 ) -> RouteRisk:
     """Score one route from the evidence available for it.
@@ -423,6 +457,78 @@ def assess(
                 )
             )
 
+    # Terrain: a DEM profile of THIS geometry. Function-level import because
+    # app.domain.terrain imports RiskComponent from here.
+    from app.domain.terrain import REASON_TERRAIN_UNAVAILABLE, terrain_component
+
+    terrain_known = terrain is not None and terrain.usable
+    if terrain_known:
+        component, terrain_codes = terrain_component(terrain)
+        if component is not None:
+            components.append(component)
+            codes.extend(terrain_codes)
+    else:
+        codes.append(REASON_TERRAIN_UNAVAILABLE)
+
+    # Recorded history of the corridor. Its reason codes travel whether or
+    # not it scores: "no recorded landslides" and "inventory ends 2017" are
+    # both things a dispatcher must read.
+    history_known = history is not None and history.is_known
+    if history is not None:
+        codes.extend(history.reason_codes)
+        points = HISTORY_POINTS.get(history.exposure.value, 0)
+        if points:
+            components.append(
+                RiskComponent(
+                    code="LANDSLIDE_HISTORY_EXPOSURE",
+                    label="Landslide history",
+                    points=points,
+                    detail=(
+                        f"{history.on_route_count} recorded slide(s) within 5 km of "
+                        f"the route, {history.inventory_from_year}-{history.inventory_to_year}"
+                    ),
+                )
+            )
+
+    # River discharge against its own recent past. Scored only when ELEVATED;
+    # a normal river still travels as evidence the corridor was checked.
+    from app.domain.flood import FLOOD_POINTS, REASON_FLOOD_CONTEXT_UNAVAILABLE
+
+    flood_known = flood is not None and flood.is_known
+    if flood_known:
+        codes.extend(flood.reason_codes)
+        points = FLOOD_POINTS.get(flood.level, 0)
+        if points:
+            components.append(
+                RiskComponent(
+                    code="RIVER_DISCHARGE_ELEVATED",
+                    label="River discharge",
+                    points=points,
+                    detail=f"{flood.ratio_max:.1f}x the 30-day mean at a corridor cell ({flood.provider})",
+                )
+            )
+    else:
+        codes.append(REASON_FLOOD_CONTEXT_UNAVAILABLE)
+
+    # Official alerts naming a district this corridor crosses.
+    from app.domain.warnings import REASON_OFFICIAL_WARNINGS_UNAVAILABLE
+
+    warnings_known = warnings is not None and warnings.is_known
+    if warnings_known:
+        codes.extend(warnings.reason_codes)
+        if warnings.points:
+            worst = max(warnings.on_route, key=lambda w: w.severity)
+            components.append(
+                RiskComponent(
+                    code="OFFICIAL_WARNING",
+                    label="Official warning",
+                    points=warnings.points,
+                    detail=f"{len(warnings.on_route)} active alert(s) naming a corridor district, e.g. {worst.event} ({worst.severity}) from {worst.sender}",
+                )
+            )
+    else:
+        codes.append(REASON_OFFICIAL_WARNINGS_UNAVAILABLE)
+
     score = min(100, sum(c.points for c in components))
 
     landslide_known = landslide is not None and landslide.is_known
@@ -433,6 +539,10 @@ def assess(
         FACTOR_WEATHER: AVAILABLE if weather_ok else NOT_AVAILABLE,
         FACTOR_LANDSLIDE: AVAILABLE if landslide_known else NOT_AVAILABLE,
         FACTOR_FUEL: AVAILABLE if fuel_known else NOT_AVAILABLE,
+        FACTOR_ELEVATION: AVAILABLE if terrain_known else NOT_AVAILABLE,
+        FACTOR_HISTORICAL_INCIDENTS: AVAILABLE if history_known else NOT_AVAILABLE,
+        FACTOR_FLOOD: AVAILABLE if flood_known else NOT_AVAILABLE,
+        FACTOR_OFFICIAL_WARNINGS: AVAILABLE if warnings_known else NOT_AVAILABLE,
     }
     for factor in UNAVAILABLE_FACTORS:
         inputs[factor] = NOT_AVAILABLE
@@ -448,6 +558,10 @@ def assess(
         reason_codes=tuple(dict.fromkeys(codes)),
         landslide=landslide,
         fuel=fuel,
+        terrain=terrain,
+        history=history,
+        flood=flood,
+        warnings=warnings,
         observations_used=len(current),
         observations_stale=stale_count,
         assessed_at=moment,

@@ -21,13 +21,17 @@ import { supabase } from './supabaseClient'
 import { normalizeAndValidatePhone } from '../auth/phone'
 import { AuthError } from '../auth/authErrors'
 import type {
+  ActiveEmergency,
   AiAnswer,
   AiStatus,
   AuthenticatedUser,
   CurrentTrip,
+  DriverCheckResponse,
   DriverMe,
   GpsBatchAccepted,
   GpsFix,
+  PlacesQuery,
+  PlacesResponse,
   TokenResponse,
   VerifyPayload,
 } from './client'
@@ -351,10 +355,59 @@ export const supabaseApi = {
   navigationPackage: async () =>
     intelligenceFetch<unknown>('/api/driver/me/trip/navigation'),
 
+  /**
+   * Roadside services along the corridor.
+   *
+   * Served by the hosted intelligence plane from its local snapshot.
+   */
+  places: async (query?: PlacesQuery): Promise<PlacesResponse> => {
+    const q = query ?? {
+      category: 'REST',
+      south: 0,
+      west: 0,
+      north: 0,
+      east: 0,
+      anchor: 'MAP_AREA',
+    }
+    return intelligenceFetch<PlacesResponse>(
+      '/api/driver/me/trip/places?' +
+        new URLSearchParams({
+          category: q.category,
+          south: String(q.south),
+          west: String(q.west),
+          north: String(q.north),
+          east: String(q.east),
+          anchor: q.anchor,
+          ...(q.anchorLat !== undefined && q.anchorLon !== undefined
+            ? {
+                anchor_lat: String(q.anchorLat),
+                anchor_lon: String(q.anchorLon),
+              }
+            : {}),
+          limit: String(q.limit ?? 40),
+        }).toString(),
+    )
+  },
+
+  /**
+   * Submit safety check-in response.
+   *
+   * Routed through the hosted intelligence / backend service, which holds the
+   * deterministic Fleet Sentinel domain logic.
+   */
+  checkInEmergency: async (
+    tripId: string,
+    response: DriverCheckResponse,
+  ): Promise<ActiveEmergency> => {
+    return intelligenceFetch<ActiveEmergency>('/api/driver/me/trip/check-in', {
+      method: 'POST',
+      body: JSON.stringify({ trip_id: tripId, response }),
+    })
+  },
+
   // Still unmigrated. Each names itself so a failure says which capability is
   // missing rather than surfacing as an empty screen.
   myAssignment: notMigrated('myAssignment'),
-  places: notMigrated('places'),
   ready: notMigrated('ready'),
 }
 

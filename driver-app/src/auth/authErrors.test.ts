@@ -1,5 +1,27 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
+// The real client pulls in react-native; only the two error classes matter here.
+vi.mock('../api/client', () => ({
+  ApiError: class ApiError extends Error {
+    status: number
+    code: string
+    constructor(status: number, body: { error?: { code?: string; message?: string } } | null, fallback: string) {
+      super(body?.error?.message ?? fallback)
+      this.name = 'ApiError'
+      this.status = status
+      this.code = body?.error?.code ?? 'UNKNOWN'
+    }
+  },
+  NetworkError: class NetworkError extends Error {
+    constructor(cause: unknown) {
+      super(cause instanceof Error ? `Cannot reach the server: ${cause.message}` : 'Cannot reach the server')
+      this.name = 'NetworkError'
+    }
+  },
+}))
+
 import { categorizeAuthError, AuthError } from './authErrors'
+import { ApiError, NetworkError } from '../api/client'
 
 describe('categorizeAuthError', () => {
   it('handles explicit AuthError instance', () => {
@@ -61,5 +83,14 @@ describe('categorizeAuthError', () => {
     expect(res.detail).toBe('Phone number or password is incorrect.')
     expect(res.detail).not.toContain('auth.users')
     expect(res.detail).not.toContain('123')
+  })
+})
+
+describe('categorizeAuthError on the FastAPI client', () => {
+  it('tells a wrong password, a dead backend and no network apart by status', () => {
+    expect(categorizeAuthError(new ApiError(401, { error: { code: 'UNAUTHENTICATED', message: 'Invalid credentials.' } }, 'x')).code).toBe('INVALID_CREDENTIALS')
+    expect(categorizeAuthError(new ApiError(503, { error: { code: 'DATABASE_UNAVAILABLE', message: 'A database error occurred.' } }, 'x')).title).toBe('Service offline')
+    expect(categorizeAuthError(new NetworkError(new TypeError('Failed to fetch'))).code).toBe('NETWORK')
+    expect(categorizeAuthError(new NetworkError(new DOMException('The operation was aborted', 'AbortError'))).code).toBe('TIMEOUT')
   })
 })

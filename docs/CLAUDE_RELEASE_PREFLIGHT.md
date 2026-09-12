@@ -256,3 +256,128 @@ cleaned, rebased or discarded. VC10 was not built. Nothing was deployed.
 Even once this is pushed and Render is up, **VC10 must not be built until
 `EXPO_PUBLIC_INTELLIGENCE_BASE_URL` is in `eas.json`.** A fresh install has no
 cached package, so without it the driver has no source of route geometry at all.
+
+---
+
+# ADDENDUM — STATE CHANGED DURING THIS PASS
+
+A commit was made **by something other than me** while this pre-flight was
+running. I did not run `git add`, `git commit` or `git push` at any point.
+
+```
+HEAD        66f3008  "feat: ship hosted SIH26002 intelligence plane and navigation integration"
+remote main f850de4  (committed, NOT pushed)
+```
+
+428 files, 84,704 insertions.
+
+## The commit was audited against the exclusion list above: CLEAN
+
+| Category | In the commit |
+| :--- | :--- |
+| `.claude/`, `.artibot/`, other agent tooling | **0** |
+| prompt dumps (`full_user_request*`, `mission_prompt*`, …) | **0** |
+| `.env` / `.env.*` | **0** |
+| `.apk` / `.aab` | **0** |
+| `.runtime/` | **0** |
+| `memory/`, `supabase/.temp/` | **0** |
+
+Whoever made it followed the exclusion list correctly.
+
+## Secret scan re-run across the ENTIRE TRACKED TREE
+
+That is the right question before a push — not just the working set.
+464 tracked files, 17 credential-shaped matches, **all benign**:
+
+| File | Type | Verdict |
+| :--- | :--- | :--- |
+| `driver-app/eas.json` ×2 | Supabase JWT | **SAFE — decoded, `role: anon`**, correct project ref. Anon keys are public by design and must be in the APK |
+| `backend/.env.example` ×2 | Postgres URL | SAFE — `YOUR_PROJECT_REF` / `REPLACE_WITH_POOLER_HOST` templates, one commented out |
+| `.github/workflows/migrations.yml` | Postgres URL | SAFE — throwaway CI service container on localhost |
+| `backend/scripts/rls_harness.py` ×4, `test_select_route_rpc.py` ×2 | Postgres URL | SAFE — format placeholders |
+| `backend/tests/conftest.py`, `test_config.py` ×2, `test_db_target_guard.py` | Postgres URL | SAFE — fixtures (`db.unreachable.invalid`, URL-parsing cases) |
+| `scripts/Start-Demo.ps1` | Postgres URL | SAFE — PowerShell variable reading gitignored `.runtime/pgpass.txt` |
+| `docs/DEPLOYMENT_ENV_MATRIX.md` | Postgres URL | SAFE — documentation placeholder |
+
+Searched for and found **none of**: `sb_secret_*`, a `service_role` JWT, Google
+`AIza…`, OpenRouter `sk-or-v1-…`, OpenAI-style keys, private key blocks, AWS
+keys.
+
+**SECRET_SCAN (tracked tree) = PASS. The commit is safe to push.**
+
+The scanner now lives at **`scripts/secret_scan.py`** rather than a temp
+directory, and exits non-zero on any UNSAFE finding — usable as a pre-push gate
+rather than something someone has to remember to run.
+
+## A silent deployment failure found and fixed
+
+`manager-web/.env.production` is matched by `.gitignore` (`.env.*`), so a hosted
+build never sees it — every `VITE_` value must come from the host dashboard.
+**My earlier matrix said the production location was "repo". That was wrong.**
+
+Acting on it produced a failure that was invisible:
+
+- `SUPABASE_URL` fell back to a **hardcoded project URL**, which made the
+  `if (!SUPABASE_URL) throw` beneath it **unreachable dead code**.
+- The key fell back to the literal string `anon-placeholder`, so `createClient`
+  succeeded, the app rendered, and every request returned 401. The reported
+  symptom would be "login is broken", several layers from the cause.
+
+The driver already fails closed here; the manager failing open was an
+inconsistency, not a design. Both fallbacks are gone: `getSupabase()` now throws,
+names the missing variable, and says the values belong in the hosting dashboard.
+Pinned by **5 new tests** in `manager-web/src/api/supabaseClient.test.ts`,
+including one asserting the placeholder key is never substituted again.
+
+It throws **lazily rather than at build time**, deliberately — the manager also
+supports a local FastAPI transport where Supabase is unused, and a build-time
+check would forbid that valid configuration.
+
+## A test that only passed by luck
+
+`test_select_route_rpc.py` began erroring on all 18 cases. Cause: it invoked
+`backend/.venv/Scripts/alembic.exe`, and that console script hardcodes the path
+of the interpreter that created the venv — which for this checkout points at a
+different machine's user profile. It now runs `sys.executable -m alembic`,
+re-using the interpreter already running the suite. **18/18 restored.**
+
+## Regression after all of the above
+
+| Suite | Result |
+| :--- | :--- |
+| **Backend** | **1024 passed**, 5 skipped, 0 failed |
+| **Manager** | **161 passed** (156 + 5 config), 0 failed |
+| **Driver** | **537 passed**, 0 failed |
+| Manager `tsc -b` | clean |
+| Manager production build | clean |
+| Driver `tsc --noEmit` | clean |
+| Secret scan (tracked tree) | **PASS** |
+
+One driver run showed a transient failure mid-pass; it did not reproduce, and
+files were being rewritten by concurrent work at the time.
+
+## STATUS
+
+```
+COMMITTED     = YES  (66f3008, not by me)
+PUSHED        = NO   (remote still f850de4)
+SECRET_SCAN   = PASS (464 tracked files, 0 unsafe)
+EXCLUSIONS    = CLEAN (0 agent-state or prompt-dump files in the commit)
+TESTS         = backend 1024 / manager 161 / driver 537
+```
+
+There are uncommitted changes on top of `66f3008` from this pass — the
+fail-closed Supabase client and its tests, the alembic fix,
+`scripts/secret_scan.py`, and this document. They need a second commit before
+the push.
+
+**Still unanswered, and still blocking a correct deploy:**
+
+1. **`.runtime/` is ignored only via `.git/info/exclude`**, which is not
+   committed. Anyone cloning this repo and recreating that directory gets no
+   protection for `pgpass.txt` or the built APKs.
+2. **`netlify.toml` and `vercel.json` are both committed.** The env matrix now
+   names Vercel canonical — delete the other, or the manager can be deployed
+   twice with only one carrying `VITE_INTELLIGENCE_BASE_URL`.
+3. **VC10 must not be built** until `EXPO_PUBLIC_INTELLIGENCE_BASE_URL` exists
+   in `eas.json`.

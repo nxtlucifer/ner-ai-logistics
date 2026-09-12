@@ -58,6 +58,24 @@ export const REASON_SINCE_START = 'BREAK_ELAPSED_SINCE_TRIP_START'
 export const REASON_SINCE_BREAK = 'BREAK_ELAPSED_SINCE_LAST_BREAK'
 export const REASON_NOT_STARTED = 'BREAK_TRIP_NOT_STARTED'
 
+/**
+ * English text for the three codes THIS MODULE owns.
+ *
+ * They are not in `i18n/reason_codes.json` and cannot be: that catalogue is
+ * the backend's, and `test_reason_code_coverage.py` fails on any entry no
+ * backend module emits. These are client-side codes, so their words live
+ * beside the constants they explain rather than in a file that would reject
+ * them - and English-only follows the app's own documented rule for client
+ * copy ("fallback to English if key missing", src/i18n/appLanguage.ts).
+ *
+ * The point is only that a driver never reads BREAK_TRIP_NOT_STARTED.
+ */
+export const BREAK_REASON_TEXT: Record<string, string> = {
+  [REASON_NOT_STARTED]: 'Your trip has not started, so there is nothing to count from yet.',
+  [REASON_SINCE_START]: 'Counted from the start of this trip.',
+  [REASON_SINCE_BREAK]: 'Counted from your last recorded break.',
+}
+
 export interface BreakAdvice {
   level: BreakLevel
   /**

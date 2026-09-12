@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import uuid
 from pathlib import Path
 
@@ -94,11 +95,15 @@ def rpc_db():
     if pw is None:
         pytest.skip("isolated cluster not present (.runtime/pgpass.txt missing)")
 
-    alembic = BACKEND / ".venv" / "Scripts" / "alembic.exe"
-    if not alembic.exists():
-        alembic = BACKEND / ".venv" / "bin" / "alembic"
-    if not alembic.exists():
-        pytest.skip("alembic not available in backend/.venv")
+    # Alembic is invoked as `python -m alembic`, NOT via the venv's console
+    # script.
+    #
+    # That shim hardcodes the absolute path of the interpreter that created the
+    # venv, and this checkout's `.venv` was created on a different machine
+    # (its shim points at `C:\Users\patel\...`), so running it dies with
+    # "No Python at ..." before alembic is even imported. Re-using the
+    # interpreter already running these tests has no such dependency and works
+    # wherever the suite itself works.
 
     try:
         with psycopg.connect(_dsn("postgres", pw), autocommit=True, connect_timeout=5) as c:
@@ -115,10 +120,18 @@ def rpc_db():
         "MIGRATION_DATABASE_URL": url,
     }
     r = subprocess.run(
-        [str(alembic), "upgrade", "head"],
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
         cwd=BACKEND, env=env, capture_output=True, text=True,
     )
-    assert r.returncode == 0, f"alembic failed:\n{r.stdout[-2500:]}\n{r.stderr[-2500:]}"
+    if r.returncode != 0:
+        combined = (r.stdout or "") + (r.stderr or "")
+        # Skip, not fail: an interpreter without alembic is an environment this
+        # suite cannot run in, which is different from the RPC being wrong.
+        if "No module named alembic" in combined:
+            pytest.skip("alembic is not importable by this interpreter")
+        raise AssertionError(
+            f"alembic failed:\n{r.stdout[-2500:]}\n{r.stderr[-2500:]}"
+        )
 
     with psycopg.connect(_dsn(DB, pw), autocommit=True) as c:
         c.execute(AUTH_STUB)

@@ -35,6 +35,9 @@ CODE_MODULES = (
     "app.domain.landslide",
     "app.domain.route_eligibility",
     "app.domain.route_progress",
+    "app.domain.terrain",
+    "app.domain.flood",
+    "app.domain.warnings",
     "app.services.offline_package",
     "app.services.navigation",
 )

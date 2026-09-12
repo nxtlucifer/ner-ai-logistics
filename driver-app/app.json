@@ -36,7 +36,6 @@
       ]
     ],
     "extra": {
-      "googleMapsConfigured": false,
       "eas": {
         "projectId": "95643483-d607-4044-8494-ac1b19bbd8bc"
       }

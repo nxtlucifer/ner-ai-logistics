@@ -1,26 +1,44 @@
 /**
- * Driver Assistant - Integrated Multi-Mode AI & Offline Operational Command.
+ * Driver Assistant - a chat, and every word in it was written by a person.
  *
- * 4 Sub-Modes:
- *   1. Ask AI: Conversational trip & vehicle assistant grounded in local trip context
- *   2. Translate: 12-language translator with Speech TTS, quick driver phrases, and offline phrasebook
- *   3. Route Risk: Corridor hazards, landslide precautions, and deterministic safety rules
- *   4. Weather / Safety: Fatigue break guidance, break logging, and emergency dialers (112, 108, 1033)
+ * THIS IS NOT A GENERATIVE ASSISTANT AND MUST NEVER BE DESCRIBED AS ONE
  *
- * Invariants:
- * - Deterministic safety rules: Fleet Sentinel, route eligibility, and break rules are NEVER altered by AI.
- * - Offline honesty: missing data is clearly labeled as unavailable rather than hallucinated.
+ * Every reply on this screen comes from `src/assistant/assistant.ts`, which
+ * imports no network client, no storage and no model. It is a pure function of
+ * a context object the caller has already fetched: tap a question, get the
+ * same answer every time from the same inputs. There is no model in the loop,
+ * so there is nothing here to hallucinate a road being open.
+ *
+ * The chat shape is for the driver, not the technology. A transcript is how a
+ * person expects to ask a second question after reading the first answer, and
+ * it keeps the previous answer on screen instead of replacing it - which is
+ * what the old panel did, so a driver comparing "next stop" against "my route"
+ * had to keep re-tapping.
+ *
+ * IT ANSWERS OFFLINE, AND IT SAYS SO WHEN THE ANSWER IS OLD
+ *
+ * `Answer.freshness` travels with every reply and is rendered above the facts.
+ * An answer built from a stored snapshot is labelled as one. The assistant is
+ * allowed to be out of date; it is not allowed to be out of date quietly.
+ *
+ * IT CANNOT ACT
+ *
+ * `AllowedAction` is a closed set of NAVIGATION targets plus recording a break
+ * on this phone. There is no reroute, no trip close, no dispatch send - a
+ * route change is a manager decision, and this screen explains that rather
+ * than offering it.
+ *
+ * THE COMPOSER: CHIPS, A TEXT BOX, AND A MICROPHONE
+ *
+ * Typed or spoken text goes through `assistant/intents.classifyIntent` - a
+ * keyword table, not a model - and lands on the same answers the chips do.
+ * Text that matches nothing is told what the assistant can do rather than
+ * guessed at. The microphone is the browser's own recogniser where one exists
+ * and is visibly disabled where none does; typing always works.
  */
 
-import { useEffect, useState } from 'react'
-import {
-  Linking,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Pressable, ScrollView, Text, TextInput, View } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
 import {
@@ -31,42 +49,72 @@ import {
   type AssistantContext,
   type Intent,
 } from '../assistant/assistant'
-import { resolveLanguage } from '../i18n/language'
-import { translateReasonCode } from '../i18n/reasonCodes'
+import { classifyIntent } from '../assistant/intents'
+import { useAppLanguage } from '../i18n/AppLanguageProvider'
+import { matchLanguage } from '../i18n/language'
+import { useSpeechInput } from '../speech/useSpeechInput'
+import { useRouteRisk } from '../hooks/useRouteRisk'
+import { isKnownReasonCode, translateReasonCode } from '../i18n/reasonCodes'
 import { OfflinePackageStore, type StoredPackage } from '../offline/packageStore'
-import { assessBreak, formatElapsed } from '../safety/breaks'
+import { BREAK_REASON_TEXT, assessBreak } from '../safety/breaks'
+import { factorTitle } from '../safety/riskCards'
 import { readLastBreak, recordBreak } from '../safety/breakStore'
-import AiPanel from '../ai/AiPanel'
-import { useLocalAi } from '../ai/useLocalAi'
 import { useTrip } from '../trip/TripProvider'
-import { COLORS, TOUCH_TARGET } from '../theme'
-import TranslateBox from './TranslateBox'
+import { TOUCH_TARGET } from '../theme'
+import { makeStyles, useTheme } from '../theme-context'
+import PhrasebookScreen from './PhrasebookScreen'
 
-export type AssistantSubMode = 'ask' | 'translate' | 'risk' | 'safety'
-
-/*
- * No `icon` field any more. These were emoji rendered inside the mode chips -
- * 🤖 🌐 ⚠️ 🛡️ - which meant the selected chip could not tint its own glyph and
- * the four modes changed appearance between Android font versions. The chips
- * carry their label and a selected state, which is what a driver reads.
- */
-const SUB_MODES: Array<{ id: AssistantSubMode; label: string }> = [
-  { id: 'ask', label: 'Ask AI' },
-  { id: 'translate', label: 'Translate' },
-  { id: 'risk', label: 'Route Risk' },
-  { id: 'safety', label: 'Weather / Safety' },
-]
-
-/** Where each hand-off actually goes. Nothing here mutates. */
-const ACTION_LABELS: Record<AllowedAction, string> = {
-  OPEN_SAFETY_GUIDE: 'Open the Safety tab',
-  OPEN_PHRASEBOOK: 'Open the Translate tool',
-  OPEN_TRIP: 'Open the Trip tab',
-  RECORD_BREAK: 'Log a break now',
-  CONTACT_DISPATCH: 'Contact dispatch',
+/** One exchange. The answer is FROZEN at the moment it was asked - re-deriving
+ *  it on every render would silently rewrite what the driver already read. */
+interface Turn {
+  id: number
+  question: string
+  answer: Answer
 }
 
-function FreshnessLine({ answer: a }: { answer: Answer }) {
+/** Where each hand-off goes. `CONTACT_DISPATCH` is deliberately absent: this
+ *  build has no dispatch channel, and a chip that opened nothing would be
+ *  discovered at exactly the wrong moment. It renders as a line of text. */
+const ACTION_LABELS: Partial<Record<AllowedAction, string>> = {
+  OPEN_TRIP: 'Open my trip',
+  OPEN_SAFETY_GUIDE: 'Open Safety',
+  OPEN_PHRASEBOOK: 'Open the translator',
+  RECORD_BREAK: 'I stopped for a break',
+}
+
+/**
+ * No SHOUTING_SNAKE_CASE ever reaches the screen.
+ *
+ * One place rather than per call site: the answer objects carry enum values in
+ * three different fields (`facts[].value`, `unavailable[]`, `reasonCodes[]`),
+ * and a driver reading "DUE_SOON" is reading the database, not an answer.
+ * Anything that is not enum-shaped is returned untouched, so a formatted value
+ * like "3h 20m" or a place name passes straight through.
+ */
+function readable(value: string): string {
+  // A token with a DIGIT in it is never an enum here - it is a registration or
+  // a trip code. `AS01AB1234` matched an earlier version of this test and came
+  // out as "As01ab1234", which is a worse bug than the one being fixed.
+  const enumish =
+    /^[A-Z][A-Z_]*$/.test(value) || /^[a-z]+(_[a-z0-9]+)+$/.test(value)
+  if (!enumish) return value
+  const words = value.replace(/_/g, ' ').toLowerCase()
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+/** A named safety factor keeps its curated name; anything else is humanised. */
+function label(key: string): string {
+  return factorTitle(key) ?? readable(key)
+}
+
+/** Catalogue first, then the module that owns the code, then humanised. */
+function explain(code: string, lang: Parameters<typeof translateReasonCode>[1]): string {
+  if (isKnownReasonCode(code)) return translateReasonCode(code, lang)
+  return BREAK_REASON_TEXT[code] ?? readable(code)
+}
+
+function Freshness({ answer: a }: { answer: Answer }) {
+  const styles = useStyles()
   if (!a.freshness) return null
   const { ageMinutes, cached, stale } = a.freshness
   const age = ageMinutes === 0 ? 'just now' : `${ageMinutes} min ago`
@@ -79,16 +127,35 @@ function FreshnessLine({ answer: a }: { answer: Answer }) {
   )
 }
 
-export default function AssistantScreen() {
+export default function AssistantScreen({
+  onBack,
+  onOpenTrip,
+  onOpenSafety,
+}: {
+  onBack?: () => void
+  onOpenTrip?: () => void
+  onOpenSafety?: () => void
+}) {
+  const styles = useStyles()
+  const { colors: COLORS } = useTheme()
+  // The APP's language, not the device's: a driver who picked Assamese in
+  // the header meant it here too. Reason codes exist in en/hi/as; gu/bn fall
+  // back to English there, by `matchLanguage`, rather than to a guess.
+  const { language: appLanguage, t } = useAppLanguage()
+  const lang = matchLanguage(appLanguage)
+  const [draft, setDraft] = useState('')
+  const speech = useSpeechInput()
   const { trip, loadedAt, phase, tracking, isStale } = useTrip()
-  const lang = resolveLanguage()
+  // The same live read the Navigation card shows, so "is my route risky"
+  // here and the card there cannot disagree. Falls back to the package.
+  const live = useRouteRisk(trip?.id ?? null, trip?.id ?? null)
 
-  const [subMode, setSubMode] = useState<AssistantSubMode>('ask')
-  const [intent, setIntent] = useState<Intent | null>(null)
-  const ai = useLocalAi()
+  const [view, setView] = useState<'chat' | 'phrasebook'>('chat')
+  const [turns, setTurns] = useState<Turn[]>([])
   const [lastBreakAt, setLastBreakAt] = useState<string | null>(null)
   const [offlinePackage, setOfflinePackage] = useState<StoredPackage | null>(null)
-  const [breakLoggedMsg, setBreakLoggedMsg] = useState<string | null>(null)
+  const nextId = useRef(1)
+  const scroller = useRef<ScrollView | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -97,388 +164,349 @@ export default function AssistantScreen() {
       .read()
       .then((p) => alive && setOfflinePackage(p))
       .catch(() => {
-        // Honest: no cached package
+        // No cached package is a state, not a failure. The answers that depend
+        // on one already say "not available" rather than guessing.
       })
     return () => {
       alive = false
     }
   }, [])
 
-  const now = Date.now()
-  const breakAdvice = assessBreak({
-    startedAt: trip?.started_at ?? null,
-    lastBreakAt,
-    now,
-  })
+  /**
+   * Everything the assistant is allowed to know, at the instant of the tap.
+   *
+   * `lastBreak` is passed rather than read from state so that recording a
+   * break and asking about it in the same handler cannot answer from the value
+   * React has not flushed yet.
+   */
+  const contextAt = useCallback(
+    (lastBreak: string | null): AssistantContext => {
+      const now = Date.now()
+      return {
+        trip,
+        tripLoadedAt: loadedAt,
+        tracking,
+        offlinePackage,
+        liveRisk: live.state === 'READY' && live.risk ? { risk: live.risk, assessedAt: live.risk.assessed_at } : null,
+        breakAdvice: assessBreak({
+          startedAt: trip?.started_at ?? null,
+          lastBreakAt: lastBreak,
+          now,
+        }),
+        online: phase === 'ready' && !isStale && tracking?.uploadState !== 'failing',
+        now,
+      }
+    },
+    [trip, loadedAt, tracking, offlinePackage, phase, isStale, live.state, live.risk],
+  )
 
-  const context: AssistantContext = {
-    trip,
-    tripLoadedAt: loadedAt,
-    tracking,
-    offlinePackage,
-    breakAdvice,
-    online: phase === 'ready' && !isStale && tracking?.uploadState !== 'failing',
-    now,
+  const ask = useCallback(
+    (question: string, intent: Intent, lastBreak: string | null) => {
+      setTurns((previous) => [
+        ...previous,
+        { id: nextId.current++, question, answer: answer(intent, contextAt(lastBreak)) },
+      ])
+    },
+    [contextAt],
+  )
+
+  /** Typed or spoken text: classify locally, answer from the same context. */
+  const submit = useCallback(
+    (text: string) => {
+      const question = text.trim()
+      if (!question) return
+      setDraft('')
+      speech.reset()
+      ask(question, classifyIntent(question), lastBreakAt)
+    },
+    [ask, lastBreakAt, speech],
+  )
+
+  // A finished recognition lands in the box for the driver to read before it
+  // is sent - a misheard "stop" must not become a question by itself.
+  useEffect(() => {
+    if (speech.transcript) setDraft(speech.transcript)
+  }, [speech.transcript])
+
+  // Newest exchange into view. Driven by the CONTENT SIZE rather than by the
+  // turn count: an effect on `turns.length` runs before the new bubble has
+  // been measured, so it scrolled to the old end and the reply stayed below
+  // the fold - which reads as a tap that did nothing.
+  // Not animated: a smooth scroll started against the pre-layout height and
+  // landed a few pixels down instead of at the new reply. It is also the right
+  // behaviour in a cab - the answer is there, rather than sliding into place.
+  const toEnd = useCallback(() => scroller.current?.scrollToEnd?.({ animated: false }), [])
+
+  const runAction = (action: AllowedAction) => {
+    if (action === 'OPEN_TRIP') return onOpenTrip?.()
+    if (action === 'OPEN_SAFETY_GUIDE') return onOpenSafety?.()
+    if (action === 'OPEN_PHRASEBOOK') return setView('phrasebook')
+    if (action === 'RECORD_BREAK') {
+      void recordBreak(new Date()).then(async (stored) => {
+        // Never claim it was logged when it was not - the driver would rely on
+        // a counter that had not moved.
+        if (!stored) {
+          setTurns((previous) => [
+            ...previous,
+            {
+              id: nextId.current++,
+              question: 'I stopped for a break',
+              answer: {
+                intent: 'BREAK',
+                headline: 'Could not save that on this phone',
+                facts: [],
+                reasonCodes: [],
+                freshness: null,
+                allowedActions: [],
+                unavailable: ['BREAK_STORAGE'],
+              },
+            },
+          ])
+          return
+        }
+        const updated = await readLastBreak()
+        setLastBreakAt(updated)
+        ask('I stopped for a break', 'BREAK', updated)
+      })
+    }
   }
 
-  const current = intent ? answer(intent, context) : null
-
-  const handleLogBreak = async () => {
-    await recordBreak(new Date())
-    const updated = await readLastBreak()
-    setLastBreakAt(updated)
-    setBreakLoggedMsg('Break recorded successfully.')
-    setTimeout(() => setBreakLoggedMsg(null), 4000)
+  if (view === 'phrasebook') {
+    return (
+      <View style={styles.flex}>
+        <Pressable
+          onPress={() => setView('chat')}
+          accessibilityRole="button"
+          accessibilityLabel="Back to the assistant"
+          style={({ pressed }) => [styles.backRow, pressed && styles.pressed]}
+        >
+          <Text style={styles.backLabel}>‹ Assistant</Text>
+        </Pressable>
+        <PhrasebookScreen />
+      </View>
+    )
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.content}>
-      {/* Top Sub-Mode Selector */}
-      <View style={styles.subModeRow}>
-        {SUB_MODES.map((mode) => {
-          const active = subMode === mode.id
-          return (
-            <Pressable
-              key={mode.id}
-              onPress={() => setSubMode(mode.id)}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: active }}
-              style={[styles.subModeTab, active && styles.subModeTabActive]}
-              testID={`submode-${mode.id}`}
-            >
-              <Text
-                style={[
-                  styles.subModeLabel,
-                  active && styles.subModeLabelActive,
-                ]}
-              >
-                {mode.label}
-              </Text>
-            </Pressable>
-          )
-        })}
-      </View>
+    <View style={styles.flex}>
+      <ScrollView
+        ref={scroller}
+        onContentSizeChange={toEnd}
+        contentContainerStyle={styles.content}
+      >
+        {onBack ? (
+          <Pressable
+            onPress={onBack}
+            accessibilityRole="button"
+            accessibilityLabel="Back to More"
+            style={({ pressed }) => [styles.backRow, pressed && styles.pressed]}
+          >
+            <Text style={styles.backLabel}>‹ More</Text>
+          </Pressable>
+        ) : null}
 
-      {/* SUB-MODE 1: ASK AI */}
-      {subMode === 'ask' && (
-        <View style={styles.subModeContainer}>
-          <AiPanel
-            ai={ai}
-            mode="assistant"
-            lead="Ask about your trip"
-            placeholder="Ask about your route, stops, or highway conditions…"
-            suggestions={[]}
-            fallbackName="quick answers below"
-          />
+        <Text style={styles.title}>Assistant</Text>
 
-          <Text style={styles.lead}>Quick Trip Facts & Telemetry Checks</Text>
+        {/* The opening line is a claim about how this screen works, and it is
+            a true one: no network call is made to answer anything below. */}
+        <View style={styles.bubbleThem}>
+          <Text style={styles.opener}>
+            I answer from what this phone already knows — your trip, your stored
+            route package and your break timer. No connection needed.
+          </Text>
+          <Text style={styles.openerNote}>
+            I cannot change your route or close a stop. Those are your manager's
+            to decide and yours to do on the Trip screen.
+          </Text>
+        </View>
 
-          <View style={styles.actions}>
-            {QUESTIONS.map((q) => {
-              const selected = intent === q.intent
-              return (
-                <Pressable
-                  key={q.id}
-                  onPress={() => setIntent(q.intent)}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected }}
-                  style={({ pressed }) => [
-                    styles.action,
-                    selected && styles.actionSelected,
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.actionLabel,
-                      selected && styles.actionLabelSelected,
-                    ]}
-                  >
-                    {q.label}
-                  </Text>
-                </Pressable>
-              )
-            })}
-          </View>
+        {turns.map((turn) => (
+          <View key={turn.id}>
+            <View style={styles.bubbleMeRow}>
+              <View style={styles.bubbleMe}>
+                <Text style={styles.bubbleMeText}>{turn.question}</Text>
+              </View>
+            </View>
 
-          {current ? (
-            <View style={styles.answer}>
-              <Text style={styles.headline}>{current.headline}</Text>
-              <FreshnessLine answer={current} />
+            <View style={styles.bubbleThem}>
+              <Text style={styles.headline}>{turn.answer.headline}</Text>
+              <Freshness answer={turn.answer} />
 
-              {current.facts.map((fact, i) => (
+              {turn.answer.facts.map((fact, i) => (
                 <View key={`${fact.code}-${i}`} style={styles.fact}>
                   <Text style={styles.factLabel}>{fact.label}</Text>
-                  <Text style={styles.factValue}>{fact.value}</Text>
+                  <Text style={styles.factValue}>{readable(fact.value)}</Text>
                 </View>
               ))}
 
-              {current.reasonCodes.length > 0 ? (
+              {turn.answer.reasonCodes.length > 0 ? (
                 <View style={styles.reasons}>
-                  {current.reasonCodes.map((code) => (
+                  {turn.answer.reasonCodes.map((code) => (
                     <Text key={code} style={styles.reason}>
-                      • {translateReasonCode(code, lang)}
+                      • {explain(code, lang)}
                     </Text>
                   ))}
                 </View>
               ) : null}
 
-              {current.unavailable.length > 0 ? (
+              {turn.answer.unavailable.length > 0 ? (
+                // Named gaps, every time. An answer that quietly omitted its
+                // missing inputs would read as a confident one.
                 <Text style={styles.unavailable}>
-                  Not included: {current.unavailable.join(', ')}
+                  Not included: {turn.answer.unavailable.map(label).join(', ')}
                 </Text>
               ) : null}
 
-              {current.allowedActions.length > 0 ? (
-                <View style={styles.next}>
-                  <Text style={styles.nextHeading}>What you can do</Text>
-                  {current.allowedActions.map((action) => (
-                    <Text key={action} style={styles.nextItem}>
-                      • {ACTION_LABELS[action]}
-                    </Text>
-                  ))}
+              {turn.answer.allowedActions.includes('CONTACT_DISPATCH') ? (
+                <Text style={styles.unavailable}>
+                  Tell dispatch on the number your operator gave you. This app has
+                  no dispatch line.
+                </Text>
+              ) : null}
+
+              {turn.answer.allowedActions.some((a) => ACTION_LABELS[a]) ? (
+                <View style={styles.actions}>
+                  {turn.answer.allowedActions
+                    .filter((a) => ACTION_LABELS[a])
+                    .map((action) => (
+                      <Pressable
+                        key={action}
+                        onPress={() => runAction(action)}
+                        accessibilityRole="button"
+                        style={({ pressed }) => [styles.action, pressed && styles.pressed]}
+                      >
+                        <Text style={styles.actionLabel}>{ACTION_LABELS[action]}</Text>
+                      </Pressable>
+                    ))}
                 </View>
               ) : null}
             </View>
-          ) : null}
-
-          <Text style={styles.footer}>
-            Answers are built from this phone's own trip data. No internet
-            connection is needed, and nothing here can change your route — a route
-            change is a manager decision.
-          </Text>
-        </View>
-      )}
-
-      {/* SUB-MODE 2: TRANSLATE */}
-      {subMode === 'translate' && (
-        <View style={styles.subModeContainer}>
-          <TranslateBox />
-        </View>
-      )}
-
-      {/* SUB-MODE 3: ROUTE RISK */}
-      {subMode === 'risk' && (
-        <View style={styles.subModeContainer}>
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Route Risk & Corridor Intelligence</Text>
-            <Text style={styles.cardSub}>
-              Deterministic terrain safety assessment for North East hill corridors.
-            </Text>
-
-            <View style={styles.riskFactBox}>
-              <View style={styles.riskRow}>
-                <Text style={styles.riskKey}>Assigned Trip:</Text>
-                <Text style={styles.riskVal}>{trip?.trip_code ?? 'None'}</Text>
-              </View>
-              <View style={styles.riskRow}>
-                <Text style={styles.riskKey}>Corridor:</Text>
-                <Text style={styles.riskVal}>
-                  {trip?.stops?.[0]?.name ?? 'Origin'} → {trip?.stops?.[trip?.stops?.length - 1]?.name ?? 'Destination'}
-                </Text>
-              </View>
-              <View style={styles.riskRow}>
-                <Text style={styles.riskKey}>Live Weather Sampling:</Text>
-                <Text style={[styles.riskVal, { color: '#fbbf24' }]}>5 sampling points monitored</Text>
-              </View>
-              <View style={styles.riskRow}>
-                <Text style={styles.riskKey}>Landslide Risk:</Text>
-                <Text style={[styles.riskVal, { color: '#60a5fa' }]}>Precautionary hill speed limits active</Text>
-              </View>
-            </View>
-
-            <View style={styles.guidanceNotice}>
-              <Text style={styles.guidanceHeading}>SAFETY MANDATE</Text>
-              <Text style={styles.guidanceText}>
-                Fleet Sentinel and corridor eligibility are deterministic. An AI model can never approve an unverified route or override a closed road restriction.
-              </Text>
-            </View>
           </View>
+        ))}
+      </ScrollView>
 
-          <AiPanel
-            ai={ai}
-            mode="safety"
-            lead="Ask about road conditions"
-            placeholder="Ask about landslides, weather, or ghat rules"
-            suggestions={[
-              'Is road safe for heavy truck?',
-              'Rainfall on NH-27',
-              'Blind curves speed limit',
-              'Safe parking near Jorhat',
-            ]}
-            fallbackName="safety guidelines"
-          />
-        </View>
-      )}
-
-      {/* SUB-MODE 4: WEATHER / SAFETY */}
-      {subMode === 'safety' && (
-        <View style={styles.subModeContainer}>
-          {/* Fatigue Management & Rest Break Card */}
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Fatigue & Rest Break Status</Text>
-            <View style={styles.breakStatusRow}>
-              <View>
-                <Text style={styles.breakLabel}>Driving Elapsed</Text>
-                <Text style={styles.breakValue}>{formatElapsed(breakAdvice.elapsedMinutes)}</Text>
-              </View>
-              <View>
-                <Text style={styles.breakLabel}>Break Advisory</Text>
-                <Text
-                  style={[
-                    styles.breakLevel,
-                    breakAdvice.level === 'OVERDUE'
-                      ? styles.breakLevelOverdue
-                      : breakAdvice.level === 'DUE_SOON'
-                      ? styles.breakLevelDueSoon
-                      : styles.breakLevelOk,
-                  ]}
-                >
-                  {breakAdvice.level.replace('_', ' ')}
-                </Text>
-              </View>
-            </View>
-
-            <Text style={styles.cardSub}>{translateReasonCode(breakAdvice.reasonCode, lang)}</Text>
-
+      {/* The composer: quick questions, then a box and a microphone. */}
+      <View style={styles.composer}>
+        <Text style={styles.composerLabel}>{t('ask_label')}</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+          {QUESTIONS.map((q) => (
             <Pressable
-              onPress={() => void handleLogBreak()}
-              style={styles.logBreakButton}
+              key={q.id}
+              onPress={() => ask(t(q.labelKey), q.intent, lastBreakAt)}
               accessibilityRole="button"
+              testID={`ask-${q.id}`}
+              style={({ pressed }) => [styles.chip, pressed && styles.pressed]}
             >
-              <Text style={styles.logBreakButtonText}>Log 30-minute rest break</Text>
+              <Text style={styles.chipLabel}>{t(q.labelKey)}</Text>
             </Pressable>
-
-            {breakLoggedMsg && (
-              <Text style={styles.breakSuccess}>{breakLoggedMsg}</Text>
-            )}
-          </View>
-
-          {/* Direct Emergency Helplines */}
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Emergency Highway Contacts</Text>
-            <Text style={styles.cardSub}>
-              Tapping opens your phone dialer directly. Press dial on handset to connect.
-            </Text>
-
-            <View style={styles.emergencyRow}>
-              <Pressable
-                onPress={() => void Linking.openURL('tel:112')}
-                style={[styles.emergencyButton, styles.emergencyPolice]}
-                accessibilityRole="button"
-              >
-                <Text style={styles.emergencyButtonNum}>112</Text>
-                <Text style={styles.emergencyButtonLabel}>National Emergency</Text>
-              </Pressable>
-
-              <Pressable
-                onPress={() => void Linking.openURL('tel:108')}
-                style={[styles.emergencyButton, styles.emergencyAmbulance]}
-                accessibilityRole="button"
-              >
-                <Text style={styles.emergencyButtonNum}>108</Text>
-                <Text style={styles.emergencyButtonLabel}>Ambulance</Text>
-              </Pressable>
-
-              <Pressable
-                onPress={() => void Linking.openURL('tel:1033')}
-                style={[styles.emergencyButton, styles.emergencyHighway]}
-                accessibilityRole="button"
-              >
-                <Text style={styles.emergencyButtonNum}>1033</Text>
-                <Text style={styles.emergencyButtonLabel}>NHAI Highway</Text>
-              </Pressable>
-            </View>
-          </View>
-
-          {/* AI Weather and Safety Advice */}
-          <AiPanel
-            ai={ai}
-            mode="safety"
-            lead="Ask about weather precautions"
-            placeholder="Ask about monsoon driving, fog, or brake cooling"
-            suggestions={[
-              'Driving in heavy rain',
-              'Engine overheating on hills',
-              'Brake maintenance on steep slopes',
-            ]}
-            fallbackName="reviewed safety guide"
+          ))}
+        </ScrollView>
+        <View style={styles.inputRow}>
+          <Pressable
+            onPress={() => (speech.listening ? speech.stop() : speech.start(appLanguage))}
+            disabled={!speech.available}
+            accessibilityRole="button"
+            accessibilityLabel={
+              !speech.available
+                ? 'Speech input is not available on this device'
+                : speech.listening
+                  ? 'Stop listening'
+                  : 'Speak your question'
+            }
+            accessibilityState={{ disabled: !speech.available, selected: speech.listening }}
+            style={[styles.micBtn, speech.listening && styles.micBtnOn, !speech.available && styles.micBtnOff]}
+            testID="assistant-mic"
+          >
+            <Text style={[styles.micGlyph, !speech.available && styles.micGlyphOff]}>{speech.listening ? '■' : '🎤'}</Text>
+          </Pressable>
+          <TextInput
+            value={draft}
+            onChangeText={setDraft}
+            onSubmitEditing={() => submit(draft)}
+            placeholder={speech.listening ? t('ask_listening') : t('ask_placeholder')}
+            placeholderTextColor={COLORS.faint}
+            returnKeyType="send"
+            blurOnSubmit={false}
+            editable={!speech.listening}
+            style={styles.input}
+            accessibilityLabel="Ask about this trip"
+            testID="assistant-input"
           />
+          <Pressable
+            onPress={() => submit(draft)}
+            disabled={!draft.trim()}
+            accessibilityRole="button"
+            accessibilityLabel="Send"
+            accessibilityState={{ disabled: !draft.trim() }}
+            style={[styles.sendBtn, !draft.trim() && styles.sendBtnOff]}
+            testID="assistant-send"
+          >
+            <Text style={[styles.sendGlyph, !draft.trim() && styles.sendGlyphOff]}>➤</Text>
+          </Pressable>
         </View>
-      )}
-    </ScrollView>
+        {speech.error ? <Text style={styles.speechNote}>{speech.error}</Text> : null}
+        {speech.confidence !== null && speech.transcript ? (
+          <Text style={styles.speechNote}>Heard with {Math.round(speech.confidence * 100)}% confidence (engine figure)</Text>
+        ) : speech.available ? (
+          <Text style={styles.speechNote}>{speech.listening ? 'Listening…' : 'Device speech · needs a connection · typing always works'}</Text>
+        ) : (
+          <Text style={styles.speechNote}>Speech input not available on this device · typing works</Text>
+        )}
+      </View>
+    </View>
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((COLORS) => ({
+  flex: { flex: 1, backgroundColor: COLORS.bg },
   content: {
     padding: 16,
-    paddingBottom: 40,
+    paddingBottom: 24,
     maxWidth: 640,
     width: '100%',
     alignSelf: 'center',
   },
-  subModeRow: {
-    flexDirection: 'row',
-    gap: 6,
-    marginBottom: 16,
-  },
-  subModeTab: {
-    flex: 1,
-    minHeight: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: '#111827',
-    paddingVertical: 6,
-    paddingHorizontal: 4,
-  },
-  subModeTabActive: {
-    backgroundColor: COLORS.accent,
-    borderColor: COLORS.accent,
-  },
-  subModeLabel: {
-    color: COLORS.muted,
-    fontSize: 11,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  subModeLabelActive: {
-    color: COLORS.onAccent,
-    fontWeight: '800',
-  },
-  subModeContainer: {
-    gap: 12,
-  },
-  lead: { color: COLORS.muted, fontSize: 13, marginBottom: 12 },
 
-  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
-  action: {
-    minHeight: TOUCH_TARGET,
-    justifyContent: 'center',
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.card,
-    flexGrow: 1,
-  },
-  actionSelected: { borderColor: COLORS.accent },
-  actionLabel: { color: COLORS.text, fontSize: 15, fontWeight: '600' },
-  actionLabelSelected: { color: COLORS.ok },
+  backRow: { minHeight: TOUCH_TARGET, justifyContent: 'center', paddingHorizontal: 16 },
+  backLabel: { color: COLORS.muted, fontSize: 16, fontWeight: '600' },
   pressed: { opacity: 0.75 },
 
-  answer: {
-    borderRadius: 10,
+  title: {
+    color: COLORS.text,
+    fontSize: 26,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+    marginBottom: 14,
+  },
+
+  /** Theirs: a card on the left, full width, because an answer is a document
+   *  with facts in it - not a speech bubble that has to stay narrow. */
+  bubbleThem: {
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: COLORS.border,
     backgroundColor: COLORS.card,
-    padding: 14,
-    marginBottom: 16,
+    padding: 16,
+    marginBottom: 12,
   },
-  headline: { color: COLORS.text, fontSize: 20, fontWeight: '800' },
+  opener: { color: COLORS.text, fontSize: 15, lineHeight: 22 },
+  openerNote: { color: COLORS.muted, fontSize: 13, lineHeight: 19, marginTop: 8 },
+
+  /** Mine: right-aligned, tinted, and short. It only ever holds one of the
+   *  nine labels, so it never needs to wrap far. */
+  bubbleMeRow: { alignItems: 'flex-end', marginBottom: 8 },
+  bubbleMe: {
+    maxWidth: '85%',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.borderStrong,
+    backgroundColor: COLORS.raised,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  bubbleMeText: { color: COLORS.text, fontSize: 15, fontWeight: '600' },
+
+  headline: { color: COLORS.text, fontSize: 19, fontWeight: '800', letterSpacing: -0.3 },
   freshness: { color: COLORS.faint, fontSize: 12, marginTop: 4 },
   staleText: { color: COLORS.warn },
 
@@ -489,165 +517,96 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   factLabel: { color: COLORS.muted, fontSize: 14, flexShrink: 1 },
-  factValue: { color: COLORS.text, fontSize: 15, fontWeight: '700', textAlign: 'right' },
+  factValue: {
+    color: COLORS.text,
+    fontSize: 15,
+    fontWeight: '700',
+    textAlign: 'right',
+    flexShrink: 1,
+  },
 
-  reasons: { marginTop: 12, gap: 4 },
+  reasons: {
+    marginTop: 12,
+    gap: 4,
+  },
   reason: { color: COLORS.text, fontSize: 14, lineHeight: 20 },
 
-  unavailable: { color: COLORS.faint, fontSize: 12, lineHeight: 17, marginTop: 12 },
+  unavailable: { color: COLORS.faint, fontSize: 12, lineHeight: 18, marginTop: 12 },
 
-  next: { marginTop: 14 },
-  nextHeading: {
-    color: COLORS.muted,
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-    marginBottom: 6,
-  },
-  nextItem: { color: COLORS.text, fontSize: 14, lineHeight: 20 },
-
-  footer: { color: COLORS.faint, fontSize: 11, lineHeight: 16, marginTop: 10 },
-
-  card: {
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
+  action: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.accent,
     backgroundColor: COLORS.card,
+  },
+  actionLabel: { color: COLORS.accent, fontSize: 14, fontWeight: '700' },
+
+  composer: {
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    backgroundColor: COLORS.card,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 16,
+    gap: 10,
+  },
+  composerLabel: {
+    color: COLORS.faint,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.1,
+  },
+  chips: { flexDirection: 'row', gap: 8, paddingBottom: 2 },
+  inputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  input: {
+    flex: 1,
+    minHeight: TOUCH_TARGET,
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: 12,
-    padding: 14,
-    gap: 10,
-  },
-  cardTitle: {
+    paddingHorizontal: 14,
     color: COLORS.text,
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: 15,
+    backgroundColor: COLORS.bg,
   },
-  cardSub: {
-    color: COLORS.muted,
-    fontSize: 12,
-    lineHeight: 17,
-  },
-  riskFactBox: {
-    backgroundColor: '#111827',
-    borderRadius: 8,
-    padding: 10,
-    gap: 6,
-  },
-  riskRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  micBtn: {
+    width: TOUCH_TARGET,
+    height: TOUCH_TARGET,
+    borderRadius: TOUCH_TARGET / 2,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.raised,
     alignItems: 'center',
-  },
-  riskKey: {
-    color: COLORS.muted,
-    fontSize: 12,
-  },
-  riskVal: {
-    color: COLORS.text,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  guidanceNotice: {
-    backgroundColor: '#1e293b',
-    borderLeftWidth: 4,
-    borderLeftColor: '#f59e0b',
-    padding: 10,
-    borderRadius: 6,
-    gap: 4,
-  },
-  guidanceHeading: {
-    color: '#fbbf24',
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  guidanceText: {
-    color: COLORS.text,
-    fontSize: 12,
-    lineHeight: 17,
-  },
-  breakStatusRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    backgroundColor: '#111827',
-    padding: 12,
-    borderRadius: 8,
-  },
-  breakLabel: {
-    color: COLORS.faint,
-    fontSize: 11,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-  },
-  breakValue: {
-    color: COLORS.text,
-    fontSize: 18,
-    fontWeight: '800',
-    marginTop: 2,
-  },
-  breakLevel: {
-    fontSize: 14,
-    fontWeight: '800',
-    marginTop: 4,
-  },
-  breakLevelOk: {
-    color: '#4ade80',
-  },
-  breakLevelDueSoon: {
-    color: '#facc15',
-  },
-  breakLevelOverdue: {
-    color: '#f87171',
-  },
-  logBreakButton: {
-    minHeight: TOUCH_TARGET,
-    backgroundColor: '#0284c7',
-    borderRadius: 8,
     justifyContent: 'center',
+  },
+  micBtnOn: { backgroundColor: COLORS.badBg, borderColor: COLORS.bad },
+  micBtnOff: { opacity: 0.45 },
+  micGlyph: { fontSize: 20, color: COLORS.text },
+  micGlyphOff: { color: COLORS.faint },
+  sendBtn: {
+    width: TOUCH_TARGET,
+    height: TOUCH_TARGET,
+    borderRadius: TOUCH_TARGET / 2,
+    backgroundColor: COLORS.accent,
     alignItems: 'center',
-  },
-  logBreakButtonText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  breakSuccess: {
-    color: '#4ade80',
-    fontSize: 12,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  emergencyRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  emergencyButton: {
-    flex: 1,
-    minHeight: 56,
-    borderRadius: 8,
     justifyContent: 'center',
-    alignItems: 'center',
-    padding: 6,
   },
-  emergencyPolice: {
-    backgroundColor: '#1e3a8a',
+  sendBtnOff: { backgroundColor: COLORS.raised, borderWidth: 1, borderColor: COLORS.border },
+  sendGlyph: { fontSize: 18, color: COLORS.onAccent, fontWeight: '800' },
+  sendGlyphOff: { color: COLORS.faint },
+  speechNote: { color: COLORS.faint, fontSize: 11 },
+  chip: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.borderStrong,
+    backgroundColor: COLORS.bg,
   },
-  emergencyAmbulance: {
-    backgroundColor: '#991b1b',
-  },
-  emergencyHighway: {
-    backgroundColor: '#065f46',
-  },
-  emergencyButtonNum: {
-    color: '#ffffff',
-    fontSize: 20,
-    fontWeight: '900',
-  },
-  emergencyButtonLabel: {
-    color: '#e2e8f0',
-    fontSize: 10,
-    fontWeight: '700',
-    textAlign: 'center',
-    marginTop: 2,
-  },
-})
+  chipLabel: { color: COLORS.text, fontSize: 14, fontWeight: '600' },
+}))

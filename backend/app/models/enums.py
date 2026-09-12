@@ -235,6 +235,31 @@ class RouteReviewBasis(_StrEnum):
     HIGH_HAZARD_REPORTED = "HIGH_HAZARD_REPORTED"
 
 
+class EmergencyState(_StrEnum):
+    """Lifecycle of a safety incident."""
+
+    DRIVER_CHECK_REQUIRED = "DRIVER_CHECK_REQUIRED"
+    DRIVER_RESPONDED = "DRIVER_RESPONDED"
+    SOS_ESCALATED = "SOS_ESCALATED"
+    RESOLVED = "RESOLVED"
+    FALSE_ALARM = "FALSE_ALARM"
+
+
+class DriverCheckResponse(_StrEnum):
+    """Driver button set for the check-in response."""
+
+    I_AM_SAFE = "I_AM_SAFE"
+    TRAFFIC = "TRAFFIC"
+    ROAD_BLOCKED = "ROAD_BLOCKED"
+    BREAKDOWN = "BREAKDOWN"
+    REST_STOP = "REST_STOP"
+    LOADING = "LOADING"
+    UNLOADING = "UNLOADING"
+    MEDICAL_ISSUE = "MEDICAL_ISSUE"
+    OTHER = "OTHER"
+    NEED_HELP = "NEED_HELP"
+
+
 ENUM_TYPE_NAMES: dict[type[_StrEnum], str] = {
     UserRole: "user_role",
     DriverStatus: "driver_status",
@@ -254,4 +279,6 @@ ENUM_TYPE_NAMES: dict[type[_StrEnum], str] = {
     TripEventKind: "trip_event_kind",
     AuditAction: "audit_action",
     RouteReviewBasis: "route_review_basis",
+    EmergencyState: "emergency_state",
+    DriverCheckResponse: "driver_check_response",
 }

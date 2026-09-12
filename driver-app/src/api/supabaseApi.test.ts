@@ -205,26 +205,34 @@ describe('ai assistant edge function integration', () => {
 
 describe('unmigrated operations', () => {
   // An empty result is indistinguishable on screen from "no trip" or "no
-  // hotels nearby". Throwing is what keeps an unavailable capability visible.
-  it.each([['places', () => (supabaseApi.places as () => unknown)()]])(
-    '%s throws NotMigratedError instead of a plausible empty value',
-    async (_name, call) => {
-      await expect(async () => await call()).rejects.toThrowError(NotMigratedError)
-    },
-  )
+  // assignments". Throwing is what keeps an unavailable capability visible.
+  it.each([
+    ['myAssignment', () => (supabaseApi.myAssignment as () => unknown)()],
+    ['ready', () => (supabaseApi.ready as () => unknown)()],
+  ])('%s throws NotMigratedError instead of a plausible empty value', async (_name, call) => {
+    await expect(async () => await call()).rejects.toThrowError(NotMigratedError)
+  })
 })
 
-describe('the route packages', () => {
-  // These moved from "unmigrated" to the hosted intelligence plane. The error
-  // TYPE changed - NotMigratedError became IntelligenceUnavailableError - but
-  // the property that matters did not: an unreachable or unconfigured plane
-  // still throws, and still never returns an empty package.
-  //
-  // An empty geometry here would draw a navigation screen with no corridor and
-  // no way to tell that apart from a trip that has no route.
+describe('the route packages and roadside services', () => {
+  // These are served by the hosted intelligence plane. When unreachable or
+  // unconfigured, they throw IntelligenceUnavailableError rather than returning
+  // empty collections.
   it.each([
     ['offlinePackage', () => (supabaseApi.offlinePackage as () => unknown)()],
     ['navigationPackage', () => (supabaseApi.navigationPackage as () => unknown)()],
+    [
+      'places',
+      () =>
+        (supabaseApi.places as (q: any) => unknown)({
+          category: 'HOTEL',
+          south: 25,
+          west: 90,
+          north: 27,
+          east: 93,
+          anchor: 'MAP_AREA',
+        }),
+    ],
   ])('%s refuses rather than returning an empty package', async (_name, call) => {
     // EXPO_PUBLIC_INTELLIGENCE_BASE_URL is unset under test, so this exercises
     // the "not configured" branch specifically.

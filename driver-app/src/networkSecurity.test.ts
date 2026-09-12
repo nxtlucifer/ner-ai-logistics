@@ -13,6 +13,10 @@ it('permits HTTP only on the explicitly configured LAN IP', () => {
 it('HTTPS and an unset backend create no HTTP exception', () => {
   for (const url of ['', 'https://api.example.invalid']) expect(networkSecurityXml(url)).not.toContain('cleartextTrafficPermitted="true"')
 })
-it.each(['http://example.com', 'http://127.0.0.1:8000', 'http://192.168.1.6.example.com', 'ftp://192.168.1.6', `http://user:${randomUUID()}@192.168.1.6`])('refuses a non-LAN or credential-bearing API URL: %s', (url) => {
+it.each(['http://example.com', 'http://8.8.8.8:8000', 'http://192.168.1.6.example.com', 'ftp://192.168.1.6', `http://user:${randomUUID()}@192.168.1.6`])('refuses a non-LAN or credential-bearing API URL: %s', (url) => {
   expect(() => networkSecurityXml(url)).toThrow()
+})
+
+it('permits the phone loopback that adb reverse forwards over USB', () => {
+  expect(networkSecurityXml('http://127.0.0.1:8010')).toContain('<domain includeSubdomains="false">127.0.0.1</domain>')
 })

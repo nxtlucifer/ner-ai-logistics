@@ -27,6 +27,28 @@
         "EXPO_PUBLIC_SUPABASE_PROJECT_REF": "znaveeefzgfxsblsobdb",
         "EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpuYXZlZWVmemdmeHNibHNvYmRiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5OTgzNzksImV4cCI6MjEwMzU3NDM3OX0.PTlneRpCs0m_4ook2e5NU28Njbmt9fNbxLRMqnlD1v8"
       }
+    },
+    "lan-demo": {
+      "extends": "preview",
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_BACKEND": "local",
+        "EXPO_PUBLIC_API_BASE_URL": "http://192.168.1.6:8010"
+      }
+    },
+    "remote-demo": {
+      "extends": "preview",
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_BACKEND": "local",
+        "EXPO_PUBLIC_API_BASE_URL": "https://ner-intelligence.onrender.com"
+      }
     }
   }
 }

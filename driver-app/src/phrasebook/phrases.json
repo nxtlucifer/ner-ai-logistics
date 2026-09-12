@@ -29,13 +29,25 @@
     "A phrase shown to a stranger and misunderstood is the failure mode here,",
     "so this caveat is on screen rather than in this comment alone."
   ],
-  "version": "phrasebook-v1",
-  "revised": "2026-09-04",
+  "version": "phrasebook-v2",
+  "revised": "2026-09-12",
   "languages": [
-    { "code": "en", "name": "English" },
-    { "code": "hi", "name": "हिन्दी" },
-    { "code": "as", "name": "অসমীয়া" },
-    { "code": "bn", "name": "বাংলা" }
+    {
+      "code": "en",
+      "name": "English"
+    },
+    {
+      "code": "hi",
+      "name": "हिन्दी"
+    },
+    {
+      "code": "as",
+      "name": "অসমীয়া"
+    },
+    {
+      "code": "bn",
+      "name": "বাংলা"
+    }
   ],
   "categories": [
     {
@@ -234,6 +246,73 @@
           "hi": "आपकी मदद के लिए धन्यवाद।",
           "as": "আপোনাৰ সহায়ৰ বাবে ধন্যবাদ।",
           "bn": "আপনার সাহায্যের জন্য ধন্যবাদ।"
+        }
+      ]
+    },
+    {
+      "id": "LOADING_DELIVERY",
+      "en": "Loading and delivery",
+      "hi": "लोडिंग और डिलीवरी",
+      "as": "মাল তোলা আৰু ডেলিভাৰী",
+      "bn": "লোডিং ও ডেলিভারি",
+      "phrases": [
+        {
+          "id": "WHERE_UNLOAD",
+          "en": "Where should I unload?",
+          "hi": "मुझे माल कहाँ उतारना है?",
+          "as": "মই মাল ক'ত নমাম?",
+          "bn": "আমি মাল কোথায় নামাব?"
+        },
+        {
+          "id": "SIGN_RECEIPT",
+          "en": "Please sign the delivery receipt.",
+          "hi": "कृपया डिलीवरी रसीद पर हस्ताक्षर करें।",
+          "as": "অনুগ্ৰহ কৰি ডেলিভাৰী ৰচিদত চহী কৰক।",
+          "bn": "দয়া করে ডেলিভারি রসিদে সই করুন।"
+        },
+        {
+          "id": "WHO_RECEIVES",
+          "en": "Who is receiving this shipment?",
+          "hi": "यह माल कौन ले रहा है?",
+          "as": "এই মাল কোনে গ্ৰহণ কৰিব?",
+          "bn": "এই মাল কে গ্রহণ করছেন?"
+        },
+        {
+          "id": "WAIT_LOADING",
+          "en": "How long will loading take?",
+          "hi": "लोडिंग में कितना समय लगेगा?",
+          "as": "মাল তুলিবলৈ কিমান সময় লাগিব?",
+          "bn": "লোডিং করতে কত সময় লাগবে?"
+        }
+      ]
+    },
+    {
+      "id": "CHECKPOST",
+      "en": "Police and checkpost",
+      "hi": "पुलिस और चेकपोस्ट",
+      "as": "আৰক্ষী আৰু চেকপ'ষ্ট",
+      "bn": "পুলিশ ও চেকপোস্ট",
+      "phrases": [
+        {
+          "id": "CARRYING_ESSENTIAL",
+          "en": "I am carrying essential supplies. Here are my papers.",
+          "hi": "मैं आवश्यक सामान ले जा रहा हूँ। ये मेरे कागज़ हैं।",
+          "as": "মই অত্যাৱশ্যকীয় সামগ্ৰী নিছো। এইবোৰ মোৰ কাগজ।",
+          "bn": "আমি জরুরি সরবরাহ নিয়ে যাচ্ছি। এই আমার কাগজপত্র।"
+        },
+        {
+          "id": "MANAGER_NUMBER",
+          "en": "Please call my manager. The number is on this screen.",
+          "hi": "कृपया मेरे मैनेजर को फोन करें। नंबर इस स्क्रीन पर है।",
+          "as": "অনুগ্ৰহ কৰি মোৰ মেনেজাৰক ফোন কৰক। নম্বৰ এই স্ক্ৰীনত আছে।",
+          "bn": "দয়া করে আমার ম্যানেজারকে ফোন করুন। নম্বর এই স্ক্রিনে আছে।"
+        },
+        {
+          "id": "HOW_LONG_WAIT",
+          "en": "How long must I wait here?",
+          "hi": "मुझे यहाँ कितनी देर रुकना होगा?",
+          "as": "মই ইয়াত কিমান সময় ৰ'ব লাগিব?",
+          "bn": "আমাকে এখানে কতক্ষণ অপেক্ষা করতে হবে?"
         }
       ]
     }

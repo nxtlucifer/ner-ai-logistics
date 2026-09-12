@@ -28,6 +28,8 @@ function snapshot(overrides: Partial<FleetSnapshot> = {}): FleetSnapshot {
 
 describe('useFleetPoll', () => {
   beforeEach(() => {
+    // The last good snapshot is cached across reloads; each test starts cold.
+    localStorage.clear()
     vi.useFakeTimers({ shouldAdvanceTime: true })
   })
 

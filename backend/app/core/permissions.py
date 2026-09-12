@@ -77,6 +77,9 @@ FLEET_LOCATION_READ: Final = "fleet:location_read"
 
 AUDIT_READ: Final = "audit:read"
 
+EMERGENCY_READ: Final = "emergency:read"
+EMERGENCY_RESOLVE: Final = "emergency:resolve"
+
 ALL_PERMISSIONS: Final[frozenset[str]] = frozenset(
     {
         DRIVER_READ, DRIVER_CREATE, DRIVER_UPDATE, DRIVER_DEACTIVATE,
@@ -90,6 +93,7 @@ ALL_PERMISSIONS: Final[frozenset[str]] = frozenset(
         TRIP_EXECUTE_OWN, LOCATION_SUBMIT_OWN,
         FLEET_LOCATION_READ,
         AUDIT_READ,
+        EMERGENCY_READ, EMERGENCY_RESOLVE,
     }
 )
 
@@ -105,6 +109,7 @@ _MANAGER_PERMISSIONS: Final[frozenset[str]] = frozenset(
         ROUTE_READ, ROUTE_PLAN, ROUTE_SELECT,
         FLEET_LOCATION_READ,
         AUDIT_READ,
+        EMERGENCY_READ, EMERGENCY_RESOLVE,
     }
 )
 

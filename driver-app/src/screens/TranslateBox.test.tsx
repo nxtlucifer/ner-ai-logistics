@@ -124,7 +124,7 @@ describe('TranslateBox Component', () => {
       root?.render(createElement(TranslateBox))
     })
     expect(container?.textContent).toContain('Driver Translator')
-    expect(container?.textContent).toContain('ONLINE AI')
+    expect(container?.textContent).toContain('ONLINE TRANSLATION')
     expect(container?.textContent).toContain('Hindi')
     expect(container?.textContent).toContain('Assamese')
     expect(container?.textContent).toContain('Gujarati')
@@ -156,9 +156,9 @@ describe('TranslateBox Component', () => {
     act(() => {
       root?.render(createElement(TranslateBox))
     })
-    expect(container?.textContent).toContain('OFFLINE MODE')
+    expect(container?.textContent).toContain('LOCAL PHRASEBOOK')
     expect(container?.textContent).toContain(
-      'AI translation unavailable. Showing available offline phrases.',
+      'Online translation unavailable. Showing the local phrasebook.',
     )
   })
 
@@ -182,6 +182,6 @@ describe('TranslateBox Component', () => {
     })
     expect(container?.textContent).toContain('SHOW THIS TO THE OTHER PERSON')
     expect(container?.textContent).toContain('ল’ডিং গেট ক’ত আছে?')
-    expect(container?.textContent).toContain('ONLINE AI')
+    expect(container?.textContent).toContain('ONLINE TRANSLATION')
   })
 })

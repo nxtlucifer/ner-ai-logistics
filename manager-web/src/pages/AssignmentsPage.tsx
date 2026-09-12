@@ -17,9 +17,9 @@ export default function AssignmentsPage() {
   const [driverId, setDriverId] = useState('')
   const [truckId, setTruckId] = useState('')
 
-  const assignments = useResource(() => api.listAssignments({ activeOnly: true }), [])
-  const drivers = useResource(() => api.listDrivers({ limit: 100 }), [])
-  const trucks = useResource(() => api.listTrucks({ limit: 100 }), [])
+  const assignments = useResource(() => api.listAssignments({ activeOnly: true }), [], 'assignments:active', 5_000)
+  const drivers = useResource(() => api.listDrivers({ limit: 100 }), [], 'drivers:100')
+  const trucks = useResource(() => api.listTrucks({ limit: 100 }), [], 'trucks:100')
 
   const assign = useMutation((d: string, t: string) => api.createAssignment(d, t))
   const end = useMutation((id: string) => api.endAssignment(id))

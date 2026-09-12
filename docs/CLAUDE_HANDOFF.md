@@ -98,10 +98,8 @@ These are synthetic local accounts on a loopback-bound backend, but they left
 the machine. **Rotate them** with the existing guarded tool if that matters.
 
 **BLOCKER-B — no Google Maps Platform credentials.** `GOOGLE_PLACES_API_KEY`
-(server-side) and `GOOGLE_MAPS_ANDROID_API_KEY` (build-time) are both absent, so
-address autocomplete shows its unavailable state and the APK's map draws a panel
-naming the missing key instead of a blank grey rectangle. Both integrations are
-complete and reviewable; neither has ever made a real call.
+(server-side) is absent, so address autocomplete shows its unavailable state.
+The phone map no longer needs a key (Leaflet/OSM in a WebView since 12 Sep).
 
 **BLOCKER-C — Google's embedded Navigation SDK is not compatible.**
 `@googlemaps/react-native-navigation-sdk@0.17.1` requires `react-native >=0.87.0`

@@ -59,6 +59,7 @@ setWorkerUrl(maplibreWorkerUrl)
 
 import type { FleetTrip, Freshness, Position } from '../api/client'
 import { drawableSegments, isolatedFixes, splitTrack } from './track'
+import { terrainOverlays } from './terrain'
 
 /** Assam, so an empty map still opens somewhere meaningful to these operators. */
 export const NER_CENTRE: [number, number] = [92.9376, 26.2006]
@@ -104,6 +105,14 @@ export interface FleetMapProps {
    * class of mistake as plotting a truck that has never reported.
    */
   plannedRoute?: [number, number][]
+  /**
+   * DEM segments of the previewed route, from the risk payload. Only HILLY
+   * and STEEP stretches are painted - caution amber and emergency red over
+   * the planned blue - so "flat" never gets a colour of its own.
+   */
+  terrainSegments?: { start_m: number; end_m: number; terrain_class: string }[]
+  /** Precisely-placed recorded landslides within the corridor buffer. */
+  hazards?: { latitude: number; longitude: number; year: number | null; name: string | null }[]
   /** Draft preview: frame once when the chosen route changes. */
   previewRouteId?: string
 }
@@ -179,6 +188,8 @@ export default function FleetMap({
   onSelect,
   track,
   plannedRoute,
+  terrainSegments,
+  hazards,
   previewRouteId,
 }: FleetMapProps) {
   const container = useRef<HTMLDivElement | null>(null)
@@ -237,6 +248,39 @@ export default function FleetMap({
           'line-width': 4,
           'line-opacity': 0.7,
           'line-dasharray': [2, 2],
+        },
+      })
+
+      // Terrain over the planned route, solid so it cannot be mistaken for
+      // the dashed plan. Colour by class from the feature property.
+      instance.addSource('terrain-overlay', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+      instance.addLayer({
+        id: 'terrain-overlay',
+        type: 'line',
+        source: 'terrain-overlay',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': ['match', ['get', 'cls'], 'STEEP', '#B42318', '#B45309'],
+          'line-width': 5,
+          'line-opacity': 0.9,
+        },
+      })
+      instance.addSource('hazard-sites', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+      instance.addLayer({
+        id: 'hazard-sites',
+        type: 'circle',
+        source: 'hazard-sites',
+        paint: {
+          'circle-radius': 5,
+          'circle-color': '#FFFFFF',
+          'circle-stroke-width': 2,
+          'circle-stroke-color': '#B42318',
         },
       })
 
@@ -404,6 +448,32 @@ export default function FleetMap({
         : { type: 'FeatureCollection', features: [] },
     )
   }, [plannedRoute, loaded])
+
+  // Terrain stretches and recorded slide sites for the previewed route.
+  useEffect(() => {
+    const instance = map.current
+    if (!instance || !ready.current) return
+    const overlay = instance.getSource('terrain-overlay') as GeoJSONSource | undefined
+    const sites = instance.getSource('hazard-sites') as GeoJSONSource | undefined
+    if (!overlay || !sites) return
+    const route = plannedRoute ?? []
+    overlay.setData({
+      type: 'FeatureCollection',
+      features: terrainOverlays(route, terrainSegments ?? []).map(o => ({
+        type: 'Feature',
+        properties: { cls: o.terrainClass },
+        geometry: { type: 'LineString', coordinates: o.points.map(([lat, lon]) => [lon, lat]) },
+      })),
+    })
+    sites.setData({
+      type: 'FeatureCollection',
+      features: (hazards ?? []).map(h => ({
+        type: 'Feature',
+        properties: { year: h.year, name: h.name },
+        geometry: { type: 'Point', coordinates: [h.longitude, h.latitude] },
+      })),
+    })
+  }, [plannedRoute, terrainSegments, hazards, loaded])
 
   // Apply layer visibility. Separate from the data effects so toggling does not
   // rebuild a source.

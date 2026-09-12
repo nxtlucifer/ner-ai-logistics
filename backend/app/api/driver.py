@@ -14,21 +14,31 @@ from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
+from pydantic import Field
 from sqlalchemy import func, select
 
 from app.api.deps import CurrentDriver, CurrentUser, DbSession, get_client_ip
 from app.core.errors import BusinessRuleError, ConflictError, NotFoundError
 from app.domain import route_progress, telemetry_policy as policy
 from app.domain.places import (
+    MAX_RESULTS,
     BoundingBox,
+    Place,
     PlaceCategory,
     PlaceQueryError,
+    PlaceQueryResult,
+    PlacesSourceState,
     SearchAnchor,
+    corridor_windows,
 )
+from app.domain.routing import Coordinate as RouteCoordinate
 from app.domain.routing import parse_wkt_linestring
 from app.models.enums import (
     AssignmentStatus,
+    DriverCheckResponse,
     DriverStatus,
+    EmergencyState,
+    RouteKind,
     TripStatus,
     TripStopKind,
     TripStopStatus,
@@ -37,13 +47,22 @@ from app.models.enums import (
 from app.api.trips import RouteRiskRead, risk_read
 from app.models.operations import TripRoute
 from app.schemas.common import APIModel, ReadModel
-from app.schemas.domain import AssignmentVerify, GpsBatchAccepted, GpsBatchIn
+from app.schemas.domain import (
+    AssignmentVerify,
+    EmergencyRead,
+    GpsBatchAccepted,
+    GpsBatchIn,
+)
 from app.services import (
     driver_self,
     driver_trips,
     navigation,
     offline_package,
     places,
+    reroute as reroute_service,
+    route_risk as route_risk_service,
+    routes as route_service,
+    sentinel,
     telemetry,
     trips,
 )
@@ -311,12 +330,31 @@ class CurrentTrip(ReadModel):
     #: reading this payload accepted it" - never an acknowledgment inherited
     #: from whoever held the job before.
     driver_accepted_at: datetime | None
+    active_emergency: EmergencyRead | None = None
 
 
 class TripActionRequest(APIModel):
     """Optional narrowing id, exactly like AssignmentVerify.assignment_id."""
 
     trip_id: uuid.UUID | None = None
+
+
+class RerouteRequest(APIModel):
+    """Where the truck is now - the origin the new road is planned from."""
+
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+
+
+class RerouteProposed(ReadModel):
+    """The road planned from the truck's position. PROPOSED, not selected."""
+
+    route_id: uuid.UUID
+    kind: RouteKind
+    distance_km: float | None
+    estimated_duration_min: int | None
+    provider: str
+    has_guidance: bool
 
 
 def _stop_view(stop) -> TripStopView:
@@ -421,6 +459,9 @@ async def _trip_view(db, driver, trip) -> CurrentTrip:
 
     progress = await _progress_view(db, trip, position)
 
+    active_emg = await sentinel.get_active_emergency(db, trip.id)
+    active_emergency = EmergencyRead.model_validate(active_emg) if active_emg else None
+
     return CurrentTrip(
         id=trip.id,
         trip_code=trip.trip_code,
@@ -453,6 +494,7 @@ async def _trip_view(db, driver, trip) -> CurrentTrip:
         tracking_expected=in_progress,
         tracking=TrackingConfig(**policy.tracking_config()),
         last_fix=last_fix,
+        active_emergency=active_emergency,
     )
 
 
@@ -819,6 +861,108 @@ def _place_read(place) -> PlaceRead:
 
 
 @router.get(
+    "/me/trip/route-risk",
+    response_model=RouteRiskRead,
+    summary="Deterministic risk for this driver's selected route",
+)
+async def my_route_risk(driver: CurrentDriver, db: DbSession) -> RouteRiskRead:
+    """The same assessment the manager sees, for the driver's own route.
+
+    REUSES `route_risk_service.assess_route` and `risk_read`. A second scoring
+    path here would be a second answer to "is this road bad", and the two would
+    diverge the first time a constant changed - the manager and the driver must
+    be reading one number.
+
+    Subject comes from the token, like every route in this file: there is no
+    trip id and no route id in the path, so a driver cannot ask about anybody
+    else's corridor. Ownership therefore needs no separate check - the route is
+    reached only by walking from the authenticated driver to their current trip
+    to that trip's own `selected_route_id`.
+
+    404 with no trip, matching `/me/trip/navigation` and the offline package.
+
+    409 when the trip exists but no route is selected. NOT a 200 with a made-up
+    LOW: the whole point of this endpoint is that missing inputs stay missing,
+    and an empty assessment rendered as a score is the exact failure mode
+    `RouteRiskRead` was shaped to prevent. The app already renders this state.
+    """
+    trip = await driver_trips.current_trip(db, driver)
+    if trip is None:
+        raise NotFoundError("You have no trip to assess right now.")
+    if trip.selected_route_id is None:
+        raise ConflictError(
+            "No route has been selected for this trip yet, so there is nothing to assess."
+        )
+
+    # In transit, the reroute assessment already scores every live route on
+    # the trip - the selected one included - so its figures are reused rather
+    # than scored twice, and its outcome is what turns the band into the
+    # driver's instruction. Before departure there is nothing to reroute FROM
+    # and the instruction follows the band alone.
+    if trip.status in driver_trips.IN_PROGRESS_STATUSES:
+        assessment, candidates = await reroute_service.assess(db, trip.id)
+        selected_id = str(trip.selected_route_id)
+        selected = next((c for c in candidates if c.route_id == selected_id), None)
+        if selected is not None:
+            proposed = next(
+                (c for c in candidates if c.route_id == assessment.proposed_route_id),
+                None,
+            )
+            return risk_read(selected.risk, assessment, proposed)
+
+    risk = await route_risk_service.assess_route(db, trip.selected_route_id)
+    return risk_read(risk)
+
+
+def _find_across(
+    boxes: list[BoundingBox],
+    *,
+    category: PlaceCategory,
+    anchor: SearchAnchor,
+    anchor_lat: float | None,
+    anchor_lon: float | None,
+    route: list[tuple[float, float]] | None,
+    limit: int,
+) -> PlaceQueryResult:
+    """One answer from several bounded windows: merged, deduplicated, sorted.
+
+    A window that finds nothing is not an error; a window outside coverage is
+    only the answer if EVERY window is. The corridor filter still runs against
+    the whole route, so a place near the cut between two windows is judged by
+    the road, not by which window saw it.
+    """
+    merged: dict[str, Place] = {}
+    states: list[PlaceQueryResult] = []
+    for box in boxes:
+        part = places.find(
+            box=box,
+            category=category,
+            anchor=anchor,
+            anchor_lat=anchor_lat,
+            anchor_lon=anchor_lon,
+            route=route,
+            limit=MAX_RESULTS,
+        )
+        states.append(part)
+        for place in part.places:
+            merged.setdefault(place.provider_id, place)
+    if not any(s.state is PlacesSourceState.AVAILABLE for s in states):
+        return states[0]
+    found = list(merged.values())
+    if anchor_lat is not None and anchor_lon is not None:
+        found.sort(key=lambda p: p.straight_line_m or 0.0)
+    capped = min(limit, MAX_RESULTS)
+    source = next(s.source for s in states if s.source is not None)
+    return PlaceQueryResult(
+        state=PlacesSourceState.AVAILABLE,
+        places=tuple(found[:capped]),
+        source=source,
+        anchor=anchor,
+        truncated=len(found) > capped or any(s.truncated for s in states),
+    )
+
+
+@router.get(
     "/me/trip/places",
     response_model=PlacesResponse,
     summary="Roadside services near the driver's own trip",
@@ -827,10 +971,10 @@ async def my_trip_places(
     driver: CurrentDriver,
     db: DbSession,
     category: PlaceCategory,
-    south: float,
-    west: float,
-    north: float,
-    east: float,
+    south: float | None = None,
+    west: float | None = None,
+    north: float | None = None,
+    east: float | None = None,
     anchor: SearchAnchor = SearchAnchor.MAP_AREA,
     anchor_lat: float | None = None,
     anchor_lon: float | None = None,
@@ -849,15 +993,11 @@ async def my_trip_places(
 
     `anchor=ROUTE_CORRIDOR` filters to the driver's OWN authorised route, read
     here rather than accepted from the client - a caller cannot pass geometry
-    and have services matched against a road they invented.
+    and have services matched against a road they invented. The box is derived
+    from that route too, as a chain of windows each inside the bound: the
+    phone never has to know the provider's limit, and a 300 km road is never
+    one 300 km box.
     """
-    try:
-        box = BoundingBox(
-            min_lat=south, min_lon=west, max_lat=north, max_lon=east
-        )
-    except PlaceQueryError as exc:
-        raise BusinessRuleError(str(exc)) from exc
-
     route: list[tuple[float, float]] | None = None
     if anchor is SearchAnchor.ROUTE_CORRIDOR:
         trip = await driver_trips.current_trip(db, driver)
@@ -876,9 +1016,22 @@ async def my_trip_places(
         route = parse_wkt_linestring(wkt) if wkt else None
         if not route:
             raise NotFoundError("Your selected route has no usable geometry.")
+        boxes = corridor_windows(route)
+    else:
+        if None in (south, west, north, east):
+            raise BusinessRuleError("A map area is needed for this search.")
+        try:
+            boxes = [
+                BoundingBox(min_lat=south, min_lon=west, max_lat=north, max_lon=east)
+            ]
+        except PlaceQueryError as exc:
+            # The driver sees a next step, never the provider's bound.
+            raise BusinessRuleError(
+                "Zoom in to search this area - the map view is too wide."
+            ) from exc
 
-    result = places.find(
-        box=box,
+    result = _find_across(
+        boxes,
         category=category,
         anchor=anchor,
         anchor_lat=anchor_lat,
@@ -938,6 +1091,62 @@ async def accept_my_trip(
     """
     trip = await driver_trips.accept(db, driver, user, trip_id=payload.trip_id, ip=ip)
     return await _trip_view(db, driver, trip)
+
+
+@router.post(
+    "/me/trip/reroute",
+    response_model=RerouteProposed,
+    status_code=status.HTTP_201_CREATED,
+    summary="Plan a road from where the truck is now",
+)
+async def reroute_my_trip(
+    payload: RerouteRequest,
+    driver: CurrentDriver,
+    user: CurrentUser,
+    db: DbSession,
+    ip: ClientIp,
+) -> RerouteProposed:
+    """A driver off the planned road asks for a road from the reported position.
+
+    Plans a real route (turn instructions included) from `payload` to the
+    trip's destination and stores it as a PROPOSED EMERGENCY_BACKUP. The trip
+    stays on its selected route: eligibility, review authorisation and the
+    timeline entry all happen where they already do, in `reroute.accept`, when
+    a manager takes the proposal. Until then the phone shows it as the backup
+    road. Provider outages surface as 503 and store nothing.
+    """
+    trip = await driver_trips.current_trip(db, driver)
+    if trip is None:
+        raise NotFoundError("You have no trip to reroute.")
+    if trip.status not in driver_trips.IN_PROGRESS_STATUSES:
+        raise ConflictError(
+            "A road from your position can only be planned while the trip is under way.",
+            code="TRIP_NOT_IN_TRANSIT",
+            details={"current": trip.status.value},
+        )
+    if trip.selected_route_id is None:
+        raise ConflictError(
+            "This trip has no planned road to reroute from.",
+            code="NO_SELECTED_ROUTE",
+        )
+    result = await route_service.plan(
+        db,
+        trip.id,
+        actor=user,
+        ip=ip,
+        detailed=True,
+        origin=RouteCoordinate(lat=payload.lat, lon=payload.lon),
+        kind=RouteKind.EMERGENCY_BACKUP,
+    )
+    route = result.route
+    return RerouteProposed(
+        route_id=route.id,
+        kind=route.kind,
+        distance_km=float(route.distance_km) if route.distance_km is not None else None,
+        estimated_duration_min=route.estimated_duration_min,
+        provider=result.provider,
+        has_guidance=route.maneuvers is not None,
+    )
 
 
 @router.post("/me/trip/start", response_model=CurrentTrip, summary="Start the trip")
@@ -1003,6 +1212,44 @@ async def complete_my_trip(
         db, driver, user, trip_id=payload.trip_id, ip=ip
     )
     return await _trip_view(db, driver, trip)
+
+
+class DriverCheckInRequest(APIModel):
+    response: DriverCheckResponse
+    trip_id: uuid.UUID | None = None
+
+
+@router.post(
+    "/me/trip/check-in",
+    response_model=EmergencyRead,
+    summary="Submit driver check-in response for an active safety emergency",
+)
+async def submit_driver_check_in(
+    payload: DriverCheckInRequest,
+    driver: CurrentDriver,
+    db: DbSession,
+) -> EmergencyRead:
+    """Process driver safety check-in.
+
+    Driver confirms their status (e.g. I_AM_SAFE, TRAFFIC, NEED_HELP).
+    Selecting NEED_HELP immediately escalates the emergency to SOS_ESCALATED
+    with frozen snapshot briefing and moves the trip to INCIDENT status.
+    """
+    trip = await driver_trips.current_trip(db, driver)
+    if trip is None:
+        raise NotFoundError("You have no active trip.")
+
+    if payload.trip_id is not None and payload.trip_id != trip.id:
+        raise ConflictError(
+            "That check-in is for a different trip.",
+            code="TRIP_SUPERSEDED",
+            details={"current_trip_id": str(trip.id)},
+        )
+
+    emergency = await sentinel.record_driver_check_in(
+        db, driver, trip.id, payload.response
+    )
+    return EmergencyRead.model_validate(emergency)
 
 
 # =========================================================================

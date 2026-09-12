@@ -1,0 +1,1467 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RASTA-AI — Full Stack Engineering Document</title>
+<style>
+  @page {
+    size: A4 portrait;
+    margin: 16mm 14mm 16mm 14mm;
+  }
+  @page :first { margin: 0; }
+
+  :root{
+    --navy:#1B2B3A;
+    --blue:#145DA0;
+    --teal:#0E6E7C;
+    --green:#186A43;
+    --red:#9B2C2C;
+    --amber:#A85A00;
+    --muted:#536372;
+    --line:#D6DEE6;
+    --wash:#F4F7FA;
+    --wash2:#EDF3F8;
+  }
+
+  *{ box-sizing:border-box; }
+
+  html,body{ margin:0; padding:0; }
+
+  body{
+    font-family:"Segoe UI","Calibri",-apple-system,system-ui,sans-serif;
+    font-size:9.3pt;
+    line-height:1.46;
+    color:var(--navy);
+    -webkit-print-color-adjust:exact;
+    print-color-adjust:exact;
+  }
+
+  /* ---------------------------------------------------------- COVER */
+  .cover{
+    page-break-after:always;
+    height:297mm;
+    padding:26mm 20mm 18mm 20mm;
+    background:linear-gradient(160deg,#0B1D2E 0%,#14344F 52%,#0E5566 100%);
+    color:#fff;
+    display:flex;
+    flex-direction:column;
+  }
+  .cover .eyebrow{
+    font-size:8.6pt; letter-spacing:.30em; text-transform:uppercase;
+    color:#8FD4E4; font-weight:700; margin-bottom:20mm;
+  }
+  .cover h1{
+    font-size:37pt; line-height:1.03; margin:0 0 5mm 0; font-weight:700; letter-spacing:-.015em;
+  }
+  .cover h1 span{ display:block; color:#7FD1E8; }
+  .cover .sub{
+    font-size:12.4pt; line-height:1.42; color:#CFE3EE; font-weight:300;
+    max-width:132mm; margin-bottom:16mm;
+  }
+  .cover .rule{ height:3px; width:52mm; background:#7FD1E8; margin-bottom:11mm; }
+  .cover dl{ margin:0; display:grid; grid-template-columns:38mm 1fr; gap:2.6mm 6mm; font-size:9.4pt; }
+  .cover dt{ color:#8FB6CC; text-transform:uppercase; letter-spacing:.08em; font-size:8.1pt; font-weight:600; padding-top:.7mm; }
+  .cover dd{ margin:0; color:#F2F8FB; }
+  .cover .foot{
+    margin-top:auto; padding-top:9mm; border-top:1px solid rgba(255,255,255,.18);
+    font-size:8.6pt; color:#A8C6D6; line-height:1.5;
+  }
+  .cover .chips{ display:flex; gap:2.5mm; flex-wrap:wrap; margin:11mm 0 0 0; }
+  .cover .chips span{
+    background:rgba(127,209,232,.15); border:1px solid rgba(127,209,232,.42);
+    color:#CFEAF5; padding:1.6mm 3.4mm; border-radius:2mm; font-size:8.3pt; font-weight:600;
+  }
+
+  /* ---------------------------------------------------------- STRUCTURE */
+  h2{
+    font-size:15pt; margin:0 0 1.5mm 0; color:var(--navy); font-weight:700;
+    letter-spacing:-.01em;
+  }
+  h2 .num{
+    display:inline-block; min-width:8.6mm; color:var(--blue); font-weight:700;
+  }
+  .sechead{
+    border-bottom:2.2px solid var(--navy); padding-bottom:2mm; margin-bottom:4.5mm;
+    page-break-after:avoid; page-break-inside:avoid;
+  }
+  .sechead .kicker{
+    font-size:8.2pt; color:var(--muted); margin-top:1.2mm; letter-spacing:.01em;
+  }
+  h3{
+    font-size:10.6pt; margin:6mm 0 2.2mm 0; color:var(--teal); font-weight:700;
+    page-break-after:avoid;
+  }
+  h4{
+    font-size:9.4pt; margin:4.6mm 0 1.6mm 0; color:var(--navy); font-weight:700;
+    page-break-after:avoid;
+  }
+  p{ margin:0 0 2.6mm 0; }
+  .lede{ font-size:10pt; color:#2E4459; margin-bottom:4mm; }
+  .newpage{ page-break-before:always; }
+  .keep{ page-break-inside:avoid; }
+  ul,ol{ margin:0 0 2.8mm 0; padding-left:4.6mm; }
+  li{ margin-bottom:1.1mm; }
+  code,.mono{
+    font-family:"Cascadia Mono","Consolas",monospace; font-size:8.3pt;
+    background:var(--wash2); padding:.3mm 1.1mm; border-radius:1mm; color:#0F3D5C;
+  }
+  strong{ font-weight:700; }
+  .muted{ color:var(--muted); }
+
+  /* ---------------------------------------------------------- TABLES */
+  table{
+    width:100%; border-collapse:collapse; font-size:8.5pt; margin:0 0 3.5mm 0;
+    page-break-inside:auto;
+  }
+  th{
+    text-align:left; background:var(--navy); color:#fff; font-weight:600;
+    padding:1.7mm 2.2mm; font-size:8pt; letter-spacing:.02em;
+  }
+  td{
+    padding:1.6mm 2.2mm; border-bottom:1px solid var(--line); vertical-align:top;
+  }
+  tbody tr:nth-child(even){ background:var(--wash); }
+  tr{ page-break-inside:avoid; }
+  table.tight td, table.tight th{ padding:1.25mm 2mm; font-size:8.1pt; }
+  td.n{ white-space:nowrap; }
+
+  /* ---------------------------------------------------------- BADGES */
+  .b{
+    display:inline-block; padding:.5mm 1.8mm; border-radius:1.2mm;
+    font-size:7.3pt; font-weight:700; letter-spacing:.03em; white-space:nowrap;
+  }
+  .b-live{ background:#DFF3E7; color:var(--green); }
+  .b-blue{ background:#DEEBF7; color:var(--blue); }
+  .b-teal{ background:#D8EFF3; color:var(--teal); }
+  .b-red{ background:#F8E3E3; color:var(--red); }
+  .b-amber{ background:#FBEEDC; color:var(--amber); }
+
+  /* ---------------------------------------------------------- CALLOUTS */
+  .call{
+    border-left:3.2px solid var(--blue); background:var(--wash);
+    padding:2.8mm 3.4mm; margin:0 0 3.6mm 0; page-break-inside:avoid;
+  }
+  .call .t{
+    font-weight:700; font-size:8.4pt; text-transform:uppercase; letter-spacing:.06em;
+    color:var(--blue); margin-bottom:1.3mm;
+  }
+  .call p:last-child{ margin-bottom:0; }
+  .call.teal{ border-left-color:var(--teal); }
+  .call.teal .t{ color:var(--teal); }
+  .call.green{ border-left-color:var(--green); background:#F1F8F4; }
+  .call.green .t{ color:var(--green); }
+  .call.red{ border-left-color:var(--red); background:#FCF4F4; }
+  .call.red .t{ color:var(--red); }
+
+  /* ---------------------------------------------------------- GRID */
+  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:4mm; }
+  .grid3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:3.2mm; }
+  .grid4{ display:grid; grid-template-columns:repeat(4,1fr); gap:2.8mm; }
+  .card{
+    border:1px solid var(--line); border-radius:1.8mm; padding:2.8mm 3mm;
+    background:#fff; page-break-inside:avoid;
+  }
+  .card .h{
+    font-weight:700; font-size:8.8pt; color:var(--navy); margin-bottom:1.4mm;
+  }
+  .card .s{ font-size:8.2pt; color:var(--muted); }
+  .card ul{ padding-left:3.8mm; margin-bottom:0; }
+  .card li{ font-size:8.2pt; }
+
+  /* ---------------------------------------------------------- STATS */
+  .stats{ display:grid; grid-template-columns:repeat(5,1fr); gap:2.6mm; margin:0 0 4mm 0; }
+  .stat{
+    border:1px solid var(--line); border-top:2.6px solid var(--blue);
+    border-radius:1.4mm; padding:2.6mm 2.2mm; text-align:center; background:#fff;
+  }
+  .stat .v{ font-size:15pt; font-weight:700; color:var(--navy); line-height:1.05; }
+  .stat .k{ font-size:7.4pt; color:var(--muted); margin-top:1.1mm; line-height:1.28; }
+
+  /* ---------------------------------------------------------- STACK DIAGRAM */
+  .layer{
+    border:1px solid var(--line); border-radius:2mm; margin-bottom:2.4mm;
+    overflow:hidden; page-break-inside:avoid;
+  }
+  .layer .lh{
+    background:var(--navy); color:#fff; padding:1.7mm 3mm; font-size:8.3pt;
+    font-weight:700; letter-spacing:.05em; display:flex; justify-content:space-between;
+  }
+  .layer .lh .r{ font-weight:400; color:#A8C6D6; letter-spacing:0; }
+  .layer .lb{ padding:2.6mm 3mm; background:#fff; }
+  .layer.blue .lh{ background:var(--blue); }
+  .layer.teal .lh{ background:var(--teal); }
+  .layer.green .lh{ background:var(--green); }
+  .arrowdown{
+    text-align:center; color:var(--blue); font-size:12pt; line-height:1;
+    margin:-.6mm 0 1.6mm 0; font-weight:700;
+  }
+  .pill{
+    display:inline-block; background:var(--wash2); border:1px solid #C9DAE7;
+    color:#12405F; padding:.9mm 2.2mm; border-radius:1.2mm; font-size:7.9pt;
+    margin:0 1.4mm 1.4mm 0; font-weight:600;
+  }
+  .pill.g{ background:#E8F5EE; border-color:#B6DCC6; color:var(--green); }
+  .pill.t{ background:#E0F1F4; border-color:#AED6DD; color:var(--teal); }
+
+  /* ---------------------------------------------------------- FLOW */
+  .flow{ display:grid; grid-template-columns:repeat(5,1fr); gap:2.4mm; margin-bottom:3.4mm; }
+  .step{
+    border:1px solid var(--line); border-radius:1.6mm; padding:2.4mm 2.2mm; background:#fff;
+    page-break-inside:avoid;
+  }
+  .step .n{
+    display:inline-block; background:var(--blue); color:#fff; width:5mm; height:5mm;
+    border-radius:50%; text-align:center; line-height:5mm; font-size:7.6pt; font-weight:700;
+    margin-bottom:1.4mm;
+  }
+  .step .t{ font-weight:700; font-size:8.2pt; margin-bottom:1mm; }
+  .step .d{ font-size:7.7pt; color:var(--muted); line-height:1.34; }
+
+  /* ---------------------------------------------------------- SEQUENCE */
+  .seq{ margin:0 0 3.6mm 0; }
+  .seq .row{
+    display:grid; grid-template-columns:7mm 30mm 1fr; gap:2.6mm;
+    padding:2mm 0; border-bottom:1px solid var(--line); page-break-inside:avoid;
+  }
+  .seq .row:last-child{ border-bottom:none; }
+  .seq .i{
+    background:var(--teal); color:#fff; width:5.4mm; height:5.4mm; border-radius:50%;
+    text-align:center; line-height:5.4mm; font-size:7.6pt; font-weight:700;
+  }
+  .seq .who{ font-weight:700; font-size:8.3pt; color:var(--navy); }
+  .seq .who .sub{ display:block; font-weight:400; font-size:7.5pt; color:var(--muted); }
+  .seq .what{ font-size:8.4pt; }
+  .seq .what .mono{ font-size:7.9pt; }
+
+  /* ---------------------------------------------------------- CODE BLOCK */
+  pre{
+    background:#0E2434; color:#D7E7F0; padding:2.8mm 3.2mm; border-radius:1.6mm;
+    font-family:"Cascadia Mono","Consolas",monospace; font-size:7.7pt; line-height:1.5;
+    overflow:hidden; margin:0 0 3.4mm 0; white-space:pre-wrap; page-break-inside:avoid;
+  }
+  pre .c{ color:#7FA8BF; }
+  pre .k{ color:#8FD4E4; }
+  pre .v{ color:#F0C674; }
+
+  /* ---------------------------------------------------------- TOC */
+  .toc{ column-count:2; column-gap:9mm; }
+  .toc a{ text-decoration:none; color:var(--navy); }
+  .toc .item{
+    display:flex; justify-content:space-between; padding:1.5mm 0;
+    border-bottom:1px dotted var(--line); font-size:8.9pt; break-inside:avoid;
+  }
+  .toc .item .l{ color:var(--navy); }
+  .toc .item .l b{ color:var(--blue); display:inline-block; min-width:6.5mm; }
+  .toc .item .p{ color:var(--muted); font-size:8.2pt; }
+
+  .endnote{
+    margin-top:6mm; border-top:1px solid var(--line); padding-top:3mm;
+    font-size:8pt; color:var(--muted);
+  }
+</style>
+</head>
+<body>
+
+<!-- ============================================================ COVER -->
+<section class="cover">
+  <div class="eyebrow">Smart India Hackathon 2026 &nbsp;·&nbsp; SIH26002</div>
+  <h1>RASTA-AI<span>Full Stack Engineering Document</span></h1>
+  <div class="rule"></div>
+  <div class="sub">
+    How the AI-Based Smart Logistics and Accessibility Intelligence Platform for the
+    North Eastern Region is built, and how a single trip flows through every layer of it —
+    from the manager's plan to the driver's turn instruction and back.
+  </div>
+  <dl>
+    <dt>Problem Statement</dt><dd>SIH26002 — AI-Based Smart Logistics and Accessibility Intelligence Platform for North Eastern Region (NER)</dd>
+    <dt>Organisation</dt><dd>Ministry of Development of North Eastern Region (MDoNER)</dd>
+    <dt>Theme / Category</dt><dd>Smart Automation · Software</dd>
+    <dt>Product</dt><dd>RASTA-AI — Route Accessibility, Safety, Terrain &amp; Analytics</dd>
+    <dt>Release</dt><dd>Platform 1.0.9 · Android versionCode 9 · build 3730b06b</dd>
+    <dt>Document date</dt><dd>9 September 2026</dd>
+  </dl>
+  <div class="chips">
+    <span>1,636 automated tests</span>
+    <span>3 shipped clients</span>
+    <span>10 decision engines</span>
+    <span>17 production tables</span>
+    <span>46 API endpoints</span>
+  </div>
+  <div class="foot">
+    Every version number, table name, endpoint, coefficient and threshold in this document was read
+    out of the working tree on the date above. This is an engineering description of a running
+    system, not a design proposal.
+  </div>
+</section>
+
+<!-- ============================================================ TOC -->
+<section>
+  <div class="sechead">
+    <h2>Contents</h2>
+    <div class="kicker">Twelve sections — the stack top to bottom, then one trip end to end</div>
+  </div>
+  <div class="toc">
+    <div class="item"><span class="l"><b>1</b> What the platform does</span><span class="p">3</span></div>
+    <div class="item"><span class="l"><b>2</b> System architecture</span><span class="p">5</span></div>
+    <div class="item"><span class="l"><b>3</b> How one trip flows, end to end</span><span class="p">7</span></div>
+    <div class="item"><span class="l"><b>4</b> Layer 1 — Driver mobile client</span><span class="p">9</span></div>
+    <div class="item"><span class="l"><b>5</b> Layer 2 — Manager web client</span><span class="p">11</span></div>
+    <div class="item"><span class="l"><b>6</b> Layer 3 — API and domain services</span><span class="p">12</span></div>
+    <div class="item"><span class="l"><b>7</b> Layer 4 — Data platform</span><span class="p">15</span></div>
+    <div class="item"><span class="l"><b>8</b> Layer 5 — Accessibility intelligence</span><span class="p">17</span></div>
+    <div class="item"><span class="l"><b>9</b> Layer 6 — External data providers</span><span class="p">19</span></div>
+    <div class="item"><span class="l"><b>10</b> Security architecture</span><span class="p">20</span></div>
+    <div class="item"><span class="l"><b>11</b> Testing and quality</span><span class="p">22</span></div>
+    <div class="item"><span class="l"><b>12</b> Build, release and deployment</span><span class="p">23</span></div>
+  </div>
+
+  <h3 style="margin-top:8mm">The system in five numbers</h3>
+  <div class="stats">
+    <div class="stat"><div class="v">1,636</div><div class="k">automated tests<br>passing</div></div>
+    <div class="stat"><div class="v">3</div><div class="k">shipped clients<br>web · Android · API</div></div>
+    <div class="stat"><div class="v">10</div><div class="k">deterministic<br>decision engines</div></div>
+    <div class="stat"><div class="v">17</div><div class="k">production<br>database tables</div></div>
+    <div class="stat"><div class="v">71 MB</div><div class="k">installable<br>Android APK</div></div>
+  </div>
+
+  <div class="call teal">
+    <div class="t">The one rule that shapes every layer below</div>
+    <p>
+      <strong>Roads are treated as changeably passable, not as fixed lines on a map.</strong>
+      A corridor that was open this morning may be closed by a landslide this afternoon and open
+      again tomorrow. Every layer of this stack exists to carry that fact accurately: the database
+      stores road condition as dated evidence rather than as a property, the engines refuse a
+      corridor rather than scoring it low, and the clients display a missing input as missing rather
+      than as a safe one.
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================ 1 -->
+<section class="newpage">
+  <div class="sechead">
+    <h2><span class="num">1</span>What the platform does</h2>
+    <div class="kicker">The operating problem in the North East, and the six capabilities that answer it</div>
+  </div>
+
+  <p class="lede">
+    Freight into and across the eight North Eastern states passes through a 22 km chokepoint at
+    Siliguri, over single corridors whose next alternative is often more than 100 km away, through a
+    monsoon that closes highways from May to September, and across cellular dead zones where a truck
+    is simply unreachable for hours. A fleet manager's best instrument today is a phone call, and
+    fuel is budgeted by a rule of thumb that models neither gradient nor payload.
+  </p>
+
+  <h3>The six capabilities</h3>
+  <div class="grid2">
+    <div class="card">
+      <div class="h">Accessibility intelligence</div>
+      <div class="s">Weather, landslide exposure and closure evidence are combined per corridor and
+      re-evaluated live, so the question is never "what is the shortest road" but "which of these
+      roads is usable right now, and on what evidence".</div>
+    </div>
+    <div class="card">
+      <div class="h">Three-corridor explainable comparison</div>
+      <div class="s">Primary, fuel-saving and backup corridors compared side by side on distance, ETA,
+      litres, CO<sub>2</sub> and reason-coded risk — with the deltas stated in points, minutes and
+      kilometres rather than as a percentage of an ordinal score.</div>
+    </div>
+    <div class="card">
+      <div class="h">Physics-based fuel and emissions</div>
+      <div class="s">Litres and CO<sub>2</sub> derived from payload mass, cumulative climb metres and
+      speed through a CMEM-form model with published coefficients — not from distance multiplied by a
+      fleet average.</div>
+    </div>
+    <div class="card">
+      <div class="h">Fleet Sentinel escalation</div>
+      <div class="s">A truck that has not moved beyond a PostGIS radius for a set interval and whose
+      driver has not answered produces a populated SOS briefing to the manager automatically. The
+      escalation is a rule, so it fires whether or not anyone was watching.</div>
+    </div>
+    <div class="card">
+      <div class="h">Offline-first driver client</div>
+      <div class="s">Route geometry, turn maneuvers, roadside POIs and the emergency guide are cached
+      before the dead zone; GPS fixes queue locally and replay idempotently on
+      <code>(trip_id, device_fix_id)</code> when signal returns.</div>
+    </div>
+    <div class="card">
+      <div class="h">Vernacular in-cab assistance</div>
+      <div class="s">Reason codes — not sentences — cross the wire, so Assamese, Bengali, Hindi and
+      English guidance is produced by lookup rather than translation, and works with no model and no
+      network.</div>
+    </div>
+  </div>
+
+  <h3>Four design commitments that a judge can check in the code</h3>
+  <table class="tight">
+    <thead><tr><th style="width:52mm">Commitment</th><th>What it means in the implementation</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Silence is not evidence</strong></td>
+        <td>No amount of elapsed time may move a road segment toward <code>VERIFIED_OPEN</code>. A repair
+        claim is a distinct state (<code>REPAIR_REPORTED</code>) from a confirmation. Enforced in
+        <code>domain/road_memory.py</code>.</td>
+      </tr>
+      <tr>
+        <td><strong>A closed road is refused, not penalised</strong></td>
+        <td><code>route_eligibility</code> runs <em>before</em> ranking and returns <code>REJECTED</code>.
+        A penalty can be out-voted by other components; a refusal cannot.</td>
+      </tr>
+      <tr>
+        <td><strong>UNKNOWN ≠ SAFE, STALE ≠ LIVE</strong></td>
+        <td>A factor with no usable reading is reported as <code>NOT_AVAILABLE</code> with a reason
+        code. Stale observations are counted and named, never scored. A provider outage can never
+        become <code>risk = 0</code>.</td>
+      </tr>
+      <tr>
+        <td><strong>AI is never in the safety path</strong></td>
+        <td>Every engine is a deterministic weighted rule with published constants. A test asserts
+        that no <code>confidence</code>, <code>probability</code> or <code>model_version</code> field
+        ever reaches the wire. The language model only rewords facts the rules already produced.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="call green">
+    <div class="t">Why deterministic rules are the engineering answer here, not a compromise</div>
+    <p>
+      After a real incident, <em>"the truck had not moved more than 50 m in 60 minutes and the driver
+      did not answer in 30"</em> is a defensible sentence in an inquiry. <em>"The model scored
+      0.83"</em> is not. Every constant in this system is published, versioned and arguable in
+      review — and the append-only evidence log the platform produces is precisely the dataset that
+      any future statistical model would have to beat.
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================ 2 -->
+<section class="newpage">
+  <div class="sechead">
+    <h2><span class="num">2</span>System architecture</h2>
+    <div class="kicker">Two purpose-built clients, one API, one data platform, one intelligence plane</div>
+  </div>
+
+  <p class="lede">
+    The manager works at a desk with several screens and a keyboard. The driver works one-handed in a
+    cab, often at night, frequently with no signal. Those are genuinely different design constraints,
+    so they are two applications rather than one responsive web app that would compromise both. They
+    share one backend, one schema and one set of rules.
+  </p>
+
+  <div class="layer blue">
+    <div class="lh"><span>PRESENTATION LAYER — two clients</span><span class="r">TypeScript 6</span></div>
+    <div class="lb">
+      <div class="grid2">
+        <div>
+          <div style="font-weight:700;font-size:8.6pt;margin-bottom:1.4mm">Manager web console</div>
+          <span class="pill">React 19</span><span class="pill">Vite 8</span><span class="pill">Tailwind 4</span>
+          <span class="pill">MapLibre GL 6</span><span class="pill">react-router 7</span>
+          <div class="s" style="font-size:8pt;color:var(--muted);margin-top:.8mm">
+            Eight pages: Fleet · Trips · Drivers · Trucks · Assignments · Review · System · Login
+          </div>
+        </div>
+        <div>
+          <div style="font-weight:700;font-size:8.6pt;margin-bottom:1.4mm">Driver Android client</div>
+          <span class="pill">Expo SDK 57</span><span class="pill">React Native 0.86</span>
+          <span class="pill">react-native-maps</span><span class="pill">expo-location</span>
+          <span class="pill">SecureStore</span>
+          <div class="s" style="font-size:8pt;color:var(--muted);margin-top:.8mm">
+            Eight screens: Login · Assignment · Map · Trip · Safety · Assistant · Translate · Phrasebook
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrowdown">▼ &nbsp; HTTPS / JSON &nbsp;·&nbsp; JWT bearer &nbsp;·&nbsp; no client holds a database credential &nbsp; ▼</div>
+
+  <div class="layer">
+    <div class="lh"><span>API AND DOMAIN LAYER</span><span class="r">FastAPI 0.115 · Python 3.11</span></div>
+    <div class="lb">
+      <div style="font-weight:700;font-size:8.4pt;margin-bottom:1.4mm">Services — orchestration: database + providers + domain</div>
+      <span class="pill">trips</span><span class="pill">routes</span><span class="pill">route_risk</span>
+      <span class="pill">route_recommendation</span><span class="pill">route_review</span><span class="pill">reroute</span>
+      <span class="pill">navigation</span><span class="pill">offline_package</span><span class="pill">telemetry</span>
+      <span class="pill">driver_trips</span><span class="pill">assignments</span><span class="pill">audit</span>
+      <div style="font-weight:700;font-size:8.4pt;margin:2.6mm 0 1.4mm 0">Domain engines — pure functions, no I/O, no database, no provider</div>
+      <span class="pill t">route_risk</span><span class="pill t">route_eligibility</span>
+      <span class="pill t">route_recommendation</span><span class="pill t">reroute</span>
+      <span class="pill t">fuel_model</span><span class="pill t">road_memory</span>
+      <span class="pill t">monsoon_risk</span><span class="pill t">route_progress</span>
+      <span class="pill t">trip_state</span><span class="pill t">telemetry_policy</span>
+      <div style="font-weight:700;font-size:8.4pt;margin:2.6mm 0 1.4mm 0">Safety core — rules only</div>
+      <span class="pill g">capacity validation</span><span class="pill g">document enforcement</span>
+      <span class="pill g">route eligibility</span><span class="pill g">Fleet Sentinel escalation</span>
+      <span class="pill g">RBAC + audit</span>
+    </div>
+  </div>
+
+  <div class="arrowdown">▼</div>
+
+  <div class="grid2" style="gap:2.4mm">
+    <div class="layer teal" style="margin-bottom:0">
+      <div class="lh"><span>DATA PLATFORM</span><span class="r">ap-south-1</span></div>
+      <div class="lb">
+        <span class="pill">PostgreSQL 17.6</span><span class="pill">PostGIS 3.3</span>
+        <span class="pill">RLS on every table</span><span class="pill">Deno edge functions</span>
+        <div class="s" style="font-size:8pt;color:var(--muted);margin-top:1.2mm">
+          Atomic RPCs: <code>plan_trip</code> · <code>dispatch_trip</code> · <code>select_route</code>
+        </div>
+      </div>
+    </div>
+    <div class="layer green" style="margin-bottom:0">
+      <div class="lh"><span>EXTERNAL EVIDENCE</span><span class="r">licence-clear</span></div>
+      <div class="lb">
+        <span class="pill">Open-Meteo — rain &amp; gusts</span><span class="pill">Project-OSRM — geometry &amp; turns</span>
+        <span class="pill">Overpass / OSM — POIs</span><span class="pill">SRTM — climb metres</span>
+        <span class="pill">Gemini (edge only)</span>
+      </div>
+    </div>
+  </div>
+
+  <h3>The architectural rule that makes this testable</h3>
+  <div class="call">
+    <div class="t">app/domain/ imports nothing</div>
+    <p>
+      <code>app/domain/</code> contains no import of SQLAlchemy, httpx or FastAPI. Every engine is a
+      pure function over dataclasses. That is why risk, fuel, eligibility and reroute logic can be
+      exercised exhaustively without a database or a network, why the constants can be argued with in
+      review, and why the same logic is guaranteed identical whether it was reached from the manager
+      console, the Android client or a direct API call.
+    </p>
+  </div>
+
+  <h3>Why clients never touch the database directly</h3>
+  <p>
+    Capacity rules, document enforcement and the safety path are only unbypassable if there is exactly
+    one way to write. No client holds a database credential; Row Level Security is enabled on every
+    table; and operations that must be atomic across several writes are server-side RPCs rather than
+    a sequence of client calls that a dropped connection can leave half-applied.
+  </p>
+
+  <h4>Version inventory</h4>
+  <table class="tight">
+    <thead><tr><th style="width:38mm">Layer</th><th style="width:44mm">Core technology</th><th>Pinned version</th></tr></thead>
+    <tbody>
+      <tr><td>Driver client</td><td>Expo · React Native</td><td class="n"><code>expo ~57.0.18</code> · <code>react-native 0.86.3</code> · <code>react 19.2.3</code></td></tr>
+      <tr><td>Manager client</td><td>React · Vite · Tailwind</td><td class="n"><code>react ^19.2.8</code> · <code>vite ^8.2.2</code> · <code>tailwindcss ^4.3.3</code></td></tr>
+      <tr><td>API</td><td>FastAPI · Uvicorn</td><td class="n"><code>fastapi 0.115.6</code> · <code>uvicorn[standard] 0.34.0</code></td></tr>
+      <tr><td>Backend language</td><td>Python</td><td class="n">3.11.9 &nbsp;<span class="muted">(<code>&gt;=3.11,&lt;3.13</code> in pyproject)</span></td></tr>
+      <tr><td>ORM / migrations</td><td>SQLAlchemy · Alembic</td><td class="n"><code>sqlalchemy 2.0.36</code> · <code>alembic 1.14.0</code></td></tr>
+      <tr><td>Database driver</td><td>psycopg 3 (binary)</td><td class="n"><code>psycopg[binary] 3.2.3</code></td></tr>
+      <tr><td>Geospatial ORM</td><td>GeoAlchemy2</td><td class="n"><code>geoalchemy2 0.16.0</code></td></tr>
+      <tr><td>Database</td><td>PostgreSQL + PostGIS</td><td class="n">17.6 · PostGIS 3.3 · region ap-south-1</td></tr>
+      <tr><td>Validation</td><td>Pydantic</td><td class="n"><code>pydantic 2.10.4</code> · <code>pydantic-settings 2.7.0</code></td></tr>
+      <tr><td>Auth</td><td>Argon2id · PyJWT</td><td class="n"><code>argon2-cffi 23.1.0</code> · <code>pyjwt[crypto] 2.10.1</code></td></tr>
+      <tr><td>Maps</td><td>MapLibre · Leaflet · RN Maps</td><td class="n"><code>maplibre-gl ^6.6.0</code> · <code>leaflet ^1.9.4</code> · <code>react-native-maps 1.27.2</code></td></tr>
+      <tr><td>Tests</td><td>pytest · Vitest</td><td class="n"><code>pytest 8.3.4</code> · <code>vitest ^3.2.7</code> / <code>^4.1.11</code></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============================================================ 3 -->
+<section class="newpage">
+  <div class="sechead">
+    <h2><span class="num">3</span>How one trip flows, end to end</h2>
+    <div class="kicker">Eight stages, from the manager's plan to proof of delivery — with the real call at each step</div>
+  </div>
+
+  <p class="lede">
+    This is the spine of the product. Everything in sections 4 to 9 exists to serve one of these
+    eight stages. The scenario: a 14-tonne consignment from Guwahati to Shillong during monsoon.
+  </p>
+
+  <div class="flow">
+    <div class="step"><div class="n">1</div><div class="t">PLAN</div><div class="d">Shipment, cargo and stops created atomically with capacity validation</div></div>
+    <div class="step"><div class="n">2</div><div class="t">PREDICT</div><div class="d">Corridors generated; weather, landslide and climb evidence gathered per candidate</div></div>
+    <div class="step"><div class="n">3</div><div class="t">EXPLAIN</div><div class="d">Three corridors compared with reason codes, litres and named gaps</div></div>
+    <div class="step"><div class="n">4</div><div class="t">AUTHORIZE</div><div class="d">Reviewer token issued and consumed; the switch is one transaction</div></div>
+    <div class="step"><div class="n">5</div><div class="t">NAVIGATE</div><div class="d">Geometry and maneuvers bound to a route revision, cached for the dead zone</div></div>
+  </div>
+  <div class="flow" style="grid-template-columns:repeat(3,1fr);max-width:62%">
+    <div class="step"><div class="n">6</div><div class="t">TRACK</div><div class="d">GPS ingested idempotently; freshness classified LIVE / STALE / NO_CONTACT</div></div>
+    <div class="step"><div class="n">7</div><div class="t">ADAPT</div><div class="d">Conditions re-assessed; NO_ACTION, ALERT_ONLY or PROPOSE — never silent</div></div>
+    <div class="step"><div class="n">8</div><div class="t">DELIVER</div><div class="d">Stops completed, proof captured, trip closed, audit sealed</div></div>
+  </div>
+
+  <h3>Stage by stage, with the actual call</h3>
+  <div class="seq">
+    <div class="row">
+      <div class="i">1</div>
+      <div class="who">Manager<span class="sub">Trips page</span></div>
+      <div class="what">
+        Enters pickup, destination and cargo. <span class="mono">POST /api/trips/plan</span> →
+        Supabase RPC <code>plan_trip</code> creates shipment, cargo items, trip and stops
+        <strong>in one transaction</strong>, validating that total cargo mass does not exceed the
+        assigned truck's rated capacity. Over-capacity is refused here, before dispatch — not
+        discovered at the weighbridge.
+      </div>
+    </div>
+    <div class="row">
+      <div class="i">2</div>
+      <div class="who">Platform<span class="sub">routing + evidence</span></div>
+      <div class="what">
+        OSRM returns three candidate corridors with geometry, duration and turn maneuvers. For each,
+        Open-Meteo is sampled at points <em>along the polyline</em> (not just at the endpoints),
+        SRTM supplies cumulative climb metres, and landslide exposure is looked up. Each reading
+        carries a freshness stamp. Stored as <code>trip_routes</code> rows with
+        <code>geography(LineString,4326)</code> geometry.
+      </div>
+    </div>
+    <div class="row">
+      <div class="i">3</div>
+      <div class="who">Platform<span class="sub">domain engines</span></div>
+      <div class="what">
+        <code>route_eligibility</code> runs <strong>first</strong> — a confirmed closure returns
+        <code>REJECTED</code> and the corridor leaves the comparison entirely.
+        <code>route_risk</code> scores the survivors; <code>fuel_model</code> computes litres and
+        CO<sub>2</sub>; <code>route_recommendation</code> applies an <strong>evidence-parity
+        gate</strong> and refuses to compare two corridors that were scored from different available
+        inputs. <span class="mono">GET /api/trips/{id}/routes/recommendation</span>
+      </div>
+    </div>
+    <div class="row">
+      <div class="i">4</div>
+      <div class="who">Manager<span class="sub">Route review</span></div>
+      <div class="what">
+        Sees three corridors with distance, ETA, litres, CO<sub>2</sub>, a risk band, the reason codes
+        behind it, and — explicitly — any factor that could not be obtained. Selecting a corridor that
+        requires review consumes a <strong>single-use 30-minute token</strong> bound to a digest of
+        the exact evidence shown.
+        <span class="mono">POST /api/trips/{id}/routes/{rid}/select</span> → RPC
+        <code>select_route</code>: demote, promote and re-point the trip in <strong>one
+        transaction</strong>.
+      </div>
+    </div>
+    <div class="row">
+      <div class="i">5</div>
+      <div class="who">Driver<span class="sub">Android client</span></div>
+      <div class="what">
+        Accepts the dispatched trip, verifies the truck (photo, registration, odometer, fuel level,
+        damage notes), then downloads the navigation and offline packages —
+        <span class="mono">GET /api/driver/me/trip/navigation</span> and
+        <span class="mono">.../offline-package</span> — carrying geometry, maneuvers, stops, POIs and
+        the emergency guide. Both are <strong>bound to a route revision</strong>, so a reroute landing
+        mid-request can never draw a new line with old turns.
+      </div>
+    </div>
+    <div class="row">
+      <div class="i">6</div>
+      <div class="who">Driver → Platform<span class="sub">telemetry</span></div>
+      <div class="what">
+        <span class="mono">POST /api/driver/me/location</span> streams GPS fixes, batched and
+        de-duplicated on device, <strong>idempotent on <code>(trip_id, device_fix_id)</code></strong>
+        so a replayed offline queue cannot double-count.
+        <code>telemetry_policy</code> classifies each truck LIVE / STALE / NO_CONTACT by fix age;
+        <code>route_progress</code> computes progress along the selected corridor.
+      </div>
+    </div>
+    <div class="row">
+      <div class="i">7</div>
+      <div class="who">Fleet Sentinel<span class="sub">safety core</span></div>
+      <div class="what">
+        A PostGIS <code>ST_DWithin</code> check establishes that the vehicle has not left a radius
+        for the configured interval. Stationary <em>and</em> unanswered escalates to a populated SOS
+        briefing — last known position, cargo, driver contact, elapsed silence — delivered to the
+        manager by rule rather than by anyone happening to look.
+      </div>
+    </div>
+    <div class="row">
+      <div class="i">8</div>
+      <div class="who">Platform → Manager<span class="sub">reroute</span></div>
+      <div class="what">
+        <span class="mono">GET /api/trips/{id}/reroute</span> returns exactly one of
+        <code>NO_ACTION</code>, <code>ALERT_ONLY</code> or <code>PROPOSE</code>.
+        <code>ALERT_ONLY</code> exists because most of the North East is a single corridor: <em>"this
+        road has deteriorated and there is nothing better"</em> is real, actionable information. A
+        proposal requires human acceptance — <span class="mono">POST .../reroute/accept</span> — so
+        the driver's map never changes underneath them.
+      </div>
+    </div>
+    <div class="row">
+      <div class="i">9</div>
+      <div class="who">Driver<span class="sub">delivery</span></div>
+      <div class="what">
+        Arrive and complete each stop, then complete the trip. Every transition is checked against
+        <code>trip_state</code>'s legal-transition table, written to the append-only
+        <code>trip_events</code> log with an optional location, and mirrored into
+        <code>audit_logs</code> with actor, before/after JSON, reason and IP.
+      </div>
+    </div>
+  </div>
+
+  <div class="call teal">
+    <div class="t">What makes this flow survive the North East specifically</div>
+    <p>
+      Three properties, none of them cosmetic. <strong>Atomicity</strong> — plan, dispatch and route
+      switch are single transactions, so a dropped connection cannot leave the manager looking at
+      corridor B while the driver is authoritatively on corridor A. <strong>Idempotency</strong> — a
+      replayed GPS queue produces the same state as a live stream. <strong>Revision
+      binding</strong> — geometry and maneuvers are stamped with the route revision they belong to,
+      and a client discards a package whose route no longer matches.
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================ 4 -->
+<section class="newpage">
+  <div class="sechead">
+    <h2><span class="num">4</span>Layer 1 — Driver mobile client</h2>
+    <div class="kicker">Expo SDK 57 · React Native 0.86 · one Android build, phone-only field kit</div>
+  </div>
+
+  <p class="lede">
+    A phone-only field client. One hand, poor signal, sometimes at night, sometimes with no network at
+    all. Every design constraint below follows from that — including the release gate that makes a
+    laptop-dependent build impossible to ship.
+  </p>
+
+  <h3>Screens</h3>
+  <table class="tight">
+    <thead><tr><th style="width:32mm">Screen</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><strong>MapScreen</strong></td><td>The cockpit — corridor polyline, next-turn banner with distance countdown, live speed, POI discovery, recentre / fit / mute controls</td></tr>
+      <tr><td><strong>TripScreen</strong></td><td>Stop list, arrive and complete actions, cargo detail, trip progress against the planned ETA</td></tr>
+      <tr><td><strong>AssignmentScreen</strong></td><td>Truck verification — photo, registration, odometer, fuel level, damage notes; mismatches flagged for manager review</td></tr>
+      <tr><td><strong>SafetyScreen</strong></td><td>Offline emergency guide, 112 / 108 / 1033 dial shortcuts, 45-minute rest tracker</td></tr>
+      <tr><td><strong>AssistantScreen</strong></td><td>Trip-scoped question answering in four sub-modes, backed by the edge AI function</td></tr>
+      <tr><td><strong>PhrasebookScreen</strong></td><td>Reviewed offline phrase pack — works with no model, no server and no internet</td></tr>
+      <tr><td><strong>TranslateBox</strong></td><td>Machine translation of one short message, labelled on screen as machine output</td></tr>
+      <tr><td><strong>LoginScreen</strong></td><td>Email and password; token written to the hardware-backed keystore</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Device capabilities and why each is required</h3>
+  <table class="tight">
+    <thead><tr><th style="width:52mm">Package</th><th style="width:22mm">Version</th><th>Why it is required</th></tr></thead>
+    <tbody>
+      <tr><td><code>expo-location</code></td><td class="n">~57.0.14</td><td>Foreground GPS streaming — the single input every live feature depends on</td></tr>
+      <tr><td><code>expo-secure-store</code></td><td class="n">~57.0.2</td><td>Hardware-backed keystore for the refresh token; tokens never touch AsyncStorage</td></tr>
+      <tr><td><code>@react-native-async-storage</code></td><td class="n">2.2.0</td><td>Offline queue for GPS fixes and the cached route package</td></tr>
+      <tr><td><code>expo-speech</code></td><td class="n">~57.0.2</td><td>Spoken turn guidance — a driver on a hill road should not be reading a screen</td></tr>
+      <tr><td><code>react-native-maps</code></td><td class="n">1.27.2</td><td>Native Android map surface, route polyline, live vehicle marker</td></tr>
+      <tr><td><code>leaflet</code></td><td class="n">^1.9.4</td><td>Web build of the same screen, so the map is testable in CI without a device farm</td></tr>
+      <tr><td><code>react-native-safe-area-context</code></td><td class="n">~5.7.0</td><td>Notch- and gesture-bar-safe layout for the map cockpit</td></tr>
+    </tbody>
+  </table>
+
+  <div class="call">
+    <div class="t">One import, two rendering surfaces</div>
+    <p>
+      The map component is split by platform extension — <code>DriverRouteMap.native.tsx</code> and
+      <code>DriverRouteMap.web.tsx</code> — behind a single import. Screen logic is written once;
+      only the rendering surface differs. That is what allows the entire driver UI to be exercised by
+      510 Vitest tests over <code>react-native-web</code> in jsdom, with no emulator in the loop.
+    </p>
+  </div>
+
+  <h3>Supporting modules</h3>
+  <table class="tight">
+    <thead><tr><th style="width:56mm">Module</th><th>Responsibility</th></tr></thead>
+    <tbody>
+      <tr><td><code>src/tracking/tracker.ts</code></td><td>GPS acquisition, batching and de-duplication before upload</td></tr>
+      <tr><td><code>src/tracking/useLocationTracking.ts</code></td><td>Permission lifecycle, foreground subscription, revocation handling</td></tr>
+      <tr><td><code>src/auth/tokenStore.ts</code></td><td>SecureStore-backed token persistence and refresh rotation</td></tr>
+      <tr><td><code>src/trip/TripProvider.tsx</code></td><td>Server trip state synchronisation and offline-state transitions</td></tr>
+      <tr><td><code>src/map/useRouteGeometry.ts</code></td><td>Package fetch, cached fallback for the same trip <em>and</em> route, honest error state otherwise</td></tr>
+      <tr><td><code>scripts/check-release-config.mjs</code></td><td>Release gate — fails the EAS build outright if a LAN backend URL is configured</td></tr>
+    </tbody>
+  </table>
+
+  <div class="call green">
+    <div class="t">The release gate — the control that actually guarantees a field-usable APK</div>
+    <p>
+      <code>EXPO_PUBLIC_API_BASE_URL</code> means "the laptop on the LAN". The build gate
+      <strong>refuses to build</strong> when it is set, so a laptop-dependent APK cannot ship. The
+      hosted intelligence origin has its own variable,
+      <code>EXPO_PUBLIC_INTELLIGENCE_BASE_URL</code>, held to a stricter rule: a private network
+      address, a plain-http origin or a loopback host is rejected at build time. The rule lives once,
+      in <code>releaseConfig.mjs</code>, shared by the gate and the runtime — because a rule restated
+      in two places is a rule that drifts.
+    </p>
+  </div>
+
+  <h4>Offline behaviour, precisely</h4>
+  <table class="tight">
+    <thead><tr><th style="width:44mm">Condition</th><th>Behaviour</th></tr></thead>
+    <tbody>
+      <tr><td>Network lost mid-trip</td><td>Cached package continues to drive the map and turn banner; source is labelled <code>CACHED</code> with its capture time, never presented as <code>LIVE</code></td></tr>
+      <tr><td>GPS fixes with no network</td><td>Queued locally, replayed idempotently on <code>(trip_id, device_fix_id)</code> when signal returns</td></tr>
+      <tr><td>Reroute lands mid-request</td><td><code>matches()</code> discards geometry whose route id changed — old turns are never drawn on a new line</td></tr>
+      <tr><td>Location permission revoked</td><td>Tracking stops, the manager sees <code>NO_CONTACT</code>, and the screen says so rather than freezing the last position</td></tr>
+      <tr><td>Emergency with no signal</td><td>Safety guide, rest tracker and 112 / 108 / 1033 shortcuts are fully offline</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============================================================ 5 -->
+<section class="newpage">
+  <div class="sechead">
+    <h2><span class="num">5</span>Layer 2 — Manager web client</h2>
+    <div class="kicker">React 19 · Vite 8 · Tailwind 4 · MapLibre GL — a dense GIS console, not a dashboard</div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="h">Pages</div>
+      <ul>
+        <li><strong>FleetPage</strong> — live map, KPI bar, truck context drawer</li>
+        <li><strong>TripsPage</strong> — atomic plan, dispatch, cancel, close</li>
+        <li><strong>DriversPage</strong> — roster, documents, deactivation</li>
+        <li><strong>TrucksPage</strong> — fleet register, capacity, retirement</li>
+        <li><strong>AssignmentsPage</strong> — driver ↔ truck pairing and verification</li>
+        <li><strong>ReviewPage</strong> — authorised route review queue</li>
+        <li><strong>SystemPage</strong> — backend health and provider status</li>
+        <li><strong>LoginPage</strong> — role-aware landing</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="h">Key components</div>
+      <ul>
+        <li><strong>FleetMap</strong> — MapLibre canvas; a test asserts the production build actually emits the worker</li>
+        <li><strong>FleetKpiBar</strong> — Active / Moving / Stale / No-contact</li>
+        <li><strong>TruckContextDrawer</strong> — cargo utilisation, live speed, call driver</li>
+        <li><strong>RouteRiskComparison</strong> — the three-corridor stepper with the fuel bar chart</li>
+        <li><strong>TripRouteReview</strong> — authorisation modal and review states</li>
+        <li><strong>AddressPicker</strong> — geocode search with a map-pick alternative</li>
+        <li><strong>track.ts</strong> — observed GPS breadcrumb against the planned corridor</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>The two views a manager actually works from</h3>
+  <table class="tight">
+    <thead><tr><th style="width:38mm">View</th><th>What it shows, and why it is built that way</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Fleet map</strong></td>
+        <td>Planned corridor and observed breadcrumb are drawn as <em>two separate lines</em>, so
+        divergence is visible rather than inferred. Marker state is driven by
+        <code>telemetry_policy</code>, so "stale" on the map and "stale" in the API are the same
+        computation, not two implementations of the same word.</td>
+      </tr>
+      <tr>
+        <td><strong>Route comparison</strong></td>
+        <td>Three corridors side by side. Deltas are stated in points, minutes and kilometres —
+        never as a percentage, because a risk score is an ordinal on this project's own scale and a
+        percentage of an ordinal is not a meaningful quantity. Any factor that could not be obtained
+        is named on screen next to the score it is missing from.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Package inventory</h3>
+  <table class="tight">
+    <thead><tr><th style="width:50mm">Package</th><th style="width:22mm">Version</th><th>Role</th></tr></thead>
+    <tbody>
+      <tr><td><code>react</code> / <code>react-dom</code></td><td class="n">^19.2.8</td><td>UI runtime, shared version line with the driver client</td></tr>
+      <tr><td><code>react-router-dom</code></td><td class="n">^7.18.3</td><td>Routing across the eight manager pages</td></tr>
+      <tr><td><code>vite</code></td><td class="n">^8.2.2</td><td>Dev server and production bundler</td></tr>
+      <tr><td><code>tailwindcss</code></td><td class="n">^4.3.3</td><td>Utility styling; the GIS console theme is expressed as design tokens</td></tr>
+      <tr><td><code>maplibre-gl</code></td><td class="n">^6.6.0</td><td>Vector tiles, worker-based rendering, licence-free</td></tr>
+      <tr><td><code>@supabase/supabase-js</code></td><td class="n">^2.116.0</td><td>Authenticated read path and RPC calls</td></tr>
+      <tr><td><code>oxlint</code></td><td class="n">^1.79.0</td><td>Rust-based linting, chosen for speed on a large surface</td></tr>
+      <tr><td><code>vitest</code> + Testing Library</td><td class="n">^3.2.7</td><td>150 component and page tests in jsdom</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============================================================ 6 -->
+<section class="newpage">
+  <div class="sechead">
+    <h2><span class="num">6</span>Layer 3 — API and domain services</h2>
+    <div class="kicker">FastAPI 0.115 · Python 3.11 · 46 endpoints · pure domain core</div>
+  </div>
+
+  <h3>Application structure</h3>
+<pre><span class="c">backend/app/</span>
+├── main.py            <span class="c">app assembly, middleware, router mounting</span>
+├── api/               <span class="c">HTTP surface</span>
+│   ├── auth.py        <span class="k">login · refresh · logout · me</span>
+│   ├── fleet.py       <span class="k">drivers · trucks · assignments</span>
+│   ├── trips.py       <span class="k">shipments · trips · routes · risk · reroute · fleet/active</span>
+│   ├── driver.py      <span class="k">the driver's own trip, GPS ingest, offline + nav packages</span>
+│   ├── geocoding.py   <span class="k">address suggest / details</span>
+│   ├── ai.py          <span class="k">AI availability and question answering</span>
+│   ├── health.py      <span class="k">/health (liveness) · /ready (dependency-checked)</span>
+│   └── deps.py        <span class="k">auth + permission dependencies</span>
+├── domain/            <span class="v">PURE LOGIC — no I/O, no DB, no provider</span>
+│   ├── route_risk.py            <span class="c">weighted risk rule, published constants</span>
+│   ├── route_eligibility.py     <span class="c">may this route be taken at all</span>
+│   ├── route_recommendation.py  <span class="c">explainable comparison + evidence parity</span>
+│   ├── reroute.py               <span class="c">NO_ACTION / ALERT_ONLY / PROPOSE</span>
+│   ├── fuel_model.py            <span class="c">CMEM-form physics fuel + CO2</span>
+│   ├── road_memory.py           <span class="c">5-state road evidence machine</span>
+│   ├── monsoon_risk.py          <span class="c">recurrence · rainfall · season · status</span>
+│   ├── route_progress.py        <span class="c">progress along a corridor from GPS</span>
+│   ├── trip_state.py            <span class="c">legal trip state transitions</span>
+│   ├── telemetry_policy.py      <span class="c">LIVE / STALE / NO_CONTACT thresholds</span>
+│   ├── weather.py               <span class="c">observation model + freshness</span>
+│   ├── landslide.py             <span class="c">exposure vs current hazard</span>
+│   ├── places.py                <span class="c">POI categories and ranking</span>
+│   ├── routing.py               <span class="c">provider-agnostic route model</span>
+│   └── ai_prompts.py            <span class="c">prompt templates and refusal rules</span>
+├── services/          <span class="c">orchestration: DB + providers + domain</span>
+├── models/            <span class="c">SQLAlchemy tables and enums</span>
+├── schemas/           <span class="c">Pydantic request/response contracts</span>
+├── core/              <span class="c">config · security · permissions · rate limit · errors</span>
+├── db/                <span class="c">engine, session, provider selection</span>
+└── auth/              <span class="c">token verification</span></pre>
+
+  <h3>Endpoint surface</h3>
+  <h4>Authentication and identity</h4>
+  <table class="tight">
+    <thead><tr><th style="width:15mm">Method</th><th style="width:52mm">Path</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td class="n">GET</td><td><code>/health</code></td><td>Liveness — checks no dependency, always 200 while the process is up</td></tr>
+      <tr><td class="n">GET</td><td><code>/ready</code></td><td>Readiness — real PostgreSQL and PostGIS version strings, 503 when unhealthy</td></tr>
+      <tr><td class="n">POST</td><td><code>/api/auth/login</code></td><td>Argon2id verification, access + refresh issue, rate limited per IP and per identifier</td></tr>
+      <tr><td class="n">POST</td><td><code>/api/auth/refresh</code></td><td>Rotating refresh with reuse detection and family revocation</td></tr>
+      <tr><td class="n">POST</td><td><code>/api/auth/logout</code></td><td>Revoke the presented refresh token</td></tr>
+      <tr><td class="n">GET</td><td><code>/api/auth/me</code></td><td>Current principal, role and permissions</td></tr>
+    </tbody>
+  </table>
+
+  <h4>Fleet administration</h4>
+  <table class="tight">
+    <thead><tr><th style="width:15mm">Method</th><th style="width:52mm">Path</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td class="n">GET / POST</td><td><code>/api/drivers</code></td><td>List and create drivers</td></tr>
+      <tr><td class="n">GET / PATCH</td><td><code>/api/drivers/{id}</code></td><td>Read and update one driver</td></tr>
+      <tr><td class="n">POST</td><td><code>/api/drivers/{id}/deactivate</code></td><td>Soft-deactivate, audited</td></tr>
+      <tr><td class="n">GET / POST</td><td><code>/api/trucks</code></td><td>List and create trucks</td></tr>
+      <tr><td class="n">GET / PATCH</td><td><code>/api/trucks/{id}</code></td><td>Read and update one truck</td></tr>
+      <tr><td class="n">POST</td><td><code>/api/trucks/{id}/retire</code></td><td>Retire a truck, audited</td></tr>
+      <tr><td class="n">GET / POST</td><td><code>/api/assignments</code></td><td>List and create driver ↔ truck assignments</td></tr>
+      <tr><td class="n">POST</td><td><code>/api/assignments/{id}/verify</code></td><td>Manager review of the driver's verification submission</td></tr>
+      <tr><td class="n">POST</td><td><code>/api/assignments/{id}/end</code></td><td>End an active assignment</td></tr>
+    </tbody>
+  </table>
+
+  <h4>Trips, corridors and accessibility</h4>
+  <table class="tight">
+    <thead><tr><th style="width:15mm">Method</th><th style="width:52mm">Path</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td class="n">POST</td><td><code>/api/trips/plan</code></td><td><strong>Atomic</strong> shipment + trip + stops creation with capacity validation</td></tr>
+      <tr><td class="n">GET</td><td><code>/api/trips/{id}</code></td><td>Full trip detail with stops, routes and events</td></tr>
+      <tr><td class="n">POST</td><td><code>/api/trips/{id}/dispatch</code></td><td>Dispatch to the driver</td></tr>
+      <tr><td class="n">POST</td><td><code>/api/trips/{id}/cancel</code> · <code>/close</code></td><td>Cancel with reason, or close a delivered trip — both audited</td></tr>
+      <tr><td class="n">GET</td><td><code>/api/trips/{id}/routes</code></td><td>The candidate corridors for this trip</td></tr>
+      <tr><td class="n">POST</td><td><code>/api/trips/{id}/routes/recalculate</code></td><td>Re-run the routing provider and re-score</td></tr>
+      <tr><td class="n">GET</td><td><code>/api/trips/{id}/routes/{rid}/risk</code></td><td>Full assessment with components, reason codes and <strong>named gaps</strong></td></tr>
+      <tr><td class="n">GET</td><td><code>/api/trips/{id}/routes/recommendation</code></td><td>Explainable comparison across candidates</td></tr>
+      <tr><td class="n">GET/POST/DELETE</td><td><code>.../review-authorization</code></td><td>Issue, read and revoke a single-use 30-minute reviewer token</td></tr>
+      <tr><td class="n">POST</td><td><code>/api/trips/{id}/routes/{rid}/select</code></td><td>Select a corridor, consuming the authorisation when one is required</td></tr>
+      <tr><td class="n">GET</td><td><code>/api/trips/{id}/reroute</code></td><td>Assessment: <code>NO_ACTION</code> · <code>ALERT_ONLY</code> · <code>PROPOSE</code></td></tr>
+      <tr><td class="n">POST</td><td><code>/api/trips/{id}/reroute/accept</code></td><td>Human acceptance of a proposed corridor change</td></tr>
+      <tr><td class="n">GET</td><td><code>/api/trips/{id}/track</code></td><td>Observed GPS breadcrumb for the trip</td></tr>
+      <tr><td class="n">GET</td><td><code>/api/fleet/active</code></td><td>Live fleet snapshot with freshness classification</td></tr>
+    </tbody>
+  </table>
+
+  <h4>Driver-scoped surface</h4>
+  <table class="tight">
+    <thead><tr><th style="width:15mm">Method</th><th style="width:52mm">Path</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td class="n">GET</td><td><code>/api/driver/me</code> · <code>/assignment</code></td><td>The signed-in driver's profile and current assignment state</td></tr>
+      <tr><td class="n">POST</td><td><code>/api/driver/me/assignment/verify</code></td><td>Submit truck verification evidence</td></tr>
+      <tr><td class="n">GET</td><td><code>/api/driver/me/trip</code></td><td>The driver's current trip</td></tr>
+      <tr><td class="n">GET</td><td><code>/api/driver/me/trip/navigation</code></td><td>Route geometry + turn maneuvers, bound to a route revision</td></tr>
+      <tr><td class="n">GET</td><td><code>/api/driver/me/trip/offline-package</code></td><td>Everything needed to keep working with no network</td></tr>
+      <tr><td class="n">GET</td><td><code>/api/driver/me/trip/places</code></td><td>Roadside POIs: near me · along route · in viewport</td></tr>
+      <tr><td class="n">POST</td><td><code>/api/driver/me/trip/accept</code> · <code>/start</code> · <code>/complete</code></td><td>Trip lifecycle transitions</td></tr>
+      <tr><td class="n">POST</td><td><code>.../trip/stops/{id}/arrive</code> · <code>/complete</code></td><td>Stop-level progress</td></tr>
+      <tr><td class="n">POST</td><td><code>/api/driver/me/location</code></td><td>GPS ingest — idempotent on <code>(trip_id, device_fix_id)</code></td></tr>
+      <tr><td class="n">GET</td><td><code>/api/geocoding/suggest</code> · <code>/details</code></td><td>Address suggestions and coordinate resolution</td></tr>
+      <tr><td class="n">GET / POST</td><td><code>/api/ai/status</code> · <code>/api/ai/ask</code></td><td>Model reachability, and trip-scoped bounded question answering</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============================================================ 7 -->
+<section class="newpage">
+  <div class="sechead">
+    <h2><span class="num">7</span>Layer 4 — Data platform</h2>
+    <div class="kicker">PostgreSQL 17.6 + PostGIS 3.3 in ap-south-1 — corridor geometry as a first-class type</div>
+  </div>
+
+  <table class="tight">
+    <thead><tr><th style="width:40mm">Component</th><th>Detail</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Primary database</strong></td><td>Supabase-managed PostgreSQL 17.6, region <strong>ap-south-1 (Mumbai)</strong> — data stays in India, which matters for a government-sponsored logistics dataset</td></tr>
+      <tr><td><strong>Geospatial extension</strong></td><td>PostGIS 3.3 — <code>geography(Point,4326)</code> and <code>geography(LineString,4326)</code></td></tr>
+      <tr><td><strong>Connection mode</strong></td><td>Session pooler on port 5432 — <em>not</em> the transaction pooler on 6543, which breaks psycopg prepared statements and is unsafe for Alembic DDL</td></tr>
+      <tr><td><strong>Row Level Security</strong></td><td>Enabled on every table, because Supabase publishes <code>public</code> through its Data API</td></tr>
+      <tr><td><strong>Atomic RPCs</strong></td><td><code>plan_trip</code> · <code>dispatch_trip</code> · <code>select_route</code> — the three operations that must not be half-applied</td></tr>
+      <tr><td><strong>Edge Functions (Deno)</strong></td><td><code>gemini-ai</code> · <code>driver-trip</code> · <code>resolve-map-link</code></td></tr>
+      <tr><td><strong>Migrations</strong></td><td>9 Alembic revisions; Alembic follows <code>DATABASE_PROVIDER</code>, so it can never migrate a different database than the one being served</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Schema — 17 production tables</h3>
+  <table class="tight">
+    <thead><tr><th style="width:52mm">Table</th><th style="width:14mm">Cols</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><code>users</code></td><td class="n">9</td><td>Argon2id hash, role, activity flag</td></tr>
+      <tr><td><code>drivers</code></td><td class="n">16</td><td>Licence, emergency contact, salary (permission-gated)</td></tr>
+      <tr><td><code>driver_documents</code></td><td class="n">12</td><td>Type, expiry, verification actor and timestamp</td></tr>
+      <tr><td><code>trucks</code></td><td class="n">18</td><td>Capacity, axles, dimensions, baseline mileage, odometer</td></tr>
+      <tr><td><code>truck_documents</code></td><td class="n">12</td><td>RC, insurance, fitness, PUC, permits</td></tr>
+      <tr><td><code>truck_maintenance</code></td><td class="n">10</td><td>Service / repair / breakdown / inspection history</td></tr>
+      <tr><td><code>driver_truck_assignments</code></td><td class="n">15</td><td>Verification photo, reported registration / odometer / fuel, mismatch flag</td></tr>
+      <tr><td><code>shipments</code></td><td class="n">15</td><td>PostGIS pickup and destination points, priority, status</td></tr>
+      <tr><td><code>cargo_items</code></td><td class="n">10</td><td>Weight, quantity, hazardous and perishable flags</td></tr>
+      <tr><td><code>trips</code></td><td class="n">21</td><td>Selected route, planned vs current ETA, delay minutes, lifecycle timestamps</td></tr>
+      <tr><td><code>trip_stops</code></td><td class="n">14</td><td>Sequence, kind, geofence radius, planned vs actual arrival</td></tr>
+      <tr><td><code>trip_routes</code></td><td class="n">18</td><td>LineString geometry, distance, duration, fuel, risk score and factors, maneuvers, provider id</td></tr>
+      <tr><td><code>trip_events</code></td><td class="n">9</td><td>Append-only lifecycle log with optional location and JSON payload</td></tr>
+      <tr><td><code>gps_points</code></td><td class="n">13</td><td>Point geography, speed, heading, accuracy, <code>device_fix_id</code> for idempotency, mock-location flag</td></tr>
+      <tr><td><code>refresh_tokens</code></td><td class="n">11</td><td>Family id, replacement chain, revocation reason, user agent, IP</td></tr>
+      <tr><td><code>audit_logs</code></td><td class="n">10</td><td>Actor, action, entity, before / after JSON, reason, IP</td></tr>
+      <tr><td><code>route_review_authorizations</code></td><td class="n">18</td><td>Evidence digest and snapshot, policy and evidence versions, issue / consume / revoke trail</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Migration history</h3>
+  <table class="tight">
+    <thead><tr><th style="width:56mm">Revision</th><th>What it introduced</th></tr></thead>
+    <tbody>
+      <tr><td><code>0001_bootstrap_postgis</code></td><td>PostGIS extension and spatial groundwork</td></tr>
+      <tr><td><code>0002_core_domain</code></td><td>Users, drivers, trucks, documents, assignments, shipments, trips, stops, routes, events, GPS points</td></tr>
+      <tr><td><code>0003_refresh_tokens</code></td><td>Rotating refresh-token family table</td></tr>
+      <tr><td><code>0004_audit_actor_restrict</code></td><td>Audit actor FK made restrictive so history cannot be orphaned</td></tr>
+      <tr><td><code>0005_trip_event_location_null</code></td><td>Trip events may legitimately have no location</td></tr>
+      <tr><td><code>0006_current_assignment_unique</code></td><td>Partial unique index — one active assignment per driver</td></tr>
+      <tr><td><code>0007_route_review_authorizations</code></td><td>Single-use reviewer tokens with evidence digest and expiry</td></tr>
+      <tr><td><code>0008_trip_driver_acceptance</code></td><td>Explicit driver acceptance timestamps</td></tr>
+      <tr><td><code>0009_route_maneuvers</code></td><td>Turn-by-turn maneuver storage bound to a route revision</td></tr>
+    </tbody>
+  </table>
+
+  <div class="call">
+    <div class="t">Why the route switch is a database function, not three client writes</div>
+    <p>
+      Selecting a corridor means three changes: demote the previously selected route, promote the new
+      one, and re-point <code>trips.selected_route_id</code>. Performed as independent writes from a
+      browser, each can fail or be lost separately — producing zero selected routes, two selected
+      routes, or a trip whose pointer disagrees with its own route table. On a platform whose entire
+      subject is weak connectivity, a half-applied route change is the one outcome that must be
+      impossible. <code>select_route</code> makes it one transaction, with the currently-selected
+      route as the concurrency token so two managers acting at once cannot both succeed.
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================ 8 -->
+<section class="newpage">
+  <div class="sechead">
+    <h2><span class="num">8</span>Layer 5 — Accessibility intelligence</h2>
+    <div class="kicker">Ten deterministic engines with published constants — the core of the submission</div>
+  </div>
+
+  <div class="call green">
+    <div class="t">The rule this whole layer is built around</div>
+    <p>
+      Every engine below is a <strong>deterministic weighted rule with published constants</strong>.
+      Each carries a version name that says so, and a test asserts that no confidence, probability or
+      model-version field ever reaches the wire. The language model is a separate thing entirely: it
+      rewords facts the engines have already produced, and it has no write path to any decision.
+    </p>
+  </div>
+
+  <h3>The five-stage accessibility pipeline</h3>
+  <div class="flow">
+    <div class="step"><div class="n">1</div><div class="t">ROUTE</div><div class="d">OSRM returns geometry, duration and maneuvers for each candidate corridor</div></div>
+    <div class="step"><div class="n">2</div><div class="t">WEATHER</div><div class="d">Open-Meteo sampled at points along the polyline; every reading carries a freshness stamp</div></div>
+    <div class="step"><div class="n">3</div><div class="t">LANDSLIDE</div><div class="d">Exposure to known zones, kept distinct from a current hazard report</div></div>
+    <div class="step"><div class="n">4</div><div class="t">FUEL</div><div class="d">Physics over distance, payload, climb and speed → litres and CO<sub>2</sub></div></div>
+    <div class="step"><div class="n">5</div><div class="t">SYNTHESIS</div><div class="d">Weighted score, band, reason codes, component breakdown and named gaps</div></div>
+  </div>
+
+  <h3>The engines</h3>
+  <table class="tight">
+    <thead><tr><th style="width:36mm">Engine</th><th style="width:26mm">Kind</th><th>Method and published constants</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>route_risk</code></td><td>Weighted rule</td>
+        <td>Rain ≤ 45 pts · wind ≤ 25 · duration ≤ 20 · distance ≤ 10, plus landslide points.
+        Bands: <span class="b b-live">LOW &lt; 30</span> <span class="b b-amber">≤ MODERATE &lt; 60</span>
+        <span class="b b-red">≤ HIGH</span>. Thresholds: rain moderate 2.5 mm, heavy 7.5 mm; gust
+        notable 40 km/h, severe 60 km/h. Stale observations are counted and reported, never scored.</td>
+      </tr>
+      <tr>
+        <td><code>route_eligibility</code></td><td>Refusal gate</td>
+        <td>Runs <strong>before</strong> ranking. A confirmed closure is <code>REJECTED</code>, not
+        penalised — a penalty can be out-voted by other components, a refusal cannot. Unknown
+        landslide evidence forces <code>REQUIRES_REVIEW</code>.</td>
+      </tr>
+      <tr>
+        <td><code>fuel_model</code></td><td>Physics<br>(CMEM / SAE J1321)</td>
+        <td><code>F = (B + K_payload·M + K_speed·max(0, v−50))·D + K_grade·max(0, ΔH)</code> with
+        <code>B = 0.22 L/km</code>, <code>K_payload = 0.0075 L/(t·km)</code>,
+        <code>K_grade = 0.00018 L/m</code>, <code>K_speed = 0.002</code>. CO<sub>2</sub> at
+        2.68 kg/L.</td>
+      </tr>
+      <tr>
+        <td><code>road_memory</code></td><td>Evidence<br>state machine</td>
+        <td>Five states: <code>VERIFIED_OPEN</code> · <code>REPORTED_INCIDENT</code> ·
+        <code>CLOSED</code> · <code>REPAIR_REPORTED</code> · <code>AWAITING_VERIFICATION</code>.
+        Silence is not evidence — no elapsed time may move a road toward
+        <code>VERIFIED_OPEN</code>. Evidence carries a source; <code>FLEET_TRAVERSAL</code> is the
+        strongest.</td>
+      </tr>
+      <tr>
+        <td><code>monsoon_risk</code></td><td>Weighted rule</td>
+        <td>Recurrence · rainfall · season · last observed road status. Passability is a separate
+        three-valued field, not a score, so a closed segment cannot narrowly lose a comparison.</td>
+      </tr>
+      <tr>
+        <td><code>route_recommendation</code></td><td>Comparison rule</td>
+        <td>Deltas in points, minutes and kilometres — never as a percentage, because a risk score is
+        an ordinal on this project's own scale. <strong>Refuses to compare</strong> two routes scored
+        from different available inputs.</td>
+      </tr>
+      <tr>
+        <td><code>reroute</code></td><td>Threshold +<br>comparison</td>
+        <td>Three outcomes: <code>NO_ACTION</code> · <code>ALERT_ONLY</code> · <code>PROPOSE</code>.
+        <code>ALERT_ONLY</code> exists because most of the North East is a single corridor and "this
+        road has deteriorated and there is nothing better" is real information.</td>
+      </tr>
+      <tr>
+        <td><code>telemetry_policy</code></td><td>Freshness rule</td>
+        <td><code>LIVE</code> / <code>STALE</code> / <code>NO_CONTACT</code> from fix age; drives the
+        fleet KPI bar and every map marker state.</td>
+      </tr>
+      <tr>
+        <td><code>route_progress</code></td><td>Geometric</td>
+        <td>Progress along the selected corridor computed from the observed GPS track, so a delay is
+        measured rather than assumed.</td>
+      </tr>
+      <tr>
+        <td><code>trip_state</code></td><td>Transition table</td>
+        <td>The legal state graph for a trip. An illegal transition is refused at the domain layer,
+        not caught by a UI that happens to hide the button.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Evidence integrity — how the risk response is shaped</h3>
+  <p>
+    A <code>RouteRisk</code> never returns a bare number. It carries <code>inputs</code> (each factor
+    marked <code>AVAILABLE</code> or <code>NOT_AVAILABLE</code>), <code>unavailable</code>,
+    <code>reason_codes</code>, <code>observations_used</code> and <code>observations_stale</code>
+    alongside <code>score</code> — and the manager UI renders the gap next to the score it is missing
+    from. The reason-code catalogue carries the exact semantic the problem statement requires:
+  </p>
+  <div class="call red">
+    <div class="t">Reason code — WEATHER_UNAVAILABLE</div>
+    <p style="font-size:9.4pt">
+      <em>"Hazard data for this route is unavailable. This is not a clear route — it is an unchecked
+      one."</em>
+    </p>
+  </div>
+  <p>
+    When no plane is reachable, candidates return <code>score: null</code>,
+    <code>band: 'UNASSESSED'</code>, <code>eligibility: 'NOT_ASSESSED'</code>. <strong>Null rather
+    than zero is the entire point</strong>: zero is a legitimate assessed value meaning "we looked and
+    found nothing wrong". Null means nobody looked. The two must never render identically.
+  </p>
+
+  <h3>Reason codes, not sentences — how vernacular support actually works</h3>
+  <p>
+    The API sends <code>HEAVY_RAIN_ON_CORRIDOR</code>, not "heavy rain on the corridor". The client
+    resolves it through <code>i18n/reasonCodes.json</code>. That single decision is what makes
+    Assamese, Bengali, Hindi and English in-cab guidance a lookup rather than a translation call — so
+    it is instant, identical across clients, reviewable by a human translator, and works with no
+    model and no network.
+  </p>
+
+  <h3>The language model surface</h3>
+  <table class="tight">
+    <thead><tr><th style="width:36mm">Element</th><th>Detail</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Primary model</strong></td><td>Google Gemini Flash via the <code>gemini-ai</code> Supabase Edge Function; default <code>gemini-3-flash-preview</code>, configurable through <code>GEMINI_MODEL</code></td></tr>
+      <tr><td><strong>Fallback</strong></td><td>OpenRouter, default <code>google/gemma-4-31b-it:free</code>, 15-second budget</td></tr>
+      <tr><td><strong>Key handling</strong></td><td><code>GEMINI_API_KEY</code> and <code>OPENROUTER_API_KEY</code> live server-side in the edge function. No client holds either.</td></tr>
+      <tr><td><strong>Status model</strong></td><td>One <code>buildStatus()</code> for both routes: <code>OFFLINE</code> · <code>CONFIGURED</code> · <code>USABLE</code> · <code>QUOTA_EXHAUSTED</code> · <code>FALLBACK</code></td></tr>
+      <tr><td><strong>Defences</strong></td><td>Adversarial prompt-injection guards, chain-of-thought stripping (<code>cleanAiText</code>), per-minute rate limiting</td></tr>
+      <tr><td><strong>Hard boundaries</strong></td><td>Driver-scoped — every route takes <code>CurrentDriver</code> with no id parameter. One concurrent generation. Prompt-length and output-token caps. Stateless: no conversation is stored.</td></tr>
+      <tr><td><strong>Forbidden outputs</strong></td><td>Medical advice, medicine names or doses; a road-is-clear verdict; a promise that help is coming; turning an unavailable fact into a value. <strong>Each pinned by a test.</strong></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============================================================ 9 -->
+<section class="newpage">
+  <div class="sechead">
+    <h2><span class="num">9</span>Layer 6 — External data providers</h2>
+    <div class="kicker">All licence-clear and free of per-call billing — and every failure mode is defined</div>
+  </div>
+
+  <table class="tight">
+    <thead><tr><th style="width:32mm">Provider</th><th style="width:36mm">Endpoint</th><th style="width:34mm">Used for</th><th>Behaviour on failure</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Open-Meteo</strong></td><td><code>api.open-meteo.com</code></td>
+        <td>Rainfall intensity and wind gusts along the corridor</td>
+        <td>The request still succeeds; the factor is marked <code>NOT_AVAILABLE</code> with a reason
+        code. A 503 here must not hide distance and duration evidence that is still perfectly good.</td>
+      </tr>
+      <tr>
+        <td><strong>Project-OSRM</strong></td><td><code>router.project-osrm.org</code></td>
+        <td>Road geometry, duration, turn maneuvers</td>
+        <td>Configurable primary URL with this as fallback; 8-second timeout</td>
+      </tr>
+      <tr>
+        <td><strong>Overpass / OSM</strong></td><td><code>overpass-api.de</code></td>
+        <td>Roadside POIs — fuel, tyre repair, hospitals, rest stops</td>
+        <td>Snapshot service degrades to cached results</td>
+      </tr>
+      <tr>
+        <td><strong>NASA SRTM</strong></td><td>elevation dataset</td>
+        <td>Cumulative climb metres for the fuel model</td>
+        <td>No elevation → the fuel model returns its baseline or null, never an imputed value</td>
+      </tr>
+      <tr>
+        <td><strong>Google Gemini</strong></td><td>via Supabase Edge Function</td>
+        <td>Vernacular assistant, safety rewording, translation</td>
+        <td>Quota exhausted → OpenRouter fallback → otherwise every AI surface renders its unavailable state</td>
+      </tr>
+      <tr>
+        <td><strong>OpenRouter</strong></td><td><code>openrouter.ai/api/v1</code></td>
+        <td>Backup generation engine</td>
+        <td>15-second budget, then unavailable</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="call red">
+    <div class="t">The provider contract, in one line</div>
+    <p>
+      <strong>A provider failure is displayed as a provider failure. It is never converted into a
+      number.</strong> <code>UNKNOWN ≠ SAFE</code> and <code>STALE ≠ LIVE</code> are enforced in the
+      domain layer, not left to the UI to remember.
+    </p>
+  </div>
+
+  <h3>Hazard and closure evidence</h3>
+  <p>
+    Landslide hazard, flood and damage reporting, and road closure bulletins enter the platform
+    through <code>road_memory</code> — the five-state evidence machine — rather than through a score.
+    Each item of evidence carries its <strong>source</strong>, its <strong>date</strong> and its
+    <strong>state</strong>, and the strongest source is a <code>FLEET_TRAVERSAL</code>: one of our own
+    trucks having driven the segment.
+  </p>
+  <table class="tight">
+    <thead><tr><th style="width:52mm">Source</th><th>Contributes</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Geological Survey of India</strong> · <code>bhukosh.gsi.gov.in</code></td><td>Landslide inventory and hazard exposure per zone</td></tr>
+      <tr><td><strong>ASDMA</strong> · <code>asdma.gov.in</code></td><td>Flood and damage reports</td></tr>
+      <tr><td><strong>IMD</strong> · <code>mausam.imd.gov.in</code></td><td>District rainfall warnings</td></tr>
+      <tr><td><strong>NHAI / BRO / state PWD</strong></td><td>Closure and reopening bulletins, held per segment as dated evidence</td></tr>
+      <tr><td><strong>Fleet traversal</strong> <span class="b b-live">STRONGEST</span></td><td>A GPS track across the segment — the one source that can reopen a road when no bulletin carries it</td></tr>
+    </tbody>
+  </table>
+
+  <div class="call teal">
+    <div class="t">Our own research finding, and the design it produced</div>
+    <p>
+      No Indian source publishes road <em>reopening</em>. GSI forecasts hazard, ASDMA reports damage,
+      IMD reports rain — but reopening is decided by PWD, NHAI or BRO and communicated ad hoc. That
+      single finding is why our own fleet traversals are treated as the strongest evidence a segment
+      is open, and why the road-evidence log is append-only and per segment: over a season of
+      operation, the platform accumulates the passability record for the region that no source
+      currently holds.
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================ 10 -->
+<section class="newpage">
+  <div class="sechead">
+    <h2><span class="num">10</span>Security architecture</h2>
+    <div class="kicker">Identity, authorisation, audit and the structural guards that make misconfiguration fail loudly</div>
+  </div>
+
+  <table class="tight">
+    <thead><tr><th style="width:34mm">Control</th><th style="width:32mm">Technology</th><th>Detail</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Password hashing</strong></td><td><code>argon2-cffi 23.1.0</code></td><td>Argon2id (RFC 9106)</td></tr>
+      <tr><td><strong>Tokens</strong></td><td><code>pyjwt[crypto] 2.10.1</code></td><td>15-minute access token, 30-day refresh</td></tr>
+      <tr><td><strong>Refresh rotation</strong></td><td>Token families</td><td>Every refresh issues a new token and revokes the old one. Reuse of a revoked token revokes the <strong>whole family</strong> — the standard detection for a stolen refresh token.</td></tr>
+      <tr><td><strong>Federated verification</strong></td><td>Supabase JWKS</td><td>ES256/RS256 verified against the project JWKS. Algorithm <strong>pinned</strong>, never read from the token, so <code>alg: none</code> and HS256-signed-with-the-public-key are both refused. <code>iss</code>, <code>aud</code>, <code>exp</code>, <code>iat</code> and <code>sub</code> all required.</td></tr>
+      <tr><td><strong>Rate limiting</strong></td><td>In-process limiter</td><td>Login 20/min per IP and 10/min per identifier; refresh 60/min per IP; 60-second window</td></tr>
+      <tr><td><strong>Authorisation</strong></td><td>Permission constants</td><td>Four roles — <code>ADMIN</code> · <code>MANAGER</code> · <code>DRIVER</code> · <code>AUTHORISED_REVIEWER</code> — against ~28 named permissions such as <code>route:review_authorize</code>, <code>driver:read_sensitive</code>, <code>trip:execute_own</code>, <code>location:submit_own</code></td></tr>
+      <tr><td><strong>Audit</strong></td><td><code>audit_logs</code></td><td>Append-only: actor, action, entity, before / after JSON, reason, IP</td></tr>
+      <tr><td><strong>Route authorisation</strong></td><td><code>route_review_authorizations</code></td><td>Single-use, 30-minute, cryptographically bound to an evidence digest and a policy version</td></tr>
+      <tr><td><strong>Database isolation</strong></td><td>PostgreSQL RLS</td><td>Enabled on every table; no client holds a database credential</td></tr>
+      <tr><td><strong>Transport</strong></td><td>TLS · <code>DB_REQUIRE_SSL</code></td><td>SSL required to the database by default</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Roles are read from the database, never from the token</h3>
+  <div class="call">
+    <div class="t">Why this matters more than it sounds</div>
+    <p>
+      A federated identity provider says <code>authenticated</code> for everyone.
+      <code>deps.get_current_user</code> therefore reads the real role from the <code>users</code>
+      table on <strong>every request</strong>. The consequence is operational, not theoretical: a
+      demotion or a deactivation takes effect immediately, rather than whenever the user's token
+      happens to expire. A revoked reviewer cannot authorise a corridor with a token issued three
+      minutes ago.
+    </p>
+  </div>
+
+  <h3>Structural guards — misconfiguration fails loudly rather than quietly</h3>
+  <table class="tight">
+    <thead><tr><th style="width:44mm">Guard</th><th>Behaviour</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Secret hygiene</strong></td><td>The backend refuses to start with the placeholder <code>SECRET_KEY</code> when <code>APP_ENV</code> is not development. <code>VITE_*</code> and <code>EXPO_PUBLIC_*</code> are inlined into client bundles and are therefore treated as public — no secret may use those prefixes.</td></tr>
+      <tr><td><strong>Provider misconfiguration</strong></td><td><code>DATABASE_PROVIDER=supabase</code> with a localhost URL is <strong>rejected at startup</strong> rather than silently serving a different database</td></tr>
+      <tr><td><strong>Test-database guard</strong></td><td>A <code>do_connect</code> listener on SQLAlchemy's <code>Engine</code> class with an exact-match allowlist of one target — a wrong database is <em>never dialled</em>, rather than merely discouraged. Collection additionally refuses the run with one clear message.</td></tr>
+      <tr><td><strong>Release gate</strong></td><td><code>check-release-config.mjs</code> refuses to build the APK when a LAN backend URL is configured, so a laptop-dependent build cannot ship. Private-network, plain-http and loopback intelligence origins are rejected the same way.</td></tr>
+      <tr><td><strong>JWKS unreachable</strong></td><td>Returns <strong>5xx, not 401</strong>. A valid session must never be told it expired because we could not reach the identity provider — that sends the driver to a login screen that also cannot work.</td></tr>
+      <tr><td><strong>Local-model host check</strong></td><td><code>looks_local()</code> refuses a non-loopback host unless deliberately overridden, so a driver's trip cannot be sent to a hosted endpoint by accident</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============================================================ 11 -->
+<section class="newpage">
+  <div class="sechead">
+    <h2><span class="num">11</span>Testing and quality</h2>
+    <div class="kicker">1,636 automated tests across three suites, plus two typecheck gates and a build gate</div>
+  </div>
+
+  <table class="tight">
+    <thead><tr><th style="width:32mm">Suite</th><th style="width:44mm">Framework</th><th style="width:30mm">Result</th><th>Environment</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Backend</strong></td><td>pytest 8.3.4 + pytest-asyncio + httpx</td><td><span class="b b-live">976 passed</span> 5 skipped</td><td>Isolated PostgreSQL 17 + PostGIS cluster on <code>127.0.0.1:55432</code>, target-guarded</td></tr>
+      <tr><td><strong>Manager web</strong></td><td>Vitest 3.2.7 + Testing Library + jsdom</td><td><span class="b b-live">150 passed</span></td><td>jsdom</td></tr>
+      <tr><td><strong>Driver app</strong></td><td>Vitest 4.1.11 + react-native-web</td><td><span class="b b-live">510 passed</span></td><td>jsdom over react-native-web</td></tr>
+      <tr><td><strong>Type checking</strong></td><td>tsc</td><td><span class="b b-live">clean</span></td><td><code>tsc -b --noEmit</code> / <code>tsc --noEmit</code></td></tr>
+      <tr><td><strong>Lint</strong></td><td>oxlint 1.79</td><td><span class="b b-live">clean</span></td><td>Manager web</td></tr>
+      <tr><td><strong>Production build</strong></td><td>Vite 8</td><td><span class="b b-live">succeeds</span></td><td>Manager web bundle</td></tr>
+    </tbody>
+  </table>
+  <p class="muted" style="font-size:8.2pt">
+    The 5 backend skips are named and legitimate: one non-Windows event-loop test, and four
+    destructive migration tests gated behind <code>RUN_DESTRUCTIVE_MIGRATION_TESTS=1</code> because
+    they downgrade to base and drop every table.
+  </p>
+
+  <h3>The suites that pin down the properties this product depends on</h3>
+  <table class="tight">
+    <thead><tr><th style="width:56mm">Suite</th><th>What it pins down</th></tr></thead>
+    <tbody>
+      <tr><td><code>test_db_target_guard.py</code></td><td>The run fails closed against any remote or unverified database, and refusals do not leak credentials</td></tr>
+      <tr><td><code>test_route_recommendation.py</code></td><td>Deterministic comparisons, evidence integrity, and that <strong>no confidence-like field reaches the wire</strong></td></tr>
+      <tr><td><code>test_fuel_model.py</code></td><td>Unladen baseline, laden payload, elevation grade penalty</td></tr>
+      <tr><td><code>test_supabase_verifier.py</code></td><td>17 tests: algorithm pinning, <code>iss</code>/<code>aud</code> verification, unknown <code>kid</code> → 401, JWKS unreachable → 5xx, role never taken from the token</td></tr>
+      <tr><td><code>test_golden_path_e2e.py</code></td><td>One complete manager + driver operational cycle, end to end</td></tr>
+      <tr><td><code>test_concurrency.py</code></td><td>Behaviour under simultaneous writes</td></tr>
+      <tr><td><code>test_schema_drift.py</code></td><td>The ORM and the migration head agree</td></tr>
+      <tr><td><code>test_gemini_ai.py</code></td><td>Prompt-injection defence, medical-diagnosis refusal, rate limiter</td></tr>
+      <tr><td><code>MapScreen.test.tsx</code></td><td>Position truthfulness, honest clock aging, permission revocation</td></tr>
+      <tr><td><code>FleetMap.worker.build.test.ts</code></td><td>The production build actually emits the MapLibre worker</td></tr>
+      <tr><td><code>geminiAiHandler.test.ts</code></td><td>Reasoning-token stripping and per-mode prompt specialisation</td></tr>
+    </tbody>
+  </table>
+
+  <div class="call green">
+    <div class="t">A test category most projects do not have</div>
+    <p>
+      Several suites here assert what the system <strong>must not</strong> do: must not emit a
+      confidence field, must not convert a provider outage into a score, must not let a stale reading
+      lower a risk band, must not build an APK that depends on a laptop, must not dial a database
+      other than the declared test target. Those are the tests that keep the honesty guarantees in
+      section 1 true as the code changes.
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================ 12 -->
+<section class="newpage">
+  <div class="sechead">
+    <h2><span class="num">12</span>Build, release and deployment</h2>
+    <div class="kicker">Artifacts, configuration surface and the reasoning behind each significant choice</div>
+  </div>
+
+  <table class="tight">
+    <thead><tr><th style="width:38mm">Artifact</th><th>Toolchain and state</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Android APK</strong></td><td>EAS Build (hermetic). versionCode 9, build <code>3730b06b</code>, 71.29 MB, SHA-256 <code>228a1d3f…d437f9</code>. Passed a static security audit. Both preview and production profiles authenticate against the hosted platform.</td></tr>
+      <tr><td><strong>Manager web bundle</strong></td><td>Vite 8 production build, served as a static bundle</td></tr>
+      <tr><td><strong>Intelligence service</strong></td><td>Container image from <code>backend/Dockerfile</code>, described by <code>backend/render.yaml</code>; health-checked on <code>/health</code> rather than <code>/ready</code>, so a brief database hiccup cannot make the platform kill a healthy process</td></tr>
+      <tr><td><strong>Edge functions</strong></td><td>Deployed to the Supabase project; <code>gemini-ai</code> verified HTTP 200</td></tr>
+      <tr><td><strong>Local orchestration</strong></td><td><code>docker-compose.yml</code> and <code>scripts/db-start.ps1</code> / <code>db-stop.ps1</code> for the optional offline database</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Configuration surface — selected keys</h3>
+  <table class="tight">
+    <thead><tr><th style="width:56mm">Variable</th><th style="width:28mm">Default</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>APP_ENV</code></td><td class="n">development</td><td>Gates the placeholder-secret refusal</td></tr>
+      <tr><td><code>DATABASE_PROVIDER</code></td><td class="n">supabase</td><td><code>supabase</code> or <code>local</code>; no automatic fallback between them</td></tr>
+      <tr><td><code>DB_REQUIRE_SSL</code></td><td class="n">true</td><td>TLS to the database</td></tr>
+      <tr><td><code>DB_CONNECT_TIMEOUT_SECONDS</code></td><td class="n">5</td><td>Fail fast rather than hang a request</td></tr>
+      <tr><td><code>ROUTING_FALLBACK_URL</code></td><td class="n">router.project-osrm.org</td><td>Public OSRM; <code>ROUTING_PRIMARY_URL</code> takes a self-hosted instance</td></tr>
+      <tr><td><code>ROUTING_TIMEOUT_SECONDS</code></td><td class="n">8.0</td><td>Routing budget</td></tr>
+      <tr><td><code>WEATHER_PROVIDER_URL</code></td><td class="n">api.open-meteo.com</td><td>Weather provider; 6-second budget</td></tr>
+      <tr><td><code>GEMINI_RPM_LIMIT</code></td><td class="n">10</td><td>Requests per minute ceiling</td></tr>
+      <tr><td><code>AI_ALLOW_NON_LOCAL_HOST</code></td><td class="n">false</td><td>Structural guard on the local-model path</td></tr>
+      <tr><td><code>LOGIN_RATE_LIMIT_PER_IP</code></td><td class="n">20</td><td>Per 60-second window; 10 per identifier</td></tr>
+      <tr><td><code>CORS_ORIGINS</code></td><td class="n">—</td><td>Allowlist for the manager and Expo web origins</td></tr>
+      <tr><td><code>EXPO_PUBLIC_INTELLIGENCE_BASE_URL</code></td><td class="n">—</td><td>Public https intelligence origin; private, http and loopback values are rejected at build time</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Why each significant choice was made</h3>
+  <table class="tight">
+    <thead><tr><th style="width:52mm">Choice</th><th>Reasoning</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Two apps, one backend</strong></td><td>The manager works at a desk with several screens; the driver works one-handed in a cab with poor signal, sometimes at night. One responsive web app would compromise both.</td></tr>
+      <tr><td><strong>Clients never touch the database</strong></td><td>Capacity rules, document enforcement and the safety path are only unbypassable if there is exactly one way to write.</td></tr>
+      <tr><td><strong>PostgreSQL + PostGIS</strong></td><td>Corridor geometry, breadcrumb tracks and <code>ST_DWithin</code> stationary detection are first-class database operations, not application loops.</td></tr>
+      <tr><td><strong>ap-south-1</strong></td><td>Managed Postgres with PostGIS, edge functions and RLS, hosted in India — which matters for a government-sponsored logistics dataset.</td></tr>
+      <tr><td><strong>psycopg 3, one driver</strong></td><td>Serves both the async application engine and Alembic's sync engine from a single connection URL, so there is no second driver to keep in sync.</td></tr>
+      <tr><td><strong>Python 3.11, not 3.14</strong></td><td>The analytics-phase dependencies do not yet publish 3.14 wheels. <code>pyproject.toml</code> pins <code>&gt;=3.11,&lt;3.13</code> deliberately.</td></tr>
+      <tr><td><strong>Start via <code>run.py</code></strong></td><td>On Windows the asyncio selector policy must be set before uvicorn creates its event loop, or every database call fails with a psycopg <code>InterfaceError</code>.</td></tr>
+      <tr><td><strong>MapLibre + OpenStreetMap</strong></td><td>Licence-free, self-hostable, and no per-map-load billing that would make a fleet console expensive to leave open all day.</td></tr>
+      <tr><td><strong>Expo / React Native</strong></td><td>One Android build from one TypeScript codebase, and <code>react-native-web</code> makes the same screens testable in CI without a device farm.</td></tr>
+      <tr><td><strong>Stateless intelligence service</strong></td><td>It holds no state of its own, so it can be scaled, moved or restarted freely — and every other workflow keeps working regardless.</td></tr>
+      <tr><td><strong>Deterministic engines</strong></td><td>Published constants can be argued with in review and defended in an inquiry. Every route decision carries the evidence it was made from — which is also exactly the dataset any future statistical model would have to beat.</td></tr>
+      <tr><td><strong>No language model in the safety path</strong></td><td>After a real incident, "the truck had not moved more than 50 m in 60 minutes and the driver did not answer in 30" is defensible. "The model scored 0.83" is not.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Scaling characteristics</h3>
+  <div class="grid3">
+    <div class="card">
+      <div class="h">Cost scales with trucks</div>
+      <div class="s">Not with kilometres of road. All data sources are free and licence-clear; managed Postgres plus a container backend is the whole bill. No GPU, no on-prem server, no vehicle retrofit.</div>
+    </div>
+    <div class="card">
+      <div class="h">Geography is configuration</div>
+      <div class="s">Only the hazard feeds are regional. The same schema, the same engines and the same clients serve Himalayan, Western Ghat and island logistics unchanged.</div>
+    </div>
+    <div class="card">
+      <div class="h">Horizontally scalable</div>
+      <div class="s">The API is stateless and the intelligence service holds no state, so both scale by replica count. PostGIS indexes the geometry; corridor and stationary queries stay in the database.</div>
+    </div>
+  </div>
+
+  <div class="endnote">
+    <strong>Document provenance.</strong> Compiled 9 September 2026 from the working tree:
+    <code>backend/requirements.txt</code>, <code>backend/pyproject.toml</code>,
+    <code>manager-web/package.json</code>, <code>driver-app/package.json</code>,
+    <code>backend/app/**</code>, <code>backend/alembic/versions/**</code>,
+    <code>supabase/migrations/**</code>, <code>supabase/functions/**</code> and the engineering
+    reports under <code>docs/</code>. Every coefficient, threshold, table name, endpoint and version
+    string was read from source rather than restated from an earlier document.
+  </div>
+</section>
+
+</body>
+</html>

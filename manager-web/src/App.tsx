@@ -7,7 +7,10 @@
  */
 
 import type { ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 import { BrowserRouter, NavLink, Navigate, Route, Routes } from 'react-router-dom'
+
+import { ageLabel, useConnectivity } from './api/connectivity'
 
 import { AuthProvider, useAuth } from './auth/AuthProvider'
 import { Button, LoadingState } from './components/ui'
@@ -53,6 +56,33 @@ function Guarded({
   const { can } = useAuth()
   if (!can(permission)) return <Navigate to={home} replace />
   return <>{children}</>
+}
+
+/**
+ * The one place the console says it is offline. Pages keep their last-known
+ * data underneath; this names the state and its age so nothing old reads as
+ * live. Comes back on its own when the /health probe answers.
+ */
+function SyncBanner() {
+  const { online, lastOkAt } = useConnectivity()
+  const [, tick] = useState(0)
+  useEffect(() => {
+    if (online) return
+    const t = setInterval(() => tick((n) => n + 1), 10_000)
+    return () => clearInterval(t)
+  }, [online])
+  if (online) return null
+  return (
+    <div
+      role="status"
+      className="flex items-center justify-between gap-4 border-b border-warning/40 bg-warning-soft px-4 py-2 text-xs font-medium text-warning"
+    >
+      <span>
+        <strong className="uppercase tracking-wide">Offline</strong> · showing last known data
+        {lastOkAt !== null ? ` · last synced ${ageLabel(lastOkAt)}` : ''} · reconnecting…
+      </span>
+    </div>
+  )
 }
 
 function Shell() {
@@ -105,6 +135,7 @@ function Shell() {
           </div>
         </div>
       </header>
+      <SyncBanner />
 
       <main id="main-content" className="workspace">
         <Routes>

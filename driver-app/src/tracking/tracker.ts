@@ -87,6 +87,8 @@ export interface TrackerState {
     lon: number
     accuracyM: number | null
     speedKmh?: number | null
+    /** Course over ground in degrees, when the platform reported one. */
+    headingDeg?: number | null
     /** Device clock, milliseconds. The UI ages it to decide LIVE vs stale. */
     at: number
   } | null
@@ -405,6 +407,9 @@ export class LocationTracker {
         lon: sample.lon,
         accuracyM: sample.accuracyM ?? null,
         speedKmh: sample.speedMs !== null && !isNaN(sample.speedMs) && sample.speedMs >= 0 ? Math.round(sample.speedMs * 3.6) : null,
+        // Android reports bearing 0 when it has none, so a parked truck would
+        // point north: a heading is only a heading while the truck moves.
+        headingDeg: sample.speedMs !== null && sample.speedMs > 1 ? sample.headingDeg : null,
         at: sample.timestamp,
       },
     })

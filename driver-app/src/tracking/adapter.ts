@@ -13,6 +13,7 @@
  */
 
 import * as Location from 'expo-location'
+import { Platform } from 'react-native'
 
 export type PermissionOutcome = 'granted' | 'denied' | 'unavailable'
 
@@ -65,6 +66,23 @@ function toSample(raw: Location.LocationObject): Sample {
       (raw as Location.LocationObject & { mocked?: boolean }).mocked,
     ),
   }
+}
+
+/**
+ * Compass heading, degrees clockwise from true north, for the map marker
+ * while the truck is not moving (a GPS course needs motion). Not on web.
+ * Returns the unsubscribe. Emits null when the platform has no compass.
+ */
+export function watchCompass(onHeading: (deg: number | null) => void): () => void {
+  if (Platform.OS === 'web') return () => {}
+  let sub: Location.LocationSubscription | null = null
+  let alive = true
+  Location.watchHeadingAsync((h) => {
+    if (alive) onHeading(h.trueHeading >= 0 ? h.trueHeading : h.magHeading >= 0 ? h.magHeading : null)
+  })
+    .then((s) => { if (alive) sub = s; else s.remove() })
+    .catch(() => onHeading(null))
+  return () => { alive = false; sub?.remove() }
 }
 
 export const expoLocationAdapter: LocationAdapter = {

@@ -63,19 +63,19 @@ describe('transport selection', () => {
     // still unmigrated, and the ones served by the hosted intelligence plane.
     // Neither may resolve to the REST client.
     const m = await load(GOOD_URL, GOOD_KEY)
-    for (const op of ['places', 'offlinePackage', 'navigationPackage'] as const) {
+    for (const op of ['places', 'offlinePackage', 'navigationPackage', 'checkInEmergency'] as const) {
       expect(m.api[op]).not.toBe(m.restApi[op])
     }
 
     // Unmigrated: throws synchronously, naming itself.
-    expect(() => (m.api.places as () => unknown)()).toThrowError(/not migrated/i)
+    expect(() => (m.api.myAssignment as () => unknown)()).toThrowError(/not migrated/i)
 
     // Hosted intelligence plane: rejects when no origin is configured, which is
     // the case under test. It must never quietly resolve - an empty package
     // would draw a navigation screen with no corridor.
-    for (const op of ['offlinePackage', 'navigationPackage'] as const) {
+    for (const op of ['places', 'offlinePackage', 'navigationPackage', 'checkInEmergency'] as const) {
       await expect(
-        (m.api[op] as () => Promise<unknown>)(),
+        (m.api[op] as (t?: string, r?: string) => Promise<unknown>)('trip-1', 'I_AM_SAFE'),
       ).rejects.toThrowError(/unavailable/i)
     }
   })

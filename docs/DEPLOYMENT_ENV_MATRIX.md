@@ -97,14 +97,27 @@ here is public.** A secret in this table would be a leak, which is why none is.
 > production location was "repo"; that was wrong, and acting on it produces the
 > failure below.
 >
-> **The failure is silent.** `manager-web/src/api/supabaseClient.ts` falls back
-> to the hardcoded project URL and to the literal key `'anon-placeholder'` when
-> the key variables are unset. It does not throw. The manager builds, deploys
-> and renders; every Supabase call then returns 401 and login fails with an
-> opaque error rather than a configuration message. The driver app fails closed
-> here (`driver-app/src/api/releaseConfig.ts` refuses the build); the manager
-> does not. Treat a deployed manager as unverified until a real login succeeds
-> against it.
+> **The failure used to be silent. It is not any more.**
+>
+> `manager-web/src/api/supabaseClient.ts` fell back to the hardcoded project URL
+> and to the literal key `'anon-placeholder'`, so it never threw: the manager
+> built, deployed and rendered, and every Supabase call returned 401. The
+> reported symptom was "login is broken", several layers from the cause. Worse,
+> the `if (!SUPABASE_URL) throw` that appeared to guard this was **unreachable
+> dead code** - the hardcoded URL fallback meant it could never be falsy.
+>
+> Both fallbacks are gone. `getSupabase()` now throws and names the missing
+> variable, and says the values belong in the hosting dashboard. Pinned by
+> `supabaseClient.test.ts` (5 tests), including one asserting the placeholder key
+> is never substituted.
+>
+> It throws **lazily, not at build time**, on purpose: the manager also supports
+> a local FastAPI transport where Supabase is unused, and failing the build would
+> forbid that valid configuration. `getSupabase()` is only reached on the
+> Supabase path, so the check fires exactly where it applies.
+>
+> Still true: **treat a deployed manager as unverified until a real login
+> succeeds against it.** The build cannot prove the dashboard values are right.
 
 **Missing-value behaviour, verified in source:** `intelligence.ts` computes
 `originProblem(RAW_BASE)` at module load. If it is unset or not a public HTTPS
@@ -130,7 +143,6 @@ readable from the installed app.**
 | `EXPO_PUBLIC_SUPABASE_PROJECT_REF` | yes | no | `eas.json` | 20-char project ref | repo |
 | `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | yes | no | `eas.json` | anon key only | repo |
 | **`EXPO_PUBLIC_INTELLIGENCE_BASE_URL`** | **for navigation** | no | `eas.json` | `https://<service>.onrender.com` | **MISSING — add before VC10** |
-| `GOOGLE_MAPS_ANDROID_API_KEY` | no | **SECRET** | build env | — | unset today; map falls back to OSM raster tiles |
 
 **This is the blocking gap for VC10.** A fresh install has no cached
 `OfflinePackage`, so the only source of route geometry and maneuvers is

@@ -67,3 +67,37 @@ export function translateReasonCodes(
 ): string[] {
   return codes.map((c) => translateReasonCode(c, language))
 }
+
+/**
+ * A risk-engine factor key as something a dispatcher reads.
+ *
+ * `truck_restrictions` is a column name; "Truck restrictions" is evidence. The
+ * driver app makes the same substitution in `src/safety/riskCards.ts`, and both
+ * screens are describing the same ten factors - so the words match.
+ *
+ * Unknown keys are humanised rather than dropped: a factor this build has not
+ * been taught is still a gap the dispatcher must see.
+ */
+export function factorLabel(factor: string): string {
+  const named: Record<string, string> = {
+    weather: 'Weather',
+    landslide: 'Landslide',
+    duration: 'Time on the road',
+    distance: 'Distance',
+    fuel_model: 'Fuel range',
+    flood: 'River levels',
+    official_warnings: 'Official alerts',
+    road_quality: 'Road quality',
+    truck_restrictions: 'Truck restrictions',
+    historical_incidents: 'Past incidents',
+    elevation: 'Elevation',
+  }
+  if (named[factor]) return named[factor]
+  const words = factor.replace(/_/g, ' ')
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+/** The same list, joined for a sentence. */
+export function factorLabels(factors: readonly string[]): string {
+  return factors.map(factorLabel).join(', ')
+}

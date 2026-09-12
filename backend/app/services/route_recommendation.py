@@ -115,26 +115,38 @@ async def _live_route_facts(
 
 
 async def _risk_for(
-    wkt: str, distance_km: Decimal | None, duration_min: int | None
+    route_id: uuid.UUID, wkt: str, distance_km: Decimal | None, duration_min: int | None
 ) -> RouteRisk:
-    """Score one route from geometry already read out of the database."""
-    positions = sample_positions(parse_wkt_linestring(wkt), ROUTE_SAMPLES)
-    # Through the module, not a bound name: `observations_for` is the single
-    # seam the suite stubs, and importing it directly here would silently
-    # bypass that patch and reach the real provider from tests.
-    observations = await route_risk_service.observations_for(positions)
-    # LS-7. This second assessment path was missed when landslide evidence was
-    # wired into `assess_route`, so every recommendation candidate carried
+    """Score one route from geometry already read out of the database.
+
+    The SAME four evidence reads as `route_risk.assess_route`, gathered the
+    same way. This is the second assessment path (LS-7 below), and it is
+    where terrain and history would have been missed a second time: the
+    driver's monitor would have shown a DEM profile while the dispatcher's
+    review said "terrain not available" for the same road.
+    """
+    geometry = parse_wkt_linestring(wkt)
+    positions = sample_positions(geometry, ROUTE_SAMPLES)
+    # Through the module, not bound names: these are the seams the suite
+    # stubs, and importing them directly here would silently bypass that patch
+    # and reach the real providers from tests.
+    #
+    # LS-7. This path was missed when landslide evidence was wired into
+    # `assess_route`, so every recommendation candidate carried
     # `landslide=None`. Once landslide became REQUIRED evidence that made every
     # candidate REQUIRES_REVIEW and the endpoint stopped recommending anything.
-    # Through the module for the same reason as `observations_for`: it is the
-    # seam the suite stubs.
-    landslide = await route_risk_service.landslide_for(positions)
+    observations, landslide, terrain, history, flood, warnings = await route_risk_service.evidence_for(
+        route_id, geometry, positions
+    )
     return assess(
         distance_km=float(distance_km) if distance_km is not None else 0.0,
         duration_min=float(duration_min) if duration_min is not None else 0.0,
         observations=observations,
         landslide=landslide,
+        terrain=terrain,
+        history=history,
+        flood=flood,
+        warnings=warnings,
     )
 
 
@@ -164,7 +176,7 @@ async def candidates_for_trip(
     # Concurrent across routes as well as within one: two serial assessments
     # would stack their timeouts, and the routes are independent.
     risks = await asyncio.gather(
-        *(_risk_for(wkt, distance, duration) for _, _, wkt, distance, duration in facts)
+        *(_risk_for(route_id, wkt, distance, duration) for route_id, _, wkt, distance, duration in facts)
     )
 
     return [

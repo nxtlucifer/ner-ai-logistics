@@ -157,6 +157,9 @@ const NEVER_REPORTED = trip({
 describe('FleetPage', () => {
   beforeEach(() => {
     plotted.mockClear()
+    // The fleet snapshot is cached across reloads; a test that expects the
+    // empty-and-failed state must not inherit a previous test's snapshot.
+    localStorage.clear()
     vi.spyOn(api, 'getTrip').mockResolvedValue({
       id: LIVE.trip_id,
       trip_code: LIVE.trip_code,

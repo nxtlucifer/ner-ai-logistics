@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import {
+  Pressable,
   RefreshControl,
   SafeAreaView,
   ScrollView,
@@ -21,7 +22,8 @@ import {
 
 import { api, type CurrentAssignment } from '../api/client'
 import { Banner, Button, Field, Loading, Row, errorMessage } from '../components/ui'
-import { COLORS } from '../theme'
+import { TOUCH_TARGET } from '../theme'
+import { makeStyles, useTheme } from '../theme-context'
 
 type Status = 'loading' | 'ready' | 'error'
 
@@ -74,7 +76,9 @@ function parseReadings(input: { odometer: string; fuel: string }): ParsedReading
   return out
 }
 
-export default function AssignmentScreen() {
+export default function AssignmentScreen({ onBack }: { onBack?: () => void } = {}) {
+  const styles = useStyles()
+  const { colors: COLORS } = useTheme()
   const [status, setStatus] = useState<Status>('loading')
   const [assignment, setAssignment] = useState<CurrentAssignment | null>(null)
   const [loadError, setLoadError] = useState<unknown>(null)
@@ -156,6 +160,16 @@ export default function AssignmentScreen() {
 
   return (
     <SafeAreaView style={styles.flex}>
+      {onBack ? (
+        <Pressable
+          onPress={onBack}
+          accessibilityRole="button"
+          accessibilityLabel="Back to trip"
+          style={styles.backRow}
+        >
+          <Text style={styles.backText}>{verified ? '‹ Back to trip — checked' : '‹ Back to trip'}</Text>
+        </Pressable>
+      ) : null}
       <ScrollView
         contentContainerStyle={styles.container}
         refreshControl={
@@ -294,8 +308,10 @@ export default function AssignmentScreen() {
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((COLORS) => ({
   flex: { flex: 1, backgroundColor: COLORS.bg },
+  backRow: { minHeight: TOUCH_TARGET, justifyContent: 'center', paddingHorizontal: 20 },
+  backText: { color: COLORS.routeOn, fontSize: 15, fontWeight: '700' },
   container: { padding: 20, paddingBottom: 48 },
   card: {
     backgroundColor: COLORS.card,
@@ -334,4 +350,4 @@ const styles = StyleSheet.create({
   },
 
   note: { color: COLORS.faint, fontSize: 12, marginTop: 24, lineHeight: 18 },
-})
+}))

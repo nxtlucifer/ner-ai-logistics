@@ -1,4 +1,11 @@
 // @vitest-environment jsdom
+/**
+ * The assistant is a chat whose replies are computed, not generated.
+ *
+ * These assert the properties a driver depends on: a tap produces an answer, a
+ * second tap keeps the first one on screen, and nothing on this screen reaches
+ * the network or calls itself AI.
+ */
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -12,7 +19,12 @@ vi.mock('../trip/TripProvider', () => ({
     trip: {
       id: 'trip-1',
       trip_code: 'NER-101',
+      status: 'IN_TRANSIT',
+      truck: { id: 'tr-1', registration_number: 'AS01AB1234' },
       started_at: '2026-09-08T00:00:00Z',
+      progress: null,
+      last_fix: null,
+      selected_route_id: 'route-1',
       stops: [
         { id: 's1', sequence: 1, name: 'Guwahati Depot' },
         { id: 's2', sequence: 2, name: 'Jorhat Hub' },
@@ -25,9 +37,11 @@ vi.mock('../trip/TripProvider', () => ({
   }),
 }))
 
+// The translator hangs off the assistant's "Help me talk" hand-off, so the
+// module graph reaches the api client even though this screen never calls it.
 vi.mock('../ai/useLocalAi', () => ({
   useLocalAi: () => ({
-    status: { available: true, model: 'gemini-2.5-flash', languages: {} },
+    status: null,
     state: { kind: 'IDLE' },
     ask: vi.fn(),
     cancel: vi.fn(),
@@ -45,6 +59,12 @@ vi.mock('expo-clipboard', () => ({
   setStringAsync: vi.fn().mockResolvedValue(true),
 }))
 
+// The live risk read pulls in the API client (expo-constants); the screen
+// under test answers from the package and the trip, so it is held UNAVAILABLE.
+vi.mock('../hooks/useRouteRisk', () => ({
+  useRouteRisk: () => ({ risk: null, state: 'UNAVAILABLE', fetchedAt: null, capturedAt: null, refresh: () => {} }),
+}))
+
 vi.mock('@react-native-async-storage/async-storage', () => ({
   default: {
     getItem: vi.fn().mockResolvedValue(null),
@@ -53,9 +73,12 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 }))
 
 vi.mock('react-native', async () => {
-  const { createElement: h } = await import('react')
+  const { createElement: h, forwardRef } = await import('react')
   const box = ({ children, style: _style, testID, ...rest }: any) =>
     h('div', { 'data-testid': testID, ...rest }, children)
+  const scroll = forwardRef(({ children, style: _style, contentContainerStyle: _c, testID, ...rest }: any, _ref: any) =>
+    h('div', { 'data-testid': testID, ...rest }, children),
+  )
   const pressable = ({ children, style: _style, onPress, testID, ...rest }: any) =>
     h('button', { onClick: onPress, 'data-testid': testID, ...rest }, children)
   const input = ({ onChangeText, style: _style, testID, ...rest }: any) =>
@@ -67,7 +90,7 @@ vi.mock('react-native', async () => {
 
   return {
     View: box,
-    ScrollView: box,
+    ScrollView: scroll,
     Pressable: pressable,
     Text: box,
     TextInput: input,
@@ -80,14 +103,23 @@ vi.mock('react-native', async () => {
 
 import AssistantScreen from './AssistantScreen'
 
-describe('AssistantScreen Component', () => {
+describe('AssistantScreen', () => {
   let container: HTMLDivElement | null = null
   let root: Root | null = null
+
+  const tap = (testId: string) => {
+    const button = container?.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)
+    expect(button, testId).not.toBeNull()
+    act(() => button?.click())
+  }
 
   beforeEach(() => {
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
+    act(() => {
+      root?.render(createElement(AssistantScreen))
+    })
   })
 
   afterEach(() => {
@@ -97,61 +129,47 @@ describe('AssistantScreen Component', () => {
     root = null
   })
 
-  it('renders all 4 top sub-modes: Ask AI, Translate, Route Risk, Weather / Safety', () => {
-    act(() => {
-      root?.render(createElement(AssistantScreen))
-    })
-    expect(container?.textContent).toContain('Ask AI')
-    expect(container?.textContent).toContain('Translate')
-    expect(container?.textContent).toContain('Route Risk')
-    expect(container?.textContent).toContain('Weather / Safety')
+  it('opens with every question it can answer on screen', () => {
+    for (const label of ['My route', 'Next stop', 'Do I need a break?', 'Am I online?']) {
+      expect(container?.textContent).toContain(label)
+    }
   })
 
-  it('switches to Translate sub-mode when tab clicked', () => {
-    act(() => {
-      root?.render(createElement(AssistantScreen))
-    })
-    const translateBtn = container?.querySelector<HTMLButtonElement>(
-      '[data-testid="submode-translate"]',
-    )
-    expect(translateBtn).not.toBeNull()
-    act(() => {
-      translateBtn?.click()
-    })
-    expect(container?.textContent).toContain('Driver Translator')
-    expect(container?.textContent).toContain('Quick Driver Phrases')
+  it('never calls itself AI', () => {
+    // The guarantee this screen makes is that no model is in the loop. Naming
+    // it AI would claim the opposite to the one person who cannot check.
+    expect(container?.textContent).not.toMatch(/\bAI\b/)
   })
 
-  it('switches to Route Risk sub-mode when tab clicked', () => {
-    act(() => {
-      root?.render(createElement(AssistantScreen))
-    })
-    const riskBtn = container?.querySelector<HTMLButtonElement>(
-      '[data-testid="submode-risk"]',
-    )
-    expect(riskBtn).not.toBeNull()
-    act(() => {
-      riskBtn?.click()
-    })
-    expect(container?.textContent).toContain('Route Risk & Corridor Intelligence')
-    expect(container?.textContent).toContain('SAFETY MANDATE')
+  it('answers a tapped question from local state', () => {
+    tap('ask-q-trip')
+    expect(container?.textContent).toContain('NER-101')
+    // A registration is not an enum. The humaniser that stops SHOUTING_SNAKE
+    // reaching a driver turned AS01AB1234 into "As01ab1234" before it learned
+    // to leave anything with a digit in it alone.
+    expect(container?.textContent).toContain('AS01AB1234')
   })
 
-  it('switches to Weather / Safety sub-mode with emergency numbers when clicked', () => {
-    act(() => {
-      root?.render(createElement(AssistantScreen))
-    })
-    const safetyBtn = container?.querySelector<HTMLButtonElement>(
-      '[data-testid="submode-safety"]',
-    )
-    expect(safetyBtn).not.toBeNull()
-    act(() => {
-      safetyBtn?.click()
-    })
-    expect(container?.textContent).toContain('Fatigue & Rest Break Status')
-    expect(container?.textContent).toContain('Emergency Highway Contacts')
-    expect(container?.textContent).toContain('112')
-    expect(container?.textContent).toContain('108')
-    expect(container?.textContent).toContain('1033')
+  it('keeps the earlier answer on screen when a second question is asked', () => {
+    tap('ask-q-trip')
+    tap('ask-q-net')
+    // The transcript is the point: an answer that replaced the last one forced
+    // a driver to re-tap to compare two facts.
+    expect(container?.textContent).toContain('NER-101')
+    expect(container?.querySelectorAll('button').length).toBeGreaterThan(0)
+  })
+
+  it('names what an answer could not include, without shouting the enum', () => {
+    tap('ask-q-vehicle')
+    expect(container?.textContent).toContain('Not included')
+    expect(container?.textContent).toContain('Vehicle diagnostics')
+  })
+
+  it('never puts a raw code on screen', () => {
+    // A driver reading BREAK_TRIP_NOT_STARTED is reading the database. The
+    // break codes are client-owned and cannot go in the backend catalogue -
+    // see BREAK_REASON_TEXT - so this is the guard that they stay explained.
+    for (const id of ['q-break', 'q-trip', 'q-risk', 'q-stop', 'q-vehicle', 'q-net']) tap(`ask-${id}`)
+    expect(container?.textContent).not.toMatch(/[A-Z]{3,}_[A-Z_]{3,}/)
   })
 })

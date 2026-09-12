@@ -43,6 +43,11 @@ vi.mock('react-native', async () => {
     Text: box,
     TextInput: input,
     ActivityIndicator: () => h('span', null, 'Loading...'),
+    // Honours `visible`, so the language sheet is absent from the tree until
+    // it is opened. A Modal mock that always renders its children would let a
+    // closed sheet satisfy a query for on-screen text.
+    Modal: ({ visible, children }: { visible?: boolean; children?: import('react').ReactNode }) =>
+      visible ? h('div', null, children) : null,
     Platform: { OS: 'android' },
     StyleSheet: { create: (v: unknown) => v },
   }

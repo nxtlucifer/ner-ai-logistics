@@ -1,14 +1,147 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import { api, type ReviewAuthorization, type RouteRecommendation, type Trip, type TripDetail, type TripRoute } from '../api/client'
+import { api, type ReviewAuthorization, type RouteRecommendation, type RouteRiskSummary, type Trip, type TripDetail, type TripRoute } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
 import { Button, Card, EmptyState, ErrorState, LoadingState, StatusPill } from './ui'
-import { translateReasonCodes } from '../i18n/reasonCodes'
+import { factorLabels, translateReasonCodes } from '../i18n/reasonCodes'
 
 const FleetMap = lazy(() => import('./FleetMap'))
 
 /** Draft route review uses the same authoritative selection API as Fleet.
  * The parent keys this panel by trip id so another draft cannot inherit it.
  */
+/**
+ * The corridor's terrain and its recorded landslide history, with provenance.
+ *
+ * Two evidence blocks the engine attaches when it had them. Each says WHAT it
+ * measured, from WHERE, and how COMPLETE it is - the same three things the
+ * driver's Safety cards say - so a dispatcher and a driver reading the same
+ * route read the same evidence.
+ *
+ * Nothing here is a probability. `HIGH` on the history block means three or
+ * more recorded slides within 5 km of the road in the inventory - a published
+ * threshold, stated in the copy.
+ */
+function TerrainHazardSummary({ risk }: { risk: RouteRiskSummary }) {
+  const terrain = risk.terrain ?? null
+  const history = risk.landslide_history ?? null
+  const flood = risk.flood ?? null
+  const warnings = risk.official_warnings ?? null
+  if (!terrain && !history && !flood && !warnings) return null
+  const tone = (label: string) =>
+    label === 'HIGH'
+      ? 'bg-danger-soft text-danger'
+      : label === 'MODERATE'
+        ? 'bg-warning-soft text-warning'
+        : label === 'LOW'
+          ? 'bg-primary-soft text-primary'
+          : 'bg-soft text-muted'
+  return (
+    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+      <div className="rounded-[10px] border border-line bg-surface p-3" data-testid="terrain-summary">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.13em] text-muted">Terrain</span>
+          {terrain ? (
+            <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-bold ${terrain.usable ? (terrain.steep_km > 0 ? tone('MODERATE') : tone('LOW')) : tone('UNKNOWN')}`}>
+              {terrain.usable ? (terrain.steep_km > 0 ? `${terrain.steep_km.toFixed(1)} KM STEEP` : 'NO STEEP STRETCH') : 'PARTIAL'}
+            </span>
+          ) : (
+            <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-bold ${tone('UNKNOWN')}`}>NOT MEASURED</span>
+          )}
+        </div>
+        {terrain ? (
+          <>
+            <p className="tnum mt-1.5 text-[13px] leading-snug">
+              {terrain.min_elevation_m !== null && terrain.max_elevation_m !== null
+                ? `${Math.round(terrain.min_elevation_m)}–${Math.round(terrain.max_elevation_m)} m`
+                : 'Height range not known'}
+              {' · '}
+              {Math.round(terrain.total_ascent_m)} m climb · steepest {terrain.max_grade_pct.toFixed(1)}%
+            </p>
+            <p className="tnum mt-1 text-[12px] text-muted">
+              {(['FLAT', 'ROLLING', 'HILLY', 'STEEP'] as const)
+                .filter(k => (terrain.class_km[k] ?? 0) > 0)
+                .map(k => `${k.toLowerCase()} ${(terrain.class_km[k] ?? 0).toFixed(1)} km`)
+                .join(' · ')}
+            </p>
+            <p className="mt-1.5 text-[11.5px] text-muted">
+              {terrain.source} · {Math.round(terrain.coverage * 100)}% of {terrain.samples_requested} samples answered
+              {terrain.usable ? '' : ' — below the floor to score, shown for completeness'}
+            </p>
+          </>
+        ) : (
+          <p className="mt-1.5 text-[12.5px] text-muted">The elevation model did not answer for this route.</p>
+        )}
+      </div>
+
+      <div className="rounded-[10px] border border-line bg-surface p-3" data-testid="history-summary">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.13em] text-muted">Landslide history</span>
+          <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-bold ${tone(history?.exposure ?? 'UNKNOWN')}`}>
+            {history ? `${history.exposure} EXPOSURE` : 'NOT MEASURED'}
+          </span>
+        </div>
+        {history && history.exposure !== 'UNKNOWN' ? (
+          <>
+            <p className="tnum mt-1.5 text-[13px] leading-snug">
+              {history.on_route_count === 0
+                ? 'No recorded landslide within 5 km of the road'
+                : `${history.on_route_count} recorded landslide${history.on_route_count === 1 ? '' : 's'} within 5 km of the road`}
+              {history.nearest_km !== null ? `, nearest ${history.nearest_km.toFixed(1)} km` : ''}
+            </p>
+            <p className="mt-1 text-[12px] text-muted">
+              {history.imprecise_count > 0 ? `${history.imprecise_count} more nearby placed too imprecisely to count · ` : ''}
+              HIGH is three or more; MODERATE is one or two
+            </p>
+            <p className="mt-1.5 text-[11.5px] text-muted">
+              NASA Global Landslide Catalog · inventory {history.inventory_from_year}–{history.inventory_to_year}
+              {history.reason_codes.includes('LANDSLIDE_HISTORY_INVENTORY_AGED') ? ' — aged, recent years not covered' : ''}
+            </p>
+          </>
+        ) : (
+          <p className="mt-1.5 text-[12.5px] text-muted">
+            {history ? 'The inventory could not be read for this corridor.' : 'No landslide inventory answered for this route.'}
+          </p>
+        )}
+      </div>
+      <div className="rounded-[10px] border border-line bg-surface p-3 sm:col-span-2" data-testid="flood-summary">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.13em] text-muted">River levels</span>
+          <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-bold ${flood?.level === 'ELEVATED' ? 'bg-warning-soft text-warning' : flood?.level === 'NORMAL' ? 'bg-primary-soft text-primary' : 'bg-soft text-muted'}`}>
+            {flood && flood.level !== 'UNKNOWN' ? flood.level : 'NOT MEASURED'}
+          </span>
+        </div>
+        <p className="mt-1.5 text-[12.5px] text-muted">
+          {flood && flood.level !== 'UNKNOWN' && flood.ratio_max !== null
+            ? `Discharge at ${flood.cells} river cell${flood.cells === 1 ? '' : 's'} along the corridor, highest ${flood.ratio_max.toFixed(1)}× its own 30-day mean · GloFAS via Open-Meteo, ${flood.observed_on ?? 'today'}. A level, not a flood forecast and not a road-closure claim.`
+            : 'No river discharge data for this corridor.'}
+        </p>
+      </div>
+      <div className="rounded-[10px] border border-line bg-surface p-3 sm:col-span-2" data-testid="warnings-summary">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.13em] text-muted">Official alerts</span>
+          <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-bold ${warnings?.level === 'ACTIVE' ? 'bg-danger-soft text-danger' : warnings?.level === 'CLEAR' ? 'bg-primary-soft text-primary' : 'bg-soft text-muted'}`}>
+            {warnings && warnings.level !== 'UNKNOWN' ? (warnings.level === 'ACTIVE' ? `${warnings.on_route.length} ON CORRIDOR` : 'NONE ON CORRIDOR') : 'NOT CHECKED'}
+          </span>
+        </div>
+        {warnings && warnings.level !== 'UNKNOWN' ? (
+          <>
+            {warnings.on_route.map((w) => (
+              <p key={w.identifier} className="mt-1.5 text-[12.5px] text-ink">
+                <span className="font-semibold">{w.event} · {w.severity}</span> — {w.headline} <span className="text-muted">({w.sender}, {w.area_desc}{w.expires ? `, until ${new Date(w.expires).toLocaleString()}` : ''})</span>
+              </p>
+            ))}
+            <p className="mt-1.5 text-[12.5px] text-muted">
+              NDMA SACHET CAP feed, {warnings.considered} alerts nationwide{warnings.fetched_at ? ` at ${new Date(warnings.fetched_at).toLocaleTimeString()}` : ''} · placed by district name ({warnings.districts.join(', ')}) · {warnings.in_states} more active elsewhere in the corridor states, not placeable on this road.
+            </p>
+          </>
+        ) : (
+          <p className="mt-1.5 text-[12.5px] text-muted">The alert feed or the district lookup did not answer for this corridor.</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function TripRouteReview({ trip, onChanged }: { trip: Trip; onChanged: () => void }) {
   const { can } = useAuth()
   const [detail, setDetail] = useState<TripDetail | null>(null)
@@ -76,7 +209,16 @@ export default function TripRouteReview({ trip, onChanged }: { trip: Trip; onCha
           <div><p className="text-xs text-muted">Source</p><p className="font-semibold">{route.routing_provider ?? 'Unavailable'}</p></div>
         </div>
         <Suspense fallback={<LoadingState label="Loading route map…" />}>
-          <FleetMap trips={[]} selectedTripId={trip.id} onSelect={() => {}} track={[]} plannedRoute={route.geometry} previewRouteId={route.id} />
+          <FleetMap
+            trips={[]}
+            selectedTripId={trip.id}
+            onSelect={() => {}}
+            track={[]}
+            plannedRoute={route.geometry}
+            previewRouteId={route.id}
+            terrainSegments={eligible?.risk.terrain?.segments ?? []}
+            hazards={eligible?.risk.landslide_history?.events ?? []}
+          />
         </Suspense>
         <p className="text-xs text-muted my-3">{route.is_current ? 'Assigned route' : 'Route preview'} · Planned {new Date(route.created_at).toLocaleString()}. Free-flow time excludes traffic, breaks and stops; arrival time is unavailable.</p>
       </> : <EmptyState title="Preview your road" description="Plan the route for this draft, review its conditions, then select it before dispatch." />}
@@ -139,7 +281,8 @@ export default function TripRouteReview({ trip, onChanged }: { trip: Trip; onCha
         <StatusPill status={eligible?.eligibility ?? 'NOT_ASSESSED'} />
         <p className="text-sm">{eligible?.eligibility === 'REJECTED' ? 'An active hazard blocks this road. It cannot be selected.' : eligible?.eligibility === 'REQUIRES_REVIEW' ? authorization ? 'A reviewer authorized one selection. Hazard evidence remains incomplete.' : 'Hazard evidence is incomplete or elevated. An authorised reviewer must review this route before selection. Refresh conditions after review.' : eligible?.eligibility === 'ELIGIBLE' ? 'Eligible under the checks that ran. This is not a safety guarantee.' : 'Check current conditions before selecting a route.'}</p>
         {eligible ? <p className="text-xs text-muted">{translateReasonCodes(eligible.risk.reason_codes, 'en').join(' · ')}</p> : null}
-        {assessment?.unavailable_inputs.length ? <p className="text-xs text-muted">Unavailable: {assessment.unavailable_inputs.join(', ')}</p> : null}
+        {assessment?.unavailable_inputs.length ? <p className="text-xs text-muted">Unavailable: {factorLabels(assessment.unavailable_inputs)}</p> : null}
+        {eligible ? <TerrainHazardSummary risk={eligible.risk} /> : null}
         {can('route:select') && editable ? <Button disabled={busy !== null || !selectable || route.is_current} busy={busy === 'select'} onClick={() => void run('select', async () => {
           if (!selectable) return
           await api.selectRoute(trip.id, route.id, authorization?.id)

@@ -449,8 +449,16 @@ Three database mechanisms enforce invariants that application code alone could n
 | `trg_cargo_items_recalc_weight` | `shipments.total_weight_kg` is derived from `cargo_items`. It is the value compared against truck capacity, so a client must not be able to declare it. |
 | `set_updated_at()` on 5 tables | `updated_at` cannot be forged by a client and is maintained for raw SQL too. Uses `now()` (transaction time), so all rows changed by one operation share a timestamp. |
 
+### Migration 0010 — Fleet Sentinel emergencies (P11)
+
+Implemented and tested against isolated cluster `127.0.0.1:55432/ner_logistics_test`:
+
+- Table `emergencies` with partial unique index `uq_open_emergency_per_trip`
+- PostgreSQL enum types `emergency_state` and `driver_check_response`
+- Row Level Security (RLS) enabled on `emergencies`
+
 Still not implemented, deliberately: `road_incidents`, `weather_events`, `payments`, `expenses`,
-`payroll`, `deliveries`, `alerts`, `emergencies`. Each arrives with the phase that uses it.
+`payroll`, `deliveries`, `alerts`. Each arrives with the phase that uses it.
 
 ### Migration 0001 — bootstrap
 

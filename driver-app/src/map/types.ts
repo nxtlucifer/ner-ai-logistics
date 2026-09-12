@@ -2,8 +2,8 @@
  * The one props contract both map implementations honour.
  *
  * `DriverRouteMap.web.tsx` and `DriverRouteMap.native.tsx` are resolved by
- * Metro's platform extensions, so the native map library is never reachable
- * from a web bundle and MapLibre is never reachable from a native one. Neither
+ * Metro's platform extensions: Leaflet in the DOM on web, Leaflet inside a
+ * WebView on the phone. What both draw is built once in `scene.ts`. Neither
  * file is imported directly anywhere - screens import `./map/DriverRouteMap`
  * and get whichever one the platform resolves.
  *
@@ -52,6 +52,9 @@ export interface DriverRouteMapProps {
   accuracyM: number | null
   /** Age of the device fix, explicitly shown for last-known positions. */
   positionAgeSeconds?: number | null
+  /** Course over ground from the fix, degrees clockwise from north; null or
+   *  negative when the platform reported none (a stationary phone has none). */
+  headingDeg?: number | null
   /**
    * Roadside services to pin, from the current search. Empty by default.
    *
@@ -62,6 +65,19 @@ export interface DriverRouteMapProps {
   places?: readonly Place[]
   /** `provider_id` of the pin drawn as selected, if any. */
   selectedPlaceId?: string | null
+  /**
+   * DEM segments for the selected route, from the risk payload. The map
+   * paints only HILLY (amber) and STEEP (red) stretches over the blue route -
+   * caution and danger in the palette's own words. Flat stays blue: the
+   * absence of a hazard is not something to colour.
+   */
+  terrainSegments?: readonly { start_m: number; end_m: number; terrain_class: string }[]
+  /**
+   * Recorded landslide positions within the corridor buffer, from the
+   * inventory. Only precisely-placed events reach here - a marker on a 50 km
+   * guess would be a marker on a guess.
+   */
+  hazards?: readonly { latitude: number; longitude: number; year: number | null; name: string | null }[]
   /** Tapping a pin selects it; the screen opens the details panel. */
   onSelectPlace?: (place: Place) => void
   /**
@@ -80,6 +96,8 @@ export interface DriverRouteMapProps {
   /** Camera control signals from screen floating buttons. */
   cameraTrigger?: number
   cameraMode?: 'FIT_ROUTE' | 'RECENTER' | null
+  /** Whether the camera is following the truck right now; the screen's state chip reads it. */
+  onFollowChange?: (following: boolean) => void
   /** Test seam: lets a test assert what was drawn without a GL context. */
   testID?: string
 }

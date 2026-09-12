@@ -223,16 +223,12 @@ The four blockers this section used to list are resolved. What is configured now
    Remove it after the demo with
    `Remove-NetFirewallRule -DisplayName "NER demo API"`.
 
-### The map in the APK will say "Map unavailable"
+### The map in the APK
 
-`react-native-maps` on Android is Google's SDK and needs a Google Maps Android
-API key. There is none on this machine, so the app draws a panel saying exactly
-that instead of the blank grey rectangle the SDK produces on its own. Everything
-else — sign-in, the trip, stops, GPS, Safety, Talk — works without it.
-
-To fix it, set `GOOGLE_MAPS_ANDROID_API_KEY` before building
-(`driver-app/app.config.js` reads it; it is never written to a tracked file) and
-restrict the key to the package name above and its signing certificate.
+The phone map is Leaflet over OpenStreetMap inside a WebView
+(`driver-app/src/map/DriverRouteMap.native.tsx`) — the same map the web app
+draws, no Google key, works in Expo Go. Tiles need a connection; offline the
+route draws over a blank ground with a notice saying so.
 
 ### Cleartext HTTP
 

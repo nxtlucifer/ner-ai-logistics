@@ -38,7 +38,14 @@ import {
   View,
 } from 'react-native'
 
-import { api, type RouteProgress, type TripStop } from '../api/client'
+import {
+  api,
+  type ActiveEmergency,
+  type CurrentTrip,
+  type DriverCheckResponse,
+  type RouteProgress,
+  type TripStop,
+} from '../api/client'
 import { Banner, Button, Loading, Row, errorMessage } from '../components/ui'
 import { resolveLanguage } from '../i18n/language'
 import {
@@ -47,7 +54,10 @@ import {
   offRouteDetail,
 } from './progressFormat'
 import { translateReasonCode } from '../i18n/reasonCodes'
-import { COLORS } from '../theme'
+import { useRouteRisk } from '../hooks/useRouteRisk'
+import { routeAiCard } from '../navigation/routeAi'
+import { } from '../theme'
+import { makeStyles, useTheme } from '../theme-context'
 import { useTrip, type TripContextValue } from '../trip/TripProvider'
 
 function relativeTime(iso: string | null): string {
@@ -72,6 +82,7 @@ function relativeTime(iso: string | null): string {
  * ETA will be late; one who reads "at planned pace" knows what it is worth.
  */
 function ProgressCard({ progress }: { progress: RouteProgress }) {
+  const styles = useStyles()
   const offRoute = progress.on_route === false
   // Resolved per render rather than held in state: it is a device setting a
   // driver can change from outside the app, and reading it is free.
@@ -130,6 +141,8 @@ function ProgressCard({ progress }: { progress: RouteProgress }) {
 }
 
 function StopRow({ stop, isNext }: { stop: TripStop; isNext: boolean }) {
+  const styles = useStyles()
+  const { colors: COLORS } = useTheme()
   const tone =
     stop.status === 'COMPLETED'
       ? COLORS.ok
@@ -182,6 +195,7 @@ function Section({
   children: React.ReactNode
   initiallyOpen?: boolean
 }) {
+  const styles = useStyles()
   const [open, setOpen] = useState(initiallyOpen)
   return (
     <View style={styles.section}>
@@ -207,7 +221,243 @@ function Section({
   )
 }
 
-export default function TripScreen({ onOpenMap }: { onOpenMap: () => void }) {
+function SentinelCheckInCard({
+  emergency,
+  onCheckIn,
+  busy,
+}: {
+  emergency: ActiveEmergency
+  onCheckIn: (response: DriverCheckResponse) => Promise<void>
+  busy: boolean
+}) {
+  const styles = useStyles()
+  if (emergency.state === 'SOS_ESCALATED') {
+    return (
+      <View style={styles.emergencyCard}>
+        <Banner
+          tone="bad"
+          title="Fleet Sentinel: SOS Escalated"
+          detail="Emergency alert transmitted to manager operations desk with your last known GPS fix. Local dispatch is being coordinated."
+        />
+      </View>
+    )
+  }
+
+  if (emergency.state === 'DRIVER_RESPONDED') {
+    return (
+      <View style={styles.emergencyCard}>
+        <Banner
+          tone="warn"
+          title="Safety Check Received"
+          detail={`Status recorded: ${(emergency.driver_response ?? 'Acknowledged').replace(/_/g, ' ')}. Manager operations desk has been notified.`}
+        />
+      </View>
+    )
+  }
+
+  if (emergency.state !== 'DRIVER_CHECK_REQUIRED') {
+    return null
+  }
+
+  return (
+    <View style={styles.emergencyCard}>
+      <Banner
+        tone="warn"
+        title="Fleet Sentinel Safety Check"
+        detail="Stationary outside an approved stop for over 60 minutes. Please confirm your status to avoid automatic dispatch escalation."
+      />
+      <View style={styles.checkInOptions}>
+        <Text style={styles.checkInPrompt}>Select your current status:</Text>
+        <View style={styles.checkInButtonGrid}>
+          <Pressable
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityLabel="I am safe, routine pause"
+            style={[styles.checkInBtn, styles.checkInBtnSafe]}
+            onPress={() => void onCheckIn('I_AM_SAFE')}
+          >
+            <Text style={styles.checkInBtnTextSafe}>✓ I Am Safe / Routine Pause</Text>
+          </Pressable>
+          <Pressable
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityLabel="Traffic congestion"
+            style={styles.checkInBtn}
+            onPress={() => void onCheckIn('TRAFFIC')}
+          >
+            <Text style={styles.checkInBtnText}>Traffic Congestion</Text>
+          </Pressable>
+          <Pressable
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityLabel="Rest or meal stop"
+            style={styles.checkInBtn}
+            onPress={() => void onCheckIn('REST_STOP')}
+          >
+            <Text style={styles.checkInBtnText}>Rest / Meal Stop</Text>
+          </Pressable>
+          <Pressable
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityLabel="Breakdown or flat tyre"
+            style={styles.checkInBtn}
+            onPress={() => void onCheckIn('MECHANICAL_BREAKDOWN')}
+          >
+            <Text style={styles.checkInBtnText}>Breakdown / Flat Tyre</Text>
+          </Pressable>
+          <Pressable
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityLabel="Landslide or weather block"
+            style={styles.checkInBtn}
+            onPress={() => void onCheckIn('WEATHER_LANDSLIDE')}
+          >
+            <Text style={styles.checkInBtnText}>Landslide / Weather Block</Text>
+          </Pressable>
+          <Pressable
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityLabel="Need help, escalate now"
+            style={[styles.checkInBtn, styles.checkInBtnSos]}
+            onPress={() => void onCheckIn('NEED_HELP')}
+          >
+            <Text style={styles.checkInBtnTextSos}>⚠ NEED HELP / ESCALATE NOW</Text>
+          </Pressable>
+        </View>
+      </View>
+    </View>
+  )
+}
+
+
+/** Distance / ETA / truck, and an honest blank when the server has no figure.
+ *  `progress` is null until a manager selects a route, so these read
+ *  "Unavailable" rather than 0 km - a zero is a measurement, not a gap. */
+function TripMetrics({ trip }: { trip: CurrentTrip }) {
+  const styles = useStyles()
+  const km = trip.progress?.remaining_distance_km
+  const min = trip.progress?.remaining_at_planned_pace_min
+  const cells: Array<[string, string]> = [
+    ['REMAINING', km == null ? 'Unavailable' : `${km.toFixed(0)} km`],
+    ['ETA', min == null ? 'Unavailable' : min >= 60 ? `${Math.floor(min / 60)} h ${Math.round(min % 60)} m` : `${Math.round(min)} min`],
+    ['TRUCK', trip.truck.registration_number],
+  ]
+  return (
+    <View style={styles.metricRow}>
+      {cells.map(([label, value], i) => (
+        <View key={label} style={[styles.metricCell, i < 2 && styles.metricDivider, i === 2 && styles.metricCellWide]}>
+          <Text style={styles.metricLabel}>{label}</Text>
+          <Text style={styles.metricValue} numberOfLines={2}>{value}</Text>
+        </View>
+      ))}
+    </View>
+  )
+}
+
+/** Stop progress, driven by each stop's real status - never a decorative bar.
+ *  State is carried by the label AND the dot, so it survives a colour-vision
+ *  deficiency and a sunlit windscreen. */
+function TripStepper({ trip }: { trip: CurrentTrip }) {
+  const styles = useStyles()
+  return (
+    <View style={styles.stepper}>
+      {trip.stops.map((stop, i) => {
+        const done = stop.status === 'COMPLETED' || stop.actual_arrival_at != null
+        const current = stop.id === trip.next_stop_id
+        return (
+          <View key={stop.id} style={styles.stepCell}>
+            <View style={styles.stepLine}>
+              <View style={[styles.stepDot, done && styles.stepDotDone, current && styles.stepDotNow]}>
+                {done ? <Text style={styles.stepTick}>✓</Text> : null}
+              </View>
+              {i < trip.stops.length - 1 ? (
+                <View style={[styles.stepBar, done && styles.stepBarDone]} />
+              ) : null}
+            </View>
+            <Text style={[styles.stepLabel, current && styles.stepLabelNow]} numberOfLines={1}>
+              {stop.kind === 'PICKUP' ? 'Pickup' : stop.kind === 'DROP' ? 'Deliver' : stop.name ?? `Stop ${i + 1}`}
+            </Text>
+            <Text style={styles.stepState} numberOfLines={1}>
+              {done ? 'Done' : current ? 'Current' : 'Upcoming'}
+            </Text>
+          </View>
+        )
+      })}
+    </View>
+  )
+}
+
+/** The reference's CURRENT TRIP card: code, status, corridor, metrics, steps. */
+function CurrentTripCard({ trip }: { trip: CurrentTrip }) {
+  const styles = useStyles()
+  const from = trip.stops[0]?.address ?? trip.stops[0]?.name ?? 'Unavailable'
+  const to = trip.stops.at(-1)?.address ?? trip.stops.at(-1)?.name ?? 'Unavailable'
+  return (
+    <View style={styles.heroCard}>
+      <View style={styles.heroTop}>
+        <Text style={styles.heroEyebrow}>CURRENT TRIP</Text>
+        <View style={styles.heroBadge}>
+          <Text style={styles.heroBadgeText}>{trip.status.replace(/_/g, ' ')}</Text>
+        </View>
+      </View>
+      <Text style={styles.heroCode}>{trip.trip_code}</Text>
+
+      <View style={styles.corridor}>
+        <View style={styles.corridorRail}>
+          <View style={styles.railDotStart} />
+          <View style={styles.railLine} />
+          <View style={styles.railDotEnd} />
+        </View>
+        <View style={styles.corridorText}>
+          <Text style={styles.corridorLabel}>PICKUP</Text>
+          <Text style={styles.corridorPlace} numberOfLines={2}>{from}</Text>
+          <Text style={[styles.corridorLabel, styles.corridorLabelGap]}>DESTINATION</Text>
+          <Text style={styles.corridorPlace} numberOfLines={2}>{to}</Text>
+        </View>
+      </View>
+
+      <TripMetrics trip={trip} />
+      <RouteSummary trip={trip} />
+      {trip.stops.length > 1 ? <TripStepper trip={trip} /> : null}
+    </View>
+  )
+}
+
+/** The same assessment the Navigate tab shows, in one line: the decision,
+ *  its first reason, landslide exposure. Says "not available" rather than
+ *  nothing when the server has no assessment - silence reads as "fine". */
+function RouteSummary({ trip }: { trip: CurrentTrip }) {
+  const styles = useStyles()
+  const { risk, state } = useRouteRisk(trip.selected_route_id, trip.id)
+  if (trip.selected_route_id === null) return null
+  const ai = routeAiCard(risk, null, resolveLanguage())
+  const text = risk === null
+    ? state === 'LOADING' ? 'Route assessment loading…' : 'Route assessment not available'
+    : [
+        ai.headline,
+        ai.lines[0],
+        ai.landslide ? `landslide exposure ${ai.landslide}` : null,
+        risk.official_warnings?.level === 'ACTIVE' ? `${risk.official_warnings.on_route.length} official alert${risk.official_warnings.on_route.length === 1 ? '' : 's'} on route` : null,
+        risk.flood?.level === 'ELEVATED' ? 'river levels elevated' : null,
+      ].filter(Boolean).join(' · ')
+  return (
+    <View style={styles.routeSummary} testID="trip-route-summary">
+      <Text style={styles.metricLabel}>ROUTE</Text>
+      <Text style={styles.routeSummaryText} numberOfLines={3}>{text}</Text>
+    </View>
+  )
+}
+
+export default function TripScreen({
+  onOpenMap,
+  onCheckTruck,
+}: {
+  onOpenMap: () => void
+  /** Opens the assignment check the start gate asks for. */
+  onCheckTruck?: () => void
+}) {
+  const styles = useStyles()
+  const { colors: COLORS } = useTheme()
   // Trip state and the GPS tracker live in TripProvider, ABOVE the tab
   // navigation - see DRV-002 documented there. This screen is now a view of
   // them, which is why it is safe to unmount when the driver opens another
@@ -235,6 +485,22 @@ export default function TripScreen({ onOpenMap }: { onOpenMap: () => void }) {
     title: string
     detail: string
   } | null>(null)
+  const [isCheckingIn, setIsCheckingIn] = useState(false)
+  const [checkInError, setCheckInError] = useState<string | null>(null)
+
+  async function onCheckIn(response: DriverCheckResponse) {
+    if (!trip?.id || isCheckingIn) return
+    setIsCheckingIn(true)
+    setCheckInError(null)
+    try {
+      await api.checkInEmergency(trip.id, response)
+      await load()
+    } catch (err) {
+      setCheckInError(errorMessage(err).detail)
+    } finally {
+      setIsCheckingIn(false)
+    }
+  }
 
   // NO MAP ON THIS PAGE (LS-12 G1A). The main page carries the request, the
   // summary and the vehicle status; the road lives on `MapScreen`, opened by
@@ -372,13 +638,21 @@ export default function TripScreen({ onOpenMap }: { onOpenMap: () => void }) {
           />
         }
       >
-        <View style={styles.header}>
-          <Text style={styles.code}>{trip.trip_code}</Text>
-          <Text style={styles.status}>{trip.status.replace(/_/g, ' ')}</Text>
-        </View>
+        <CurrentTripCard trip={trip} />
 
         {actionError ? <Banner tone="bad" {...actionError} /> : null}
         {acceptError ? <Banner tone="bad" {...acceptError} /> : null}
+        {checkInError ? (
+          <Banner tone="bad" title="Check-in failed" detail={checkInError} />
+        ) : null}
+
+        {trip.active_emergency ? (
+          <SentinelCheckInCard
+            emergency={trip.active_emergency}
+            onCheckIn={onCheckIn}
+            busy={isCheckingIn}
+          />
+        ) : null}
 
         {/* A background refresh failed. What is below is real but may no
             longer be current, which is a different thing from an error -
@@ -411,10 +685,6 @@ export default function TripScreen({ onOpenMap }: { onOpenMap: () => void }) {
             accept the job they are already driving. */}
         {!isAccepted ? (
           <View style={styles.request}>
-            <Text style={styles.endpointLabel}>PICKUP</Text>
-            <Text style={styles.endpointAddress}>{trip.stops[0]?.address ?? trip.stops[0]?.name ?? 'Unavailable'}</Text>
-            <Text style={styles.endpointLabel}>DESTINATION</Text>
-            <Text style={styles.endpointAddress}>{trip.stops.at(-1)?.address ?? trip.stops.at(-1)?.name ?? 'Unavailable'}</Text>
             <Text style={styles.requestTitle}>New trip request</Text>
             <Text style={styles.requestBody}>
               {trip.stops.length > 0
@@ -436,10 +706,6 @@ export default function TripScreen({ onOpenMap }: { onOpenMap: () => void }) {
           </View>
         ) : (
           <View style={styles.request}>
-            <Text style={styles.endpointLabel}>PICKUP</Text>
-            <Text style={styles.endpointAddress}>{trip.stops[0]?.address ?? trip.stops[0]?.name ?? 'Unavailable'}</Text>
-            <Text style={styles.endpointLabel}>DESTINATION</Text>
-            <Text style={styles.endpointAddress}>{trip.stops.at(-1)?.address ?? trip.stops.at(-1)?.name ?? 'Unavailable'}</Text>
             <Text style={styles.requestTitle}>Accepted</Text>
             <Text style={styles.requestBody}>
               {acceptedAt !== null
@@ -462,6 +728,11 @@ export default function TripScreen({ onOpenMap }: { onOpenMap: () => void }) {
                 title="Cannot start yet"
                 detail={trip.start_blocked_reason}
               />
+            ) : null}
+            {/* The gate names the check; the button opens it. Without this the
+                check screen existed but nothing on the phone led to it. */}
+            {!trip.can_start && trip.start_blocked_code === 'ASSIGNMENT_NOT_VERIFIED' && onCheckTruck ? (
+              <Button label="Check the truck" variant="secondary" onPress={onCheckTruck} />
             ) : null}
             <Button
               label={isBusy ? 'Starting…' : 'Start trip'}
@@ -558,6 +829,8 @@ function TrackingBanner({
 }: {
   tracking: TripContextValue['tracking']
 }) {
+  const styles = useStyles()
+  const { colors: COLORS } = useTheme()
   if (tracking.permission === 'denied') {
     return (
       <View>
@@ -624,7 +897,7 @@ function TrackingBanner({
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((COLORS) => ({
   flex: { flex: 1, backgroundColor: COLORS.bg },
   centre: { flex: 1, justifyContent: 'center', backgroundColor: COLORS.bg },
   centrePadded: {
@@ -768,4 +1041,133 @@ const styles = StyleSheet.create({
   },
   reasons: { marginTop: 10, gap: 4 },
   reason: { color: COLORS.faint, fontSize: 13, lineHeight: 18 },
-})
+  emergencyCard: {
+    marginBottom: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.warnBorder,
+    backgroundColor: COLORS.card,
+    overflow: 'hidden',
+  },
+  checkInOptions: {
+    padding: 16,
+    backgroundColor: COLORS.card,
+  },
+  checkInPrompt: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.text,
+    marginBottom: 12,
+  },
+  checkInButtonGrid: {
+    gap: 8,
+  },
+  checkInBtn: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.raised,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  checkInBtnText: {
+    color: COLORS.text,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  checkInBtnSafe: {
+    backgroundColor: '#052e16',
+    borderColor: '#15803d',
+  },
+  checkInBtnTextSafe: {
+    color: '#86efac',
+    fontWeight: '700',
+  },
+  checkInBtnSos: {
+    backgroundColor: '#450a0a',
+    borderColor: '#b91c1c',
+    marginTop: 4,
+  },
+  checkInBtnTextSos: {
+    color: '#fca5a5',
+    fontWeight: '800',
+  },
+
+  // --- CURRENT TRIP card (reference composition) ---
+  heroCard: {
+    backgroundColor: COLORS.card,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    gap: 12,
+  },
+  heroTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  heroEyebrow: { color: COLORS.muted, fontSize: 11, fontWeight: '800', letterSpacing: 1.1 },
+  heroBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: COLORS.okBg,
+    borderWidth: 1,
+    borderColor: COLORS.okBorder,
+  },
+  heroBadgeText: { color: COLORS.ok, fontSize: 11, fontWeight: '800', letterSpacing: 0.4 },
+  heroCode: { color: COLORS.text, fontSize: 24, fontWeight: '800', letterSpacing: -0.5 },
+
+  // Origin/destination as one rail, so the pair reads as a corridor rather
+  // than two unrelated address blocks.
+  corridor: { flexDirection: 'row', gap: 12 },
+  corridorRail: { alignItems: 'center', paddingTop: 4, width: 12 },
+  railDotStart: { width: 10, height: 10, borderRadius: 5, borderWidth: 2, borderColor: COLORS.ok },
+  railLine: { flex: 1, width: 2, minHeight: 34, backgroundColor: COLORS.border, marginVertical: 2 },
+  railDotEnd: { width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.route },
+  corridorText: { flex: 1, minWidth: 0 },
+  corridorLabel: { color: COLORS.faint, fontSize: 10, fontWeight: '800', letterSpacing: 0.9 },
+  corridorLabelGap: { marginTop: 12 },
+  corridorPlace: { color: COLORS.text, fontSize: 16, fontWeight: '700', marginTop: 2 },
+
+  metricRow: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: COLORS.border,
+    paddingVertical: 12,
+  },
+  metricCell: { flex: 1, minWidth: 0, paddingHorizontal: 10 },
+  // A registration is ten characters and must not break mid-word on 360 dp.
+  metricCellWide: { flex: 1.45 },
+  metricDivider: { borderRightWidth: 1, borderRightColor: COLORS.border },
+  metricLabel: { color: COLORS.faint, fontSize: 10, fontWeight: '800', letterSpacing: 0.8 },
+  // 13pt, not 16: at three columns on a 390pt screen "Unavailable" was
+  // truncating to "Unavaila…", which reads as a broken value rather than a
+  // missing one. The label above already carries the emphasis.
+  metricValue: { color: COLORS.text, fontSize: 13, fontWeight: '800', marginTop: 3 },
+  routeSummary: { marginTop: 10, paddingHorizontal: 10 },
+  routeSummaryText: { color: COLORS.text, fontSize: 13, fontWeight: '600', marginTop: 3, lineHeight: 18 },
+
+  stepper: { flexDirection: 'row' },
+  stepCell: { flex: 1, minWidth: 0 },
+  stepLine: { flexDirection: 'row', alignItems: 'center' },
+  stepDot: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: COLORS.borderStrong,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepDotDone: { backgroundColor: COLORS.ok, borderColor: COLORS.ok },
+  stepDotNow: { borderColor: COLORS.route, borderWidth: 3 },
+  stepTick: { color: COLORS.onAccent, fontSize: 11, fontWeight: '900' },
+  stepBar: { flex: 1, height: 2, backgroundColor: COLORS.border },
+  stepBarDone: { backgroundColor: COLORS.ok },
+  stepLabel: { color: COLORS.muted, fontSize: 12, fontWeight: '700', marginTop: 6 },
+  stepLabelNow: { color: COLORS.text },
+  stepState: { color: COLORS.faint, fontSize: 10, fontWeight: '600', marginTop: 1 },
+}))

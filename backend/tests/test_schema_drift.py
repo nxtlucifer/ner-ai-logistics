@@ -83,6 +83,8 @@ ENUM_LABELS_ADDED_AFTER_0002: dict[str, dict[str, str]] = {
 #: Enum TYPES created after 0002, and the revision that creates each.
 ENUM_TYPES_ADDED_AFTER_0002: dict[str, str] = {
     "route_review_basis": "0007_route_review_authorizations",
+    "emergency_state": "0010_emergencies",
+    "driver_check_response": "0010_emergencies",
 }
 
 

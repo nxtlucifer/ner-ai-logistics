@@ -32,6 +32,7 @@ export default function DriversPage() {
   const drivers = useResource(
     () => api.listDrivers({ search: search || undefined }),
     [search],
+    search ? undefined : 'drivers:all',
   )
 
   const create = useMutation(async (payload: typeof BLANK) => {

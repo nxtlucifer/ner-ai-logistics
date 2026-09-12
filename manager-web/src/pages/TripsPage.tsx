@@ -37,6 +37,10 @@ import {
   StatusPill,
 } from '../components/ui'
 import { useMutation, useResource } from '../hooks/useResource'
+
+/** A driver accepting, starting or delivering must show here without a
+ *  reload. Five seconds is the bounded-polling fallback the sync rule allows. */
+const TRIPS_POLL_MS = 5_000
 import TripRouteReview from '../components/TripRouteReview'
 import AddressPicker, {
   EMPTY_ENDPOINT,
@@ -80,9 +84,9 @@ function parseEndpoint(
 export default function TripsPage() {
   const { can } = useAuth()
 
-  const trips = useResource(() => api.listTrips({ limit: 50 }), [])
-  const drivers = useResource(() => api.listDrivers({ limit: 100 }), [])
-  const trucks = useResource(() => api.listTrucks({ limit: 100 }), [])
+  const trips = useResource(() => api.listTrips({ limit: 50 }), [], 'trips:50', TRIPS_POLL_MS)
+  const drivers = useResource(() => api.listDrivers({ limit: 100 }), [], 'drivers:100')
+  const trucks = useResource(() => api.listTrucks({ limit: 100 }), [], 'trucks:100')
 
   const [reviewTrip, setReviewTrip] = useState<Trip | null>(null)
   const draftAttempt = useRef<{ intent: string; stamp: string } | null>(null)

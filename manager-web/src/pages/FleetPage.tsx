@@ -36,6 +36,7 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } fro
 import {
   api,
   type Driver,
+  type Emergency,
   type FleetTrip,
   type Freshness,
   type Position,
@@ -59,7 +60,7 @@ import {
   StatusPill,
 } from '../components/ui'
 import { useFleetPoll } from '../hooks/useFleetPoll'
-import { translateReasonCodes } from '../i18n/reasonCodes'
+import { factorLabels, translateReasonCodes } from '../i18n/reasonCodes'
 
 const FRESHNESS_ORDER: Freshness[] = [
   'LIVE',
@@ -358,6 +359,49 @@ export default function FleetPage() {
     error: unknown
   } | null>(null)
 
+  // Fleet Sentinel state
+  const [emergencies, setEmergencies] = useState<Emergency[]>([])
+  const [selectedEmergency, setSelectedEmergency] = useState<Emergency | null>(null)
+  const [isResolving, setIsResolving] = useState(false)
+  const [resolveNote, setResolveNote] = useState('')
+  const [isFalseAlarm, setIsFalseAlarm] = useState(false)
+  const [resolveError, setResolveError] = useState<string | null>(null)
+
+  const loadEmergencies = useCallback(async () => {
+    try {
+      const data = await api.activeEmergencies()
+      setEmergencies(data)
+    } catch {
+      // Background poll failure is quiet to avoid disrupting fleet view
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadEmergencies()
+    const timer = setInterval(() => {
+      void loadEmergencies()
+    }, 10_000)
+    return () => clearInterval(timer)
+  }, [loadEmergencies])
+
+  async function handleResolveEmergency() {
+    if (!selectedEmergency || isResolving) return
+    setIsResolving(true)
+    setResolveError(null)
+    try {
+      await api.resolveEmergency(selectedEmergency.id, resolveNote, isFalseAlarm)
+      setSelectedEmergency(null)
+      setResolveNote('')
+      setIsFalseAlarm(false)
+      await loadEmergencies()
+      fleet.refresh()
+    } catch (err) {
+      setResolveError(err instanceof Error ? err.message : 'Failed to resolve incident')
+    } finally {
+      setIsResolving(false)
+    }
+  }
+
   const plannedHere =
     planned && planned.tripId === selectedTripId ? planned.route : null
   const planErrorHere =
@@ -517,7 +561,7 @@ export default function FleetPage() {
         riskBand,
         weatherText: elig ? 'Monitored multi-point corridor weather' : 'Weather: Sampled along corridor',
         landslideText: elig?.risk?.unavailable?.includes('landslide')
-          ? 'Landslide: UNAVAILABLE (Near-real-time sensor unverified)'
+          ? 'Landslide: no current-incident feed connected (historical exposure only)'
           : 'Landslide: Historical exposure reference',
         fuelL: fuelVal,
         fuelDeltaL: undefined,
@@ -794,6 +838,48 @@ export default function FleetPage() {
         </Card>
       ) : (
         <>
+          {/* Fleet Sentinel Safety Alert Banner */}
+          {emergencies.length > 0 && (
+            <div
+              role="alert"
+              className="mb-4 rounded-xl border border-danger-strong bg-danger-subtle/30 p-4 shadow-sm"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <span className="relative flex h-3 w-3">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-danger opacity-75"></span>
+                    <span className="relative inline-flex h-3 w-3 rounded-full bg-danger-strong"></span>
+                  </span>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold text-danger-strong">
+                        Fleet Sentinel Alert: {emergencies.length} Active {emergencies.length === 1 ? 'Incident' : 'Incidents'}
+                      </h3>
+                      <span className="rounded bg-danger-strong/20 px-1.5 py-0.5 text-xs font-bold text-danger-strong">
+                        {emergencies[0].state.replace(/_/g, ' ')}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-xs text-ink/80">
+                      {emergencies[0].state === 'SOS_ESCALATED'
+                        ? `CRITICAL: ${emergencies[0].briefing_snapshot?.escalation_reason || 'Driver reported NEED_HELP or 30-min check-in expired'}`
+                        : emergencies[0].state === 'DRIVER_CHECK_REQUIRED'
+                          ? 'Driver stationary for >60min. 30-minute safety check countdown in progress.'
+                          : `Driver responded: ${(emergencies[0].driver_response ?? '').replace(/_/g, ' ')}.`}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="danger"
+                    onClick={() => setSelectedEmergency(emergencies[0])}
+                  >
+                    View Incident Dossier
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Executive KPI Summary Bar */}
           <FleetKpiBar
             totalTrips={trips.length}
@@ -1609,7 +1695,7 @@ export default function FleetPage() {
                         {advisoryHere.unavailable_inputs.length > 0 ? (
                           <p className="mt-2 text-[11px] leading-relaxed text-muted">
                             Assessed without:{' '}
-                            {advisoryHere.unavailable_inputs.join(', ')}.
+                            {factorLabels(advisoryHere.unavailable_inputs)}.
                           </p>
                         ) : null}
 
@@ -1693,6 +1779,155 @@ export default function FleetPage() {
               )}
             </Card></div>
           </div>
+
+          {/* Incident Dossier Modal */}
+          {selectedEmergency && (
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="dossier-title"
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+            >
+              <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border border-line bg-surface p-6 shadow-2xl">
+                <div className="flex items-start justify-between border-b border-line pb-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="rounded bg-danger/20 px-2 py-0.5 text-xs font-bold text-danger-strong">
+                        {selectedEmergency.state.replace(/_/g, ' ')}
+                      </span>
+                      <h2 id="dossier-title" className="text-lg font-bold text-ink">
+                        Incident Dossier: {selectedEmergency.briefing_snapshot?.trip_code ?? 'Trip'}
+                      </h2>
+                    </div>
+                    <p className="mt-1 text-sm text-muted">
+                      {selectedEmergency.briefing_snapshot?.escalation_reason ?? 'Vehicle stationary outside approved stops.'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedEmergency(null)}
+                    className="rounded-lg p-1 text-muted hover:bg-soft hover:text-ink text-base font-bold"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="mt-4 space-y-4 text-sm">
+                  {/* Driver & Contact Block */}
+                  <div className="grid grid-cols-2 gap-4 rounded-xl border border-line bg-soft/40 p-4">
+                    <div>
+                      <div className="text-xs font-medium text-muted">Driver</div>
+                      <div className="font-semibold text-ink">
+                        {selectedEmergency.briefing_snapshot?.driver?.name ?? 'Unknown'}
+                      </div>
+                      <div className="text-xs text-ink/80">
+                        Phone: {selectedEmergency.briefing_snapshot?.driver?.phone ?? 'Unavailable'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-medium text-muted">Emergency Contact</div>
+                      <div className="font-semibold text-ink">
+                        {selectedEmergency.briefing_snapshot?.driver?.emergency_contact_name ?? 'None listed'}
+                      </div>
+                      <div className="text-xs text-ink/80">
+                        Phone: {selectedEmergency.briefing_snapshot?.driver?.emergency_contact_phone ?? 'None'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Vehicle & Corridor Block */}
+                  <div className="grid grid-cols-2 gap-4 rounded-xl border border-line bg-soft/40 p-4">
+                    <div>
+                      <div className="text-xs font-medium text-muted">Truck / Cargo</div>
+                      <div className="font-semibold text-ink">
+                        {selectedEmergency.briefing_snapshot?.truck?.registration ?? 'Unknown'}
+                        {selectedEmergency.briefing_snapshot?.truck?.model ? ` (${selectedEmergency.briefing_snapshot.truck.model})` : ''}
+                      </div>
+                      <div className="text-xs text-ink/80">
+                        Priority: {selectedEmergency.briefing_snapshot?.cargo?.priority ?? 'STANDARD'} | Weight: {selectedEmergency.briefing_snapshot?.cargo?.weight_kg ?? 'N/A'} kg
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-medium text-muted">Corridor / Route</div>
+                      <div className="font-semibold text-ink">
+                        {selectedEmergency.briefing_snapshot?.corridor?.origin ?? 'Origin'} → {selectedEmergency.briefing_snapshot?.corridor?.destination ?? 'Destination'}
+                      </div>
+                      <div className="text-xs text-ink/80">
+                        Stationary for: ~{selectedEmergency.briefing_snapshot?.last_known_location?.minutes_stationary ?? 60} minutes
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Last Known Location */}
+                  <div className="rounded-xl border border-line bg-soft/40 p-4">
+                    <div className="text-xs font-medium text-muted">Last Known Coordinates</div>
+                    <div className="mt-1 font-mono text-xs text-ink">
+                      {selectedEmergency.briefing_snapshot?.last_known_location?.latitude !== undefined
+                        ? `LAT: ${selectedEmergency.briefing_snapshot.last_known_location.latitude.toFixed(6)}, LON: ${selectedEmergency.briefing_snapshot.last_known_location.longitude?.toFixed(6)}`
+                        : 'Coordinates recorded in telemetry'}
+                    </div>
+                    <div className="mt-1 text-xs text-muted">
+                      Last fix received: {selectedEmergency.briefing_snapshot?.last_known_location?.fix_at ? new Date(selectedEmergency.briefing_snapshot.last_known_location.fix_at).toLocaleString() : 'N/A'}
+                    </div>
+                  </div>
+
+                  {/* Suggested Dispatcher Actions */}
+                  {selectedEmergency.briefing_snapshot?.suggested_actions && selectedEmergency.briefing_snapshot.suggested_actions.length > 0 && (
+                    <div className="rounded-xl border border-line bg-soft/40 p-4">
+                      <div className="text-xs font-medium text-muted">Recommended Standard Operating Procedures (SOP)</div>
+                      <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-ink">
+                        {selectedEmergency.briefing_snapshot.suggested_actions.map((act, i) => (
+                          <li key={i}>{act}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Resolution Form */}
+                  <div className="rounded-xl border border-line p-4">
+                    <h3 className="font-semibold text-ink">Resolve Incident</h3>
+                    {resolveError && (
+                      <div className="mt-2 text-xs font-medium text-danger">{resolveError}</div>
+                    )}
+                    <div className="mt-3">
+                      <label className="block text-xs font-medium text-muted">Manager Resolution Note</label>
+                      <textarea
+                        value={resolveNote}
+                        onChange={(e) => setResolveNote(e.target.value)}
+                        placeholder="Detail the assistance dispatched, driver confirmation, or road clearance..."
+                        className="mt-1 w-full rounded-lg border border-outline bg-surface p-2.5 text-xs text-ink placeholder:text-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                        rows={3}
+                      />
+                    </div>
+                    <div className="mt-3 flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="false-alarm-toggle"
+                        checked={isFalseAlarm}
+                        onChange={(e) => setIsFalseAlarm(e.target.checked)}
+                        className="rounded border-outline text-primary focus:ring-primary"
+                      />
+                      <label htmlFor="false-alarm-toggle" className="text-xs text-ink cursor-pointer">
+                        Mark as False Alarm (driver verified safe with no mechanical or road hazard)
+                      </label>
+                    </div>
+                    <div className="mt-4 flex items-center justify-end gap-3">
+                      <Button variant="secondary" onClick={() => setSelectedEmergency(null)}>
+                        Close
+                      </Button>
+                      <Button
+                        variant="primary"
+                        busy={isResolving}
+                        onClick={() => void handleResolveEmergency()}
+                      >
+                        Confirm & Resolve Incident
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

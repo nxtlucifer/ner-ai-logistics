@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.ai import router as ai_router
 from app.api.auth import router as auth_router
 from app.api.driver import router as driver_router
+from app.api.emergencies import router as emergencies_router
 from app.api.fleet import assignments_router, drivers_router, trucks_router
 from app.api.geocoding import router as geocoding_router
 from app.api.health import router as health_router
@@ -51,7 +52,44 @@ async def lifespan(app: FastAPI):
         )
     # The database is deliberately not probed here. Startup must not depend on a
     # dependency being up; /ready reports that instead.
+
+    sentinel_task = None
+    if settings.SENTINEL_SCHEDULER_ENABLED:
+        import asyncio
+        from app.db.session import get_sessionmaker
+        from app.services.sentinel import run_sentinel_sweep
+
+        async def _sentinel_loop():
+            logger.info(
+                "Fleet Sentinel recurring scheduler started (interval=%ds)",
+                settings.SENTINEL_SWEEP_INTERVAL_SECONDS,
+            )
+            while True:
+                try:
+                    await asyncio.sleep(settings.SENTINEL_SWEEP_INTERVAL_SECONDS)
+                    async with get_sessionmaker()() as db:
+                        swept = await run_sentinel_sweep(db)
+                        if swept:
+                            logger.info(
+                                "Fleet Sentinel recurring sweep: %d emergency state change(s)",
+                                len(swept),
+                            )
+                except asyncio.CancelledError:
+                    break
+                except Exception as exc:
+                    logger.error("Fleet Sentinel recurring sweep error: %s", exc)
+
+        sentinel_task = asyncio.create_task(_sentinel_loop())
+
     yield
+
+    if sentinel_task is not None:
+        sentinel_task.cancel()
+        try:
+            await sentinel_task
+        except asyncio.CancelledError:
+            pass
+
     logger.info("Shutting down, disposing database pool")
     await dispose_engine()
 
@@ -102,6 +140,7 @@ def create_app() -> FastAPI:
     app.include_router(shipments_router)
     app.include_router(trips_router)
     app.include_router(fleet_router)
+    app.include_router(emergencies_router)
     app.include_router(geocoding_router)
     app.include_router(ai_router)
     return app

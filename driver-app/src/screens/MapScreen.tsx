@@ -25,7 +25,7 @@
  * PLACES ARE SEARCHED ON DEMAND, NEVER POLLED. See `usePlaces`.
  */
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Linking,
   Pressable,
@@ -37,22 +37,29 @@ import {
 } from 'react-native'
 
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { api, type Place, type PlaceCategory, type SearchAnchor } from '../api/client'
+import { api, type Place, type PlaceCategory, type RerouteProposed, type SearchAnchor } from '../api/client'
+import { useRouteRisk } from '../hooks/useRouteRisk'
+import { hazardAhead, terrainAhead } from '../map/ahead'
+import { factorTitle } from '../safety/riskCards'
 import { Banner, Button, Loading, errorMessage } from '../components/ui'
 import { resolveLanguage } from '../i18n/language'
+import { emergencyNumbers } from '../safety/guide'
 import DriverRouteMap from '../map/DriverRouteMap'
-import { boundsOf, padBounds, type LatLon } from '../map/geo'
+import { type LatLon } from '../map/geo'
 import { useRouteGeometry } from '../map/useRouteGeometry'
 import { useNavigationPackage } from '../map/useNavigationPackage'
-import { guidanceHold, upcomingManeuver, maneuverIcon, formatTurnDistance, instructionFor } from '../map/maneuvers'
+import { guidanceHold, upcomingManeuver, maneuverIcon, formatTurnDistance, instructionFor, type GuidanceHold } from '../map/maneuvers'
+import { navState, ON_ROUTE, projectOntoRoute, shouldRequestReroute, trackOffRoute, type NavState, type OffRouteTrack, type RerouteMark } from '../map/navState'
+import { routeAiCard } from '../navigation/routeAi'
+import { watchCompass } from '../tracking/adapter'
+import { dangerAlert } from '../navigation/alerts'
 import { useSpokenGuidance } from '../map/useSpokenGuidance'
 import { useGuidanceClock } from '../map/useGuidanceClock'
-import NextTurnPanel from '../map/NextTurnPanel'
 import type { PositionKind } from '../map/types'
 import { usePlaces } from '../places/usePlaces'
-import { emergencyNumbers } from '../safety/guide'
 import { formatDistanceKm } from './progressFormat'
-import { COLORS, TOUCH_TARGET } from '../theme'
+import { TOUCH_TARGET } from '../theme'
+import { makeStyles, useTheme } from '../theme-context'
 import { AudioIcon, FitRouteIcon, RecenterIcon } from '../components/icons'
 import { useTrip } from '../trip/TripProvider'
 import { useAuth } from '../auth/AuthProvider'
@@ -82,25 +89,35 @@ const MODE_LABELS: { id: Mode; label: string }[] = [
 
 /** A fact nobody recorded. Never blank, never guessed. */
 const UNKNOWN = 'Not provided'
+/** Widest single map-area search the server accepts (MAX_BBOX_DEGREES). */
+const MAX_AREA_DEGREES = 5
 
 function MapPlaceholder({
   title,
   detail,
   onRetry,
+  action,
 }: {
   title: string
   detail: string
   onRetry?: () => void
+  action?: { label: string; onPress: () => void }
 }) {
+  const styles = useStyles()
   return (
     <View style={styles.placeholder}>
       <Text style={styles.placeholderTitle}>{title}</Text>
       <Text style={styles.placeholderBody}>{detail}</Text>
-      {onRetry ? (
-        <View style={styles.placeholderAction}>
+      <View style={styles.placeholderAction}>
+        {action ? (
+          <View style={{ marginBottom: onRetry ? 10 : 0 }}>
+            <Button label={action.label} variant="primary" onPress={action.onPress} />
+          </View>
+        ) : null}
+        {onRetry ? (
           <Button label="Try again" variant="secondary" onPress={onRetry} />
-        </View>
-      ) : null}
+        ) : null}
+      </View>
     </View>
   )
 }
@@ -122,6 +139,7 @@ function PlaceSheet({
   onClose: () => void
   onCall: (tel: string) => void
 }) {
+  const styles = useStyles()
   const phone = place.contact.phone
   return (
     <View style={styles.sheet} testID="place-sheet">
@@ -225,6 +243,7 @@ function MapControl({
   active?: boolean
   primary?: boolean
 }) {
+  const styles = useStyles()
   return (
     <Pressable
       onPress={disabled ? undefined : onPress}
@@ -247,6 +266,7 @@ function MapControl({
 }
 
 function Row({ label, value }: { label: string; value: string }) {
+  const styles = useStyles()
   const unknown = value === UNKNOWN
   return (
     <View style={styles.row}>
@@ -257,6 +277,8 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 export default function MapScreen({ onBack }: { onBack: () => void }) {
+  const styles = useStyles()
+  const { colors: COLORS } = useTheme()
   const { trip, tracking, loadedAt, isStale } = useTrip()
   let driverName = 'Driver'
   try {
@@ -268,11 +290,11 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
   if (driverName === 'Driver' && trip?.driver?.full_name) {
     driverName = trip.driver.full_name
   }
-  const isOnline = Boolean(tracking.isTracking && tracking.permission === 'granted' && !isStale)
   const places = usePlaces(JSON.stringify([trip?.id, trip?.selected_route_id]))
 
   const [category, setCategory] = useState<PlaceCategory | null>(null)
   const [mode, setMode] = useState<Mode>('ALONG_ROUTE')
+  const [areaTooWide, setAreaTooWide] = useState(false)
   const [viewport, setViewport] = useState<{
     south: number
     west: number
@@ -284,9 +306,11 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
   // the map, in a cab with a passenger or at 2am, is a feature they turn off
   // once and never turn on again.
   const [muted, setMuted] = useState(true)
-  const [callIntent, setCallIntent] = useState<string | null>(null)
   const [isSheetExpanded, setIsSheetExpanded] = useState(false)
   const [showAltRoute, setShowAltRoute] = useState(false)
+  // Danger cards the driver has acknowledged, by key (route + hazard +
+  // segment). Never re-shown on a poll; a new segment is a new key.
+  const [acknowledged, setAcknowledged] = useState<Set<string>>(() => new Set())
   const [cameraTrigger, setCameraTrigger] = useState(0)
   const [cameraMode, setCameraMode] = useState<'FIT_ROUTE' | 'RECENTER' | null>(null)
 
@@ -311,63 +335,6 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
     return () => handler.remove()
   }, [showEmergency, places.selected, category, onBack, places.clear, places.select])
 
-  const [showAiModal, setShowAiModal] = useState(false)
-  const [aiResponse, setAiResponse] = useState<string | null>(null)
-  const [aiLoading, setAiLoading] = useState(false)
-
-  const [showTranslateModal, setShowTranslateModal] = useState(false)
-  const [targetLang, setTargetLang] = useState<'as' | 'hi' | 'bn' | 'en'>('as')
-  const [translatedText, setTranslatedText] = useState<string | null>(null)
-  const [translating, setTranslating] = useState(false)
-
-  const askAi = useCallback(async (question: string) => {
-    setAiLoading(true)
-    setAiResponse(null)
-    try {
-      const res = await api.aiAsk({
-        mode: 'assistant',
-        question,
-        guidance: 'Keep answer concise and actionable for a truck driver on highway in Assam / NER.',
-      })
-      setAiResponse(res.answer)
-    } catch {
-      setAiResponse('Route NH27 is currently open with moderate monsoon cloud cover. Maintain 80 km/h speed limit and proceed with caution near wildlife crossing corridors.')
-    } finally {
-      setAiLoading(false)
-    }
-  }, [])
-
-  const translatePhrase = useCallback(async (phrase: string, lang: 'as' | 'hi' | 'bn' | 'en') => {
-    setTranslating(true)
-    setTranslatedText(null)
-    try {
-      const res = await api.aiAsk({
-        mode: 'translate',
-        question: phrase,
-        target_language: lang,
-      })
-      setTranslatedText(res.answer)
-    } catch {
-      const fallbacks: Record<string, Record<string, string>> = {
-        'Where is the unloading bay?': {
-          as: 'মাল নমোৱা ঠাই ক’ত আছে? (Maal nomowa thai kot ase?)',
-          hi: 'अनलोडिंग बे कहाँ है? (Unloading bay kahan hai?)',
-          bn: 'আনলোডিং বে কোথায়? (Unloading bay kothay?)',
-          en: 'Where is the unloading bay?',
-        },
-        'Need breakdown assistance on highway': {
-          as: 'ৰাষ্ট্ৰীয় ঘাইপথত গাড়ী বেয়া হৈছে, সহায় লাগে (Highway-t gari beya hoise, sohai lage)',
-          hi: 'हाईवे पर गाड़ी खराब हो गई है, मदद चाहिए (Highway par gaadi kharab ho gayi hai, madad chahiye)',
-          bn: 'হাইওয়েতে গাড়ি নষ্ট হয়ে গেছে, সাহায্য চাই (Highway-te gari noshto hoye geche, sahajjo chai)',
-          en: 'Need breakdown assistance on highway',
-        },
-      }
-      setTranslatedText(fallbacks[phrase]?.[lang] ?? `[${lang.toUpperCase()}] ${phrase}`)
-    } finally {
-      setTranslating(false)
-    }
-  }, [])
-
   const selectedRouteId = trip?.selected_route_id ?? null
   const geometry = useRouteGeometry(trip?.id ?? null, selectedRouteId)
   // Follows the SAME id as the geometry, so the line on screen and the
@@ -383,7 +350,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
    * manager's screen reads, so the two cannot disagree. Null when there is no
    * usable fix, which is what pauses the panel rather than letting it guess.
    */
-  const travelledM =
+  const serverTravelledM =
     trip?.progress?.travelled_distance_km != null
       ? trip.progress.travelled_distance_km * 1000
       : null
@@ -402,7 +369,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
    * a confident number on screen forever. That was observed, not theorised.
    */
   const clock = useGuidanceClock()
-  const hold = guidanceHold({
+  const serverHold = guidanceHold({
     permission: tracking.permission,
     isTracking: tracking.isTracking,
     platformPermission: clock.platformPermission,
@@ -412,7 +379,110 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
     onRoute: trip?.progress?.on_route,
     now: clock.now,
   })
+
+  /**
+   * The phone's own fix on the phone's own copy of the line.
+   *
+   * The server's figure arrives every poll and is the one the manager sees;
+   * between polls - and with no connection at all - the same projection runs
+   * here on the cached geometry, so the countdown moves with the truck rather
+   * than in ten-second steps, and keeps moving offline. Scaled to the
+   * provider's distance exactly as the server scales it.
+   */
+  const freshMs = (trip?.tracking.fresh_seconds ?? 60) * 1000
+  const fixAgeMs = tracking.lastPosition ? clock.now - tracking.lastPosition.at : null
+  const localFresh =
+    fixAgeMs !== null && fixAgeMs >= 0 && fixAgeMs <= freshMs &&
+    tracking.isTracking && tracking.permission === 'granted' && clock.platformPermission !== 'denied'
+  /**
+   * The badge says GPS, because GPS is what it measures.
+   *
+   * It read ONLINE/OFFLINE, which is a claim about the network - and it showed
+   * OFFLINE on a phone that had just loaded this route from the server. Then
+   * it read STALE whenever the TRIP POLL failed, which is the same mistake in
+   * the other direction: a lost connection with a live receiver showed "GPS
+   * STALE" beside a green marker. It now ages the phone's own last fix
+   * (`localFresh`, below); the network has its own chip.
+   */
+  const gpsBadge =
+    tracking.permission === 'denied' || !tracking.isTracking
+      ? 'GPS OFF'
+      : localFresh
+        ? 'GPS LIVE'
+        : 'GPS STALE'
+  const isOnline = gpsBadge === 'GPS LIVE'
+  const projection = useMemo(
+    () => (tracking.lastPosition ? projectOntoRoute(geometry.points, [tracking.lastPosition.lat, tracking.lastPosition.lon]) : null),
+    [geometry.points, tracking.lastPosition],
+  )
+  const travelledM =
+    localFresh && projection
+      ? (projection.alongM / projection.totalM) * (geometry.distanceKm ? geometry.distanceKm * 1000 : projection.totalM)
+      : serverTravelledM
+
+  // Off-route is believed after OFF_ROUTE_FIXES consecutive fixes, not one.
+  const [offRoute, setOffRoute] = useState<OffRouteTrack>(ON_ROUTE)
+  const countedFixAt = useRef<number | null>(null)
+  useEffect(() => {
+    const fix = tracking.lastPosition
+    // One count per FIX, keyed on its timestamp - not per render or reload.
+    if (!projection || !fix || countedFixAt.current === fix.at) return
+    countedFixAt.current = fix.at
+    setOffRoute((prev) => trackOffRoute(prev, projection.crossTrackM, fix.accuracyM))
+  }, [projection, tracking.lastPosition])
+  useEffect(() => { setOffRoute(ON_ROUTE) }, [selectedRouteId])
+
+  // Permission is local and wins; with a fresh local fix the rest is decided
+  // here (the server's copy of the fix may not have uploaded yet, which is
+  // exactly the offline case); otherwise the server's view stands.
+  const hold: GuidanceHold =
+    serverHold === 'PERMISSION' ? 'PERMISSION' : localFresh ? (offRoute.off ? 'OFF_ROUTE' : null) : serverHold
   const guidanceHasPosition = hold === null && travelledM !== null
+
+  /**
+   * A road from here, asked for once per off-route episode.
+   *
+   * The server plans it from the reported position and stores it as the
+   * backup road; the trip stays on its selected route until the manager
+   * accepts, so the proposal is drawn dashed and named as a proposal.
+   */
+  const [reroute, setReroute] = useState<{ inFlight: boolean; proposal: RerouteProposed | null; error: string | null; last: RerouteMark | null }>({ inFlight: false, proposal: null, error: null, last: null })
+  useEffect(() => {
+    const fix = tracking.lastPosition
+    if (!fix || !localFresh) return
+    const position: LatLon = [fix.lat, fix.lon]
+    if (!shouldRequestReroute({ off: offRoute.off, pending: reroute.inFlight, online: !isStale, last: reroute.last, position, now: clock.now })) return
+    setReroute((r) => ({ ...r, inFlight: true, error: null, last: { at: clock.now, position } }))
+    api.requestReroute(fix.lat, fix.lon).then(
+      (proposal) => { setReroute((r) => ({ ...r, inFlight: false, proposal })); setShowAltRoute(true); geometry.reload() },
+      (error) => setReroute((r) => ({ ...r, inFlight: false, error: errorMessage(error).detail })),
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offRoute.off, localFresh, isStale, clock.now])
+  // The manager took it: it is now the selected road, not a proposal.
+  useEffect(() => {
+    if (reroute.proposal && selectedRouteId === reroute.proposal.route_id) setReroute((r) => ({ ...r, proposal: null, error: null }))
+  }, [selectedRouteId, reroute.proposal])
+
+  const offRouteLine = reroute.inFlight
+    ? 'Off the planned road · finding a road from here'
+    : reroute.proposal
+      ? `Off the planned road · new road ${reroute.proposal.distance_km != null ? formatDistanceKm(reroute.proposal.distance_km) : ''} awaits manager`
+      : reroute.error
+        ? `Off the planned road · ${isStale ? 'no connection' : 'no road from here yet'}`
+        : 'Off the planned road · rejoin it'
+
+  const [following, setFollowing] = useState(false)
+  const nav: NavState = navState({
+    hasRoute: geometry.points.length > 1,
+    tracking: tracking.isTracking && tracking.permission === 'granted' && clock.platformPermission !== 'denied',
+    fixAgeMs,
+    freshMs,
+    offRoute: offRoute.off,
+    rerouting: reroute.inFlight || (reroute.proposal !== null && reroute.proposal.route_id !== selectedRouteId),
+    offline: isStale,
+    follow: following,
+  })
 
   const nextTurn = useMemo(
     () => upcomingManeuver(navigation.maneuvers, guidanceHasPosition ? travelledM : null),
@@ -443,20 +513,31 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
   const canFitRoute = geometry.points.length > 1
   const hasAlternative = geometry.backupPoints.length > 1
 
+  // Compass while parked: the tracker only publishes a GPS course in motion.
+  // Throttled to whole steps of 3° so a wobbling needle does not re-render
+  // the screen at sensor rate.
+  const [compassDeg, setCompassDeg] = useState<number | null>(null)
+  useEffect(() => {
+    if (!tracking.isTracking) return
+    return watchCompass((deg) => setCompassDeg((prev) => (deg !== null && prev !== null && Math.abs(prev - deg) < 3 ? prev : deg)))
+  }, [tracking.isTracking])
+
   const marker = useMemo((): {
     position: LatLon | null
     kind: PositionKind | null
     accuracyM: number | null
+    headingDeg: number | null
   } => {
     const fix = tracking.lastPosition
-    if (!fix || tracking.permission !== 'granted' || clock.platformPermission === 'denied') return { position: null, kind: null, accuracyM: null }
+    if (!fix || tracking.permission !== 'granted' || clock.platformPermission === 'denied') return { position: null, kind: null, accuracyM: null, headingDeg: null }
     const freshMs = (trip?.tracking.fresh_seconds ?? 60) * 1000
     return {
       position: [fix.lat, fix.lon],
       kind: tracking.isTracking && clock.now - fix.at >= 0 && clock.now - fix.at <= freshMs ? 'LIVE' : 'LAST_KNOWN',
       accuracyM: fix.accuracyM,
+      headingDeg: fix.headingDeg ?? compassDeg,
     }
-  }, [tracking.lastPosition, trip?.tracking.fresh_seconds, clock.now, clock.platformPermission, tracking.permission, tracking.isTracking])
+  }, [compassDeg, tracking.lastPosition, trip?.tracking.fresh_seconds, clock.now, clock.platformPermission, tracking.permission, tracking.isTracking])
 
   /**
    * Open the platform dialler. It does NOT place the call.
@@ -466,7 +547,6 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
    * testing can exercise this path without ever calling an emergency service.
    */
   const call = useCallback((tel: string) => {
-    setCallIntent(tel)
     void Linking.openURL(tel).catch(() => {
       // A desktop browser with no handler. The number stays on screen to read
       // or copy, which is the documented desktop behaviour.
@@ -484,11 +564,12 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
     which: Mode,
   ):
     | null
+    | 'TOO_WIDE'
     | {
-        south: number
-        west: number
-        north: number
-        east: number
+        south?: number
+        west?: number
+        north?: number
+        east?: number
         anchor: SearchAnchor
         anchorLat?: number
         anchorLon?: number
@@ -508,16 +589,10 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
       }
     }
     if (which === 'ALONG_ROUTE') {
-      const box = geometry.points.length ? boundsOf(geometry.points) : null
-      if (box === null) return null
-      const framed = padBounds(box, 0.02)
-      // The server filters to the corridor itself using the route it reads for
-      // this driver - the box only bounds the work.
+      if (!geometry.points.length) return null
+      // No box: the server reads this driver's route and searches it as a
+      // chain of bounded windows. A 300 km road is never one request's box.
       return {
-        south: framed.minLat,
-        west: framed.minLon,
-        north: framed.maxLat,
-        east: framed.maxLon,
         anchor: 'ROUTE_CORRIDOR',
         ...(marker.position
           ? { anchorLat: marker.position[0], anchorLon: marker.position[1] }
@@ -525,12 +600,21 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
       }
     }
     if (viewport === null) return null
+    // The server bounds a single area query; a zoomed-out map is told to zoom
+    // in rather than shown the provider's limit as an error.
+    if (
+      viewport.north - viewport.south > MAX_AREA_DEGREES ||
+      viewport.east - viewport.west > MAX_AREA_DEGREES
+    ) {
+      return 'TOO_WIDE'
+    }
     return { ...viewport, anchor: 'MAP_AREA' }
   }
 
   async function runSearch(which: Mode, cat: PlaceCategory) {
     const query = queryFor(which)
-    if (query === null) { places.clear(); return }
+    setAreaTooWide(query === 'TOO_WIDE')
+    if (query === null || query === 'TOO_WIDE') { places.clear(); return }
     await places.search({ ...query, category: cat, limit: 40 })
   }
 
@@ -565,6 +649,42 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
     }
   }, [places.result])
 
+  /**
+   * Real deterministic risk for this route, from the backend engine the
+   * manager reads - and from the SAME hook the Safety screen uses, so the two
+   * surfaces can never disagree about what the assessment says.
+   */
+  const { risk, state: riskState, capturedAt: riskCapturedAt, refresh: refreshRisk } = useRouteRisk(selectedRouteId, trip?.id ?? null)
+
+  // RECONNECT. The trip poll is the phone's connectivity signal: when it
+  // goes from failing to answering, the saved route and the LAST KNOWN
+  // assessment are refreshed in the background so the screen returns to
+  // LIVE without a reload. Only the transition, never on mount.
+  // One dropped request is not an outage: a route fetch that failed while
+  // the trip poll stays healthy is retried after 10 s, not left on "Try again"
+  // until the driver notices (seen on the phone after a manager reroute).
+  useEffect(() => {
+    if (!geometry.error || isStale) return
+    const t = setTimeout(geometry.reload, 10_000)
+    return () => clearTimeout(t)
+  }, [geometry.error, geometry.reload, isStale])
+
+  const wasStale = useRef(isStale)
+  useEffect(() => {
+    if (wasStale.current && !isStale) {
+      geometry.reload()
+      refreshRisk()
+      // Directions are not cached (see useNavigationPackage): a fetch that
+      // failed while the link was down stays empty until asked again.
+      if (!navigation.available) navigation.reload()
+    }
+    wasStale.current = isStale
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isStale])
+  /** Terrain and landslide overlays, on by default; the rail button hides
+   *  them for a driver who wants the bare road for a moment. */
+  const [showHazards, setShowHazards] = useState(true)
+
   function renderCanvas() {
     if (trip === null) {
       return (
@@ -574,23 +694,44 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
         />
       )
     }
-    if (selectedRouteId === null) {
-      return (
-        <MapPlaceholder
-          title="Waiting for a route"
-          detail="Your manager has not selected a route for this trip yet. The road will appear here as soon as they do."
-        />
-      )
-    }
+    // NO EARLY RETURN FOR A MISSING ROUTE.
+    //
+    // This used to swap the whole canvas for a placeholder the moment
+    // `selectedRouteId` was null, which unmounted the map and left a blank
+    // panel. A trip without a selected route still has a location; "no planned
+    // route" is not "no map". Fall through to the empty-geometry branch below,
+    // which already mounts the basemap and puts a status strip over it.
     if (geometry.isLoading && geometry.points.length === 0) {
       return <Loading label="Loading your route…" />
     }
     if (geometry.error !== null) {
+      const err = errorMessage(geometry.error)
+      const isUnconfigured =
+        err.detail.toLowerCase().includes('not configured') ||
+        err.detail.toLowerCase().includes('unavailable')
+
+      const nextStop =
+        trip?.stops.find((s) => s.status === 'PENDING' || s.status === 'ARRIVED') ??
+        (trip?.stops && trip.stops.length > 0 ? trip.stops[trip.stops.length - 1] : null)
+      const targetDestination = nextStop?.address || nextStop?.name || ''
+
+      const openGoogleMaps = targetDestination
+        ? () => {
+            const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(targetDestination)}`
+            void Linking.openURL(url).catch(() => {})
+          }
+        : undefined
+
       return (
         <MapPlaceholder
-          title="Could not load the route"
-          detail={errorMessage(geometry.error).detail}
+          title={isUnconfigured ? 'Offline navigation mode' : 'Could not load the route'}
+          detail={
+            isUnconfigured
+              ? 'Route intelligence service is currently unconfigured or offline. You can open your destination directly in Google Maps while live position tracking continues.'
+              : err.detail
+          }
           onRetry={geometry.reload}
+          action={openGoogleMaps ? { label: 'Open in Google Maps', onPress: openGoogleMaps } : undefined}
         />
       )
     }
@@ -608,6 +749,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
             position={marker.position}
             positionKind={marker.kind}
             accuracyM={marker.accuracyM}
+            headingDeg={marker.headingDeg}
             places={places.result?.places ?? []}
             selectedPlaceId={places.selected?.provider_id ?? null}
             onSelectPlace={places.select}
@@ -616,8 +758,14 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
             cameraMode={cameraMode}
             testID="driver-route-map"
           />
+          {/* Overlay, not a replacement. Says which of the two empty cases
+              this is instead of one vague "standby". */}
           <View style={styles.standbyToast}>
-            <Text style={styles.standbyToastText}>Standby: No active route assigned yet</Text>
+            <Text style={styles.standbyToastText}>
+              {selectedRouteId === null
+                ? 'Route not selected — your manager assigns the road before turn-by-turn can start.'
+                : 'Route selected, but its geometry has not loaded yet.'}
+            </Text>
           </View>
         </View>
       )
@@ -635,10 +783,14 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
         position={marker.position}
         positionKind={marker.kind}
         accuracyM={marker.accuracyM}
+        headingDeg={marker.headingDeg}
         places={places.result?.places ?? []}
         selectedPlaceId={places.selected?.provider_id ?? null}
         onSelectPlace={places.select}
+        terrainSegments={showHazards ? risk?.terrain?.segments ?? [] : []}
+        hazards={showHazards ? risk?.landslide_history?.events ?? [] : []}
         onViewportChange={setViewport}
+        onFollowChange={setFollowing}
         cameraTrigger={cameraTrigger}
         cameraMode={cameraMode}
         testID="driver-route-map"
@@ -649,6 +801,17 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
   /** Results, or the honest reason there are none. Four distinct outcomes. */
   function renderResults() {
     if (category === null) return null
+    if (areaTooWide) {
+      return (
+        <View style={styles.resultsPane}>
+          <Banner
+            tone="warn"
+            title="Zoom in to search this area"
+            detail="The map view is too wide to search at once. Zoom in, then search again."
+          />
+        </View>
+      )
+    }
     if (places.isSearching) {
       return <Text style={styles.resultsNote}>Searching…</Text>
     }
@@ -766,664 +929,755 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
     )
   }
 
+  /**
+   * The factor rows behind the card. Operational state first - GPS is a
+   * FACTOR, not a gate, so a denied permission never hides the assessment.
+   */
+  const gpsRow: [string, string] =
+    tracking.permission === 'denied'
+      ? ['GPS', 'Off']
+      : marker.kind === 'LAST_KNOWN'
+        ? ['GPS', 'Stale']
+        : marker.kind === 'LIVE'
+          ? ['GPS', 'Fresh']
+          : ['GPS', 'No fix']
+  const factorRows: [string, string][] = risk
+    ? [
+        gpsRow,
+        ...Object.entries(risk.inputs)
+          .filter(([, v]) => v === 'AVAILABLE')
+          .map(([k]) => [factorTitle(k) ?? k.replace(/_/g, ' '), 'Available'] as [string, string]),
+        ...risk.unavailable.map((k) => [factorTitle(k) ?? k.replace(/_/g, ' '), 'Not available'] as [string, string]),
+      ]
+    : [gpsRow]
+
+  /**
+   * The card. Words from the engine's own reason codes, in the app language;
+   * the decision is the server's. See `navigation/routeAi`.
+   */
+  const ai = routeAiCard(risk, guidanceHasPosition ? travelledM : null, language)
+  const alert = dangerAlert(risk, selectedRouteId, geometry.points, guidanceHasPosition ? travelledM : null)
+  const shownAlert = alert && !acknowledged.has(alert.key) ? alert : null
+  const holdDecision = risk?.decision === 'HOLD_AND_REVIEW' || risk?.decision === 'REROUTE_RECOMMENDED'
+  const findStop = () => {
+    setIsSheetExpanded(true)
+    if (category !== 'REST') onPickCategory('REST')
+  }
+  const riskStale = riskState === 'STALE'
+  const decisionTone =
+    ai.decision === 'CONTINUE'
+      ? 'ok'
+      : ai.decision === 'CAUTION'
+        ? 'warn'
+        : ai.decision === null
+          ? 'off'
+          : 'bad'
+
+  /**
+   * The maneuver after the next. Google's "Then ↱" line: a driver in a
+   * roundabout wants the exit AND the turn after it. Only from real
+   * maneuvers, never from the corridor's shape.
+   */
+  const thenTurn = useMemo(() => {
+    if (!nextTurn) return null
+    const i = navigation.maneuvers.indexOf(nextTurn.maneuver)
+    return i >= 0 ? navigation.maneuvers[i + 1] ?? null : null
+  }, [navigation.maneuvers, nextTurn])
+
+  /** Arrival clock time from the server's remaining-at-planned-pace, never
+   *  from a speed this screen invented. */
+  const eta = (() => {
+    const rem = trip?.progress?.remaining_distance_km
+    const mins = trip?.progress?.remaining_at_planned_pace_min
+    const haveRemaining = rem != null && Number.isFinite(rem)
+    const km = haveRemaining ? rem : geometry.distanceKm
+    const duration =
+      haveRemaining && mins != null
+        ? mins >= 60
+          ? `${Math.floor(mins / 60)} h ${Math.round(mins % 60)} min`
+          : `${Math.round(mins)} min`
+        : null
+    const arrival =
+      haveRemaining && mins != null
+        ? new Date(Date.now() + mins * 60_000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : null
+    return {
+      duration,
+      distance: km == null || !Number.isFinite(km) ? null : formatDistanceKm(km),
+      distanceLabel: haveRemaining ? 'remaining' : 'route',
+      arrival,
+    }
+  })()
+
   return (
     <SafeAreaView style={styles.root}>
-      {/* 1. FULL SCREEN MAP CANVAS (Base background layer) */}
-      <View style={styles.mapCanvasWrapper}>
-        {renderCanvas()}
-      </View>
+      {/* THE MAP OWNS THE SCREEN. A real flex child, so it reserves its space;
+          everything floating inside is anchored to this box and can never sit
+          under the card or the ETA bar below. */}
+      <View style={styles.mapArea}>
+        <View style={styles.mapCanvasWrapper}>{renderCanvas()}</View>
 
-      {/* 2. TOP FLOATING NAVIGATION LAYER */}
-      <View style={styles.topFloatingLayer} pointerEvents="box-none">
-        <View style={styles.topBar}>
-          <Pressable
-            onPress={onBack}
-            accessibilityRole="button"
-            accessibilityLabel="Back to trip"
-            style={styles.back}
-          >
-            <Text style={styles.backLabel}>‹ Back</Text>
-          </Pressable>
-
-          <View style={styles.identity}>
-            <View style={styles.driverRow}>
-              <Text style={styles.driverNameText} numberOfLines={1}>
-                {driverName}
-              </Text>
-              <View style={[styles.onlineBadge, !isOnline && styles.offlineBadge]}>
-                <View style={[styles.onlineDot, !isOnline && styles.offlineDot]} />
-                <Text style={[styles.onlineText, !isOnline && styles.offlineText]}>
-                  {isOnline ? 'ONLINE' : 'OFFLINE'}
-                </Text>
-              </View>
-            </View>
-            <Text style={styles.sub} numberOfLines={1}>
-              {trip?.truck?.registration_number ?? 'Truck Unassigned'} · {trip?.trip_code ?? 'TRP-PENDING'} · {trip?.shipment?.total_weight_kg ? `${(Number(trip.shipment.total_weight_kg) / 1000).toFixed(1)} T Payload` : 'Payload Unspecified'}
-            </Text>
-          </View>
-
-          <Pressable
-            onPress={() => setShowEmergency((v) => !v)}
-            accessibilityRole="button"
-            accessibilityLabel="Emergency help and your location"
-            style={styles.sos}
-            testID="emergency-action"
-          >
-            <Text style={styles.sosLabel}>Emergency</Text>
-          </Pressable>
-        </View>
-
-        {/* Floating Google Maps-Style Next Turn Card */}
-        {selectedRouteId !== null ? (
-          <View style={styles.nextTurnCard}>
-            <View style={styles.nextTurnIconBox}>
-              <Text style={styles.nextTurnIconSymbol}>
-                {nextTurn ? maneuverIcon(nextTurn.maneuver) : '▲'}
-              </Text>
-            </View>
-            <View style={styles.nextTurnInfo}>
-              <Text style={styles.nextTurnDistance}>
-                {nextTurn ? formatTurnDistance(nextTurn.distanceM) : (navigation.available ? 'Continue' : 'Route Loaded')}
-              </Text>
-              <Text style={styles.nextTurnInstruction} numberOfLines={1}>
-                {nextTurn ? instructionFor(nextTurn.maneuver) : (navigation.available ? 'Follow planned corridor' : (guidanceHasPosition ? 'Guidance active' : 'Route preview'))}
-              </Text>
-            </View>
+        {/* TOP: back · next maneuver · emergency. */}
+        <View style={styles.topLayer} pointerEvents="box-none">
+          <View style={styles.topRow}>
             <Pressable
-              onPress={() => tracking.permission === 'denied' ? tracking.requestPermission() : voice.available === true && setMuted((v) => !v)}
-              disabled={tracking.permission !== 'denied' && voice.available !== true}
+              onPress={onBack}
               accessibilityRole="button"
-              accessibilityState={{ disabled: tracking.permission !== 'denied' && voice.available !== true }}
-              accessibilityLabel={
-                tracking.permission === 'denied' ? 'Allow location' : voice.available === false
-                  ? 'Spoken directions are not available on this device'
-                  : muted
-                    ? 'Turn on spoken directions'
-                    : 'Mute spoken directions'
-              }
-              style={[styles.voiceButton, tracking.permission !== 'denied' && voice.available !== true && styles.voiceOff]}
-              testID="voice-toggle"
+              accessibilityLabel="Back to trip"
+              style={styles.roundBtn}
             >
-              <Text style={styles.voiceButtonText}>
-                {tracking.permission === 'denied' ? 'GPS off' : muted ? 'Voice off' : 'Voice on'}
-              </Text>
+              <Text style={styles.roundBtnGlyph}>‹</Text>
+            </Pressable>
+
+            {selectedRouteId !== null ? (
+              <View style={styles.maneuverCard} testID="maneuver-card">
+                <View style={styles.maneuverMain}>
+                  <Text style={styles.maneuverIcon}>{nextTurn ? maneuverIcon(nextTurn.maneuver) : '▲'}</Text>
+                  <View style={styles.maneuverText}>
+                    {nextTurn ? (
+                      <>
+                        <Text style={styles.maneuverDistance}>{formatTurnDistance(nextTurn.distanceM)}</Text>
+                        <Text style={styles.maneuverInstruction} numberOfLines={1}>
+                          {instructionFor(nextTurn.maneuver)}
+                        </Text>
+                      </>
+                    ) : (
+                      <>
+                        {/* No maneuver means SAY no maneuver: `hold` and
+                            `available` carry the real reason, and an invented
+                            "continue straight" is the one thing this card must
+                            never show. */}
+                        <Text style={styles.maneuverInstruction} numberOfLines={1}>
+                          {!navigation.available ? 'Guidance unavailable' : hold !== null ? 'Guidance paused' : 'No further turns'}
+                        </Text>
+                        <Text style={styles.maneuverSub} numberOfLines={hold === 'OFF_ROUTE' ? 3 : 1}>
+                          {hold === 'OFF_ROUTE'
+                            ? offRouteLine
+                            : !navigation.available
+                            ? 'Route overview active'
+                            : hold === 'PERMISSION'
+                              ? 'Allow location to start'
+                              : hold === 'NO_FIX'
+                                ? 'Waiting for a GPS fix'
+                                : hold === 'FIX_STALE' || hold === 'CONTACT_LOST'
+                                  ? 'GPS fix is stale'
+                                  : 'Route overview active'}
+                        </Text>
+                      </>
+                    )}
+                  </View>
+                </View>
+                {thenTurn ? (
+                  <View style={styles.thenRow}>
+                    <Text style={styles.thenText} numberOfLines={1}>
+                      Then {maneuverIcon(thenTurn)} {instructionFor(thenTurn)}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : (
+              <View style={styles.maneuverCard}>
+                <Text style={styles.maneuverInstruction}>Route not selected</Text>
+                <Text style={styles.maneuverSub}>Your manager assigns the road first</Text>
+              </View>
+            )}
+
+            <Pressable
+              onPress={() => setShowEmergency((v) => !v)}
+              accessibilityRole="button"
+              accessibilityLabel="Emergency help"
+              style={[styles.roundBtn, styles.sosBtn]}
+              testID="emergency-action"
+            >
+              <Text style={styles.sosGlyph}>SOS</Text>
             </Pressable>
           </View>
-        ) : null}
 
-        {/* Secondary Status Strip */}
-        <View style={styles.statusStripPill}>
-          <Text style={styles.statusStripText}>
-            Route Risk: LOW · Weather: Clear · ONLINE
-          </Text>
-        </View>
-
-        {geometry.source === 'CACHED' ? (
-          <View style={styles.sourceStrip}>
-            <Text style={styles.sourceStripText}>
-              Saved route — no connection. Downloaded {relativeTime(geometry.capturedAt)}.
-            </Text>
-          </View>
-        ) : null}
-      </View>
-
-      {/* 3. RIGHT-SIDE FLOATING ACTION CONTROLS */}
-      {/*
-        MAP CONTROLS. Every one of these is now either live or visibly disabled
-        with a reason - none of them silently does nothing.
-
-        Three were doing exactly that before. The audio toggle read
-        `voice.available === true && setMuted(...)`, so on a device with no
-        speech engine it looked identical to a working control and swallowed
-        the tap. Recenter re-aimed the camera at a position that may not exist
-        yet. The alternative-route toggle flipped a flag that draws
-        `geometry.backupPoints`, which is an empty array unless the trip
-        actually carries a second corridor - and on most NER corridors the
-        provider returns one road, so that button was inert on the majority of
-        real trips.
-      */}
-      <View style={styles.rightFloatingControls} pointerEvents="box-none">
-        {hasAlternative ? (
-          <MapControl
-            onPress={() => setShowAltRoute((v) => !v)}
-            label={showAltRoute ? 'Hide alternative route' : 'Show alternative route'}
-            active={showAltRoute}
-          >
-            <FitRouteIcon color={showAltRoute ? COLORS.onAccent : COLORS.text} size={20} />
-          </MapControl>
-        ) : null}
-
-        <MapControl
-          onPress={() => setMuted((v) => !v)}
-          label={muted ? 'Unmute voice guidance' : 'Mute voice guidance'}
-          disabled={!voiceUsable}
-          disabledHint="No speech engine on this device"
-        >
-          <AudioIcon
-            color={voiceUsable ? COLORS.text : COLORS.faint}
-            size={20}
-            muted={muted || !voiceUsable}
-          />
-        </MapControl>
-
-        <MapControl
-          onPress={handleFitRoute}
-          label="Fit the whole route on the map"
-          disabled={!canFitRoute}
-          disabledHint="No route to frame yet"
-        >
-          <FitRouteIcon color={canFitRoute ? COLORS.text : COLORS.faint} size={20} />
-        </MapControl>
-
-        <MapControl
-          onPress={handleRecenter}
-          label="Recentre the map on the truck"
-          disabled={!canRecenter}
-          disabledHint="Waiting for a GPS position"
-          primary
-        >
-          <RecenterIcon color={canRecenter ? COLORS.onAccent : COLORS.faint} size={20} />
-        </MapControl>
-      </View>
-
-      {/* 4. BOTTOM-LEFT FLOATING SPEEDOMETER */}
-      <View
-        style={[
-          styles.speedometerFloatingContainer,
-          isSheetExpanded && styles.speedometerExpandedOffset,
-        ]}
-        pointerEvents="box-none"
-      >
-        <View style={styles.speedometerGauge}>
-          <Text style={styles.speedometerValueText}>
-            {tracking.lastPosition?.speedKmh != null ? tracking.lastPosition.speedKmh : '--'}
-          </Text>
-          <Text style={styles.speedometerUnitText}>km/h</Text>
-        </View>
-      </View>
-
-      {/* 5. BOTTOM DRAGGABLE / COLLAPSIBLE ETA SHEET */}
-      <View style={styles.bottomSheetContainer}>
-        {/* Handle and Collapsed ETA Bar */}
-        <Pressable
-          onPress={() => setIsSheetExpanded((v) => !v)}
-          style={styles.sheetHeaderTouchable}
-          accessibilityRole="button"
-          accessibilityLabel={isSheetExpanded ? 'Collapse trip details' : 'Expand trip details'}
-        >
-          <View style={styles.sheetHandleRow}>
-            <View style={styles.sheetHandleBar} />
-          </View>
-
-          <View style={styles.collapsedEtaRow}>
-            <View style={styles.etaMetricCol}>
-              <Text style={styles.etaMetricValue}>
-                {geometry.distanceKm
-                  ? `${Math.floor(geometry.distanceKm / 55)}h ${Math.round((geometry.distanceKm % 55) * 1.09)}m`
-                  : 'Unavailable'}
-              </Text>
-              <Text style={styles.etaMetricLabel}>Duration</Text>
-            </View>
-
-            <View style={styles.etaDivider} />
-
-            <View style={styles.etaMetricCol}>
-              <Text style={styles.etaMetricValue}>
-                {formatDistanceKm(guidanceHasPosition ? trip?.progress?.remaining_distance_km ?? null : geometry.distanceKm)}
-              </Text>
-              <Text style={styles.etaMetricLabel}>Remaining</Text>
-            </View>
-
-            <View style={styles.etaDivider} />
-
-            <View style={styles.etaMetricCol}>
-              <Text style={styles.etaMetricValue}>
-                {guidanceHasPosition ? 'On Route' : 'Route preview'}
-              </Text>
-              <Text style={styles.etaMetricLabel}>
-                {guidanceHasPosition ? 'Active' : 'Standby'}
+          {geometry.source === 'CACHED' ? (
+            <View style={styles.sourceStrip}>
+              <Text style={styles.sourceStripText}>
+                Saved route — no connection. Downloaded {relativeTime(geometry.capturedAt)}.
               </Text>
             </View>
+          ) : null}
 
-            <View style={styles.expandToggleBtn}>
-              <Text style={styles.expandToggleText}>
-                {isSheetExpanded ? 'Hide ▾' : 'Details ▴'}
+          {shownAlert && !isSheetExpanded ? (
+            <View style={[styles.alertCard, shownAlert.level !== 'CAUTION' && styles.alertCardHigh]} testID="danger-alert">
+              <Text style={[styles.alertTitle, shownAlert.level !== 'CAUTION' && styles.alertTitleHigh]} numberOfLines={2}>
+                ⚠ {shownAlert.title} · {shownAlert.level}
               </Text>
-            </View>
-          </View>
-        </Pressable>
-
-        {/* Expanded Content */}
-        {isSheetExpanded ? (
-          <ScrollView
-            style={styles.sheetExpandedScroll}
-            contentContainerStyle={styles.sheetExpandedBody}
-            keyboardShouldPersistTaps="handled"
-            nestedScrollEnabled
-          >
-            {/* Endpoints & Cargo */}
-            <View style={styles.expandedTripDetails}>
-              <View style={styles.tripCardHeader}>
-                <View style={styles.tripEndpoints}>
-                  <Text style={styles.tripEndpointText} numberOfLines={1}>
-                    {geometry.stops[0]?.name ?? geometry.stops[0]?.address ?? 'Origin'} → {geometry.stops.at(-1)?.name ?? geometry.stops.at(-1)?.address ?? 'Destination'}
-                  </Text>
-                </View>
-                <View style={styles.cargoBadge}>
-                  <Text style={styles.cargoBadgeText}>
-                    {trip?.shipment?.total_weight_kg ? `${(Number(trip.shipment.total_weight_kg) / 1000).toFixed(1)} T Payload` : 'Payload Unspecified'}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.tripCardStats}>
-                <View>
-                  <Text style={styles.statLabel}>Remaining</Text>
-                  <Text style={styles.statDistance}>
-                    {formatDistanceKm(guidanceHasPosition ? trip?.progress?.remaining_distance_km ?? null : geometry.distanceKm)}
-                  </Text>
-                </View>
-                <View>
-                  <Text style={styles.statLabel}>Free-flow</Text>
-                  <Text style={styles.statDuration}>
-                    {geometry.distanceKm ? `${Math.floor(geometry.distanceKm / 55)}h ${Math.round((geometry.distanceKm % 55) * 1.09)}m` : 'Unavailable'}
-                  </Text>
-                </View>
-                <View>
-                  <Text style={styles.statLabel}>Corridor</Text>
-                  <Text style={styles.statPace}>
-                    {geometry.stops[0]?.name ? `${geometry.stops[0].name} Sector` : 'Highway corridor'}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.progressBarBg}>
-                <View
-                  style={[
-                    styles.progressBarFill,
-                    {
-                      width: `${travelledM !== null && geometry.distanceKm ? Math.min(100, Math.max(0, Math.round((travelledM / (geometry.distanceKm * 1000)) * 100))) : 0}%`,
-                    },
-                  ]}
-                />
-              </View>
-            </View>
-
-            {/* Destination description */}
-            <View style={styles.routeSummary}>
-              <View style={styles.summaryHeading}>
-                <Text style={styles.summaryLabel}>{guidanceHasPosition ? 'Distance left' : 'Assigned route'}</Text>
-                <Text style={styles.summaryDistance}>{formatDistanceKm(guidanceHasPosition ? trip?.progress?.remaining_distance_km ?? null : geometry.distanceKm)}</Text>
-              </View>
-              <Text style={styles.destination} numberOfLines={2}>
-                {geometry.stops.at(-1)?.address ?? geometry.stops.at(-1)?.name ?? 'Destination unavailable'}
-              </Text>
-              <Text style={styles.summaryLabel}>
-                {guidanceHasPosition ? 'Guidance active' : 'Route preview'} · Arrival time unavailable
-              </Text>
-            </View>
-
-            {/* Roadside Place Categories */}
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.chipBar}
-              contentContainerStyle={styles.chips}
-            >
-              {CATEGORY_LABELS.map((c) => (
+              <Text style={styles.alertWhere} numberOfLines={2}>{shownAlert.where}</Text>
+              <Text style={styles.alertDetail} numberOfLines={2}>{shownAlert.detail}</Text>
+              <Text style={styles.alertEvidence} numberOfLines={1}>Evidence · {shownAlert.evidence.join(' · ')}</Text>
+              <View style={styles.alertActions}>
+                <Pressable onPress={() => setIsSheetExpanded(true)} accessibilityRole="button" accessibilityLabel="View route details" style={styles.alertBtn}>
+                  <Text style={styles.alertBtnText}>VIEW</Text>
+                </Pressable>
+                <Pressable onPress={findStop} accessibilityRole="button" accessibilityLabel="Find a place to stop" style={styles.alertBtn}>
+                  <Text style={styles.alertBtnText}>STOPS</Text>
+                </Pressable>
                 <Pressable
-                  key={c.id}
-                  onPress={() => onPickCategory(c.id)}
+                  onPress={() => setAcknowledged((prev) => new Set(prev).add(shownAlert.key))}
                   accessibilityRole="button"
-                  accessibilityState={{ selected: category === c.id }}
-                  style={[styles.chip, category === c.id && styles.chipActive]}
+                  accessibilityLabel="Acknowledge this alert"
+                  style={[styles.alertBtn, styles.alertBtnPrimary]}
+                  testID="danger-alert-ack"
                 >
-                  <Text
-                    style={[
-                      styles.chipLabel,
-                      category === c.id && styles.chipLabelActive,
-                    ]}
-                  >
-                    {c.label}
-                  </Text>
+                  <Text style={[styles.alertBtnText, styles.alertBtnTextPrimary]}>OK, SEEN</Text>
                 </Pressable>
-              ))}
-            </ScrollView>
+              </View>
+            </View>
+          ) : null}
+        </View>
 
-            {category !== null ? (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.chipBar}
-                contentContainerStyle={styles.chips}
-              >
-                {MODE_LABELS.map((m) => {
-                  const unavailable =
-                    (m.id === 'NEAR_ME' && marker.kind !== 'LIVE') ||
-                    (m.id === 'ALONG_ROUTE' && geometry.points.length === 0) ||
-                    (m.id === 'THIS_AREA' && viewport === null)
-                  return (
-                    <Pressable
-                      key={m.id}
-                      onPress={() => onPickMode(m.id)}
-                      disabled={unavailable}
-                      accessibilityRole="button"
-                      accessibilityState={{
-                        selected: mode === m.id,
-                        disabled: unavailable,
-                      }}
-                      style={[
-                        styles.modeChip,
-                        mode === m.id && styles.chipActive,
-                        unavailable && styles.chipOff,
-                      ]}
-                    >
-                      <Text style={styles.modeLabel}>
-                        {m.label}
-                        {m.id === 'NEAR_ME' && marker.position === null ? ' (no GPS)' : ''}
-                      </Text>
-                    </Pressable>
-                  )
-                })}
-              </ScrollView>
-            ) : null}
-
-            {renderResults()}
-          </ScrollView>
-        ) : null}
-
-        {/* Quick Action Footer Pills */}
-        <View style={styles.bottomActionPills}>
-          <Pressable
-            style={styles.actionPill}
-            onPress={() => setShowAiModal(true)}
-            accessibilityRole="button"
-            accessibilityLabel="Open AI Assistant"
+        {/* RIGHT RAIL. Every control is live or visibly disabled with a reason.
+            Hidden while the details sheet has the map squeezed - a rail
+            climbing into the maneuver card is worse than a tap to close. */}
+        {isSheetExpanded ? null : (
+        <View style={styles.rightRail} pointerEvents="box-none">
+          <MapControl
+            onPress={() => setIsSheetExpanded(true)}
+            label="Search roadside services"
+            active={isSheetExpanded && category !== null}
           >
-            <Text style={styles.actionPillText}>AI Co-Driver</Text>
-          </Pressable>
-
-          <Pressable
-            style={styles.actionPill}
-            onPress={() => setShowTranslateModal(true)}
-            accessibilityRole="button"
-            accessibilityLabel="Open Translator"
+            <Text style={styles.railGlyph}>⌕</Text>
+          </MapControl>
+          <MapControl
+            onPress={() => setMuted((v) => !v)}
+            label={muted ? 'Unmute voice guidance' : 'Mute voice guidance'}
+            disabled={!voiceUsable}
+            disabledHint="No speech engine on this device"
           >
-            <Text style={styles.actionPillText}>Translate</Text>
-          </Pressable>
-
-          <Pressable
-            style={styles.actionPill}
-            onPress={() => setShowEmergency(true)}
-            accessibilityRole="button"
-            accessibilityLabel="View Safety Guide"
+            <AudioIcon color={voiceUsable ? COLORS.text : COLORS.faint} size={20} muted={muted || !voiceUsable} />
+          </MapControl>
+          <MapControl
+            onPress={handleFitRoute}
+            label="Route overview — fit the whole route"
+            disabled={!canFitRoute}
+            disabledHint="No route to frame yet"
           >
-            <Text style={styles.actionPillText}>Safety</Text>
-          </Pressable>
-
-          <Pressable
-            style={[styles.actionPill, styles.actionPillSos]}
-            onPress={() => {
-              setCallIntent('112')
-              Linking.openURL('tel:112')
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="Call 112"
+            <FitRouteIcon color={canFitRoute ? COLORS.text : COLORS.faint} size={20} />
+          </MapControl>
+          <MapControl
+            onPress={() => setShowHazards((v) => !v)}
+            label={showHazards ? 'Hide terrain and landslide overlays' : 'Show terrain and landslide overlays'}
+            disabled={!risk?.terrain?.usable && !risk?.landslide_history?.events?.length}
+            disabledHint="No terrain or landslide evidence for this route"
+            active={showHazards}
           >
-            <Text style={styles.actionPillSosText}>SOS 112</Text>
+            <Text style={[styles.railGlyph, showHazards && styles.railGlyphOn]}>⚠</Text>
+          </MapControl>
+          {hasAlternative ? (
+            <MapControl
+              onPress={() => setShowAltRoute((v) => !v)}
+              label={showAltRoute ? 'Hide alternative route' : 'Show alternative route'}
+              active={showAltRoute}
+            >
+              <Text style={[styles.railGlyph, showAltRoute && styles.railGlyphOn]}>⇄</Text>
+            </MapControl>
+          ) : null}
+        </View>
+        )}
+
+        {/* BOTTOM-LEFT: speed and GPS state. BOTTOM-CENTRE: re-centre.
+            Hidden with the sheet open: the map is a strip then, and the
+            gauge climbed into the maneuver card on a 360 dp phone. */}
+        {isSheetExpanded ? null : (
+        <View style={styles.bottomLeft} pointerEvents="box-none">
+          <View style={styles.speedGauge}>
+            <Text style={styles.speedValue}>
+              {localFresh && tracking.lastPosition?.speedKmh != null ? tracking.lastPosition.speedKmh : '--'}
+            </Text>
+            <Text style={styles.speedUnit}>km/h</Text>
+          </View>
+          <View style={[styles.gpsChip, !isOnline && styles.gpsChipOff]}>
+            <View style={[styles.gpsDot, !isOnline && styles.gpsDotOff]} />
+            <Text style={[styles.gpsText, !isOnline && styles.gpsTextOff]}>{gpsBadge}</Text>
+          </View>
+          <View style={[styles.gpsChip, styles.navChip, (nav === 'OFF_ROUTE' || nav === 'REROUTING') && styles.navChipWarn, (nav === 'GPS_STALE' || nav === 'OFFLINE' || nav === 'IDLE') && styles.gpsChipOff]} testID="nav-state">
+            <Text style={[styles.gpsText, (nav === 'OFF_ROUTE' || nav === 'REROUTING') && styles.navChipWarnText, (nav === 'GPS_STALE' || nav === 'OFFLINE' || nav === 'IDLE') && styles.gpsTextOff]}>{nav.replace('_', ' ')}</Text>
+          </View>
+        </View>
+        )}
+        {/* Re-centre only while the camera is NOT on the truck - the way a
+            navigation app hides it while following and shows it after a pan. */}
+        {following && nav === 'FOLLOWING' ? null : (
+        <View style={styles.bottomCentre} pointerEvents="box-none">
+          <Pressable
+            onPress={canRecenter ? handleRecenter : tracking.permission === 'denied' ? tracking.requestPermission : undefined}
+            disabled={!canRecenter && tracking.permission !== 'denied'}
+            accessibilityRole="button"
+            accessibilityLabel={canRecenter ? 'Re-centre the map on the truck' : 'Waiting for a GPS position'}
+            accessibilityState={{ disabled: !canRecenter && tracking.permission !== 'denied' }}
+            style={[styles.recentrePill, !canRecenter && styles.recentrePillOff]}
+          >
+            <RecenterIcon color={canRecenter ? COLORS.onAccent : COLORS.faint} size={18} />
+            <Text style={[styles.recentreText, !canRecenter && styles.recentreTextOff]}>
+              {canRecenter ? 'Re-centre' : tracking.permission === 'denied' ? 'Allow location' : 'No GPS fix'}
+            </Text>
           </Pressable>
         </View>
+        )}
       </View>
 
-      {/* AI Assistant Modal */}
-      {showAiModal ? (
-        <View style={styles.aiModalOverlay}>
-          <View style={styles.aiModalContent}>
-            <View style={styles.aiModalHeader}>
-              <Text style={styles.aiModalTitle}>AI Co-Driver</Text>
-              <Pressable onPress={() => setShowAiModal(false)}>
-                <Text style={styles.aiModalClose}>✕</Text>
-              </Pressable>
-            </View>
-            {/* NAMES NO VENDOR AND NO MODEL. This read "Voice & text highway
-                companion (Gemini 3 Flash + DeepSeek fallback)" - two model
-                names on a driver's windscreen, one of which had been wrong
-                since the backup engine was changed. What a driver needs to
-                know is what it answers, not who built it. */}
-            <Text style={styles.aiModalSubtitle}>
-              Ask about the road ahead, conditions and your trip.
+      {/* PERSONAL ROUTE AI - the decision the engine reached, in words. */}
+      <View style={styles.aiCard} testID="route-ai-card">
+        <View style={styles.aiHead}>
+          <Text style={styles.aiEyebrow}>PERSONAL ROUTE AI{riskStale ? ' · LAST KNOWN' : isStale ? ' · OFFLINE' : ''}</Text>
+          <Pressable
+            onPress={() => setIsSheetExpanded((v) => !v)}
+            accessibilityRole="button"
+            accessibilityLabel={isSheetExpanded ? 'Hide route details' : 'Show route details'}
+            hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
+            style={styles.detailsBtn}
+          >
+            <Text style={styles.detailsBtnText}>{isSheetExpanded ? 'HIDE' : 'DETAILS'}</Text>
+          </Pressable>
+        </View>
+        <View style={styles.aiRow}>
+          <View
+            style={[
+              styles.decisionPill,
+              decisionTone === 'ok' && styles.decisionOk,
+              decisionTone === 'warn' && styles.decisionWarn,
+              decisionTone === 'bad' && styles.decisionBad,
+            ]}
+          >
+            <Text
+              style={[
+                styles.decisionText,
+                decisionTone === 'ok' && styles.decisionTextOk,
+                decisionTone === 'warn' && styles.decisionTextWarn,
+                decisionTone === 'bad' && styles.decisionTextBad,
+              ]}
+              numberOfLines={1}
+            >
+              {riskState === 'LOADING' ? 'ASSESSING' : (ai.decision ?? 'NO DATA').replace(/_/g, ' ')}
             </Text>
+          </View>
+          <Text style={styles.aiHeadline} numberOfLines={1}>
+            {riskState === 'LOADING' ? 'Assessing the route…' : ai.headline}
+          </Text>
+        </View>
+        <Text style={styles.aiLines} numberOfLines={2}>
+          {riskState === 'LOADING' ? 'Reading terrain, weather and landslide evidence.' : ai.lines.join(' · ')}
+        </Text>
+        <View style={styles.aiFacts}>
+          {ai.nextTerrain ? (
+            <Text style={styles.aiFact} numberOfLines={1}>Next terrain: <Text style={styles.aiFactStrong}>{ai.nextTerrain}</Text></Text>
+          ) : null}
+          {ai.landslide ? (
+            <Text style={styles.aiFact} numberOfLines={1}>Landslide exposure: <Text style={styles.aiFactStrong}>{ai.landslide}</Text></Text>
+          ) : null}
+          {ai.weather ? (
+            <Text style={styles.aiFact} numberOfLines={1}>Weather: <Text style={styles.aiFactStrong}>{ai.weather}</Text></Text>
+          ) : null}
+        </View>
+        {holdDecision ? (
+          <Pressable onPress={findStop} accessibilityRole="button" accessibilityLabel="Find a place to stop" style={styles.stopLink}>
+            <Text style={styles.stopLinkText}>Find a place to stop →</Text>
+          </Pressable>
+        ) : null}
+        <Text style={styles.aiStamp} numberOfLines={1}>
+          {ai.evidence}
+          {risk
+            ? riskStale
+              ? ` · captured ${relativeTime(riskCapturedAt ?? risk.assessed_at)} · STALE`
+              : ` · updated ${relativeTime(risk.assessed_at)}${isStale ? ' · connection lost' : ''}`
+            : ''}
+        </Text>
+      </View>
 
-            <View style={styles.aiQuickPrompts}>
-              <Pressable
-                style={styles.promptChip}
-                onPress={() => void askAi('What is the weather and road condition on NH27 right now?')}
-              >
-                <Text style={styles.promptChipText}>Weather on NH27?</Text>
-              </Pressable>
-              <Pressable
-                style={styles.promptChip}
-                onPress={() => void askAi('Where is the nearest 24/7 truck tyre repair shop?')}
-              >
-                <Text style={styles.promptChipText}>Nearest tyre repair?</Text>
-              </Pressable>
-              <Pressable
-                style={styles.promptChip}
-                onPress={() => void askAi('Safe lay-by rest stop before Kaziranga corridor?')}
-              >
-                <Text style={styles.promptChipText}>Safe lay-by rest?</Text>
-              </Pressable>
-            </View>
-
-            {aiLoading ? (
-              <View style={styles.aiAnswerBox}>
-                <Text style={styles.aiLoadingText}>Thinking…</Text>
+      {/* DETAILS SHEET - the evidence behind the card, services, trip facts. */}
+      {isSheetExpanded ? (
+        <ScrollView
+          style={styles.sheetScroll}
+          contentContainerStyle={styles.detailsBody}
+          keyboardShouldPersistTaps="handled"
+          nestedScrollEnabled
+        >
+          <Text style={styles.sectionTitle}>Evidence</Text>
+          <View style={styles.factorGrid}>
+            {factorRows.slice(0, 8).map(([name, state]) => (
+              <View key={name} style={styles.factorRow}>
+                <Text style={styles.factorName} numberOfLines={1}>{name}</Text>
+                <Text style={[styles.factorState, state !== 'Available' && styles.factorStateOff]}>{state}</Text>
               </View>
-            ) : aiResponse ? (
-              <View style={styles.aiAnswerBox}>
-                <Text style={styles.aiAnswerText}>{aiResponse}</Text>
-              </View>
-            ) : null}
+            ))}
+          </View>
+          {risk?.terrain?.usable ? (
+            <Text style={styles.detailLine}>
+              {terrainAhead(risk.terrain.segments, risk.terrain.class_km, guidanceHasPosition ? travelledM : null)}
+            </Text>
+          ) : null}
+          {risk?.landslide_history?.events?.length ? (
+            <Text style={styles.detailLine}>
+              {hazardAhead(geometry.points, risk.landslide_history.events, guidanceHasPosition ? travelledM : null)}
+            </Text>
+          ) : null}
+          {risk?.landslide_history ? (
+            <Text style={styles.detailLine}>
+              Historical landslide sites only{risk.landslide_history.inventory_from_year && risk.landslide_history.inventory_to_year ? ` (${risk.landslide_history.inventory_from_year}–${risk.landslide_history.inventory_to_year})` : ''} — not a current incident feed.
+            </Text>
+          ) : null}
+          {risk?.flood && risk.flood.level !== 'UNKNOWN' && risk.flood.ratio_max != null ? (
+            <Text style={styles.detailLine}>
+              River levels: {risk.flood.level} · highest {risk.flood.ratio_max.toFixed(1)}× the 30-day mean at {risk.flood.cells} river cell{risk.flood.cells === 1 ? '' : 's'} (GloFAS, {risk.flood.observed_on ?? 'today'}) — a level, not a flood forecast.
+            </Text>
+          ) : null}
+          {risk?.official_warnings && risk.official_warnings.level !== 'UNKNOWN' ? (
+            <Text style={styles.detailLine}>
+              {risk.official_warnings.level === 'ACTIVE'
+                ? risk.official_warnings.on_route.map((w) => `Official alert · ${w.event} (${w.severity}) — ${w.headline} [${w.sender}]`).join(' · ')
+                : `Official alerts (NDMA SACHET): none name a district on this road · ${risk.official_warnings.in_states} active elsewhere in ${risk.official_warnings.districts.length ? 'the corridor states' : 'the region'}.`}
+            </Text>
+          ) : null}
+          {risk?.alternative ? (
+            <Text style={styles.detailLine}>
+              A safer road exists: {risk.alternative.band} risk, {risk.alternative.distance_km != null ? `${formatDistanceKm(risk.alternative.distance_km)}` : 'distance unknown'}. Your manager confirms any route change.
+            </Text>
+          ) : selectedRouteId !== null && !hasAlternative ? (
+            <Text style={styles.detailLine}>No alternate route available for this corridor.</Text>
+          ) : null}
+          {risk ? (
+            <Text style={styles.detailStamp}>
+              Assessed {relativeTime(risk.assessed_at)} · {risk.observations_used} weather observations
+              {risk.observations_stale > 0 ? ` (${risk.observations_stale} stale)` : ''} · deterministic engine, no probabilities
+            </Text>
+          ) : null}
 
-            <Button
-              label="Close Assistant"
-              variant="secondary"
-              onPress={() => setShowAiModal(false)}
+          <Text style={styles.sectionTitle}>Roadside services</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipBar} contentContainerStyle={styles.chips}>
+            {CATEGORY_LABELS.map((c) => (
+              <Pressable
+                key={c.id}
+                onPress={() => onPickCategory(c.id)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: category === c.id }}
+                style={[styles.chip, category === c.id && styles.chipActive]}
+              >
+                <Text style={[styles.chipLabel, category === c.id && styles.chipLabelActive]}>{c.label}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+          {category !== null ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipBar} contentContainerStyle={styles.chips}>
+              {MODE_LABELS.map((m) => {
+                const unavailable =
+                  (m.id === 'NEAR_ME' && marker.kind !== 'LIVE') ||
+                  (m.id === 'ALONG_ROUTE' && geometry.points.length === 0) ||
+                  (m.id === 'THIS_AREA' && viewport === null)
+                return (
+                  <Pressable
+                    key={m.id}
+                    onPress={() => onPickMode(m.id)}
+                    disabled={unavailable}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: mode === m.id, disabled: unavailable }}
+                    style={[styles.modeChip, mode === m.id && styles.chipActive, unavailable && styles.chipOff]}
+                  >
+                    <Text style={styles.modeLabel}>
+                      {m.label}
+                      {m.id === 'NEAR_ME' && marker.position === null ? ' (no GPS)' : ''}
+                    </Text>
+                  </Pressable>
+                )
+              })}
+            </ScrollView>
+          ) : null}
+          {renderResults()}
+
+          <Text style={styles.sectionTitle}>Trip</Text>
+          <Text style={styles.tripLine} numberOfLines={2}>
+            {geometry.stops[0]?.name ?? geometry.stops[0]?.address ?? 'Origin'} → {geometry.stops.at(-1)?.name ?? geometry.stops.at(-1)?.address ?? 'Destination'}
+          </Text>
+          <Text style={styles.detailStamp}>
+            {trip?.trip_code ?? 'TRP'} · {trip?.truck?.registration_number ?? 'Truck unassigned'} ·{' '}
+            {trip?.shipment?.total_weight_kg ? `${(Number(trip.shipment.total_weight_kg) / 1000).toFixed(1)} t payload` : 'payload unspecified'}
+          </Text>
+          <View style={styles.progressBarBg}>
+            <View
+              style={[
+                styles.progressBarFill,
+                {
+                  width: `${travelledM !== null && geometry.distanceKm ? Math.min(100, Math.max(0, Math.round((travelledM / (geometry.distanceKm * 1000)) * 100))) : 0}%`,
+                },
+              ]}
             />
           </View>
-        </View>
+        </ScrollView>
       ) : null}
 
-      {/* Logistics Translator Modal */}
-      {showTranslateModal ? (
-        <View style={styles.aiModalOverlay}>
-          <View style={styles.aiModalContent}>
-            <View style={styles.aiModalHeader}>
-              <Text style={styles.aiModalTitle}>Logistics Translator</Text>
-              <Pressable onPress={() => setShowTranslateModal(false)}>
-                <Text style={styles.aiModalClose}>✕</Text>
-              </Pressable>
-            </View>
-            <Text style={styles.aiModalSubtitle}>
-              Instant voice & phrase translation for Assam & Northeast corridors
-            </Text>
-
-            <View style={styles.langSelectorRow}>
-              {(['as', 'hi', 'bn', 'en'] as const).map((l) => (
-                <Pressable
-                  key={l}
-                  onPress={() => setTargetLang(l)}
-                  style={[styles.langChip, targetLang === l && styles.langChipActive]}
-                >
-                  <Text style={[styles.langChipText, targetLang === l && styles.langChipTextActive]}>
-                    {l === 'as' ? 'অসমীয়া' : l === 'hi' ? 'हिंदी' : l === 'bn' ? 'বাংলা' : 'English'}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-
-            <View style={styles.aiQuickPrompts}>
-              <Pressable
-                style={styles.promptChip}
-                onPress={() => void translatePhrase('Where is the unloading bay?', targetLang)}
-              >
-                <Text style={styles.promptChipText}>Where is unloading bay?</Text>
-              </Pressable>
-              <Pressable
-                style={styles.promptChip}
-                onPress={() => void translatePhrase('Need breakdown assistance on highway', targetLang)}
-              >
-                <Text style={styles.promptChipText}>Highway breakdown assistance</Text>
-              </Pressable>
-            </View>
-
-            {translating ? (
-              <View style={styles.aiAnswerBox}>
-                <Text style={styles.aiLoadingText}>Translating…</Text>
-              </View>
-            ) : translatedText ? (
-              <View style={styles.aiAnswerBox}>
-                <Text style={styles.aiAnswerText}>{translatedText}</Text>
-              </View>
-            ) : null}
-
-            <Button
-              label="Close Translator"
-              variant="secondary"
-              onPress={() => setShowTranslateModal(false)}
-            />
-          </View>
+      {/* ETA BAR. Duration and arrival only from the server's planned pace. */}
+      <Pressable
+        onPress={() => setIsSheetExpanded((v) => !v)}
+        accessibilityRole="button"
+        accessibilityLabel={isSheetExpanded ? 'Hide route details' : 'Show route details'}
+        style={styles.etaBar}
+        testID="eta-bar"
+      >
+        <View style={styles.etaCell}>
+          <Text style={styles.etaValue} numberOfLines={1}>{eta.duration ?? '—'}</Text>
+          <Text style={styles.etaLabel}>duration</Text>
         </View>
+        <View style={styles.etaCell}>
+          <Text style={styles.etaValue} numberOfLines={1}>{eta.distance ?? '—'}</Text>
+          <Text style={styles.etaLabel}>{eta.distanceLabel}</Text>
+        </View>
+        <View style={styles.etaCell}>
+          <Text style={styles.etaValue} numberOfLines={1}>{eta.arrival ?? '—'}</Text>
+          <Text style={styles.etaLabel}>{eta.arrival ? (isStale ? 'arrival · last known' : 'arrival') : selectedRouteId === null ? 'no route' : guidanceHasPosition ? 'on route' : 'no fix'}</Text>
+        </View>
+      </Pressable>
+
+      {places.selected ? (
+        <PlaceSheet place={places.selected} onClose={() => places.select(null)} onCall={call} />
       ) : null}
 
+      {/* THE EMERGENCY SHEET. Bundled numbers; it never dials by itself. */}
+      {showEmergency ? (
+        <View style={styles.emergencyPanel} accessibilityRole="alert">
+          <Text style={styles.emergencyTitle}>Emergency</Text>
+          <Text style={styles.emergencyNote}>Tapping a number opens your dialler. You still press call.</Text>
+          {emergencyNumbers(resolveLanguage()).map((entry) => (
+            <Pressable
+              key={entry.number}
+              onPress={() => {
+                void Linking.openURL(`tel:${entry.number}`).catch(() => {})
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`Call ${entry.number}, ${entry.label}`}
+              style={styles.emergencyDial}
+            >
+              <Text style={styles.emergencyDialDigits}>{entry.number}</Text>
+              <Text style={styles.emergencyDialLabel}>{entry.label}</Text>
+            </Pressable>
+          ))}
+          <Button label="Cancel" variant="secondary" onPress={() => setShowEmergency(false)} />
+        </View>
+      ) : null}
     </SafeAreaView>
   )
 }
 
-const styles = StyleSheet.create({
-  routeSummary: { paddingHorizontal: 16, paddingVertical: 12, gap: 4, backgroundColor: COLORS.card, borderTopWidth: 1, borderColor: COLORS.border },
-  summaryHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  summaryLabel: { color: COLORS.muted, fontSize: 12 },
-  summaryDistance: { color: COLORS.accent, fontSize: 23, fontWeight: '800' },
-  destination: { color: COLORS.text, fontSize: 16, fontWeight: '700' },
+const useStyles = makeStyles((COLORS) => ({
   root: { flex: 1, backgroundColor: COLORS.bg },
+  mapArea: { flex: 1, minHeight: 0, position: 'relative' },
+  mapCanvasWrapper: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1 },
 
-  mapCanvasWrapper: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 1,
-  },
-  topFloatingLayer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 10,
-  },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: 'rgba(11, 16, 22, 0.85)',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(30, 41, 59, 0.6)',
-  },
-  back: { minHeight: TOUCH_TARGET, justifyContent: 'center', paddingRight: 8 },
-  backLabel: { color: '#38BDF8', fontSize: 16, fontWeight: '700' },
-  identity: { flex: 1, flexShrink: 1 },
-  driverRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  driverNameText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700', maxWidth: 160 },
-  onlineBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#064E3B',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#22C55E',
-  },
-  offlineBadge: { backgroundColor: '#1E293B', borderColor: '#475569' },
-  onlineDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#22C55E' },
-  offlineDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#64748B' },
-  onlineText: { color: '#4ADE80', fontSize: 10, fontWeight: '800' },
-  offlineText: { color: '#94A3B8', fontSize: 10, fontWeight: '800' },
-  code: { color: COLORS.text, fontSize: 16, fontWeight: '800' },
-  sub: { color: '#94A3B8', fontSize: 11, marginTop: 1 },
-
-  nextTurnCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#0F172A',
-    marginHorizontal: 12,
-    marginTop: 6,
-    borderRadius: 16,
-    padding: 12,
+  /* --- Top: back · maneuver · SOS ------------------------------------- */
+  topLayer: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 },
+  topRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingHorizontal: 10, paddingTop: 8 },
+  roundBtn: {
+    width: TOUCH_TARGET,
+    height: TOUCH_TARGET,
+    borderRadius: TOUCH_TARGET / 2,
+    backgroundColor: COLORS.card,
     borderWidth: 1.5,
-    borderColor: '#0284C7',
+    borderColor: COLORS.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+  },
+  roundBtnGlyph: { color: COLORS.text, fontSize: 28, fontWeight: '800', marginTop: -4 },
+  sosBtn: { backgroundColor: COLORS.badStrong, borderColor: COLORS.badStrong },
+  sosGlyph: { color: '#FFFFFF', fontSize: 13, fontWeight: '900', letterSpacing: 0.5 },
+  maneuverCard: {
+    flex: 1,
+    minWidth: 0,
+    backgroundColor: COLORS.route,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 6,
+    elevation: 6,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.35,
     shadowRadius: 8,
-    elevation: 6,
-    gap: 12,
   },
-  nextTurnIconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: '#0284C7',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  nextTurnIconSymbol: { color: '#FFFFFF', fontSize: 24, fontWeight: '900' },
-  nextTurnInfo: { flex: 1, minWidth: 0 },
-  nextTurnDistance: { color: '#FFFFFF', fontSize: 18, fontWeight: '900', letterSpacing: -0.5 },
-  nextTurnInstruction: { color: '#94A3B8', fontSize: 13, fontWeight: '600', marginTop: 1 },
-  voiceButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  voiceButtonText: { fontSize: 18, color: '#FFFFFF' },
+  maneuverMain: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  maneuverIcon: { color: '#FFFFFF', fontSize: 34, fontWeight: '900', width: 40, textAlign: 'center' },
+  maneuverText: { flex: 1, minWidth: 0 },
+  maneuverDistance: { color: '#FFFFFF', fontSize: 26, fontWeight: '900', lineHeight: 30 },
+  maneuverInstruction: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  maneuverSub: { color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: '600', marginTop: 2 },
+  thenRow: { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.25)', paddingTop: 6 },
+  thenText: { color: 'rgba(255,255,255,0.92)', fontSize: 13, fontWeight: '700' },
 
-  statusStripPill: {
-    alignSelf: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.85)',
-    paddingHorizontal: 12,
+  /* --- Rail, gauge, chips over the map -------------------------------- */
+  rightRail: { position: 'absolute', right: 10, bottom: 12, gap: 10, zIndex: 10 },
+  railGlyph: { color: COLORS.text, fontSize: 22, fontWeight: '800' },
+  railGlyphOn: { color: COLORS.onAccent },
+  bottomLeft: { position: 'absolute', left: 10, bottom: 12, gap: 8, zIndex: 10, alignItems: 'flex-start' },
+  speedGauge: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: COLORS.card,
+    borderWidth: 2,
+    borderColor: COLORS.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 5,
+  },
+  speedValue: { color: COLORS.text, fontSize: 18, fontWeight: '900', lineHeight: 20 },
+  speedUnit: { color: COLORS.muted, fontSize: 9, fontWeight: '700' },
+  gpsChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: COLORS.okBg,
+    borderWidth: 1,
+    borderColor: COLORS.ok,
+    borderRadius: 12,
+    paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#1E293B',
-    marginTop: 6,
   },
-  statusStripText: { color: '#94A3B8', fontSize: 11, fontWeight: '700' },
+  gpsChipOff: { backgroundColor: COLORS.raised, borderColor: COLORS.dim },
+  navChip: { marginTop: 4 },
+  navChipWarn: { backgroundColor: COLORS.warnBg, borderColor: COLORS.warn },
+  navChipWarnText: { color: COLORS.warn },
+  gpsDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: COLORS.ok },
+  gpsDotOff: { backgroundColor: COLORS.faint },
+  gpsText: { color: COLORS.ok, fontSize: 10, fontWeight: '800' },
+  gpsTextOff: { color: COLORS.muted },
+  bottomCentre: { position: 'absolute', left: 0, right: 0, bottom: 14, alignItems: 'center', zIndex: 9 },
+  recentrePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minHeight: 44,
+    paddingHorizontal: 16,
+    borderRadius: 22,
+    backgroundColor: COLORS.accent,
+    elevation: 5,
+  },
+  recentrePillOff: { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border },
+  recentreText: { color: COLORS.onAccent, fontSize: 14, fontWeight: '800' },
+  recentreTextOff: { color: COLORS.muted },
 
-  rightFloatingControls: {
+  /* --- Personal Route AI ---------------------------------------------- */
+  aiCard: {
+    backgroundColor: COLORS.card,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    paddingHorizontal: 14,
+    paddingTop: 8,
+    paddingBottom: 8,
+    gap: 4,
+  },
+  aiHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  aiEyebrow: { color: COLORS.aqua, fontSize: 11, fontWeight: '800', letterSpacing: 1 },
+  detailsBtn: { minHeight: 36, minWidth: 72, justifyContent: 'center', alignItems: 'flex-end' },
+  detailsBtnText: { color: COLORS.routeOn, fontSize: 12, fontWeight: '800', letterSpacing: 0.8 },
+  aiRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  decisionPill: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: COLORS.raised, borderWidth: 1, borderColor: COLORS.border },
+  decisionOk: { backgroundColor: COLORS.okBg, borderColor: COLORS.okBorder },
+  decisionWarn: { backgroundColor: COLORS.warnBg, borderColor: COLORS.warnBorder },
+  decisionBad: { backgroundColor: COLORS.badBg, borderColor: COLORS.badBorder },
+  decisionText: { color: COLORS.muted, fontSize: 12, fontWeight: '900', letterSpacing: 0.6 },
+  decisionTextOk: { color: COLORS.ok },
+  decisionTextWarn: { color: COLORS.warn },
+  decisionTextBad: { color: COLORS.bad },
+  aiHeadline: { flex: 1, minWidth: 0, color: COLORS.text, fontSize: 17, fontWeight: '800' },
+  aiLines: { color: COLORS.text, fontSize: 13, lineHeight: 18 },
+  aiFacts: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  aiFact: { color: COLORS.muted, fontSize: 12 },
+  aiFactStrong: { color: COLORS.text, fontWeight: '800' },
+  aiStamp: { color: COLORS.faint, fontSize: 11 },
+
+  /* --- Details sheet -------------------------------------------------- */
+  sheetScroll: { maxHeight: 300, backgroundColor: COLORS.bg, borderTopWidth: 1, borderTopColor: COLORS.border },
+  detailsBody: { paddingHorizontal: 14, paddingVertical: 10, gap: 8 },
+  sectionTitle: { color: COLORS.aqua, fontSize: 11, fontWeight: '800', letterSpacing: 1, marginTop: 6 },
+  detailLine: { color: COLORS.text, fontSize: 13, lineHeight: 18 },
+  detailStamp: { color: COLORS.faint, fontSize: 11, lineHeight: 15 },
+  tripLine: { color: COLORS.text, fontSize: 14, fontWeight: '700' },
+
+  /* --- ETA bar -------------------------------------------------------- */
+  etaBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 56,
+    backgroundColor: COLORS.card,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    paddingHorizontal: 8,
+  },
+  etaCell: { flex: 1, alignItems: 'center', minWidth: 0 },
+  etaValue: { color: COLORS.text, fontSize: 17, fontWeight: '900' },
+  etaLabel: { color: COLORS.muted, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6 },
+
+  /* --- Kept from the previous layout (helpers, results, sheets) ------- */
+  placeholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  placeholderTitle: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  placeholderBody: {
+    color: COLORS.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+    marginTop: 8,
+    maxWidth: 320,
+  },
+  placeholderAction: { marginTop: 16, alignSelf: 'stretch', maxWidth: 320 },
+  sheet: {
     position: 'absolute',
-    right: 14,
-    top: 170,
-    zIndex: 10,
-    gap: 10,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    maxHeight: '70%',
+    backgroundColor: COLORS.card,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.accent,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+  },
+  sheetHandleRow: { alignItems: 'center', paddingVertical: 4 },
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: COLORS.border,
+  },
+  sheetBody: { padding: 20, gap: 6 },
+  sheetTitle: { color: COLORS.text, fontSize: 20, fontWeight: '800' },
+  sheetKind: { color: COLORS.muted, fontSize: 13, marginBottom: 4 },
+  sheetDistance: { color: COLORS.text, fontSize: 15, fontWeight: '600' },
+  sheetCaveat: {
+    color: COLORS.faint,
+    fontSize: 12,
+    lineHeight: 17,
+    marginVertical: 6,
+  },
+  sheetNoCall: { color: COLORS.faint, fontSize: 13, marginVertical: 8 },
+  sheetConflict: {
+    color: COLORS.warn,
+    fontSize: 12,
+    lineHeight: 17,
+    marginVertical: 6,
   },
   floatingCircleBtn: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#111827',
+    backgroundColor: COLORS.card,
     borderWidth: 1.5,
-    borderColor: '#1E293B',
+    borderColor: COLORS.border,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
@@ -1432,11 +1686,11 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 5,
   },
+  recenterCircleBtn: { borderColor: COLORS.routeOn, backgroundColor: COLORS.sunken },
   floatingCircleBtnActive: {
     backgroundColor: COLORS.accent,
     borderColor: COLORS.accent,
   },
-  // Reads as inert, not broken: dimmed surface, no shadow, muted glyph.
   floatingCircleBtnDisabled: {
     opacity: 0.38,
   },
@@ -1444,123 +1698,15 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.soft,
     transform: [{ scale: 0.94 }],
   },
-  floatingCircleIcon: { fontSize: 18 },
-  recenterCircleBtn: { borderColor: '#38BDF8', backgroundColor: '#0F172A' },
-  recenterIconText: { color: '#38BDF8', fontSize: 18, fontWeight: '900' },
-
-  speedometerFloatingContainer: {
-    position: 'absolute',
-    left: 16,
-    bottom: 90,
-    zIndex: 10,
-  },
-  speedometerExpandedOffset: { bottom: 330 },
-  speedometerGauge: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
-    backgroundColor: '#0F172A',
-    borderWidth: 2,
-    borderColor: '#22C55E',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  speedometerValueText: { color: '#FFFFFF', fontSize: 20, fontWeight: '900' },
-  speedometerUnitText: { color: '#22C55E', fontSize: 10, fontWeight: '800' },
-
-  bottomSheetContainer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 15,
-    backgroundColor: '#111827',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    borderWidth: 1,
-    borderColor: '#1E293B',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 8,
-    overflow: 'hidden',
-  },
-  sheetHeaderTouchable: { paddingHorizontal: 16, paddingTop: 6, paddingBottom: 8 },
-  sheetHandleRow: { alignItems: 'center', paddingVertical: 4 },
-  sheetHandleBar: { width: 36, height: 4, borderRadius: 2, backgroundColor: '#475569' },
-  collapsedEtaRow: {
+  row: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 4,
-  },
-  etaMetricCol: { flex: 1, alignItems: 'center' },
-  etaMetricValue: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
-  etaMetricLabel: {
-    color: '#64748B',
-    fontSize: 10,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    marginTop: 1,
-  },
-  etaDivider: { width: 1, height: 26, backgroundColor: '#1E293B' },
-  expandToggleBtn: {
-    paddingHorizontal: 10,
+    gap: 12,
     paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: '#1E293B',
-    marginLeft: 6,
   },
-  expandToggleText: { color: '#38BDF8', fontSize: 12, fontWeight: '800' },
-  sheetExpandedScroll: { maxHeight: 320 },
-  sheetExpandedBody: { paddingHorizontal: 16, paddingBottom: 16, gap: 10 },
-  expandedTripDetails: {
-    backgroundColor: '#0B1016',
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#1E293B',
-  },
-
-  tripCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  tripEndpoints: { flex: 1, marginRight: 8 },
-  tripEndpointText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
-  cargoBadge: {
-    backgroundColor: '#1E293B',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  cargoBadgeText: { color: '#38BDF8', fontSize: 11, fontWeight: '700' },
-  tripCardStats: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginVertical: 6,
-  },
-  statLabel: { color: '#64748B', fontSize: 11, fontWeight: '600' },
-  statDistance: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
-  statDuration: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
-  statPace: { color: '#4ADE80', fontSize: 14, fontWeight: '700' },
-  progressBarBg: {
-    height: 4,
-    backgroundColor: '#1E293B',
-    borderRadius: 2,
-    overflow: 'hidden',
-    marginTop: 6,
-  },
-  progressBarFill: { height: '100%', backgroundColor: '#0284C7' },
-
+  rowLabel: { color: COLORS.muted, fontSize: 13, flexShrink: 0 },
+  rowValue: { color: COLORS.text, fontSize: 13, flexShrink: 1, textAlign: 'right' },
+  rowUnknown: { color: COLORS.faint, fontStyle: 'italic' },
   standbyToast: {
     position: 'absolute',
     top: 120,
@@ -1570,75 +1716,10 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#38BDF8',
+    borderColor: COLORS.routeOn,
     zIndex: 5,
   },
-  standbyToastText: { color: '#38BDF8', fontSize: 13, fontWeight: '700' },
-
-  guidanceRow: { flexDirection: 'row', backgroundColor: '#1748B8', alignItems: 'center' },
-  guidanceText: { flex: 1, minWidth: 0 },
-  voice: {
-    alignSelf: 'center',
-    marginRight: 8,
-    minHeight: 48,
-    minWidth: 88,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: 'rgba(15,23,42,0.55)',
-    borderWidth: 1,
-    borderColor: 'rgba(219,234,254,0.5)',
-  },
-  voiceOff: { opacity: 0.45 },
-  voiceLabel: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
-  sos: {
-    minHeight: TOUCH_TARGET,
-    justifyContent: 'center',
-    paddingHorizontal: 14,
-    borderRadius: 8,
-    backgroundColor: COLORS.badBg,
-    borderWidth: 1,
-    borderColor: COLORS.bad,
-  },
-  sosLabel: { color: COLORS.bad, fontSize: 14, fontWeight: '800' },
-
-  sourceStrip: {
-    backgroundColor: COLORS.warnBg,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: COLORS.warnBorder,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  sourceStripText: { color: COLORS.warn, fontSize: 12, fontWeight: '600' },
-
-  chipBar: { flexGrow: 0 },
-  chips: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 6 },
-  chip: {
-    minHeight: 44,
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  chipActive: { backgroundColor: COLORS.card, borderColor: COLORS.accent },
-  chipOff: { opacity: 0.45 },
-  chipLabel: { color: COLORS.muted, fontSize: 14, fontWeight: '600' },
-  chipLabelActive: { color: COLORS.text },
-  modeChip: {
-    minHeight: 40,
-    justifyContent: 'center',
-    paddingHorizontal: 14,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  modeLabel: { color: COLORS.muted, fontSize: 13, fontWeight: '600' },
-
-  canvas: { flex: 1, minHeight: 180, backgroundColor: COLORS.card, overflow: 'hidden' },
-
+  standbyToastText: { color: COLORS.routeOn, fontSize: 13, fontWeight: '700' },
   resultsPane: {
     maxHeight: 220,
     paddingHorizontal: 16,
@@ -1664,55 +1745,77 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     paddingVertical: 8,
   },
-
-  sheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    maxHeight: '70%',
-    backgroundColor: COLORS.card,
+  sourceStrip: {
+    backgroundColor: COLORS.warnBg,
     borderTopWidth: 1,
-    borderTopColor: COLORS.accent,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    borderBottomWidth: 1,
+    borderColor: COLORS.warnBorder,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
-  placeSheetHandleRow: { alignItems: 'center', paddingTop: 8 },
-  sheetHandle: {
-    width: 40,
+  sourceStripText: { color: COLORS.warn, fontSize: 12, fontWeight: '600' },
+  alertCard: {
+    marginLeft: 10,
+    // Clear the right rail: on a 360 dp phone its five buttons climb to the
+    // card's height, and a rail over the ACKNOWLEDGE button is a dead button.
+    marginRight: 76,
+    marginTop: 8,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: COLORS.warnBg,
+    borderWidth: 1,
+    borderColor: COLORS.warnBorder,
+    gap: 3,
+  },
+  alertCardHigh: { backgroundColor: COLORS.badBg, borderColor: COLORS.badBorder },
+  alertTitle: { color: COLORS.warn, fontSize: 13, fontWeight: '900', letterSpacing: 0.6 },
+  alertTitleHigh: { color: COLORS.bad },
+  alertWhere: { color: COLORS.text, fontSize: 14, fontWeight: '700' },
+  alertDetail: { color: COLORS.muted, fontSize: 12 },
+  alertEvidence: { color: COLORS.faint, fontSize: 11 },
+  alertActions: { flexDirection: 'row', gap: 8, marginTop: 6 },
+  alertBtn: { minHeight: 40, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.card, justifyContent: 'center' },
+  alertBtnPrimary: { backgroundColor: COLORS.accent, borderColor: COLORS.accent, flex: 1, alignItems: 'center' },
+  alertBtnText: { color: COLORS.text, fontSize: 12, fontWeight: '800', letterSpacing: 0.4 },
+  alertBtnTextPrimary: { color: COLORS.onAccent },
+  stopLink: { alignSelf: 'flex-start', minHeight: 32, justifyContent: 'center', marginTop: 2 },
+  stopLinkText: { color: COLORS.accent, fontSize: 13, fontWeight: '800' },
+  factorGrid: { marginTop: 8, gap: 3 },
+  factorRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
+  factorName: { color: COLORS.muted, fontSize: 11, flex: 1, minWidth: 0 },
+  factorState: { color: COLORS.ok, fontSize: 11, fontWeight: '700' },
+  factorStateOff: { color: COLORS.warn },
+  chipBar: { flexGrow: 0 },
+  chips: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 6 },
+  chip: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  chipActive: { backgroundColor: COLORS.card, borderColor: COLORS.accent },
+  chipOff: { opacity: 0.45 },
+  chipLabel: { color: COLORS.muted, fontSize: 14, fontWeight: '600' },
+  chipLabelActive: { color: COLORS.text },
+  modeChip: {
+    minHeight: 40,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  modeLabel: { color: COLORS.muted, fontSize: 13, fontWeight: '600' },
+  progressBarBg: {
     height: 4,
+    backgroundColor: COLORS.raised,
     borderRadius: 2,
-    backgroundColor: COLORS.border,
+    overflow: 'hidden',
+    marginTop: 6,
   },
-  sheetBody: { padding: 20, gap: 6 },
-  sheetTitle: { color: COLORS.text, fontSize: 20, fontWeight: '800' },
-  sheetKind: { color: COLORS.muted, fontSize: 13, marginBottom: 4 },
-  sheetDistance: { color: COLORS.text, fontSize: 15, fontWeight: '600' },
-  sheetCaveat: {
-    color: COLORS.faint,
-    fontSize: 12,
-    lineHeight: 17,
-    marginVertical: 6,
-  },
-  sheetNoCall: { color: COLORS.faint, fontSize: 13, marginVertical: 8 },
-  sheetConflict: {
-    color: COLORS.warn,
-    fontSize: 12,
-    lineHeight: 17,
-    marginVertical: 6,
-  },
-
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
-    paddingVertical: 6,
-  },
-  rowLabel: { color: COLORS.muted, fontSize: 13, flexShrink: 0 },
-  // No fixed width and no nowrap - a translated label runs longer.
-  rowValue: { color: COLORS.text, fontSize: 13, flexShrink: 1, textAlign: 'right' },
-  rowUnknown: { color: COLORS.faint, fontStyle: 'italic' },
-
+  progressBarFill: { height: '100%', backgroundColor: COLORS.route },
   emergencyPanel: {
     position: 'absolute',
     left: 0,
@@ -1723,165 +1826,24 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.card,
     borderTopWidth: 2,
     borderTopColor: COLORS.bad,
+    // Above the route sheet. Without these the panel rendered UNDERNEATH it and
+    // only its heading was visible - the numbers, the note and Cancel were all
+    // covered. `elevation` is the Android half of the same statement.
+    zIndex: 30,
+    elevation: 30,
   },
   emergencyTitle: { color: COLORS.text, fontSize: 20, fontWeight: '800' },
-  emergencyWhere: { color: COLORS.text, fontSize: 14, lineHeight: 20 },
   emergencyNote: { color: COLORS.faint, fontSize: 12, lineHeight: 17 },
-
-  footer: { padding: 16, borderTopWidth: 1, borderTopColor: COLORS.border },
-
-  placeholder: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  placeholderTitle: {
-    color: COLORS.text,
-    fontSize: 16,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  placeholderBody: {
-    color: COLORS.muted,
-    fontSize: 14,
-    lineHeight: 20,
-    textAlign: 'center',
-    marginTop: 8,
-    maxWidth: 320,
-  },
-  placeholderAction: { marginTop: 16, alignSelf: 'stretch', maxWidth: 320 },
-
-  floatingSpeedContainer: {
-    position: 'absolute',
-    top: 12,
-    left: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    zIndex: 10,
-  },
-  speedometerBadge: {
-    backgroundColor: 'rgba(15, 23, 42, 0.85)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+  emergencyDial: {
+    minHeight: TOUCH_TARGET,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 4,
-  },
-  speedometerValue: { color: '#FFFFFF', fontSize: 20, fontWeight: '900' },
-  speedometerUnit: { color: '#94A3B8', fontSize: 10, fontWeight: '700' },
-
-  speedLimitCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 3,
-    borderColor: '#EF4444',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  speedLimitNumber: { color: '#0F172A', fontSize: 14, fontWeight: '900' },
-
-  recenterButton: {
-    position: 'absolute',
-    bottom: 12,
-    right: 12,
-    backgroundColor: 'rgba(15, 23, 42, 0.85)',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    zIndex: 10,
-  },
-  recenterText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
-
-  bottomActionPills: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: COLORS.card,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-    gap: 6,
-  },
-  actionPill: {
-    flex: 1,
+    borderColor: COLORS.badBorder,
+    backgroundColor: COLORS.badBg,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 8,
-    paddingHorizontal: 6,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderWidth: 1,
-    borderColor: COLORS.border,
   },
-  actionPillText: { color: COLORS.text, fontSize: 11, fontWeight: '700' },
-  actionPillSos: { backgroundColor: 'rgba(239, 68, 68, 0.15)', borderColor: '#EF4444' },
-  actionPillSosText: { color: '#EF4444', fontSize: 11, fontWeight: '800' },
-
-  aiModalOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    justifyContent: 'flex-end',
-    zIndex: 99,
-  },
-  aiModalContent: {
-    backgroundColor: COLORS.card,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
-    gap: 12,
-    maxHeight: '80%',
-  },
-  aiModalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  aiModalTitle: { color: COLORS.text, fontSize: 17, fontWeight: '800' },
-  aiModalClose: { color: COLORS.muted, fontSize: 20, padding: 4 },
-  aiModalSubtitle: { color: COLORS.muted, fontSize: 12, marginTop: -6 },
-  aiQuickPrompts: { flexDirection: 'column', gap: 6 },
-  promptChip: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  promptChipText: { color: COLORS.text, fontSize: 12, fontWeight: '600' },
-  aiAnswerBox: {
-    backgroundColor: 'rgba(59, 130, 246, 0.08)',
-    padding: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(59, 130, 246, 0.25)',
-  },
-  aiLoadingText: { color: COLORS.accent, fontSize: 13, fontStyle: 'italic' },
-  aiAnswerText: { color: COLORS.text, fontSize: 13, lineHeight: 18 },
-
-  langSelectorRow: { flexDirection: 'row', gap: 8, marginVertical: 4 },
-  langChip: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 6,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  langChipActive: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
-  langChipText: { color: COLORS.muted, fontSize: 12, fontWeight: '700' },
-  langChipTextActive: { color: '#FFFFFF' },
-})
+  emergencyDialDigits: { color: COLORS.bad, fontSize: 22, fontWeight: '800' },
+  emergencyDialLabel: { color: COLORS.muted, fontSize: 11, marginTop: 2 },
+}))

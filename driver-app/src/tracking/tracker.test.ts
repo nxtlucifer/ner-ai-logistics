@@ -493,6 +493,17 @@ describe('the fix payload', () => {
     expect(fix.recorded_at).toBe(new Date(0).toISOString())
   })
 
+  it('publishes a heading for the map only while moving', async () => {
+    const device = makeAdapter()
+    const harness = makeTracker(device)
+    await harness.tracker.start()
+
+    device.emit(sample({ timestamp: 0, speedMs: 12, headingDeg: 118 }))
+    expect(harness.tracker.getState().lastPosition?.headingDeg).toBe(118)
+    device.emit(sample({ timestamp: 120_000, speedMs: 0, headingDeg: 0 }))
+    expect(harness.tracker.getState().lastPosition?.headingDeg).toBeNull()
+  })
+
   it('omits a reading the server would reject rather than losing the fix', async () => {
     const device = makeAdapter()
     const harness = makeTracker(device)

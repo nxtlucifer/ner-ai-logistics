@@ -24,6 +24,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { api, type FleetSnapshot } from '../api/client'
+import { readCache, subscribeConnectivity, getConnectivity, writeCache } from '../api/connectivity'
+
+const CACHE_KEY = 'fleet:active'
 
 /** Healthy cadence. Matches the driver upload interval; see telemetry_policy.py. */
 export const FLEET_POLL_MS = 10_000
@@ -36,13 +39,19 @@ export interface FleetPoll {
   isInitialising: boolean
   /** True when the most recent poll failed but earlier data is on screen. */
   isStale: boolean
+  /** Device clock at the last successful poll (or the cached snapshot's). */
+  lastSyncAt: number | null
   refresh: () => void
 }
 
 export function useFleetPoll(): FleetPoll {
-  const [snapshot, setSnapshot] = useState<FleetSnapshot | null>(null)
-  const [error, setError] = useState<unknown>(null)
-  const [isInitialising, setIsInitialising] = useState(true)
+  // Last successful snapshot survives a reload: the fleet page opens on what it
+  // last knew, marked with its age, while the first poll runs.
+  const cached = useRef(readCache<FleetSnapshot>(CACHE_KEY))
+  const [snapshot, setSnapshot] = useState<FleetSnapshot | null>(cached.current?.data ?? null)
+  const [error, setError] = useState<unknown>(cached.current ? new Error('cached') : null)
+  const [isInitialising, setIsInitialising] = useState(!cached.current)
+  const [lastSyncAt, setLastSyncAt] = useState<number | null>(cached.current?.at ?? null)
 
   // Refs, not state: writing these must not re-run the effect that owns the
   // timer, or the loop would restart on every tick.
@@ -60,6 +69,8 @@ export function useFleetPoll(): FleetPoll {
       if (controller.signal.aborted) return
       setSnapshot(data)
       setError(null)
+      setLastSyncAt(Date.now())
+      writeCache(CACHE_KEY, data)
       failures.current = 0
     } catch (err) {
       // An abort is this component unmounting, not a failure to report.
@@ -92,9 +103,17 @@ export function useFleetPoll(): FleetPoll {
       void tick()
     }
     void tick()
+    // Reconnect: poll at once instead of waiting out the back-off.
+    let wasOnline = getConnectivity().online
+    const unsubscribe = subscribeConnectivity(() => {
+      const online = getConnectivity().online
+      if (online && !wasOnline) wake.current?.()
+      wasOnline = online
+    })
 
     return () => {
       cancelled = true
+      unsubscribe()
       wake.current = null
       if (timer) clearTimeout(timer)
       inFlight.current?.abort()
@@ -107,6 +126,7 @@ export function useFleetPoll(): FleetPoll {
     error,
     isInitialising,
     isStale: Boolean(error) && snapshot !== null,
+    lastSyncAt,
     refresh: () => wake.current?.(),
   }
 }

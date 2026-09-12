@@ -43,27 +43,18 @@ import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
-import { boundsOf, type LatLon } from './geo'
-import { routeCameraKey, splitRoute } from './routeDisplay'
+import { boundsOf } from './geo'
+import { routeCameraKey } from './routeDisplay'
+import { ARROW_STYLE, sceneLayers } from './scene'
 import type { DriverRouteMapProps } from './types'
 
 /** Assam, so a map with no route still opens somewhere meaningful. */
 const NER_CENTRE: [number, number] = [26.2006, 92.9376]
+/** Zoom used while following the truck: roads and villages readable. */
+const FOLLOW_ZOOM = 13
 const NER_ZOOM = 6
 
-/**
- * Design tokens, from `design-system/ner-fleet-intelligence/MASTER.md`.
- *
- * Chosen against a LIGHT raster basemap in daylight, not against the app's
- * dark chrome - the map is the one surface on the driver's phone that stays
- * light, because a dark basemap under a blue route is unreadable in sun.
- */
-const ROUTE = '#2457D6'
-const ROUTE_CASING = '#FFFFFF'
-const BACKUP = '#EA580C'
-const ORIGIN = '#0F172A'
-const LIVE = '#0B756B'
-const LAST_KNOWN = '#A65A00'
+/** Colours and tooltips live in `scene.ts`, shared with the phone. */
 
 const CONTROL_STYLE = {
   position: 'absolute' as const,
@@ -73,26 +64,12 @@ const CONTROL_STYLE = {
   minHeight: 48,
   padding: '0 14px',
   borderRadius: 8,
-  border: '1px solid #CBD5E1',
+  border: '1px solid #D5DEDA',
   background: '#FFFFFF',
-  color: '#0F172A',
+  color: '#101820',
   font: '600 13px Inter, system-ui, sans-serif',
   // Above Leaflet's own panes, which sit at 400-700.
   zIndex: 800,
-}
-
-/**
- * Marker colour per service kind.
- *
- * Distinct hues so four categories are never on screen looking alike, and none
- * of them reuses the route blue or the live-position green - a pin must not
- * read as "your route" or "you are here".
- */
-const CATEGORY_COLOUR: Record<string, string> = {
-  EMERGENCY: '#DC2626',
-  TYRES: '#7C3AED',
-  HOTEL: '#0891B2',
-  REST: '#CA8A04',
 }
 
 export default function DriverRouteMap({
@@ -106,10 +83,14 @@ export default function DriverRouteMap({
   position,
   positionKind,
   accuracyM,
+  headingDeg = null,
   places = [],
   selectedPlaceId = null,
+  terrainSegments = [],
+  hazards = [],
   onSelectPlace,
   onViewportChange,
+  onFollowChange,
   cameraTrigger,
   cameraMode,
   testID,
@@ -120,6 +101,7 @@ export default function DriverRouteMap({
   const drawn = useRef<L.Layer[]>([])
   const [tileError, setTileError] = useState(false)
   const [following, setFollowing] = useState(false)
+  useEffect(() => { onFollowChange?.(following) }, [following, onFollowChange])
 
   // Construct once. A map rebuilt on every prop change loses the camera the
   // driver just set, which is the difference between a map and a slideshow.
@@ -129,12 +111,13 @@ export default function DriverRouteMap({
     const instance = L.map(holder.current, {
       center: NER_CENTRE,
       zoom: NER_ZOOM,
-      // Leaflet's default is top-left, where the "Fit route" button lives.
+      // The screen's own rail owns the corners: top has the maneuver card and
+      // SOS, bottom-right the controls. Leaflet's zoom buttons sat under SOS.
+      // Pinch and scroll zoom remain. No scale bar either: every corner is
+      // spoken for, and the ETA bar states the distance in figures.
       zoomControl: false,
       attributionControl: true,
     })
-    L.control.zoom({ position: 'topright' }).addTo(instance)
-    L.control.scale({ metric: true, imperial: false }).addTo(instance)
 
     const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
@@ -194,111 +177,20 @@ export default function DriverRouteMap({
     for (const layer of drawn.current) layer.remove()
     drawn.current = []
 
-    const { completed, remaining } = splitRoute(points, progressFraction)
     function keep(layer: L.Layer) {
       layer.addTo(instance!)
       drawn.current.push(layer)
     }
-
-    if (showBackup && backupPoints.length > 1) {
-      keep(
-        L.polyline(backupPoints as [number, number][], {
-          color: BACKUP,
-          weight: 4,
-          dashArray: '8 8',
-        }),
-      )
-    }
-
-    if (points.length > 1) {
-      // Casing first, so the route draws on top of it. Without it a 6px blue
-      // line disappears over water and over motorway fills on this style.
-      keep(
-        L.polyline(points as [number, number][], {
-          color: ROUTE_CASING,
-          weight: 10,
-          lineJoin: 'round',
-          lineCap: 'round',
-        }),
-      )
-      keep(
-        L.polyline(remaining as [number, number][], {
-          color: ROUTE,
-          weight: 6,
-          lineJoin: 'round',
-          lineCap: 'round',
-        }),
-      )
-    }
-
-    if (completed.length > 1) keep(L.polyline(completed.map(([lat, lon]) => [lat, lon] as [number, number]), { color: '#93B9AF', weight: 6 }))
     const safeLabel = (text: string) => { const el = document.createElement('span'); el.textContent = text; return el }
-    stops.forEach((stop, index) => {
-      if (stop.lat === null || stop.lon === null) return
-      const label = stop.name ?? 'Stop ' + stop.sequence
-      keep(
-        L.circleMarker([stop.lat, stop.lon], {
-          radius: 7,
-          color: '#FFFFFF',
-          weight: 2,
-          fillColor: index === 0 ? ORIGIN : ROUTE,
-          fillOpacity: 1,
-        }).bindTooltip(safeLabel(label)),
-      )
-    })
-
-    // Only from a real fix. `position === null` draws nothing at all - no
-    // depot fallback, nothing derived from the route.
-    if (position !== null && positionKind !== null) {
-      const isLive = positionKind === 'LIVE'
-      const accuracyNote =
-        accuracyM === null ? '' : ', accurate to ' + Math.round(accuracyM) + ' m'
-      // The accuracy circle is drawn only when the platform actually reported
-      // an accuracy. An invented radius is an invented claim about certainty.
-      if (isLive && accuracyM !== null) {
-        keep(
-          L.circle([position[0], position[1]], {
-            radius: accuracyM,
-            color: LIVE,
-            weight: 1,
-            fillColor: LIVE,
-            fillOpacity: 0.15,
-          }),
-        )
-      }
-      keep(
-        L.circleMarker([position[0], position[1]], {
-          radius: 9,
-          color: isLive ? '#FFFFFF' : LAST_KNOWN,
-          weight: 3,
-          fillColor: isLive ? LIVE : 'transparent',
-          fillOpacity: isLive ? 1 : 0,
-        }).bindTooltip(
-          isLive
-            ? 'Live position' + accuracyNote
-            : `Last known position — ${positionAgeSeconds == null ? 'age unavailable' : `${Math.round(positionAgeSeconds)}s ago`}`,
-        ),
-      )
-    }
-
-    // Roadside services from the current search. Drawn LAST so a pin is never
-    // hidden under the route casing.
-    for (const place of places) {
-      const isSelected = place.provider_id === selectedPlaceId
-      const marker = L.circleMarker([place.lat, place.lon], {
-        radius: isSelected ? 11 : 7,
-        color: '#FFFFFF',
-        weight: isSelected ? 3 : 2,
-        fillColor: CATEGORY_COLOUR[place.category] ?? '#475569',
-        fillOpacity: 1,
-      })
-      // The category is in the tooltip as WORDS, not only in the colour - a
-      // driver who cannot separate the hues still gets the kind.
-      marker.bindTooltip(
-        safeLabel((place.name ?? 'Unnamed') + ' - ' + place.category.toLowerCase()),
-      )
-      if (onSelectPlace) marker.on('click', () => onSelectPlace(place))
-      keep(marker)
+    for (const s of sceneLayers({ points, progressFraction, backupPoints, showBackup, terrainSegments, hazards, stops, position, positionKind, accuracyM, positionAgeSeconds, headingDeg, places, selectedPlaceId })) {
+      let layer: L.Layer
+      if (s.k === 'line') layer = L.polyline(s.p, { color: s.c, weight: s.w, dashArray: s.d, lineJoin: 'round', lineCap: 'round' })
+      else if (s.k === 'circle') layer = L.circle(s.p, { radius: s.r, color: s.c, weight: 1, fillColor: s.c, fillOpacity: 0.15 })
+      else if (s.k === 'dot') layer = L.circleMarker(s.p, { radius: s.r, color: s.c, weight: s.w, fillColor: s.f, fillOpacity: s.o })
+      else layer = L.marker(s.p, { icon: L.divIcon({ className: '', html: `<div style="${ARROW_STYLE}transform:rotate(${s.h}deg)"></div>`, iconSize: [22, 22], iconAnchor: [11, 11] }) })
+      if (s.tip) layer.bindTooltip(safeLabel(s.tip))
+      if (s.k === 'dot' && s.id && onSelectPlace) { const id = s.id; layer.on('click', () => { const place = places.find((x) => x.provider_id === id); if (place) onSelectPlace(place) }) }
+      keep(layer)
     }
   }, [
     points,
@@ -310,9 +202,12 @@ export default function DriverRouteMap({
     accuracyM,
     progressFraction,
     positionAgeSeconds,
+    headingDeg,
     places,
     selectedPlaceId,
     onSelectPlace,
+    terrainSegments,
+    hazards,
   ])
 
   // Fit the route ONCE per route, not on every poll. Re-framing the camera
@@ -323,13 +218,15 @@ export default function DriverRouteMap({
     const key = routeCameraKey(routeId, points)
     if (fittedFor.current === key) return
     fittedFor.current = key
-    fitRoute(false)
+    // The automatic frame does NOT cancel following: a trip started with a
+    // live fix shows the road once, then follows the truck from the next fix.
+    fitRoute(false, true)
     // `fitRoute` is stable for this purpose - it reads refs and props directly.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [points, routeId])
 
-  function fitRoute(animate = true) {
-    setFollowing(false)
+  function fitRoute(animate = true, keepFollowing = false) {
+    if (!keepFollowing) setFollowing(false)
     const instance = map.current
     const box = boundsOf(points)
     if (instance === null || box === null) return
@@ -353,9 +250,24 @@ export default function DriverRouteMap({
   }, [cameraTrigger, cameraMode])
 
   useEffect(() => {
-    if (following && position && positionKind === 'LIVE') map.current?.panTo([position[0], position[1]], { animate: true })
-    else if (positionKind !== 'LIVE') setFollowing(false)
+    if (following && position && positionKind === 'LIVE') {
+      // Following means a road-reading zoom, not the region overview the
+      // route was framed at: a truck at zoom 8 is a dot on a province.
+      const m = map.current
+      if (m) m.setView([position[0], position[1]], Math.max(m.getZoom(), FOLLOW_ZOOM), { animate: true })
+    } else if (positionKind !== 'LIVE') setFollowing(false)
   }, [following, position?.[0], position?.[1], positionKind])
+
+  // Navigation follows the truck from the first LIVE fix, the way a driver
+  // expects; a drag hands the camera back (dragstart above) and Re-centre
+  // resumes it. Only the transition into LIVE arms it, so a driver who panned
+  // away is not snapped back on every fix.
+  const wasLive = useRef(false)
+  useEffect(() => {
+    const live = positionKind === 'LIVE' && position !== null
+    if (live && !wasLive.current) setFollowing(true)
+    wasLive.current = live
+  }, [positionKind, position !== null])
   const hasRoute = points.length > 0
 
   return (

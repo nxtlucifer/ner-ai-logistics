@@ -20,8 +20,17 @@ describe('driver navigation', () => {
     expect(Object.keys(TAB_LABELS).sort()).toEqual([...TABS].sort())
   })
 
-  it('leads with the navigate tab for map-first driving guidance', () => {
-    expect(TABS[0]).toBe('navigate')
+  /**
+   * Reversed deliberately. This previously asserted `navigate` first, "for
+   * map-first driving guidance" - but that made the first screen after sign-in
+   * a full-screen map, which is blank with floating controls over nothing
+   * whenever the driver has no assigned trip. The map earns the whole screen
+   * once there is a route; before that the trip is the subject. Still asserted
+   * as an ordering contract, not softened to "contains".
+   */
+  it('leads with the trip tab, so sign-in never lands on a blank map', () => {
+    expect(TABS[0]).toBe('trip')
+    expect(TABS[1]).toBe('navigate')
   })
 
   it('has no duplicate tabs', () => {

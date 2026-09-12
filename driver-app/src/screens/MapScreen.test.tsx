@@ -10,6 +10,8 @@ const state = vi.hoisted(() => {
     tracking: { permission: 'granted', isTracking: true, lastPosition: { lat: 26, lon: 91, accuracyM: 20, at: 100_000 } },
     map: {} as Record<string, unknown>,
     clear: vi.fn(),
+    reroute: vi.fn(),
+    geometry: { error: null as unknown, reload: vi.fn() },
   }
 })
 vi.mock('react-native', async () => {
@@ -24,7 +26,19 @@ vi.mock('expo-constants', () => ({ default: { expoConfig: null, expoGoConfig: nu
 vi.mock('../api/client', () => ({
   api: {
     aiAsk: vi.fn().mockResolvedValue({ answer: 'Mocked AI answer' }),
+    requestReroute: (...args: unknown[]) => state.reroute(...args),
   },
+}))
+// The Route Monitor reads the shared risk hook. Stubbed as UNAVAILABLE, which
+// is the state these cases already exercised when the mocked client had no
+// routeRisk on it - the monitor must still render, and must not imply clear.
+vi.mock('../hooks/useRouteRisk', () => ({
+  useRouteRisk: () => ({
+    risk: null,
+    state: 'UNAVAILABLE',
+    fetchedAt: null,
+    refresh: () => {},
+  }),
 }))
 vi.mock('react-native-safe-area-context', async () => {
   const { createElement: h } = await import('react')
@@ -35,9 +49,10 @@ vi.mock('../i18n/language', () => ({ resolveLanguage: () => 'en' }))
 vi.mock('../map/DriverRouteMap', () => ({ default: (props: Record<string, unknown>) => { state.map = props; return null } }))
 vi.mock('../map/useRouteGeometry', () => ({ useRouteGeometry: () => ({
   points: [[26, 91], [27, 92]], backupPoints: [], stops: [], routeId: 'route-a', distanceKm: 100,
-  isLoading: false, error: null, source: 'LIVE',
+  isLoading: false, error: state.geometry.error, source: 'LIVE', reload: state.geometry.reload,
 }) }))
 vi.mock('../map/useNavigationPackage', () => ({ useNavigationPackage: () => ({ available: false, maneuvers: [], reasonCodes: [] }) }))
+vi.mock('../tracking/adapter', () => ({ watchCompass: () => () => {} }))
 vi.mock('../map/useGuidanceClock', () => ({ useGuidanceClock: () => state.clock }))
 vi.mock('../map/useSpokenGuidance', () => ({ useSpokenGuidance: () => ({ available: false }) }))
 vi.mock('../map/NextTurnPanel', () => ({ default: () => null }))
@@ -61,6 +76,7 @@ beforeEach(() => {
   vi.setSystemTime(100_000)
   state.clock = { now: 100_000, platformPermission: null }
   state.tracking = { permission: 'granted', isTracking: true, lastPosition: { lat: 26, lon: 91, accuracyM: 20, at: 100_000 } }
+  state.geometry = { error: null, reload: vi.fn() }
   host = document.createElement('div')
   root = createRoot(host)
 })
@@ -92,12 +108,50 @@ describe('map position truthfulness without new GPS samples', () => {
     expect(state.map.position).toBeNull()
   })
 
-  it('renders honest telemetry without fake driver name or circular 80 speed sign', async () => {
+  it('names its state, believes off-route only after three fixes, and asks for a road once', async () => {
+    state.reroute.mockResolvedValue({ route_id: 'route-b', kind: 'EMERGENCY_BACKUP', distance_km: 61, estimated_duration_min: 90, provider: 'osrm', has_guidance: true })
+    await render()
+    expect(host.textContent).toContain('OVERVIEW')
+    // Two fixes 50 km east of the line: jitter, still on route.
+    for (const at of [101_000, 102_000]) {
+      state.tracking = { ...state.tracking, lastPosition: { lat: 26.5, lon: 92.5, accuracyM: 20, at } }
+      state.clock = { ...state.clock, now: at }
+      await render()
+    }
+    expect(host.textContent).not.toContain('OFF ROUTE')
+    expect(state.reroute).not.toHaveBeenCalled()
+    // The third is believed: the request goes out once, and the state says so.
+    state.tracking = { ...state.tracking, lastPosition: { lat: 26.5, lon: 92.5, accuracyM: 20, at: 103_000 } }
+    state.clock = { ...state.clock, now: 103_000 }
+    await render()
+    expect(state.reroute).toHaveBeenCalledTimes(1)
+    expect(state.reroute).toHaveBeenCalledWith(26.5, 92.5)
+    expect(host.textContent).toContain('REROUTING')
+    expect(host.textContent).toContain('awaits manager')
+    state.clock = { ...state.clock, now: 104_000 }
+    await render()
+    expect(state.reroute).toHaveBeenCalledTimes(1)
+    // Nothing new for a minute: the fix goes stale and guidance says so.
+    state.clock = { ...state.clock, now: 170_000 }
+    await render()
+    expect(host.textContent).toContain('GPS STALE')
+  })
+
+  it('retries a failed route fetch by itself while the trip poll is healthy', async () => {
+    state.geometry = { error: new Error('dropped'), reload: vi.fn() }
+    await render()
+    expect(state.geometry.reload).not.toHaveBeenCalled()
+    await act(async () => { vi.advanceTimersByTime(10_000) })
+    expect(state.geometry.reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders honest telemetry without a fake name, payload, road or decision', async () => {
     await render()
     expect(host.textContent).not.toContain('Bipul Das')
-    expect(host.textContent).toContain('Test Driver')
     expect(host.textContent).not.toContain('12.5 T Payload')
-    expect(host.textContent).toContain('Payload Unspecified')
     expect(host.textContent).not.toContain('NH27 Bypass')
+    // The card names its source and never shows a decision it was not given.
+    expect(host.textContent).toContain('PERSONAL ROUTE AI')
+    expect(host.textContent).not.toContain('CONTINUE')
   })
 })

@@ -19,6 +19,7 @@ import type {
   Driver,
   Truck,
   Assignment,
+  Emergency,
   Trip,
   TripDetail,
   TripPlanCreate,
@@ -57,6 +58,7 @@ const ACCESSIBILITY_FACTORS = [
   'weather',
   'landslide',
   'flood',
+  'official_warnings',
   'road_quality',
   'truck_restrictions',
   'historical_incidents',
@@ -163,6 +165,8 @@ export const UNAVAILABLE_OPERATIONS: Readonly<Record<string, string>> = {
   revokeReviewAuthorization: 'Route review is not available on the hosted service yet.',
   addressSuggestions: 'Address lookup service is not connected.',
   resolveAddress: 'Address lookup service is not connected.',
+  triggerSentinelSweep: 'Sentinel sweeps run automatically on the intelligence plane.',
+  resolveEmergency: 'Resolving emergencies requires the FastAPI backend.',
 }
 
 async function notMigrated(operation: string): Promise<never> {
@@ -1029,5 +1033,37 @@ export const supabaseManagerApi = {
       throw new Error(`aiAsk: ${(error as Error).message || 'Failed to call Gemini AI'}`)
     }
     return data as AiAnswer
+  },
+
+  activeEmergencies: async (): Promise<Emergency[]> => {
+    const supabase = getSupabase()
+    const { data, error } = await supabase
+      .from('emergencies')
+      .select('*')
+      .in('state', ['DRIVER_CHECK_REQUIRED', 'DRIVER_RESPONDED', 'SOS_ESCALATED'])
+      .order('triggered_at', { ascending: false })
+    if (error) {
+      return []
+    }
+    return (data as Emergency[]) ?? []
+  },
+
+  triggerSentinelSweep: async (): Promise<Emergency[]> => {
+    return await intelligenceFetch<Emergency[]>('/api/emergencies/sweep', {
+      method: 'POST',
+    })
+  },
+  resolveEmergency: async (
+    id: string,
+    note?: string,
+    isFalseAlarm?: boolean,
+  ): Promise<Emergency> => {
+    return await intelligenceFetch<Emergency>(`/api/emergencies/${id}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify({
+        note: note ?? null,
+        is_false_alarm: Boolean(isFalseAlarm),
+      }),
+    })
   },
 }

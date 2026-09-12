@@ -87,7 +87,7 @@ function Kpi({
   tone?: Tone
 }) {
   return (
-    <div className="rounded-[14px] border border-line bg-surface px-4 py-3">
+    <div className="rounded-[var(--radius-card)] border border-line bg-surface px-4 py-3 shadow-[var(--shadow-card)]">
       <div className="text-[10.5px] font-semibold uppercase tracking-[0.13em] text-muted">
         {label}
       </div>

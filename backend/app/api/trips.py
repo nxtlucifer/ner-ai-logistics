@@ -9,8 +9,9 @@ the system holds, and a role that should see trip progress without seeing a
 driver's position must be expressible without editing every route.
 """
 
+import math
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Annotated
 
@@ -22,6 +23,7 @@ from app.core import permissions as perm
 from app.core.errors import PermissionDeniedError
 from app.core.permissions import has_permission
 from app.domain import telemetry_policy as policy
+from app.domain.reroute import driver_decision
 from app.domain.routing import parse_wkt_linestring
 from app.models.enums import (
     CargoPriority,
@@ -339,6 +341,127 @@ class RiskComponentRead(ReadModel):
     detail: str
 
 
+class TerrainSegmentRead(ReadModel):
+    start_m: float
+    end_m: float
+    grade_pct: float
+    terrain_class: str
+
+
+class TerrainRead(ReadModel):
+    """The DEM profile of a route, summarised, plus the segments for a map.
+
+    `coverage` is the share of samples the DEM answered. Below the domain's
+    MIN_COVERAGE the factor is NOT_AVAILABLE and this block still ships, so a
+    dispatcher can see HOW partial rather than just that it was.
+    """
+
+    source: str
+    fetched_at: datetime
+    spacing_m: float
+    samples_requested: int
+    samples_answered: int
+    coverage: float
+    usable: bool
+    min_elevation_m: float | None
+    max_elevation_m: float | None
+    total_ascent_m: float
+    total_descent_m: float
+    max_grade_pct: float
+    steep_km: float
+    #: km per terrain class: FLAT / ROLLING / HILLY / STEEP
+    class_km: dict[str, float]
+    #: [start_m, end_m, grade_pct, class] per segment - enough to colour a
+    #: polyline and draw a profile, small enough to ship to a phone.
+    segments: list[TerrainSegmentRead]
+
+
+class LandslideEventRead(ReadModel):
+    latitude: float
+    longitude: float
+    year: int | None
+    name: str | None
+
+
+class LandslideHistoryRead(ReadModel):
+    """Recorded-landslide exposure for the corridor, with its provenance.
+
+    `exposure` is LOW / MODERATE / HIGH / UNKNOWN - a label from published
+    thresholds, never a probability. `inventory_to_year` is the freshness: an
+    inventory that ends in 2017 says nothing about 2018 onwards, and the
+    reason codes say so.
+    """
+
+    exposure: str
+    data_status: str
+    provider: str | None
+    considered_count: int
+    on_route_count: int
+    imprecise_count: int
+    unlocatable_count: int
+    nearest_km: float | None
+    inventory_from_year: int | None
+    inventory_to_year: int | None
+    reason_codes: list[str]
+    #: Where the corridor has slid, for markers. Only precisely-placed events.
+    events: list[LandslideEventRead]
+
+
+class AlternativeRouteRead(ReadModel):
+    """The road a reroute proposal offers, with its own figures."""
+
+    route_id: uuid.UUID
+    band: str
+    score: int
+    distance_km: float | None
+    estimated_duration_min: float | None
+
+
+class FloodContextRead(ReadModel):
+    """River discharge along the corridor against its own 30-day mean.
+
+    `level` is NORMAL / ELEVATED / UNKNOWN from a project-defined ratio, not a
+    flood probability and not a road-closure claim. See app/domain/flood.py.
+    """
+
+    level: str
+    ratio_max: float | None
+    provider: str
+    observed_on: date | None
+    cells: int
+    reason_codes: list[str]
+
+
+class OfficialWarningRead(ReadModel):
+    identifier: str
+    sender: str
+    event: str
+    severity: str
+    urgency: str
+    headline: str
+    area_desc: str
+    sent: datetime | None
+    expires: datetime | None
+
+
+class OfficialWarningsRead(ReadModel):
+    """NDMA SACHET alerts naming a district the corridor crosses.
+
+    `level` is ACTIVE / CLEAR / UNKNOWN. Placement is by district name (the
+    feed's polygons are access-controlled), so `in_states` counts alerts
+    elsewhere in a corridor state that could not be placed on the road.
+    """
+
+    level: str
+    on_route: list[OfficialWarningRead]
+    in_states: int
+    considered: int
+    districts: list[str]
+    provider: str
+    fetched_at: datetime | None
+    reason_codes: list[str]
+
+
 class RouteRiskRead(ReadModel):
     """A route's risk, with its evidence AND its gaps.
 
@@ -366,6 +489,20 @@ class RouteRiskRead(ReadModel):
     observations_used: int
     observations_stale: int
     assessed_at: datetime
+    #: Optional so older clients and cached packages keep parsing. Present
+    #: whenever the engine had the evidence, absent when it did not.
+    terrain: TerrainRead | None = None
+    landslide_history: LandslideHistoryRead | None = None
+    flood: FloodContextRead | None = None
+    official_warnings: OfficialWarningsRead | None = None
+    #: CONTINUE / CAUTION / HOLD_AND_REVIEW / REROUTE_RECOMMENDED - the driver's
+    #: instruction, derived from `band` and the reroute assessment by
+    #: `app/domain/reroute.driver_decision`. Optional for cached packages.
+    decision: str | None = None
+    #: The reroute assessment's reason codes, when one ran (in-transit trips).
+    decision_reason_codes: list[str] = []
+    #: Present ONLY when a genuinely better road exists (REROUTE_RECOMMENDED).
+    alternative: AlternativeRouteRead | None = None
 
 
 class RouteComparisonRead(ReadModel):
@@ -750,7 +887,7 @@ async def select_route(
     )
 
 
-def risk_read(risk) -> RouteRiskRead:
+def risk_read(risk, reroute=None, alternative=None) -> RouteRiskRead:
     """RouteRisk -> wire. One implementation, so the standalone risk endpoint,
     the per-candidate blocks inside a recommendation and the driver's offline
     package can never drift into describing the same score three different
@@ -776,6 +913,119 @@ def risk_read(risk) -> RouteRiskRead:
         observations_used=risk.observations_used,
         observations_stale=risk.observations_stale,
         assessed_at=risk.assessed_at,
+        terrain=_terrain_read(risk.terrain),
+        landslide_history=_history_read(risk.history),
+        flood=(
+            FloodContextRead(
+                level=risk.flood.level,
+                ratio_max=round(risk.flood.ratio_max, 2) if risk.flood.ratio_max is not None else None,
+                provider=risk.flood.provider,
+                observed_on=risk.flood.observed_on,
+                cells=len(risk.flood.samples),
+                reason_codes=list(risk.flood.reason_codes),
+            )
+            if risk.flood is not None
+            else None
+        ),
+        official_warnings=(
+            OfficialWarningsRead(
+                level=risk.warnings.level,
+                on_route=[
+                    OfficialWarningRead(
+                        identifier=w.identifier, sender=w.sender, event=w.event, severity=w.severity,
+                        urgency=w.urgency, headline=w.headline, area_desc=w.area_desc, sent=w.sent, expires=w.expires,
+                    )
+                    for w in risk.warnings.on_route
+                ],
+                in_states=risk.warnings.in_states,
+                considered=risk.warnings.considered,
+                districts=list(risk.warnings.districts),
+                provider=risk.warnings.provider,
+                fetched_at=risk.warnings.fetched_at,
+                reason_codes=list(risk.warnings.reason_codes),
+            )
+            if risk.warnings is not None
+            else None
+        ),
+        decision=driver_decision(
+            risk.band,
+            reroute.outcome if reroute else None,
+            reason_codes=risk.reason_codes,
+            history_exposure=risk.history.exposure.value if risk.history else None,
+        ),
+        decision_reason_codes=list(reroute.reason_codes) if reroute else [],
+        alternative=(
+            AlternativeRouteRead(
+                route_id=uuid.UUID(alternative.route_id),
+                band=alternative.risk.band,
+                score=alternative.risk.score,
+                distance_km=alternative.distance_km,
+                estimated_duration_min=alternative.duration_min,
+            )
+            if alternative is not None
+            else None
+        ),
+    )
+
+
+def _terrain_read(profile) -> TerrainRead | None:
+    if profile is None:
+        return None
+    return TerrainRead(
+        source=profile.source,
+        fetched_at=profile.fetched_at,
+        spacing_m=profile.spacing_m,
+        samples_requested=profile.samples_requested,
+        samples_answered=profile.samples_answered,
+        coverage=round(profile.coverage, 3),
+        usable=profile.usable,
+        min_elevation_m=profile.min_elevation_m,
+        max_elevation_m=profile.max_elevation_m,
+        total_ascent_m=round(profile.total_ascent_m, 1),
+        total_descent_m=round(profile.total_descent_m, 1),
+        # Floored, not rounded: a 9.96% pitch rounded to "10%" beside "no
+        # stretch at 10% or steeper" reads as a contradiction. The class
+        # boundary is on the unrounded value, so the display floors to it.
+        max_grade_pct=math.floor(profile.max_grade_pct * 10) / 10,
+        steep_km=round(profile.steep_km, 2),
+        class_km={k: round(v, 2) for k, v in profile.class_km().items()},
+        segments=[
+            TerrainSegmentRead(
+                start_m=seg.start_m,
+                end_m=seg.end_m,
+                grade_pct=round(seg.grade_pct, 1),
+                terrain_class=seg.terrain_class.value,
+            )
+            for seg in profile.segments
+        ],
+    )
+
+
+def _history_read(history) -> LandslideHistoryRead | None:
+    if history is None:
+        return None
+    return LandslideHistoryRead(
+        exposure=history.exposure.value,
+        data_status=history.data_status.value,
+        provider=history.provider,
+        considered_count=history.considered_count,
+        on_route_count=history.on_route_count,
+        imprecise_count=history.imprecise_count,
+        unlocatable_count=history.unlocatable_count,
+        nearest_km=round(history.nearest_km, 1) if history.nearest_km is not None else None,
+        inventory_from_year=history.inventory_from_year,
+        inventory_to_year=history.inventory_to_year,
+        reason_codes=list(history.reason_codes),
+        events=[
+            LandslideEventRead(
+                latitude=e.latitude,
+                longitude=e.longitude,
+                year=e.event_date.year if e.event_date else None,
+                name=e.location_name,
+            )
+            for e in history.on_route_events
+            if e.latitude is not None and e.longitude is not None
+        ],
     )
 
 

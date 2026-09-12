@@ -85,3 +85,64 @@ export const COLORS = {
 
 /** Minimum comfortable touch target. Gloved hands, moving vehicle. */
 export const TOUCH_TARGET = 52
+
+/* ---------------------------------------------------------------------------
+   DAY / NIGHT
+   ---------------------------------------------------------------------------
+   `COLORS` above is the night palette and stays the default export shape, so
+   nothing that already imports it changes meaning. DAY has the identical key
+   set - that is the whole contract, and it is what lets a screen's stylesheet
+   be rebuilt for either palette without touching a single call site.
+
+   Why a factory rather than a mutable object: StyleSheet.create copies values
+   at module import, so mutating a shared COLORS object after a toggle changes
+   nothing on screen. Styles have to be BUILT per palette.
+   --------------------------------------------------------------------------- */
+
+// Widened from `typeof COLORS`: that palette is `as const`, so its type is the
+// literal hex strings and a second palette could never satisfy it.
+export type Palette = { readonly [K in keyof typeof COLORS]: string }
+
+/** Day palette. Same keys as COLORS, tuned for a lit cab and daylight glare. */
+export const DAY: Palette = {
+  bg: '#F5F7FA',
+  sunken: '#EEF2F7',
+  card: '#FFFFFF',
+  raised: '#F1F5F9',
+  border: '#E2E8F0',
+  borderStrong: '#CBD5E1',
+  soft: '#F1F5F9',
+  disabled: '#E2E8F0',
+
+  text: '#0F172A',
+  muted: '#64748B',
+  faint: '#7C8B9C',
+  dim: '#8A97A6',
+
+  /* Green stays the action, but the DAY value is the darker one: #34D399
+     carries white at 1.9:1 and is unreadable as a button on a light ground.
+     #16875F takes white at 4.9:1. onAccent flips to white for the same
+     reason the night palette flips it to charcoal. */
+  accent: '#16875F',
+  accentPressed: '#0F6B4B',
+  onAccent: '#FFFFFF',
+
+  aqua: '#0F766E',
+
+  route: '#2563EB',
+  routeOn: '#1D4ED8',
+  routeBg: '#EAF0FE',
+
+  ok: '#16875F',
+  okBg: '#E7F3EE',
+  okBorder: '#8FD3B8',
+  warn: '#B45309',
+  warnBg: '#FBF1E3',
+  warnBorder: '#E4B778',
+  bad: '#B42318',
+  badBg: '#FCEFED',
+  badBorder: '#EBA9A2',
+  badStrong: '#DC2626',
+}
+
+export const NIGHT: Palette = COLORS

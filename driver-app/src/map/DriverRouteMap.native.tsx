@@ -1,68 +1,63 @@
 /**
- * The driver's route map on Android and iOS.
+ * The driver's route map on Android and iOS: Leaflet inside a WebView.
  *
- * `react-native-maps` 1.27.2, chosen by `expo install` against the installed
- * Expo SDK 57 rather than pinned by hand, so the native module matches the
- * runtime it will be built into. It is the adapter Expo documents for this
- * stack and it works in Expo Go, which a MapLibre native choice would not
- * without its own prebuild.
+ * WHY NOT A NATIVE MAP SDK. `react-native-maps` on Android is Google's SDK
+ * and needs a Google Maps key; without one it renders black, and Expo Go's
+ * own key is refused on the demo phone. MapLibre needs a custom native build
+ * that Expo Go cannot run. `react-native-webview` ships inside Expo Go, and
+ * Leaflet over OpenStreetMap tiles is the SAME map the web app already
+ * draws - so the phone now shows exactly what the laptop shows, keys or no
+ * keys, from the same `scene.ts`.
  *
- * NOT VERIFIED ON HARDWARE. No device or emulator was available in the session
- * that wrote this file, so this is an implemented adapter and NOT a
- * demonstrated one. See the report: `DRIVER_NATIVE` is reported separately
- * from `DRIVER_WEB` for exactly this reason. Do not describe it as working
- * until it has been opened on a real build.
+ * TRADE-OFFS, STATED. Tiles and Leaflet itself come from the network (OSM
+ * tiles, unpkg for the 40 KB library, cached by the WebView after the first
+ * load); with no connection the route still draws over a blank ground and the
+ * page says so, the same failure mode the web map names. No map rotation:
+ * the camera stays north-up and the truck arrow turns instead.
  *
- * PLATFORM ISOLATION. Metro resolves `.native.tsx` for ios/android and
- * `.web.tsx` for web, so this file - and therefore `react-native-maps` - is
- * never reachable from an Expo web bundle. That is the whole reason the two
- * implementations are separate files rather than one file branching on
- * `Platform.OS`, which would put a native import in the web graph.
- *
- * COORDINATES. `react-native-maps` is lat-lon, which is the order this whole
- * application already uses, so - unlike the web file - there is no swap here.
- * `./geo` is still the only place that knows about the other convention.
+ * The bridge is two one-liners: RN -> page `scene(layers)` / `cam(cmd)` via
+ * injectJavaScript, page -> RN `{t: ...}` via postMessage.
  */
 
-import { useEffect, useRef, useState } from 'react'
-import Constants from 'expo-constants'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
-import MapView, { Marker, Polyline, UrlTile, type MapViewProps } from 'react-native-maps'
+import { WebView, type WebViewMessageEvent } from 'react-native-webview'
 
-import { boundsOf, padBounds, type LatLon } from './geo'
+import { boundsOf } from './geo'
+import { routeCameraKey } from './routeDisplay'
+import { ARROW_STYLE, sceneLayers } from './scene'
 import type { DriverRouteMapProps } from './types'
-import { regionBounds, routeCameraKey, splitRoute } from './routeDisplay'
-import { COLORS } from '../theme'
 
 /** Assam, so a map with no route still opens somewhere meaningful. */
-const NER_REGION = {
-  latitude: 26.2006,
-  longitude: 92.9376,
-  latitudeDelta: 4,
-  longitudeDelta: 4,
-}
+const NER_CENTRE = '[26.2006, 92.9376]'
+/** Zoom used while following the truck: roads and villages readable. */
+const FOLLOW_ZOOM = 13
 
-/** Design tokens - see `design-system/ner-fleet-intelligence/MASTER.md`. */
-const ROUTE = '#2457D6'
-const ROUTE_CASING = '#FFFFFF'
-const BACKUP = '#EA580C'
-const ORIGIN = '#0F172A'
-const LIVE = '#0B756B'
-const LAST_KNOWN = '#A65A00'
-const COMPLETED = '#93B9AF'
-
-/** Marker colour per service kind. See the web map for why these four. */
-const CATEGORY_COLOUR: Record<string, string> = {
-  EMERGENCY: '#DC2626',
-  TYRES: '#7C3AED',
-  HOTEL: '#0891B2',
-  REST: '#CA8A04',
-}
-
-/** `[lat, lon]` -> the `{ latitude, longitude }` this library wants. */
-function toLatLng(points: readonly LatLon[]) {
-  return points.map(([latitude, longitude]) => ({ latitude, longitude }))
-}
+const HTML = `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>html,body,#m{margin:0;height:100%;background:#E8EDEB}.leaflet-control-attribution{font-size:9px}</style>
+</head><body><div id="m"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+var send=function(m){window.ReactNativeWebView.postMessage(JSON.stringify(m))};
+if(!window.L){send({t:'tileerror'})}else{
+var map=L.map('m',{center:${NER_CENTRE},zoom:6,zoomControl:false});
+var tiles=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
+tiles.on('tileerror',function(){send({t:'tileerror'})});tiles.on('tileload',function(){send({t:'tileload'})});
+map.on('dragstart',function(){send({t:'drag'})});
+map.on('moveend',function(){var b=map.getBounds();send({t:'bounds',south:b.getSouth(),west:b.getWest(),north:b.getNorth(),east:b.getEast()})});
+var esc=function(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})};
+var drawn=[];
+window.scene=function(layers){drawn.forEach(function(l){l.remove()});drawn=[];layers.forEach(function(s){var l;
+ if(s.k==='line')l=L.polyline(s.p,{color:s.c,weight:s.w,dashArray:s.d,lineJoin:'round',lineCap:'round'});
+ else if(s.k==='circle')l=L.circle(s.p,{radius:s.r,color:s.c,weight:1,fillColor:s.c,fillOpacity:.15});
+ else if(s.k==='dot')l=L.circleMarker(s.p,{radius:s.r,color:s.c,weight:s.w,fillColor:s.f,fillOpacity:s.o});
+ else l=L.marker(s.p,{icon:L.divIcon({className:'',html:'<div style="${ARROW_STYLE}transform:rotate('+s.h+'deg)"></div>',iconSize:[22,22],iconAnchor:[11,11]})});
+ if(s.tip)l.bindTooltip(esc(s.tip));if(s.id)l.on('click',function(){send({t:'place',id:s.id})});l.addTo(map);drawn.push(l)})};
+window.cam=function(c){if(c.fit)map.fitBounds(c.fit,{padding:[40,40],animate:c.animate});else if(c.view)map.setView(c.view,Math.max(map.getZoom(),c.zoom),{animate:true});else if(c.pan)map.panTo(c.pan,{animate:true})};
+send({t:'ready'});}
+</script></body></html>`
 
 export default function DriverRouteMap({
   routeId,
@@ -75,206 +70,123 @@ export default function DriverRouteMap({
   positionKind,
   accuracyM,
   positionAgeSeconds,
+  headingDeg = null,
   places = [],
   selectedPlaceId = null,
+  terrainSegments = [],
+  hazards = [],
   onSelectPlace,
   onViewportChange,
+  onFollowChange,
   cameraTrigger,
   cameraMode,
   testID,
 }: DriverRouteMapProps) {
-  const map = useRef<MapView | null>(null)
+  const web = useRef<WebView | null>(null)
   const [ready, setReady] = useState(false)
+  const [tileError, setTileError] = useState(false)
   const [following, setFollowing] = useState(false)
-  const cameraKey = routeCameraKey(routeId, points)
-  const { completed, remaining } = splitRoute(points, progressFraction)
+  useEffect(() => { onFollowChange?.(following) }, [following, onFollowChange])
+  const run = useCallback((js: string) => { web.current?.injectJavaScript(js + ';true;') }, [])
 
-  // Frame the route once per route, not on every poll - the same rule the web
-  // map and the manager's fleet map both follow. A camera that re-centres
-  // every ten seconds cannot be read while driving.
-  const fittedFor = useRef<string | null>(null)
+  const viewportRef = useRef(onViewportChange)
+  viewportRef.current = onViewportChange
+  const placesRef = useRef(places)
+  placesRef.current = places
+  const onMessage = useCallback((e: WebViewMessageEvent) => {
+    let m: { t: string; id?: string; south?: number; west?: number; north?: number; east?: number }
+    try { m = JSON.parse(e.nativeEvent.data) } catch { return }
+    if (m.t === 'ready') setReady(true)
+    else if (m.t === 'drag') setFollowing(false)
+    else if (m.t === 'tileerror') setTileError(true)
+    else if (m.t === 'tileload') setTileError(false)
+    else if (m.t === 'bounds') viewportRef.current?.({ south: m.south!, west: m.west!, north: m.north!, east: m.east! })
+    else if (m.t === 'place') { const place = placesRef.current.find((p) => p.provider_id === m.id); if (place) onSelectPlace?.(place) }
+  }, [onSelectPlace])
+
+  // Everything drawn from props, as one list, whenever any of it changes.
+  // The screen re-renders every second (its clock), so the list is compared
+  // as text and only crosses the bridge when something on it moved.
+  const lastScene = useRef('')
   useEffect(() => {
-    if (!ready || map.current === null || points.length === 0) return
-    if (fittedFor.current === cameraKey) return
-    fittedFor.current = cameraKey
-    setFollowing(false)
+    if (!ready) return
+    const json = JSON.stringify(sceneLayers({ points, progressFraction, backupPoints, showBackup, terrainSegments, hazards, stops, position, positionKind, accuracyM, positionAgeSeconds, headingDeg, places, selectedPlaceId }))
+    if (json === lastScene.current) return
+    lastScene.current = json
+    run('window.scene(' + json + ')')
+  }, [ready, run, points, progressFraction, backupPoints, showBackup, terrainSegments, hazards, stops, position, positionKind, accuracyM, positionAgeSeconds, headingDeg, places, selectedPlaceId])
 
+  function fitRoute(animate = true, keepFollowing = false) {
+    if (!keepFollowing) setFollowing(false)
     const box = boundsOf(points)
     if (box === null) return
-    const framed = padBounds(box)
-    map.current.animateToRegion(
-      {
-        latitude: (framed.minLat + framed.maxLat) / 2,
-        longitude: (framed.minLon + framed.maxLon) / 2,
-        latitudeDelta: framed.maxLat - framed.minLat,
-        longitudeDelta: framed.maxLon - framed.minLon,
-      },
-      0,
-    )
-  }, [cameraKey, ready])
+    run(`window.cam({fit:[[${box.minLat},${box.minLon}],[${box.maxLat},${box.maxLon}]],animate:${animate}})`)
+  }
 
+  // Frame the route ONCE per route, not on every poll.
+  const cameraKey = routeCameraKey(routeId, points)
+  const fittedFor = useRef<string | null>(null)
   useEffect(() => {
-    if (positionKind !== 'LIVE' || position === null) {
-      setFollowing(false)
-      return
-    }
-    if (ready && following) {
-      // Update only the centre. The zoom/heading chosen by the driver remains
-      // intact rather than jumping to a fixed region on every GPS sample.
-      map.current?.animateCamera({ center: { latitude: position[0], longitude: position[1] } }, { duration: 300 })
-    }
-  }, [following, ready, position?.[0], position?.[1], positionKind])
+    if (!ready || points.length === 0 || fittedFor.current === cameraKey) return
+    fittedFor.current = cameraKey
+    // The automatic frame does NOT cancel following (see the web map).
+    fitRoute(false, true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, cameraKey])
 
-  function fitRoute() {
-    setFollowing(false)
-    const box = boundsOf(points)
-    if (map.current === null || box === null) return
-    const framed = padBounds(box)
-    map.current.animateToRegion(
-      {
-        latitude: (framed.minLat + framed.maxLat) / 2,
-        longitude: (framed.minLon + framed.maxLon) / 2,
-        latitudeDelta: framed.maxLat - framed.minLat,
-        longitudeDelta: framed.maxLon - framed.minLon,
-      },
-      400,
-    )
-  }
-
-  function goToPosition() {
-    if (map.current === null || position === null) return
-    setFollowing(positionKind === 'LIVE')
-    map.current.animateCamera({ center: { latitude: position[0], longitude: position[1] } }, { duration: 300 })
-  }
-
-  // Camera control signals from screen floating buttons
+  // Camera control signals from screen floating buttons.
   useEffect(() => {
     if (!cameraTrigger || !cameraMode) return
-    if (cameraMode === 'FIT_ROUTE') {
-      fitRoute()
-    } else if (cameraMode === 'RECENTER') {
-      goToPosition()
-    }
+    if (cameraMode === 'FIT_ROUTE') fitRoute(true)
+    else if (position) { setFollowing(positionKind === 'LIVE'); run(`window.cam({pan:[${position[0]},${position[1]}]})`) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cameraTrigger, cameraMode])
 
-  // `showsUserLocation` is deliberately OFF. The platform blue dot is drawn
-  // from the OS location service directly, which would put a live-looking
-  // marker on screen even when this app has decided the fix is too old to
-  // trust or has no permission at all. The marker below is drawn from the SAME
-  // fix the rest of the app reasons about, or not at all.
-  const mapProps: MapViewProps = {
-    initialRegion: NER_REGION,
-    showsUserLocation: false,
-    showsMyLocationButton: false,
-    showsCompass: true,
-    showsScale: true,
-    toolbarEnabled: false,
-    onMapReady: () => setReady(true),
-    onPanDrag: () => setFollowing(false),
-    onRegionChangeComplete: (region, details) => {
-      if (details?.isGesture) setFollowing(false)
-      onViewportChange?.(regionBounds(region))
-    },
-  }
+  useEffect(() => {
+    if (following && position && positionKind === 'LIVE') {
+      // Following means a road-reading zoom, not the region overview.
+      if (ready) run(`window.cam({view:[${position[0]},${position[1]}],zoom:${FOLLOW_ZOOM}})`)
+    } else if (positionKind !== 'LIVE') setFollowing(false)
+  }, [following, ready, run, position?.[0], position?.[1], positionKind]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Follow from the first LIVE fix; a drag hands the camera back; Recenter
+  // resumes it. Only the transition into LIVE arms it.
+  const wasLive = useRef(false)
+  useEffect(() => {
+    const live = positionKind === 'LIVE' && position !== null
+    if (live && !wasLive.current) setFollowing(true)
+    wasLive.current = live
+  }, [positionKind, position !== null]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const hasRoute = points.length > 0
-  const isGoogleConfigured = Constants.expoConfig?.extra?.googleMapsConfigured !== false
 
   return (
     <View style={styles.root} testID={testID}>
-      <MapView
-        ref={map}
+      <WebView
+        ref={web}
         style={StyleSheet.absoluteFill}
-        mapType={isGoogleConfigured ? 'standard' : 'none'}
-        {...mapProps}
-      >
-        {!isGoogleConfigured ? (
-          <UrlTile
-            urlTemplate="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-            maximumZ={19}
-            flipY={false}
-            zIndex={0}
-          />
-        ) : null}
+        source={{ html: HTML, baseUrl: 'https://driver.rasta.local/' }}
+        originWhitelist={['*']}
+        onMessage={onMessage}
+        onError={() => setTileError(true)}
+        setBuiltInZoomControls={false}
+        overScrollMode="never"
+        bounces={false}
+        androidLayerType="hardware"
+      />
 
-        {showBackup && backupPoints.length > 1 ? (
-          <Polyline
-            coordinates={toLatLng(backupPoints)}
-            strokeColor={BACKUP}
-            strokeWidth={4}
-            lineDashPattern={[8, 8]}
-            zIndex={1}
-          />
-        ) : null}
-
-        {hasRoute ? (
-          <Polyline
-            coordinates={toLatLng(points)}
-            strokeColor={ROUTE_CASING}
-            strokeWidth={10}
-            zIndex={2}
-          />
-        ) : null}
-        {remaining.length > 1 ? (
-          <Polyline
-            coordinates={toLatLng(remaining)}
-            strokeColor={ROUTE}
-            strokeWidth={6}
-            zIndex={3}
-          />
-        ) : null}
-        {completed.length > 1 ? (
-          <Polyline coordinates={toLatLng(completed)} strokeColor={COMPLETED} strokeWidth={6} zIndex={3} />
-        ) : null}
-
-        {stops.map((stop, index) =>
-          stop.lat === null || stop.lon === null ? null : (
-            <Marker
-              key={stop.stop_id}
-              coordinate={{ latitude: stop.lat, longitude: stop.lon }}
-              title={stop.name ?? 'Stop ' + stop.sequence}
-              description={stop.address ?? undefined}
-              pinColor={index === 0 ? ORIGIN : ROUTE}
-            />
-          ),
-        )}
-
-        {/* Only from a real fix. Null draws nothing - never a placeholder. */}
-        {position !== null && positionKind !== null ? (
-          <Marker
-            coordinate={{ latitude: position[0], longitude: position[1] }}
-            title={
-              positionKind === 'LIVE'
-                ? 'Live position'
-                : `Last known position — ${positionAgeSeconds == null ? 'age unavailable' : `${Math.round(positionAgeSeconds)}s ago`}`
-            }
-            description={
-              accuracyM === null
-                ? undefined
-                : 'Accurate to about ' + Math.round(accuracyM) + ' m'
-            }
-            pinColor={positionKind === 'LIVE' ? LIVE : LAST_KNOWN}
-          />
-        ) : null}
-        {/* Roadside services from the current search. */}
-        {places.map((place) => (
-          <Marker
-            key={place.provider_id}
-            coordinate={{ latitude: place.lat, longitude: place.lon }}
-            title={place.name ?? 'Unnamed'}
-            // The category in words, not only in the pin colour.
-            description={place.category.toLowerCase()}
-            pinColor={CATEGORY_COLOUR[place.category] ?? '#475569'}
-            onPress={() => onSelectPlace?.(place)}
-            zIndex={place.provider_id === selectedPlaceId ? 20 : 10}
-          />
-        ))}
-      </MapView>
+      {tileError ? (
+        <View style={styles.tileError} accessibilityRole="alert">
+          <Text style={styles.tileErrorText}>
+            Map tiles could not load. The route shown is from your trip and is still correct.
+          </Text>
+        </View>
+      ) : null}
 
       {cameraTrigger === undefined ? (
         <>
           <Pressable
-            onPress={fitRoute}
+            onPress={() => fitRoute()}
             disabled={!hasRoute}
             accessibilityRole="button"
             accessibilityLabel="Fit the whole route on screen"
@@ -282,10 +194,9 @@ export default function DriverRouteMap({
           >
             <Text style={styles.controlLabel}>Fit route</Text>
           </Pressable>
-
           {position !== null ? (
             <Pressable
-              onPress={goToPosition}
+              onPress={() => { setFollowing(positionKind === 'LIVE'); run(`window.cam({pan:[${position[0]},${position[1]}]})`) }}
               accessibilityRole="button"
               accessibilityLabel={positionKind === 'LIVE' ? 'Recenter and follow my location' : 'Center the map on my last known location'}
               accessibilityState={{ selected: following }}
@@ -301,7 +212,7 @@ export default function DriverRouteMap({
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, overflow: 'hidden' },
+  root: { flex: 1, overflow: 'hidden', backgroundColor: '#E8EDEB' },
   control: {
     position: 'absolute',
     // 48 is the driver-app floor for a primary control: gloved hands, moving
@@ -312,24 +223,22 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#D7E0DE',
+    borderColor: '#D5DEDA',
   },
   controlOff: { opacity: 0.5 },
   fit: { left: 12, top: 12 },
   recentre: { left: 12, top: 68 },
-  controlLabel: { color: '#14282F', fontSize: 14, fontWeight: '700' },
-  unconfigured: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    padding: 24,
-    backgroundColor: COLORS.bg,
+  controlLabel: { color: '#101820', fontSize: 14, fontWeight: '700' },
+  tileError: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    bottom: 40,
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: 'rgba(69,26,3,0.95)',
+    borderWidth: 1,
+    borderColor: '#78350F',
   },
-  unconfiguredTitle: { color: COLORS.text, fontSize: 18, fontWeight: '700' },
-  unconfiguredBody: {
-    color: COLORS.muted,
-    fontSize: 14,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
+  tileErrorText: { color: '#FDE68A', fontSize: 13, fontWeight: '500' },
 })

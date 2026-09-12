@@ -34,7 +34,7 @@ and it requires independent SOURCES rather than independent articles — see
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Final
 
@@ -128,6 +128,10 @@ class LandslideIncident:
     verification_status: VerificationStatus = VerificationStatus.UNVERIFIED
     sources: tuple[IncidentSource, ...] = field(default_factory=tuple)
     ingested_at: datetime | None = None
+    #: How precisely the SOURCE placed it, in metres, if it said. An inventory
+    #: like NASA's GLC records this per event ("exact", "1km", "50km"), and an
+    #: event known only to 50 km cannot honestly be put ON a 5 km corridor.
+    location_accuracy_m: float | None = None
 
     @property
     def is_locatable(self) -> bool:
@@ -376,4 +380,153 @@ def assess_corridor(
         on_route_count=len(on_route),
         unlocatable_count=unlocatable,
         provider=result.provider,
+    )
+
+
+# --- Historical exposure ----------------------------------------------------
+#
+# A SEPARATE question from `assess_corridor`, and deliberately a separate
+# function. That one answers "is there a landslide on this road NOW" from a
+# feed of current reports, and its output gates route selection. This one
+# answers "has this corridor slid before" from an inventory that may end years
+# ago, and its output is exposure evidence for the score - never a closure.
+#
+# Feeding an inventory through `assess_corridor` would turn a 2017 event into
+# today's "unverified report on route", which is a lie in both directions: it
+# overstates the present and hides that the evidence is history.
+
+
+class HistoryExposure(str, Enum):
+    """Recorded-landslide exposure for one corridor. UNKNOWN first, as ever."""
+
+    UNKNOWN = "UNKNOWN"
+    LOW = "LOW"
+    MODERATE = "MODERATE"
+    HIGH = "HIGH"
+
+
+REASON_HISTORY_NOT_CONFIGURED: Final[str] = "LANDSLIDE_HISTORY_NOT_CONFIGURED"
+REASON_HISTORY_SOURCE_FAILED: Final[str] = "LANDSLIDE_HISTORY_SOURCE_FAILED"
+REASON_HISTORY_ON_ROUTE: Final[str] = "LANDSLIDE_HISTORY_ON_ROUTE"
+REASON_HISTORY_NONE_RECORDED: Final[str] = "LANDSLIDE_HISTORY_NONE_RECORDED"
+REASON_HISTORY_INVENTORY_AGED: Final[str] = "LANDSLIDE_HISTORY_INVENTORY_AGED"
+
+#: Recorded events within the corridor buffer that move exposure up a band.
+#: Project-defined and published, not learned: one or two events along a
+#: 300 km corridor is a corridor that HAS slid; three or more is one that does.
+HISTORY_MODERATE_AT: Final[int] = 1
+HISTORY_HIGH_AT: Final[int] = 3
+
+#: An inventory whose newest event is older than this is flagged as aged, so
+#: nobody reads "no recorded landslides" as "none recently".
+INVENTORY_AGED_AFTER_YEARS: Final[int] = 3
+
+
+@dataclass(frozen=True)
+class LandslideHistory:
+    """Recorded-landslide exposure plus the provenance of that judgement."""
+
+    exposure: HistoryExposure
+    data_status: DataStatus
+    reason_codes: tuple[str, ...] = field(default_factory=tuple)
+    #: Events the inventory returned for the query box, before route filtering.
+    considered_count: int = 0
+    #: Of those, placed within the corridor buffer with sufficient accuracy.
+    on_route_count: int = 0
+    #: Locatable, within the box, but placed too coarsely to put on the road.
+    imprecise_count: int = 0
+    unlocatable_count: int = 0
+    #: Nearest precisely-placed event to the sampled route, in km.
+    nearest_km: float | None = None
+    inventory_from_year: int | None = None
+    inventory_to_year: int | None = None
+    provider: str | None = None
+    #: The precisely-placed events within the buffer, so a map can mark WHERE
+    #: the corridor has slid rather than only how often. Never the imprecise
+    #: ones: a marker at a 50 km-accuracy position is a marker on a guess.
+    on_route_events: tuple[LandslideIncident, ...] = field(default_factory=tuple)
+
+    @property
+    def is_known(self) -> bool:
+        return self.exposure is not HistoryExposure.UNKNOWN
+
+
+def assess_history(
+    result: IncidentQueryResult,
+    *,
+    route: list[tuple[float, float]],
+    buffer_m: float = ON_ROUTE_BUFFER_M,
+    now: datetime | None = None,
+) -> LandslideHistory:
+    """Inventory answer -> exposure, without ever skipping the source state."""
+    if result.state is SourceState.NOT_CONFIGURED:
+        return LandslideHistory(
+            exposure=HistoryExposure.UNKNOWN,
+            data_status=DataStatus.NOT_CONFIGURED,
+            reason_codes=(REASON_HISTORY_NOT_CONFIGURED,),
+            provider=result.provider,
+        )
+    if result.state is SourceState.UNAVAILABLE:
+        return LandslideHistory(
+            exposure=HistoryExposure.UNKNOWN,
+            data_status=DataStatus.SOURCE_FAILED,
+            reason_codes=(REASON_HISTORY_SOURCE_FAILED,),
+            provider=result.provider,
+        )
+
+    codes: list[str] = []
+    on_route = 0
+    imprecise = 0
+    unlocatable = 0
+    nearest_m: float | None = None
+    years: list[int] = []
+    placed: list[LandslideIncident] = []
+
+    for incident in result.incidents:
+        if incident.event_date is not None:
+            years.append(incident.event_date.year)
+        distance = _distance_to_route_m(incident, route)
+        if distance is None:
+            unlocatable += 1
+            continue
+        # The event's own stated accuracy must fit inside the corridor buffer,
+        # or "within 5 km of the road" is a claim its source never made.
+        accuracy = incident.location_accuracy_m
+        if accuracy is not None and accuracy > buffer_m:
+            imprecise += 1
+            continue
+        if nearest_m is None or distance < nearest_m:
+            nearest_m = distance
+        if distance <= buffer_m:
+            on_route += 1
+            placed.append(incident)
+
+    if on_route >= HISTORY_HIGH_AT:
+        exposure = HistoryExposure.HIGH
+        codes.append(REASON_HISTORY_ON_ROUTE)
+    elif on_route >= HISTORY_MODERATE_AT:
+        exposure = HistoryExposure.MODERATE
+        codes.append(REASON_HISTORY_ON_ROUTE)
+    else:
+        exposure = HistoryExposure.LOW
+        codes.append(REASON_HISTORY_NONE_RECORDED)
+
+    moment = now or datetime.now(UTC)
+    to_year = max(years) if years else None
+    if to_year is not None and moment.year - to_year >= INVENTORY_AGED_AFTER_YEARS:
+        codes.append(REASON_HISTORY_INVENTORY_AGED)
+
+    return LandslideHistory(
+        exposure=exposure,
+        data_status=DataStatus.AVAILABLE,
+        reason_codes=tuple(dict.fromkeys(codes)),
+        considered_count=len(result.incidents),
+        on_route_count=on_route,
+        imprecise_count=imprecise,
+        unlocatable_count=unlocatable,
+        nearest_km=(nearest_m / 1000.0) if nearest_m is not None else None,
+        inventory_from_year=min(years) if years else None,
+        inventory_to_year=to_year,
+        provider=result.provider,
+        on_route_events=tuple(placed),
     )

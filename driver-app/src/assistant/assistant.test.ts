@@ -9,6 +9,8 @@
 
 import { describe, expect, it } from 'vitest'
 
+import { APP_LANGUAGE_CODES, t } from '../i18n/appLanguage'
+
 // The module's own source, as text. See src/raw-modules.d.ts.
 import assistantSource from './assistant.ts?raw'
 
@@ -320,11 +322,11 @@ describe('driver assistant — break, safety and translation', () => {
 })
 
 describe('driver assistant — catalogue', () => {
-  it('has no free-text question, only quick actions', () => {
-    // Mission Phase 10: no keyboard-first experience while driving, and this
-    // build has no reliable moving/stationary signal to gate one behind.
+  it('keeps every quick question short enough for 320 px, in every app language', () => {
     for (const q of QUESTIONS) {
-      expect(q.label.length, `${q.id} label too long for 320 px`).toBeLessThanOrEqual(24)
+      for (const lang of APP_LANGUAGE_CODES) {
+        expect(t(lang, q.labelKey).length, `${q.id}/${lang} label too long for 320 px`).toBeLessThanOrEqual(28)
+      }
       expect(q.intent).not.toBe('UNKNOWN')
     }
   })

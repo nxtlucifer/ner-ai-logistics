@@ -15,21 +15,34 @@
  * and its tests were deleted with the problem they described.
  */
 
-export type Tab = 'navigate' | 'trip' | 'safety' | 'ai'
+export type Tab = 'navigate' | 'trip' | 'safety' | 'more'
 
-/** Left to right, as rendered in the bottom navigation bar. */
+/**
+ * Left to right, as rendered in the bottom navigation bar.
+ *
+ * `trip` leads, and it is also where a signed-in driver lands. Navigate led
+ * before, which meant the first screen after sign-in was a full-screen map -
+ * blank, with floating controls over nothing, whenever the driver had no
+ * assigned trip. The map earns the whole screen once there is a route to
+ * follow; before that the trip is the subject.
+ */
 export const TABS: readonly Tab[] = [
-  'navigate',
   'trip',
+  'navigate',
   'safety',
-  'ai',
+  'more',
 ] as const
 
+/* Labels stay "Trip"/"Navigate". Renaming them to Home/Map would mean
+ * renaming `nav_trip` and `nav_navigate` across five scripts, and inventing
+ * Assamese and Bengali copy is not a thing to do from a design brief. The
+ * ORDER and the landing tab carry the behavioural change; the wording is a
+ * translation task. */
 export const TAB_LABELS: Record<Tab, string> = {
   navigate: 'Navigate',
   trip: 'Trip',
   safety: 'Safety',
-  ai: 'AI Assistant',
+  more: 'More',
 }
 
 /*

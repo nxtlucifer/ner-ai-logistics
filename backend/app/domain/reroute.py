@@ -41,7 +41,7 @@ from app.domain.route_recommendation import (
     RouteCandidate,
     recommend,
 )
-from app.domain.route_risk import BAND_HIGH_AT
+from app.domain.route_risk import BAND_HIGH, BAND_HIGH_AT, BAND_MODERATE
 
 VERSION: Final[str] = "reroute-assessment-v1"
 
@@ -122,6 +122,60 @@ class RerouteAssessment:
     def requires_a_human(self) -> bool:
         """Whether anything should reach a person at all."""
         return self.outcome in (OUTCOME_ALERT_ONLY, OUTCOME_PROPOSE)
+
+
+# --- The driver's four words ----------------------------------------------
+#
+# The screen a driver reads at speed gets one of four instructions, derived -
+# never chosen - from the band the risk engine published and the outcome the
+# reroute assessment reached. Published here beside the reroute rule because
+# the two must agree: a proposal that exists is the only thing that may say
+# REROUTE, and a HIGH road with nothing better is HOLD, not "carry on".
+#
+#   LOW                          CONTINUE
+#   MODERATE, or a caution flag  CAUTION
+#   HIGH, or ALERT_ONLY raised   HOLD_AND_REVIEW
+#   PROPOSE raised               REROUTE_RECOMMENDED
+#
+# The caution flag exists because the score is a JOURNEY total: a short hill
+# road with a steep pitch and a HIGH historical slide density can still sum
+# to LOW, and "continue" beside "landslide exposure HIGH" reads as the app
+# contradicting itself. Exposure evidence is a caution, never a hold - a hold
+# needs the band or the reroute assessment behind it.
+#
+# No probabilities and no model: this is a lookup over published values.
+DECISION_CONTINUE: Final[str] = "CONTINUE"
+DECISION_CAUTION: Final[str] = "CAUTION"
+DECISION_HOLD: Final[str] = "HOLD_AND_REVIEW"
+DECISION_REROUTE: Final[str] = "REROUTE_RECOMMENDED"
+
+
+#: Reason codes that raise a LOW journey to CAUTION on their own.
+CAUTION_CODES: Final[frozenset[str]] = frozenset(
+    {
+        "STEEP_GRADIENT_ON_ROUTE",
+        "HEAVY_RAIN_ON_ROUTE",
+        "HIGH_WIND_GUSTS",
+        "RIVER_DISCHARGE_ELEVATED",
+        "OFFICIAL_WARNING_ON_ROUTE",
+    }
+)
+
+
+def driver_decision(
+    band: str,
+    reroute_outcome: str | None = None,
+    *,
+    reason_codes: tuple[str, ...] | list[str] = (),
+    history_exposure: str | None = None,
+) -> str:
+    if reroute_outcome == OUTCOME_PROPOSE:
+        return DECISION_REROUTE
+    if reroute_outcome == OUTCOME_ALERT_ONLY or band == BAND_HIGH:
+        return DECISION_HOLD
+    if band == BAND_MODERATE or history_exposure == "HIGH" or CAUTION_CODES & set(reason_codes):
+        return DECISION_CAUTION
+    return DECISION_CONTINUE
 
 
 def _nothing(reason: str, *, unavailable: tuple[str, ...] = ()) -> RerouteAssessment:

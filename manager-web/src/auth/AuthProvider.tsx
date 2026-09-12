@@ -23,6 +23,7 @@ import {
   setUnauthenticatedHandler,
   type AuthenticatedUser,
 } from '../api/client'
+import { clearCache } from '../api/connectivity'
 
 interface AuthState {
   user: AuthenticatedUser | null
@@ -99,6 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // the refresh cookie is scoped so a stale server session cannot be used
       // from this browser without it.
       clear()
+      clearCache()
     }
   }, [clear])
 

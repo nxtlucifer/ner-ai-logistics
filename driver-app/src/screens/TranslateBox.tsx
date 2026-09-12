@@ -9,11 +9,15 @@
  * - Actions: Translate, Swap, Copy (expo-clipboard), Speak (expo-speech), Clear
  * - Input validation: 1500 max characters, character counter, HTML sanitization
  * - High-contrast truck-friendly UI with large readable target text
- * - Dual Source Modes: ONLINE_AI (Gemini) vs OFFLINE_PHRASEBOOK (Reviewed offline phrases)
- * - Deterministic offline fallback if model/network is unavailable
+ * - Dual Source Modes: ONLINE_AI (Gemini, via the backend) vs OFFLINE_PHRASEBOOK
+ *   (reviewed local phrases). The badge names which one produced the text on
+ *   screen - "ONLINE TRANSLATION" only when the provider actually generated it.
+ * - Quick phrases render in the FROM language and translate from the verified
+ *   table, so they work with the radio off and never wait on a model.
+ * - Microphone input where the platform has a recogniser (see useSpeechInput).
  */
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   ActivityIndicator,
   Pressable,
@@ -27,6 +31,7 @@ import * as Clipboard from 'expo-clipboard'
 import * as Speech from 'expo-speech'
 
 import { useLocalAi } from '../ai/useLocalAi'
+import { useSpeechInput } from '../speech/useSpeechInput'
 import {
   findOfflinePhrases,
   LANGUAGE_CODES,
@@ -37,7 +42,8 @@ import {
   SUPPORTED_LANGUAGES,
   VERIFIED_QUICK_TRANSLATIONS,
 } from '../phrasebook/offlineTranslator'
-import { COLORS, TOUCH_TARGET } from '../theme'
+import { TOUCH_TARGET } from '../theme'
+import { makeStyles, useTheme } from '../theme-context'
 
 export type SourceMode = 'ONLINE_AI' | 'OFFLINE_PHRASEBOOK'
 
@@ -51,6 +57,8 @@ export interface TranslationDisplay {
 }
 
 export default function TranslateBox() {
+  const styles = useStyles()
+  const { colors: COLORS } = useTheme()
   const ai = useLocalAi()
   const [text, setText] = useState('')
   const [source, setSource] = useState('en')
@@ -58,6 +66,7 @@ export default function TranslateBox() {
   const [copied, setCopied] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [offlineResult, setOfflineResult] = useState<TranslationDisplay | null>(null)
+  const speech = useSpeechInput()
 
   const isAiOnline = Boolean(ai.status?.available)
   const isAsking = ai.state.kind === 'ASKING'
@@ -119,35 +128,48 @@ export default function TranslateBox() {
   const handleSelectQuickPhrase = useCallback(
     (phrase: QuickPhrase) => {
       handleStopSpeaking()
-      setText(phrase)
       setCopied(false)
-
+      // The chip the driver tapped was in the FROM language; the box gets
+      // that text, and the answer comes from the reviewed table - not from a
+      // model - so it is the same with or without a connection.
       const transMap = VERIFIED_QUICK_TRANSLATIONS[phrase]
-      const verifiedTranslation = transMap?.[target] ?? transMap?.hi ?? transMap?.en
-
-      // If AI is offline, provide verified translation immediately
-      if (!isAiOnline) {
+      const fromText = source === 'en' ? phrase : transMap?.[source] ?? phrase
+      const toText = target === 'en' ? phrase : transMap?.[target]
+      setText(fromText)
+      ai.reset()
+      if (!toText) {
+        // No reviewed text in the target language: say so rather than
+        // handing over Hindi as if it were Odia.
         setOfflineResult({
-          original: phrase,
-          translated: verifiedTranslation,
-          sourceLang: 'en',
+          original: fromText,
+          translated: `[No reviewed phrase in ${SUPPORTED_LANGUAGES[target]?.name ?? target}. Use Translate for a generated one.]`,
+          sourceLang: source,
           targetLang: target,
           sourceMode: 'OFFLINE_PHRASEBOOK',
           category: 'Quick Driver Phrase',
         })
-        ai.reset()
         return
       }
-
-      // If AI is available, send to AI for contextual nuance, but prepare offline backup
-      setOfflineResult(null)
-      ai.ask('translate', phrase, {
-        sourceLanguage: source,
-        targetLanguage: target,
+      setOfflineResult({
+        original: fromText,
+        translated: toText,
+        sourceLang: source,
+        targetLang: target,
+        sourceMode: 'OFFLINE_PHRASEBOOK',
+        category: 'Quick Driver Phrase',
       })
     },
-    [isAiOnline, source, target, ai, handleStopSpeaking],
+    [source, target, ai, handleStopSpeaking],
   )
+
+  // A finished recognition lands in the box for the driver to check before
+  // it is translated.
+  useEffect(() => {
+    if (speech.transcript) {
+      setText(speech.transcript)
+      setCopied(false)
+    }
+  }, [speech.transcript])
 
   const handleTranslate = useCallback(() => {
     handleStopSpeaking()
@@ -225,7 +247,7 @@ export default function TranslateBox() {
               isAiOnline ? styles.modeBadgeTextAi : styles.modeBadgeTextOffline,
             ]}
           >
-            {isAiOnline ? 'ONLINE AI' : 'OFFLINE MODE'}
+            {isAiOnline ? 'ONLINE TRANSLATION' : 'LOCAL PHRASEBOOK'}
           </Text>
         </View>
       </View>
@@ -268,28 +290,32 @@ export default function TranslateBox() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.quickPhrasesScroll}
         >
-          {QUICK_DRIVER_PHRASES.map((phrase) => (
-            <Pressable
-              key={phrase}
-              onPress={() => handleSelectQuickPhrase(phrase)}
-              style={({ pressed }) => [
-                styles.quickPhraseChip,
-                text === phrase && styles.quickPhraseChipSelected,
-                pressed && styles.pressed,
-              ]}
-              accessibilityRole="button"
-              accessibilityLabel={phrase}
-            >
-              <Text
-                style={[
-                  styles.quickPhraseText,
-                  text === phrase && styles.quickPhraseTextSelected,
+          {QUICK_DRIVER_PHRASES.map((phrase) => {
+            // The key IS the English phrase; other languages come from the table.
+            const label = source === 'en' ? phrase : VERIFIED_QUICK_TRANSLATIONS[phrase]?.[source] ?? phrase
+            return (
+              <Pressable
+                key={phrase}
+                onPress={() => handleSelectQuickPhrase(phrase)}
+                style={({ pressed }) => [
+                  styles.quickPhraseChip,
+                  text === label && styles.quickPhraseChipSelected,
+                  pressed && styles.pressed,
                 ]}
+                accessibilityRole="button"
+                accessibilityLabel={phrase}
               >
-                {phrase}
-              </Text>
-            </Pressable>
-          ))}
+                <Text
+                  style={[
+                    styles.quickPhraseText,
+                    text === label && styles.quickPhraseTextSelected,
+                  ]}
+                >
+                  {label}
+                </Text>
+              </Pressable>
+            )
+          })}
         </ScrollView>
       </View>
 
@@ -309,8 +335,36 @@ export default function TranslateBox() {
           accessibilityLabel="Text to translate"
         />
         <View style={styles.charCountRow}>
+          <Pressable
+            onPress={() => (speech.listening ? speech.stop() : speech.start(source))}
+            disabled={!speech.available}
+            accessibilityRole="button"
+            accessibilityLabel={
+              !speech.available
+                ? 'Speech input is not available on this device'
+                : speech.listening
+                  ? 'Stop listening'
+                  : `Speak in ${SUPPORTED_LANGUAGES[source]?.name ?? source}`
+            }
+            accessibilityState={{ disabled: !speech.available, selected: speech.listening }}
+            style={[styles.micButton, speech.listening && styles.micButtonOn, !speech.available && styles.buttonDisabled]}
+            testID="translate-mic"
+          >
+            <Text style={styles.micButtonText}>
+              {speech.listening ? '■ Stop' : `🎤 Speak ${SUPPORTED_LANGUAGES[source]?.nativeName ?? source}`}
+            </Text>
+          </Pressable>
           <Text style={styles.charCountText}>{text.length}/1500</Text>
         </View>
+        <Text style={styles.speechNote}>
+          {speech.error
+            ? speech.error
+            : speech.listening
+              ? 'Listening…'
+              : speech.available
+                ? 'Device speech · needs a connection · typing always works'
+                : 'Speech input not available on this device · typing works'}
+        </Text>
       </View>
 
       {/* Action Buttons Row */}
@@ -360,7 +414,7 @@ export default function TranslateBox() {
       {!isAiOnline && (
         <View style={styles.noticeBox} testID="translate-unavailable">
           <Text style={styles.noticeTitle}>
-            AI translation unavailable. Showing available offline phrases.
+            Online translation unavailable. Showing the local phrasebook.
           </Text>
           <Text style={styles.noticeSubtitle}>
             Verified emergency and highway phrases function completely offline without
@@ -396,8 +450,8 @@ export default function TranslateBox() {
             >
               <Text style={styles.provenanceText}>
                 {activeDisplay.sourceMode === 'ONLINE_AI'
-                  ? 'ONLINE AI'
-                  : 'OFFLINE PHRASEBOOK'}
+                  ? 'ONLINE TRANSLATION'
+                  : 'LOCAL PHRASEBOOK'}
               </Text>
             </View>
           </View>
@@ -492,6 +546,8 @@ function LanguagePicker({
   value: string
   onChange: (code: string) => void
 }) {
+  const styles = useStyles()
+  const { colors: COLORS } = useTheme()
   return (
     <View style={styles.pickerBlock}>
       <Text style={styles.pickerHeading}>{label}</Text>
@@ -528,7 +584,7 @@ function LanguagePicker({
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((COLORS) => ({
   container: {
     borderWidth: 1,
     borderColor: COLORS.border,
@@ -555,20 +611,20 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   modeBadgeAi: {
-    backgroundColor: '#064e3b',
+    backgroundColor: COLORS.okBg,
   },
   modeBadgeOffline: {
-    backgroundColor: '#374151',
+    backgroundColor: COLORS.raised,
   },
   modeBadgeText: {
     fontSize: 11,
     fontWeight: '700',
   },
   modeBadgeTextAi: {
-    color: '#6ee7b7',
+    color: COLORS.aqua,
   },
   modeBadgeTextOffline: {
-    color: '#d1d5db',
+    color: COLORS.muted,
   },
   pickersContainer: {
     gap: 10,
@@ -594,7 +650,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: COLORS.border,
-    backgroundColor: '#111827',
+    backgroundColor: COLORS.sunken,
   },
   langChipSelected: {
     backgroundColor: COLORS.accent,
@@ -618,7 +674,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: COLORS.border,
-    backgroundColor: '#1f2937',
+    backgroundColor: COLORS.raised,
   },
   swapIcon: {
     color: COLORS.text,
@@ -642,13 +698,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
-    backgroundColor: '#1e293b',
+    backgroundColor: COLORS.raised,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: COLORS.borderStrong,
   },
   quickPhraseChipSelected: {
     borderColor: COLORS.accent,
-    backgroundColor: '#1e3a8a',
+    backgroundColor: COLORS.routeBg,
   },
   quickPhraseText: {
     color: COLORS.text,
@@ -656,14 +712,14 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   quickPhraseTextSelected: {
-    color: '#93c5fd',
+    color: COLORS.routeOn,
     fontWeight: '700',
   },
   inputContainer: {
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: 8,
-    backgroundColor: '#0f172a',
+    backgroundColor: COLORS.sunken,
     padding: 10,
     gap: 6,
   },
@@ -673,6 +729,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlignVertical: 'top',
   },
+  micButton: {
+    minHeight: 40,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.raised,
+    justifyContent: 'center',
+  },
+  micButtonOn: { backgroundColor: COLORS.badBg, borderColor: COLORS.bad },
+  micButtonText: { color: COLORS.text, fontSize: 13, fontWeight: '700' },
+  speechNote: { color: COLORS.faint, fontSize: 11, marginTop: 4 },
   charCountRow: {
     alignItems: 'flex-end',
   },
@@ -723,15 +791,15 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   noticeBox: {
-    backgroundColor: '#1e293b',
+    backgroundColor: COLORS.raised,
     borderLeftWidth: 4,
-    borderLeftColor: '#f59e0b',
+    borderLeftColor: COLORS.warn,
     padding: 12,
     borderRadius: 6,
     gap: 4,
   },
   noticeTitle: {
-    color: '#fbbf24',
+    color: COLORS.warn,
     fontSize: 13,
     fontWeight: '700',
   },
@@ -741,25 +809,25 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   errorBox: {
-    backgroundColor: '#450a0a',
+    backgroundColor: COLORS.badBg,
     padding: 10,
     borderRadius: 6,
     gap: 4,
   },
   errorText: {
-    color: '#f87171',
+    color: COLORS.bad,
     fontSize: 13,
     fontWeight: '600',
   },
   errorSubtext: {
-    color: '#fca5a5',
+    color: COLORS.bad,
     fontSize: 11,
   },
   resultCard: {
     borderRadius: 10,
     borderWidth: 1,
     borderColor: COLORS.accent,
-    backgroundColor: '#091e3a',
+    backgroundColor: COLORS.routeBg,
     padding: 14,
     gap: 10,
   },
@@ -769,7 +837,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   resultTargetTitle: {
-    color: '#93c5fd',
+    color: COLORS.routeOn,
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 0.8,
@@ -780,10 +848,10 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   provenanceAi: {
-    backgroundColor: '#064e3b',
+    backgroundColor: COLORS.okBg,
   },
   provenanceOffline: {
-    backgroundColor: '#374151',
+    backgroundColor: COLORS.raised,
   },
   provenanceText: {
     color: COLORS.text,
@@ -795,7 +863,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   resultLargeText: {
-    color: '#ffffff',
+    color: COLORS.text,
     fontSize: 26,
     lineHeight: 34,
     fontWeight: '800',
@@ -816,21 +884,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#38bdf8',
-    backgroundColor: '#0369a1',
+    borderColor: COLORS.borderStrong,
+    backgroundColor: COLORS.raised,
     justifyContent: 'center',
     alignItems: 'center',
   },
   resultButtonSuccess: {
-    backgroundColor: '#15803d',
-    borderColor: '#22c55e',
+    backgroundColor: COLORS.okBg,
+    borderColor: COLORS.ok,
   },
   resultButtonSpeaking: {
-    backgroundColor: '#b91c1c',
-    borderColor: '#ef4444',
+    backgroundColor: COLORS.badBg,
+    borderColor: COLORS.bad,
   },
   resultButtonText: {
-    color: '#ffffff',
+    color: COLORS.text,
     fontSize: 13,
     fontWeight: '700',
   },
@@ -845,7 +913,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   offlineCard: {
-    backgroundColor: '#111827',
+    backgroundColor: COLORS.sunken,
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: 8,
@@ -881,4 +949,4 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.75,
   },
-})
+}))

@@ -39,8 +39,10 @@ from app.core.config import get_settings
 from app.domain.landslide import (
     IncidentQueryResult,
     LandslideAssessment,
+    LandslideHistory,
     SourceState,
     assess_corridor,
+    assess_history,
 )
 from app.domain.route_eligibility import (
     EligibilityDecision,
@@ -53,6 +55,10 @@ from app.domain.weather import WeatherError, WeatherObservation
 from app.models.operations import TripRoute
 from app.services.landslide import build_provider as build_landslide_provider
 from app.services.landslide.base import BoundingBox, LandslideQueryError
+from app.services.landslide.history import build_inventory
+from app.services.flood import flood_for
+from app.services.warnings import warnings_for
+from app.services.terrain import profile_for as terrain_profile_for
 from app.services.weather import OpenMeteoWeatherProvider
 
 logger = logging.getLogger(__name__)
@@ -143,12 +149,20 @@ def corridor_box(positions: list[tuple[float, float]]) -> BoundingBox | None:
         return None
     lats = [lat for lat, _ in positions]
     lons = [lon for _, lon in positions]
-    return BoundingBox(
-        min_lat=max(-90.0, min(lats) - CORRIDOR_PAD_DEG),
-        min_lon=max(-180.0, min(lons) - CORRIDOR_PAD_DEG),
-        max_lat=min(90.0, max(lats) + CORRIDOR_PAD_DEG),
-        max_lon=min(180.0, max(lons) + CORRIDOR_PAD_DEG),
-    )
+    try:
+        return BoundingBox(
+            min_lat=max(-90.0, min(lats) - CORRIDOR_PAD_DEG),
+            min_lon=max(-180.0, min(lons) - CORRIDOR_PAD_DEG),
+            max_lat=min(90.0, max(lats) + CORRIDOR_PAD_DEG),
+            max_lon=min(180.0, max(lons) + CORRIDOR_PAD_DEG),
+        )
+    except LandslideQueryError:
+        # Wider than one landslide page - a 2,400 km road proposed from a phone
+        # far off its corridor, seen on the physical device. That is a source
+        # that cannot answer, reported as UNAVAILABLE by the callers, never a
+        # 500 from the whole assessment.
+        logger.info("corridor spans more than one landslide page; landslide evidence unavailable")
+        return None
 
 
 async def landslide_for(
@@ -165,7 +179,11 @@ async def landslide_for(
     box = corridor_box(positions)
     if box is None:
         return assess_corridor(
-            IncidentQueryResult(state=SourceState.NOT_CONFIGURED), route=positions
+            IncidentQueryResult(
+                state=SourceState.UNAVAILABLE if positions else SourceState.NOT_CONFIGURED,
+                error="corridor_too_wide" if positions else None,
+            ),
+            route=positions,
         )
 
     provider = build_landslide_provider()
@@ -191,6 +209,36 @@ async def landslide_for(
     return assess_corridor(result, route=positions)
 
 
+async def history_for(
+    positions: list[tuple[float, float]], *, now: datetime | None = None
+) -> LandslideHistory:
+    """Recorded-landslide exposure for a sampled corridor. NEVER RAISES.
+
+    Its own function rather than a flag on `landslide_for`, because the two
+    ask different sources different questions and only one of them may gate
+    selection. See app/services/landslide/history.py.
+    """
+    box = corridor_box(positions)
+    if box is None:
+        return assess_history(
+            IncidentQueryResult(
+                state=SourceState.UNAVAILABLE if positions else SourceState.NOT_CONFIGURED,
+                error="corridor_too_wide" if positions else None,
+            ),
+            route=positions,
+            now=now,
+        )
+    inventory = build_inventory()
+    try:
+        result = await inventory.events_near(box)
+    except Exception:  # noqa: BLE001 - one file must not break trip planning
+        logger.warning("landslide inventory failed", exc_info=True)
+        result = IncidentQueryResult(
+            state=SourceState.UNAVAILABLE, provider=inventory.name, error="inventory_error"
+        )
+    return assess_history(result, route=positions, now=now)
+
+
 async def _route_facts(
     db: AsyncSession, route_id: uuid.UUID
 ) -> tuple[str, Decimal | None, int | None]:
@@ -211,6 +259,24 @@ async def _route_facts(
     return row[0], row[1], row[2]
 
 
+async def evidence_for(route_id: uuid.UUID, geometry, positions: list[tuple[float, float]]):
+    """Every evidence read an assessment uses, gathered once, in one place.
+
+    Independent questions to independent sources, asked together. Terrain and
+    river discharge are cached per route; the others are live. The ONE list:
+    `route_recommendation` scores through this too, so a source wired here
+    cannot be missed on the second path again (LS-7).
+    """
+    return await asyncio.gather(
+        observations_for(positions),
+        landslide_for(positions),
+        terrain_profile_for(route_id, geometry),
+        history_for(positions),
+        flood_for(route_id, positions),
+        warnings_for(route_id, positions),
+    )
+
+
 async def assess_route(db: AsyncSession, route_id: uuid.UUID) -> RouteRisk:
     """Score one persisted route against current conditions.
 
@@ -225,14 +291,19 @@ async def assess_route(db: AsyncSession, route_id: uuid.UUID) -> RouteRisk:
     # Release the connection BEFORE the provider fan-out. See module docstring.
     await db.commit()
 
-    observations = await observations_for(positions)
-    landslide = await landslide_for(positions)
+    observations, landslide, terrain, history, flood, warnings = await evidence_for(
+        route_id, geometry, positions
+    )
 
     return assess(
         distance_km=float(distance_km) if distance_km is not None else 0.0,
         duration_min=float(duration_min) if duration_min is not None else 0.0,
         observations=observations,
         landslide=landslide,
+        terrain=terrain,
+        history=history,
+        flood=flood,
+        warnings=warnings,
     )
 
 

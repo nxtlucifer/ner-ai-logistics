@@ -32,6 +32,7 @@ export default function TrucksPage() {
   const trucks = useResource(
     () => api.listTrucks({ search: search || undefined }),
     [search],
+    search ? undefined : 'trucks:all',
   )
 
   const create = useMutation(async (payload: typeof BLANK) => {

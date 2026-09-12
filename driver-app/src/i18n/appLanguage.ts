@@ -36,11 +36,28 @@ export const APP_LANGUAGE_CODES: readonly AppLanguage[] = ['en', 'hi', 'gu', 'as
 export const STORAGE_KEY = '@ner_driver_app_language'
 
 export type TranslationKey =
+  // Assistant composer (hi/gu/as/bn UNREVIEWED by native speakers, like the rest of this table)
+  | 'ask_label'
+  | 'ask_placeholder'
+  | 'ask_listening'
+  | 'ask_route'
+  | 'ask_stop'
+  | 'ask_risk'
+  | 'ask_weather'
+  | 'ask_terrain'
+  | 'ask_landslide'
+  | 'ask_break'
+  | 'ask_trip'
+  | 'ask_online'
+  | 'ask_emergency'
+  | 'ask_talk'
+  | 'ask_truck'
   // Nav
   | 'nav_navigate'
   | 'nav_trip'
   | 'nav_safety'
   | 'nav_ai'
+  | 'nav_more'
   // Login
   | 'login_title'
   | 'login_subtitle'
@@ -87,10 +104,26 @@ export type TranslationKey =
 
 export const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> = {
   en: {
+    ask_label: 'ASK',
+    ask_placeholder: 'Ask me anything about this trip…',
+    ask_listening: 'Listening…',
+    ask_route: 'My route',
+    ask_stop: 'Next stop',
+    ask_risk: 'Is my route risky?',
+    ask_weather: 'Weather ahead',
+    ask_terrain: 'Terrain ahead',
+    ask_landslide: 'Landslide risk',
+    ask_break: 'Do I need a break?',
+    ask_trip: 'My trip',
+    ask_online: 'Am I online?',
+    ask_emergency: 'Emergency help',
+    ask_talk: 'Help me talk',
+    ask_truck: 'Truck problem',
     nav_navigate: 'Navigate',
     nav_trip: 'Trip',
     nav_safety: 'Safety',
     nav_ai: 'AI Assistant',
+    nav_more: 'More',
 
     login_title: 'Welcome back',
     login_subtitle: 'Secure access to your assigned vehicle and trips.',
@@ -137,10 +170,26 @@ export const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> =
   },
 
   hi: {
+    ask_label: 'पूछें',
+    ask_placeholder: 'इस यात्रा के बारे में कुछ भी पूछें…',
+    ask_listening: 'सुन रहा है…',
+    ask_route: 'मेरा रास्ता',
+    ask_stop: 'अगला पड़ाव',
+    ask_risk: 'क्या रास्ता जोखिम भरा है?',
+    ask_weather: 'आगे मौसम',
+    ask_terrain: 'आगे का इलाका',
+    ask_landslide: 'भूस्खलन जोखिम',
+    ask_break: 'क्या मुझे आराम चाहिए?',
+    ask_trip: 'मेरी यात्रा',
+    ask_online: 'क्या मैं ऑनलाइन हूँ?',
+    ask_emergency: 'आपातकालीन मदद',
+    ask_talk: 'बात करने में मदद',
+    ask_truck: 'ट्रक की समस्या',
     nav_navigate: 'नेविगेट',
     nav_trip: 'ट्रिप',
     nav_safety: 'सुरक्षा',
     nav_ai: 'एआई सहायक',
+    nav_more: 'अधिक',
 
     login_title: 'वापस स्वागत है',
     login_subtitle: 'अपने वाहन और ट्रिप तक सुरक्षित पहुँच।',
@@ -187,10 +236,26 @@ export const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> =
   },
 
   gu: {
+    ask_label: 'પૂછો',
+    ask_placeholder: 'આ સફર વિશે કંઈ પણ પૂછો…',
+    ask_listening: 'સાંભળી રહ્યું છે…',
+    ask_route: 'મારો રસ્તો',
+    ask_stop: 'આગલો સ્ટોપ',
+    ask_risk: 'શું રસ્તો જોખમી છે?',
+    ask_weather: 'આગળનું હવામાન',
+    ask_terrain: 'આગળનો પ્રદેશ',
+    ask_landslide: 'ભૂસ્ખલન જોખમ',
+    ask_break: 'શું મારે આરામ જોઈએ?',
+    ask_trip: 'મારી સફર',
+    ask_online: 'શું હું ઓનલાઇન છું?',
+    ask_emergency: 'કટોકટી મદદ',
+    ask_talk: 'વાત કરવામાં મદદ',
+    ask_truck: 'ટ્રકની સમસ્યા',
     nav_navigate: 'નેવિગેટ',
     nav_trip: 'ટ્રિપ',
     nav_safety: 'સુરક્ષા',
     nav_ai: 'AI સહાયક',
+    nav_more: 'વધુ',
 
     login_title: 'પાછા સ્વાગત છે',
     login_subtitle: 'તમારા વાહન અને ટ્રિપ સુધી સુરક્ષિત પ્રવેશ.',
@@ -237,10 +302,26 @@ export const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> =
   },
 
   as: {
+    ask_label: 'সোধক',
+    ask_placeholder: 'এই যাত্ৰাৰ বিষয়ে যিকোনো কথা সোধক…',
+    ask_listening: 'শুনি আছে…',
+    ask_route: 'মোৰ পথ',
+    ask_stop: 'পিছৰ ষ্টপ',
+    ask_risk: 'মোৰ পথ বিপদজনক নেকি?',
+    ask_weather: 'আগৰ বতৰ',
+    ask_terrain: 'আগৰ ভূখণ্ড',
+    ask_landslide: 'ভূমিস্খলনৰ আশংকা',
+    ask_break: 'মোক জিৰণি লাগে নেকি?',
+    ask_trip: 'মোৰ যাত্ৰা',
+    ask_online: 'মই অনলাইন নেকি?',
+    ask_emergency: 'জৰুৰীকালীন সহায়',
+    ask_talk: 'কথা পতাত সহায়',
+    ask_truck: 'ট্ৰাকৰ সমস্যা',
     nav_navigate: 'নেভিগেট',
     nav_trip: 'ট্ৰিপ',
     nav_safety: 'সুৰক্ষা',
     nav_ai: 'AI সহায়ক',
+    nav_more: 'অধিক',
 
     login_title: 'পুনৰ স্বাগতম',
     login_subtitle: 'আপোনাৰ বাহন আৰু ট্ৰিপলৈ সুৰক্ষিত প্ৰৱেশ।',
@@ -287,8 +368,24 @@ export const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> =
   },
 
   bn: {
+    ask_label: 'জিজ্ঞাসা করুন',
+    ask_placeholder: 'এই যাত্রা সম্পর্কে যেকোনো কিছু জিজ্ঞাসা করুন…',
+    ask_listening: 'শুনছে…',
+    ask_route: 'আমার পথ',
+    ask_stop: 'পরের স্টপ',
+    ask_risk: 'আমার পথ কি ঝুঁকিপূর্ণ?',
+    ask_weather: 'সামনের আবহাওয়া',
+    ask_terrain: 'সামনের ভূখণ্ড',
+    ask_landslide: 'ভূমিধসের ঝুঁকি',
+    ask_break: 'আমার কি বিশ্রাম দরকার?',
+    ask_trip: 'আমার যাত্রা',
+    ask_online: 'আমি কি অনলাইন?',
+    ask_emergency: 'জরুরি সাহায্য',
+    ask_talk: 'কথা বলতে সাহায্য',
+    ask_truck: 'ট্রাকের সমস্যা',
     nav_navigate: 'নেভিগেট',
     nav_trip: 'ট্রিপ',
+    nav_more: 'আরও',
     nav_safety: 'সুরক্ষা',
     nav_ai: 'AI সহায়ক',
 

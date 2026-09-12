@@ -333,6 +333,30 @@ def _reset_engine_state() -> None:
 
 
 @pytest.fixture(autouse=True)
+def terrain_off(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """No DEM calls from the suite.
+
+    Weather is stubbed per test with `observations_for`; terrain is switched
+    off here instead, because every route the suite plans is a fresh row and
+    a live profile is ~7 requests each. The first run with it on took 6:42
+    against 3:03. Tests that want terrain in the score patch
+    `app.services.route_risk.terrain_profile_for`, as test_terrain_route_risk
+    does; the domain is covered with injected heights in test_terrain.
+    """
+    monkeypatch.setenv("TERRAIN_ENABLED", "false")
+    # River discharge likewise: one live request per assessment otherwise.
+    # test_flood_context covers the domain with injected samples.
+    monkeypatch.setenv("FLOOD_ENABLED", "false")
+    monkeypatch.setenv("WARNINGS_ENABLED", "false")
+    # And the disk cache goes to a temp dir, so a test profile never lands in
+    # backend/.cache where a real route id could later read it.
+    from app.services import terrain as terrain_service
+
+    monkeypatch.setattr(terrain_service, "CACHE_DIR", tmp_path / "terrain")
+    terrain_service._cache.clear()
+
+
+@pytest.fixture(autouse=True)
 def reset_settings_cache() -> Iterator[None]:
     """Clear the settings cache between tests, but KEEP the engine.
 

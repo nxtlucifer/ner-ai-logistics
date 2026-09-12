@@ -11,7 +11,8 @@ import {
 } from 'react-native'
 
 import { ApiError, NetworkError } from '../api/client'
-import { COLORS, TOUCH_TARGET } from '../theme'
+import { TOUCH_TARGET } from '../theme'
+import { makeStyles, useTheme } from '../theme-context'
 
 export function Button({
   label,
@@ -26,6 +27,8 @@ export function Button({
   disabled?: boolean
   variant?: 'primary' | 'secondary'
 }) {
+  const styles = useStyles()
+  const { colors: COLORS } = useTheme()
   // `busy` disables too - the double-submit guard. On a flaky mobile network a
   // driver will tap twice, and a duplicate verify must never be sent.
   const isOff = disabled || busy
@@ -80,6 +83,8 @@ export function Field({
   onSubmitEditing?: () => void
   returnKeyType?: 'go' | 'done' | 'next'
 }) {
+  const styles = useStyles()
+  const { colors: COLORS } = useTheme()
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
@@ -111,6 +116,8 @@ export function Banner({
   title: string
   detail?: string
 }) {
+  const styles = useStyles()
+  const { colors: COLORS } = useTheme()
   const toneStyle = {
     ok: { bg: COLORS.okBg, border: COLORS.ok, text: COLORS.ok },
     bad: { bg: COLORS.badBg, border: COLORS.badBorder, text: COLORS.bad },
@@ -165,6 +172,8 @@ export function errorMessage(error: unknown): { title: string; detail: string } 
 }
 
 export function Loading({ label }: { label: string }) {
+  const styles = useStyles()
+  const { colors: COLORS } = useTheme()
   return (
     <View style={styles.loading}>
       <ActivityIndicator color={COLORS.muted} />
@@ -174,6 +183,8 @@ export function Loading({ label }: { label: string }) {
 }
 
 export function Row({ label, value }: { label: string; value: ReactNode }) {
+  const styles = useStyles()
+  const { colors: COLORS } = useTheme()
   return (
     <View style={styles.row}>
       <Text style={styles.rowLabel}>{label}</Text>
@@ -182,12 +193,12 @@ export function Row({ label, value }: { label: string; value: ReactNode }) {
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((COLORS) => ({
   button: {
     minHeight: TOUCH_TARGET,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 8,
+    borderRadius: 10,
     backgroundColor: COLORS.accent,
     paddingHorizontal: 20,
   },
@@ -215,7 +226,7 @@ const styles = StyleSheet.create({
     // the old input was the same colour as the panel behind it, so the field
     // was located entirely by its 1px hairline.
     borderColor: COLORS.borderStrong,
-    borderRadius: 8,
+    borderRadius: 10,
     backgroundColor: COLORS.sunken,
     paddingHorizontal: 14,
     color: COLORS.text,
@@ -241,4 +252,4 @@ const styles = StyleSheet.create({
   },
   rowLabel: { color: COLORS.muted, fontSize: 14 },
   rowValue: { color: COLORS.text, fontSize: 15, fontWeight: '600', flexShrink: 1 },
-})
+}))

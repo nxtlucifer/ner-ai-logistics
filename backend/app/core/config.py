@@ -201,7 +201,7 @@ class Settings(BaseSettings):
 
     # --- Gemini Developer API (Server Proxy) ---
     GEMINI_API_KEY: str | None = None
-    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_MODEL: str = "gemini-flash-latest"
     GEMINI_TIMEOUT_SECONDS: float = 8.0
     GEMINI_MAX_OUTPUT_TOKENS: int = 512
     GEMINI_RPM_LIMIT: int = 10
@@ -210,6 +210,36 @@ class Settings(BaseSettings):
     #: reaching the network - for an offline demo, and for tests that must not
     #: depend on anyone's uptime.
     WEATHER_ENABLED: bool = True
+
+    # --- Terrain (DEM) ---
+    #
+    # Same host and same no-key terms as weather: Open-Meteo's elevation
+    # endpoint serves Copernicus DEM GLO-90. It reuses WEATHER_PROVIDER_URL and
+    # WEATHER_TIMEOUT_SECONDS on purpose - one provider, one budget. Off makes
+    # the terrain factor report NOT_AVAILABLE rather than reach the network.
+    TERRAIN_ENABLED: bool = True
+
+    # --- River discharge context (GloFAS via Open-Meteo, no key) ---
+    #
+    # Daily discharge for the corridor's river cells, compared with their own
+    # 30-day mean. Context for the risk engine, never a flood warning - see
+    # app/domain/flood.py. Off makes the factor NOT_AVAILABLE.
+    FLOOD_ENABLED: bool = True
+    FLOOD_PROVIDER_URL: str = "https://flood-api.open-meteo.com"
+
+    # --- Official warnings (NDMA SACHET CAP, public RSS) ---
+    #
+    # Alerts are placed by the district names in their CAP `areaDesc`; the
+    # districts a route crosses come from Nominatim reverse geocoding (one
+    # request per second, cached per route). See app/domain/warnings.py.
+    WARNINGS_ENABLED: bool = True
+    WARNINGS_FEED_URL: str = "https://sachet.ndma.gov.in/cap_public_website/rss/rss_india.xml"
+    WARNINGS_FEED_TTL_SECONDS: int = 600
+    NOMINATIM_URL: str = "https://nominatim.openstreetmap.org"
+
+    # --- Fleet Sentinel Scheduler ---
+    SENTINEL_SCHEDULER_ENABLED: bool = False
+    SENTINEL_SWEEP_INTERVAL_SECONDS: int = 300
 
     # --- Database provider ---
     DATABASE_PROVIDER: DatabaseProvider = "supabase"

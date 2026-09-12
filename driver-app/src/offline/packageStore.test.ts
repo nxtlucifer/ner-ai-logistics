@@ -246,7 +246,17 @@ describe('what the package declares about itself', () => {
     const capturedAt = new Date(NOON).toISOString()
     await store.write(
       pkg({
-        risk: { score: 61, band: 'HIGH', unavailable: ['landslide'], reason_codes: [] },
+        risk: {
+          score: 61,
+          band: 'HIGH',
+          components: [],
+          inputs: { landslide: 'NOT_AVAILABLE' },
+          unavailable: ['landslide'],
+          reason_codes: [],
+          observations_used: 0,
+          observations_stale: 0,
+          assessed_at: capturedAt,
+        },
         risk_captured_at: capturedAt,
       }),
     )

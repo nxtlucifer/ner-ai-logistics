@@ -178,8 +178,16 @@ async def plan(
     actor: User,
     ip: str | None = None,
     detailed: bool = False,
+    origin: RouteCoordinate | None = None,
+    kind: RouteKind = RouteKind.PRIMARY,
 ) -> PlanResult:
     """Plan a PRIMARY route for a trip and persist it.
+
+    `origin` overrides the pickup stop: a driver already under way asks for a
+    road from where the truck IS, and that candidate is stored as the trip's
+    EMERGENCY_BACKUP (`kind`) so it reaches the phone as the backup road and the
+    manager as a candidate. No second option is requested for a non-PRIMARY
+    plan - a backup of a backup is not a choice anyone is offered.
 
     `detailed=True` asks the provider for turn instructions and full geometry,
     producing a candidate that CAN drive navigation. It is a new candidate like
@@ -204,7 +212,8 @@ async def plan(
         )
 
     await trips.get(db, trip_id)  # 404 before anything external is called
-    origin, destination = await _endpoints(db, trip_id)
+    pickup, destination = await _endpoints(db, trip_id)
+    origin = origin or pickup
 
     # Release the database BEFORE calling the provider.
     #
@@ -238,8 +247,8 @@ async def plan(
         result = await build_chain().route_options(
             origin,
             destination,
-            kind=RouteKind.PRIMARY,
-            limit=2,
+            kind=kind,
+            limit=2 if kind is RouteKind.PRIMARY else 1,
             detailed=detailed,
         )
     except RoutingRejected as exc:
@@ -272,7 +281,7 @@ async def plan(
     # a choice. On most NER corridors there is one sensible road and no
     # alternative comes back at all - which is the honest answer, not a gap.
     backup: RouteCandidate | None = None
-    for other in result.candidates[1:]:
+    for other in result.candidates[1:] if kind is RouteKind.PRIMARY else []:
         if is_distinct_corridor(candidate, other):
             backup = other
             break
@@ -370,12 +379,20 @@ async def plan(
         after=audit.snapshot(route, AUDITED_FIELDS),
         reason=(
             f"route planned via {candidate.provider}"
+            + (" from reported position" if origin is not pickup else "")
             + (" (fallback)" if result.used_fallback else "")
         ),
         ip_address=ip,
     )
     await db.commit()
     await db.refresh(route)
+
+    # Which districts this road crosses, looked up now so the first assessment
+    # does not wait on it. Background; a failure only delays the answer.
+    from app.domain.routing import sample_positions
+    from app.services import warnings as warnings_service
+
+    warnings_service.warm(route.id, sample_positions(candidate.geometry, 5))
 
     return PlanResult(
         route=route,

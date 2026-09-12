@@ -8,14 +8,17 @@ how a table silently disappears from a migration.
 
 from app.models.audit import AuditLog
 from app.models.auth import RefreshToken
+from app.models.emergency import Emergency
 from app.models.review import RouteReviewAuthorization
 from app.models.enums import (
     AssignmentStatus,
     AuditAction,
     CargoPriority,
     DocumentStatus,
+    DriverCheckResponse,
     DriverDocumentType,
     DriverStatus,
+    EmergencyState,
     MaintenanceKind,
     RouteKind,
     RouteReviewBasis,
@@ -88,6 +91,9 @@ __all__ = [
     "RouteState",
     "TripEventKind",
     "AuditAction",
+    "Emergency",
+    "EmergencyState",
+    "DriverCheckResponse",
 ]
 
 # Tables created by migration 0002. The RLS test iterates this rather than a
@@ -114,4 +120,12 @@ P2_TABLES: tuple[str, ...] = (
 # that migration created, while the RLS sweep covers everything.
 P3_TABLES: tuple[str, ...] = ("refresh_tokens",)
 
-ALL_APP_TABLES: tuple[str, ...] = P2_TABLES + P3_TABLES
+# Added by migration 0007.
+P7_TABLES: tuple[str, ...] = ("route_review_authorizations",)
+
+# Added by migration 0010.
+P11_TABLES: tuple[str, ...] = ("emergencies",)
+
+ALL_APP_TABLES: tuple[str, ...] = (
+    P2_TABLES + P3_TABLES + P7_TABLES + P11_TABLES
+)

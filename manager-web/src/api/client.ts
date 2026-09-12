@@ -16,6 +16,7 @@
  * the API base URL uses that prefix - never a key or token.
  */
 
+import { markOffline, markOnline } from './connectivity'
 import { getSupabase } from './supabaseClient'
 import { UNAVAILABLE_OPERATIONS, supabaseManagerApi } from './supabaseManagerApi'
 
@@ -95,21 +96,36 @@ interface RequestOptions {
   signal?: AbortSignal
 }
 
+const REQUEST_TIMEOUT_MS = 15_000
+
 async function rawRequest(path: string, options: RequestOptions): Promise<Response> {
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (options.body !== undefined) headers['Content-Type'] = 'application/json'
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`
 
+  // A backend that accepts the connection and never answers (pool exhausted,
+  // upstream database gone) must not hold a page on "Loading…" forever. The
+  // caller's own signal still aborts sooner.
+  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+  const signal =
+    options.signal && typeof AbortSignal.any === 'function'
+      ? AbortSignal.any([options.signal, timeout])
+      : (options.signal ?? timeout)
+
   try {
-    return await fetch(`${API_BASE_URL}${path}`, {
+    const response = await fetch(`${API_BASE_URL}${path}`, {
       method: options.method ?? 'GET',
       headers,
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
       // Required for the HttpOnly refresh cookie to be sent and stored.
       credentials: 'include',
-      signal: options.signal,
+      signal,
     })
+    markOnline()
+    return response
   } catch (cause) {
+    // The caller cancelling is not the backend being away.
+    if (!options.signal?.aborted) markOffline(`${API_BASE_URL}/health`)
     throw new NetworkError(cause)
   }
 }
@@ -447,6 +463,75 @@ export interface TripDetail extends Trip {
   shipment: ShipmentSummary
 }
 
+export type EmergencyState =
+  | 'DRIVER_CHECK_REQUIRED'
+  | 'DRIVER_RESPONDED'
+  | 'SOS_ESCALATED'
+  | 'RESOLVED'
+  | 'FALSE_ALARM'
+
+export type DriverCheckResponse =
+  | 'I_AM_SAFE'
+  | 'TRAFFIC'
+  | 'MECHANICAL_BREAKDOWN'
+  | 'WEATHER_LANDSLIDE'
+  | 'REST_STOP'
+  | 'FUEL_EMPTY'
+  | 'MEDICAL_ISSUE'
+  | 'POLICE_CHECKPOST'
+  | 'ROAD_BLOCKED'
+  | 'NEED_HELP'
+
+export interface BriefingSnapshot {
+  version?: number
+  escalated_at?: string
+  escalation_reason?: string
+  trip_code?: string
+  driver?: {
+    name?: string
+    phone?: string | null
+    emergency_contact_name?: string | null
+    emergency_contact_phone?: string | null
+  }
+  truck?: {
+    registration?: string
+    model?: string | null
+  }
+  cargo?: {
+    priority?: string | null
+    weight_kg?: number | string | null
+  }
+  corridor?: {
+    origin?: string | null
+    destination?: string | null
+  }
+  last_known_location?: {
+    latitude?: number
+    longitude?: number
+    fix_at?: string
+    minutes_stationary?: number
+  }
+  suggested_actions?: string[]
+}
+
+export interface Emergency {
+  id: string
+  trip_id: string
+  state: EmergencyState
+  triggered_at: string
+  stationary_since: string
+  last_gps_point_id?: string | null
+  check_sent_at?: string | null
+  response_deadline_at?: string | null
+  driver_response?: DriverCheckResponse | null
+  responded_at?: string | null
+  escalated_at?: string | null
+  resolved_at?: string | null
+  resolved_by_user_id?: string | null
+  resolution_note?: string | null
+  briefing_snapshot?: BriefingSnapshot | null
+}
+
 export interface Position {
   location: { lat: number; lon: number }
   /** Device clock: when the truck was there. */
@@ -560,6 +645,97 @@ export interface RouteRiskSummary {
   band: 'LOW' | 'MODERATE' | 'HIGH' | 'UNASSESSED'
   unavailable: string[]
   reason_codes: string[]
+  /**
+   * Evidence blocks the engine attaches when it had them. Optional: an older
+   * backend, or a route the DEM could not see, simply omits them.
+   */
+  terrain?: TerrainProfileRead | null
+  landslide_history?: LandslideHistoryRead | null
+  flood?: FloodContextRead | null
+  official_warnings?: OfficialWarningsRead | null
+}
+
+/** NDMA SACHET (CAP) alerts naming a district the corridor crosses. Placement by district name. */
+export interface OfficialWarningRead {
+  identifier: string
+  sender: string
+  event: string
+  severity: string
+  urgency: string
+  headline: string
+  area_desc: string
+  sent: string | null
+  expires: string | null
+}
+
+export interface OfficialWarningsRead {
+  level: 'ACTIVE' | 'CLEAR' | 'UNKNOWN' | string
+  on_route: OfficialWarningRead[]
+  in_states: number
+  considered: number
+  districts: string[]
+  provider: string
+  fetched_at: string | null
+  reason_codes: string[]
+}
+
+/** River discharge along the corridor against its own 30-day mean. Context, not a flood claim. */
+export interface FloodContextRead {
+  level: 'NORMAL' | 'ELEVATED' | 'UNKNOWN' | string
+  ratio_max: number | null
+  provider: string
+  observed_on: string | null
+  cells: number
+  reason_codes: string[]
+}
+
+export interface TerrainSegmentRead {
+  start_m: number
+  end_m: number
+  grade_pct: number
+  terrain_class: 'FLAT' | 'ROLLING' | 'HILLY' | 'STEEP' | string
+}
+
+/** Copernicus DEM profile of one route. `coverage` is how much of it the DEM answered. */
+export interface TerrainProfileRead {
+  source: string
+  fetched_at: string
+  spacing_m: number
+  samples_requested: number
+  samples_answered: number
+  coverage: number
+  usable: boolean
+  min_elevation_m: number | null
+  max_elevation_m: number | null
+  total_ascent_m: number
+  total_descent_m: number
+  max_grade_pct: number
+  steep_km: number
+  class_km: Record<string, number>
+  segments: TerrainSegmentRead[]
+}
+
+export interface LandslideEventRead {
+  latitude: number
+  longitude: number
+  year: number | null
+  name: string | null
+}
+
+/** Recorded-landslide exposure for the corridor. A label, never a probability. */
+export interface LandslideHistoryRead {
+  exposure: 'UNKNOWN' | 'LOW' | 'MODERATE' | 'HIGH' | string
+  data_status: string
+  provider: string | null
+  considered_count: number
+  on_route_count: number
+  imprecise_count: number
+  unlocatable_count: number
+  nearest_km: number | null
+  inventory_from_year: number | null
+  inventory_to_year: number | null
+  reason_codes: string[]
+  events: LandslideEventRead[]
 }
 
 export interface RouteTradeoff {
@@ -1013,6 +1189,18 @@ export const restApi = {
       disclaimer: null,
     }
   },
+  activeEmergencies: () => request<Emergency[]>('/api/emergencies/active'),
+  triggerSentinelSweep: () =>
+    request<Emergency[]>('/api/emergencies/sweep', { method: 'POST' }),
+  resolveEmergency: (
+    emergencyId: string,
+    note?: string,
+    isFalseAlarm?: boolean,
+  ) =>
+    request<Emergency>(`/api/emergencies/${emergencyId}/resolve`, {
+      method: 'POST',
+      body: { note, is_false_alarm: isFalseAlarm ?? false },
+    }),
 }
 
 export type ManagerApi = typeof restApi

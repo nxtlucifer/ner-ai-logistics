@@ -35,6 +35,7 @@
  */
 
 import type { CurrentTrip, OfflineRisk, TripStop } from '../api/client'
+import type { TranslationKey } from '../i18n/appLanguage'
 import type { StoredPackage } from '../offline/packageStore'
 import type { BreakAdvice } from '../safety/breaks'
 import { formatElapsed } from '../safety/breaks'
@@ -48,6 +49,9 @@ export interface AssistantContext {
   tracking: TrackerState | null
   /** Cached route + risk snapshot, or null when nothing was downloaded. */
   offlinePackage: StoredPackage | null
+  /** The live assessment the Navigation screen holds, when the server
+   *  answered. Preferred over the package's snapshot, and labelled live. */
+  liveRisk?: { risk: OfflineRisk; assessedAt: string } | null
   breakAdvice: BreakAdvice
   /** Whether the app currently believes it can reach the server. */
   online: boolean
@@ -59,6 +63,9 @@ export type Intent =
   | 'MY_ROUTE'
   | 'NEXT_STOP'
   | 'ROUTE_RISK'
+  | 'WEATHER'
+  | 'TERRAIN'
+  | 'LANDSLIDE'
   | 'BREAK'
   | 'CONNECTIVITY'
   | 'EMERGENCY'
@@ -141,10 +148,11 @@ export function get_next_stop(ctx: AssistantContext): TripStop | null {
 /** The CACHED risk snapshot. Never a live read - see the module docstring. */
 export function get_route_risk(
   ctx: AssistantContext,
-): { risk: OfflineRisk; capturedAt: string | null } | null {
+): { risk: OfflineRisk; capturedAt: string | null; live: boolean } | null {
+  if (ctx.liveRisk) return { risk: ctx.liveRisk.risk, capturedAt: ctx.liveRisk.assessedAt, live: true }
   const pkg = ctx.offlinePackage?.packageData
   if (!pkg?.risk) return null
-  return { risk: pkg.risk, capturedAt: pkg.risk_captured_at }
+  return { risk: pkg.risk, capturedAt: pkg.risk_captured_at, live: false }
 }
 
 export function get_connectivity_status(ctx: AssistantContext) {
@@ -198,8 +206,9 @@ export type ToolName = keyof typeof TOOLS
 export interface Question {
   id: string
   intent: Intent
-  /** Quick-action label. Short enough for a gloved thumb on a 320 px screen. */
-  label: string
+  /** Key into the app's translation table, so the chips follow the language
+   *  the driver picked. Short enough for a gloved thumb on a 320 px screen. */
+  labelKey: TranslationKey
 }
 
 /**
@@ -211,15 +220,18 @@ export interface Question {
  * universally, and there is no free-text input anywhere in the assistant.
  */
 export const QUESTIONS: readonly Question[] = [
-  { id: 'q-route', intent: 'MY_ROUTE', label: 'My route' },
-  { id: 'q-stop', intent: 'NEXT_STOP', label: 'Next stop' },
-  { id: 'q-risk', intent: 'ROUTE_RISK', label: 'Is my route risky?' },
-  { id: 'q-break', intent: 'BREAK', label: 'Do I need a break?' },
-  { id: 'q-trip', intent: 'MY_TRIP', label: 'My trip' },
-  { id: 'q-net', intent: 'CONNECTIVITY', label: 'Am I online?' },
-  { id: 'q-safety', intent: 'EMERGENCY', label: 'Emergency help' },
-  { id: 'q-talk', intent: 'TRANSLATE', label: 'Help me talk' },
-  { id: 'q-vehicle', intent: 'VEHICLE_ISSUE', label: 'Truck problem' },
+  { id: 'q-route', intent: 'MY_ROUTE', labelKey: 'ask_route' },
+  { id: 'q-stop', intent: 'NEXT_STOP', labelKey: 'ask_stop' },
+  { id: 'q-risk', intent: 'ROUTE_RISK', labelKey: 'ask_risk' },
+  { id: 'q-weather', intent: 'WEATHER', labelKey: 'ask_weather' },
+  { id: 'q-terrain', intent: 'TERRAIN', labelKey: 'ask_terrain' },
+  { id: 'q-slide', intent: 'LANDSLIDE', labelKey: 'ask_landslide' },
+  { id: 'q-break', intent: 'BREAK', labelKey: 'ask_break' },
+  { id: 'q-trip', intent: 'MY_TRIP', labelKey: 'ask_trip' },
+  { id: 'q-net', intent: 'CONNECTIVITY', labelKey: 'ask_online' },
+  { id: 'q-safety', intent: 'EMERGENCY', labelKey: 'ask_emergency' },
+  { id: 'q-talk', intent: 'TRANSLATE', labelKey: 'ask_talk' },
+  { id: 'q-vehicle', intent: 'VEHICLE_ISSUE', labelKey: 'ask_truck' },
 ] as const
 
 // --- Resolver -------------------------------------------------------------
@@ -367,21 +379,85 @@ function answerRouteRisk(ctx: AssistantContext): Answer {
       { code: 'RISK_SCORE', label: 'Score', value: `${found.risk.score}/100` },
     ],
     reasonCodes: found.risk.reason_codes ?? [],
-    freshness:
-      age === null
-        ? null
-        : {
-            ageMinutes: age,
-            // ALWAYS cached. This is a stored snapshot by construction.
-            cached: true,
-            stale: ctx.offlinePackage?.freshness === 'STALE',
-          },
+    freshness: riskFreshness(ctx, found.live, age),
     // The important one. A driver may not change route, and the assistant
     // says so rather than offering a control that would fail.
     allowedActions: ['CONTACT_DISPATCH'],
     // The datasets the score was made WITHOUT travel with the score.
     unavailable: found.risk.unavailable ?? [],
   }
+}
+
+function riskFreshness(ctx: AssistantContext, live: boolean, age: number | null): Freshness | null {
+  if (age === null) return null
+  return {
+    ageMinutes: age,
+    // A stored snapshot is cached by construction; the live read is not.
+    cached: !live,
+    stale: !live && ctx.offlinePackage?.freshness === 'STALE',
+  }
+}
+
+/** The three evidence questions. Each answers ONLY from the block the engine
+ *  shipped for it, and says "not available" when that block is missing. */
+function answerEvidence(ctx: AssistantContext, intent: 'WEATHER' | 'TERRAIN' | 'LANDSLIDE'): Answer {
+  const found = get_route_risk(ctx)
+  const headline = { WEATHER: 'Weather on the route', TERRAIN: 'Terrain on the route', LANDSLIDE: 'Landslide exposure' }[intent]
+  if (!found) {
+    return {
+      intent,
+      headline: `${headline}: not available`,
+      facts: [],
+      reasonCodes: [],
+      freshness: null,
+      allowedActions: ['CONTACT_DISPATCH'],
+      unavailable: ['ROUTE_RISK'],
+    }
+  }
+  const risk = found.risk
+  const captured = found.capturedAt ? Date.parse(found.capturedAt) : null
+  const freshness = riskFreshness(ctx, found.live, minutesSince(Number.isNaN(captured) ? null : captured, ctx.now))
+  const codes = risk.reason_codes ?? []
+  const facts: Fact[] = []
+  const unavailable: string[] = []
+
+  if (intent === 'WEATHER') {
+    if (risk.inputs?.weather === 'AVAILABLE') {
+      facts.push({ code: 'WEATHER_OBS', label: 'Observations', value: `${risk.observations_used}${risk.observations_stale ? ` (${risk.observations_stale} stale)` : ''}` })
+      const rain = codes.includes('HEAVY_RAIN_ON_ROUTE') ? 'heavy' : codes.includes('MODERATE_RAIN_ON_ROUTE') ? 'moderate' : 'none reported'
+      facts.push({ code: 'RAIN', label: 'Rain on route', value: rain })
+      if (codes.includes('HIGH_WIND_GUSTS')) facts.push({ code: 'WIND', label: 'Wind', value: 'high gusts' })
+    } else {
+      unavailable.push('WEATHER')
+    }
+    return { intent, headline, facts, reasonCodes: codes.filter((c) => /RAIN|WIND|WEATHER/.test(c)), freshness, allowedActions: [], unavailable }
+  }
+
+  if (intent === 'TERRAIN') {
+    const t = risk.terrain
+    if (t?.usable) {
+      facts.push({ code: 'ELEVATION', label: 'Elevation', value: `${Math.round(t.min_elevation_m ?? 0)}–${Math.round(t.max_elevation_m ?? 0)} m` })
+      facts.push({ code: 'CLIMB', label: 'Total climb', value: `${Math.round(t.total_ascent_m)} m` })
+      facts.push({ code: 'STEEPEST', label: 'Steepest', value: `${t.max_grade_pct.toFixed(1)}%` })
+      facts.push({ code: 'STEEP_KM', label: 'Steep (10%+)', value: `${(t.class_km?.STEEP ?? 0).toFixed(1)} km` })
+      facts.push({ code: 'HILLY_KM', label: 'Hilly (6–10%)', value: `${(t.class_km?.HILLY ?? 0).toFixed(1)} km` })
+    } else {
+      unavailable.push('TERRAIN')
+    }
+    return { intent, headline, facts, reasonCodes: codes.filter((c) => /TERRAIN|GRADIENT/.test(c)), freshness, allowedActions: [], unavailable }
+  }
+
+  const h = risk.landslide_history
+  if (h) {
+    facts.push({ code: 'EXPOSURE', label: 'Historical exposure', value: h.exposure })
+    facts.push({ code: 'SITES', label: 'Recorded sites within 5 km', value: String(h.on_route_count) })
+    if (h.nearest_km != null) facts.push({ code: 'NEAREST', label: 'Nearest site', value: `${h.nearest_km} km from the road` })
+    facts.push({ code: 'INVENTORY', label: 'Inventory', value: `${h.inventory_from_year ?? '?'}–${h.inventory_to_year ?? '?'} (history, not a current feed)` })
+  } else {
+    unavailable.push('LANDSLIDE_HISTORY')
+  }
+  if (risk.inputs?.landslide !== 'AVAILABLE') unavailable.push('CURRENT_LANDSLIDE_INCIDENTS')
+  return { intent, headline, facts, reasonCodes: codes.filter((c) => /LANDSLIDE/.test(c)), freshness, allowedActions: ['CONTACT_DISPATCH'], unavailable }
 }
 
 function answerBreak(ctx: AssistantContext): Answer {
@@ -537,6 +613,10 @@ export function answer(intent: Intent, ctx: AssistantContext): Answer {
       return answerNextStop(ctx)
     case 'ROUTE_RISK':
       return answerRouteRisk(ctx)
+    case 'WEATHER':
+    case 'TERRAIN':
+    case 'LANDSLIDE':
+      return answerEvidence(ctx, intent)
     case 'BREAK':
       return answerBreak(ctx)
     case 'CONNECTIVITY':
@@ -550,7 +630,7 @@ export function answer(intent: Intent, ctx: AssistantContext): Answer {
     default:
       return {
         intent: 'UNKNOWN',
-        headline: 'I do not know that one',
+        headline: 'I can help with route, weather, terrain, landslide exposure, stops, breaks, the truck and emergencies.',
         facts: [],
         reasonCodes: [],
         freshness: null,

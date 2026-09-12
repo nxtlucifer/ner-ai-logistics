@@ -74,51 +74,56 @@ function Triangle({
   )
 }
 
-/** Navigate: a course arrow, tilted the way a heading marker sits. */
+/** Navigate: a course arrow inside a ring - the "start navigation" button. */
 export function NavigateIcon({ size = 22, color }: IconProps) {
   return (
-    <View style={box(size)}>
+    <View style={[box(size), { borderWidth: 1.8, borderColor: color, borderRadius: size / 2 }]}>
       <Triangle
-        w={size * 0.72}
-        h={size * 0.86}
+        w={size * 0.42}
+        h={size * 0.5}
         color={color}
-        style={{ transform: [{ rotate: '32deg' }] }}
+        style={{ transform: [{ rotate: '32deg' }, { translateX: -size * 0.03 }] }}
       />
     </View>
   )
 }
 
-/** Trip: a clipboard - a sheet with a clip at the head and two written lines. */
+/** Trip: a small truck - cargo box, cab, two wheels. */
 export function TripIcon({ size = 22, color }: IconProps) {
-  const w = size * 0.72
-  const h = size * 0.88
+  const wheel = size * 0.26
+  const body = size * 0.5
   return (
     <View style={box(size)}>
-      <View
-        style={{
-          width: w,
-          height: h,
-          borderWidth: 1.8,
-          borderColor: color,
-          borderRadius: 3,
-          paddingTop: h * 0.28,
-          alignItems: 'center',
-          gap: 2.5,
-        }}
-      >
-        <View style={{ width: w * 0.52, height: 1.8, backgroundColor: color }} />
-        <View style={{ width: w * 0.52, height: 1.8, backgroundColor: color }} />
+      <View style={{ flexDirection: 'row', alignItems: 'flex-end', marginBottom: wheel * 0.55 }}>
+        <View style={{ width: size * 0.52, height: body, borderWidth: 1.8, borderColor: color, borderRadius: 2 }} />
+        <View
+          style={{
+            width: size * 0.34,
+            height: body * 0.72,
+            borderWidth: 1.8,
+            borderLeftWidth: 0,
+            borderColor: color,
+            borderTopRightRadius: size * 0.16,
+            borderBottomRightRadius: 2,
+          }}
+        />
       </View>
-      <View
-        style={{
-          position: 'absolute',
-          top: (size - h) / 2 - 2,
-          width: w * 0.46,
-          height: 5,
-          borderRadius: 1.5,
-          backgroundColor: color,
-        }}
-      />
+      {[0.14, 0.62].map((x) => (
+        <View
+          key={x}
+          style={{
+            position: 'absolute',
+            bottom: size * 0.04,
+            left: size * x,
+            width: wheel,
+            height: wheel,
+            borderRadius: wheel / 2,
+            borderWidth: 1.8,
+            borderColor: color,
+            backgroundColor: 'transparent',
+          }}
+        />
+      ))}
     </View>
   )
 }
@@ -316,6 +321,26 @@ export function AudioIcon({ size = 22, color, muted = false }: IconProps & { mut
           }}
         />
       ) : null}
+    </View>
+  )
+}
+
+/** More: a 2x2 grid. Same drawn-geometry family as the other tabs - see the
+ *  note at the top of this file on why no emoji glyph is used here. */
+export function MoreIcon({ size = 22, color }: IconProps) {
+  const d = size * 0.32
+  const gap = size * 0.12
+  const dot = { width: d, height: d, borderRadius: 2, backgroundColor: color }
+  return (
+    <View style={{ width: size, height: size, justifyContent: 'center', alignItems: 'center' }}>
+      <View style={{ flexDirection: 'row', gap }}>
+        <View style={dot} />
+        <View style={dot} />
+      </View>
+      <View style={{ flexDirection: 'row', gap, marginTop: gap }}>
+        <View style={dot} />
+        <View style={dot} />
+      </View>
     </View>
   )
 }

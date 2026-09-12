@@ -136,6 +136,46 @@ class BoundingBox:
         )
 
 
+def corridor_windows(
+    route: list[tuple[float, float]], *, pad_deg: float = 0.03
+) -> list[BoundingBox]:
+    """Bounded search windows covering a route, each within MAX_BBOX_DEGREES.
+
+    A 300 km road is one request for a phone but never one box for a
+    provider: the route is walked and cut whenever the next vertex would push
+    the padded window past the limit. Consecutive windows overlap by their
+    padding, so a place on the cut itself is found by both and deduplicated
+    later rather than missed by each. `pad_deg` ~ 3 km at this latitude, the
+    corridor width the filter uses downstream.
+    """
+    windows: list[BoundingBox] = []
+    span = MAX_BBOX_DEGREES - 2 * pad_deg
+    chunk: list[tuple[float, float]] = []
+    for lat, lon in route:
+        candidate = chunk + [(lat, lon)]
+        lats = [p[0] for p in candidate]
+        lons = [p[1] for p in candidate]
+        if chunk and (max(lats) - min(lats) > span or max(lons) - min(lons) > span):
+            windows.append(_padded(chunk, pad_deg))
+            chunk = [chunk[-1], (lat, lon)]  # the cut segment belongs to both
+        else:
+            chunk = candidate
+    if chunk:
+        windows.append(_padded(chunk, pad_deg))
+    return windows
+
+
+def _padded(points: list[tuple[float, float]], pad_deg: float) -> BoundingBox:
+    lats = [p[0] for p in points]
+    lons = [p[1] for p in points]
+    return BoundingBox(
+        min_lat=max(-90.0, min(lats) - pad_deg),
+        min_lon=max(-180.0, min(lons) - pad_deg),
+        max_lat=min(90.0, max(lats) + pad_deg),
+        max_lon=min(180.0, max(lons) + pad_deg),
+    )
+
+
 @dataclass(frozen=True)
 class PlaceContact:
     """Contact facts, each independently absent.

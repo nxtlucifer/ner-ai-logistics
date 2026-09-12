@@ -15,7 +15,9 @@ from pydantic import Field, field_validator, model_validator
 from app.models.enums import (
     AssignmentStatus,
     CargoPriority,
+    DriverCheckResponse,
     DriverStatus,
+    EmergencyState,
     ShipmentStatus,
     TripStatus,
     TripStopKind,
@@ -430,3 +432,29 @@ class GpsBatchAccepted(ReadModel):
     #: Advisory sanity signals. Never a rejection - see docs/SECURITY.md §8.
     anomalies: list[str] = []
     server_time: datetime
+
+
+# --- Emergency -----------------------------------------------------------
+
+
+class EmergencyRead(ReadModel):
+    id: uuid.UUID
+    trip_id: uuid.UUID
+    state: EmergencyState
+    triggered_at: datetime
+    stationary_since: datetime
+    last_gps_point_id: uuid.UUID | None = None
+    check_sent_at: datetime | None = None
+    response_deadline_at: datetime | None = None
+    driver_response: DriverCheckResponse | None = None
+    responded_at: datetime | None = None
+    escalated_at: datetime | None = None
+    resolved_at: datetime | None = None
+    resolved_by_user_id: uuid.UUID | None = None
+    resolution_note: str | None = None
+    briefing_snapshot: dict[str, object] | None = None
+
+
+class EmergencyResolve(APIModel):
+    note: Annotated[str, Field(min_length=1, max_length=1000)] | None = None
+    is_false_alarm: bool = False

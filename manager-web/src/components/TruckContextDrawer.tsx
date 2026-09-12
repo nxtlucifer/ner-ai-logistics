@@ -46,8 +46,12 @@ export function TruckContextDrawer({
 
   const freshnessStyle = FRESHNESS_BADGE[trip.freshness] ?? FRESHNESS_BADGE.NO_LOCATION
 
+  // Solid surface, not 90% + backdrop-blur. Terrain rules out heavy glass blur,
+  // and here it was also costing legibility for nothing: this drawer sits over a
+  // moving map, so every truck marker that passed under it swam behind the
+  // driver name and the fix timestamp.
   return (
-    <div className="rounded-xl border border-line bg-surface/90 p-4 shadow-md backdrop-blur-md space-y-4">
+    <div className="rounded-[var(--radius-card)] border border-line bg-surface p-4 shadow-[var(--shadow-panel)] space-y-4">
       {/* Header bar */}
       <div className="flex items-center justify-between border-b border-line pb-3">
         <div className="flex items-center gap-3">

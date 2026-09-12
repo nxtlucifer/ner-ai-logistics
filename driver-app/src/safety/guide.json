@@ -32,12 +32,12 @@
     "read it. The app shows the disclaimer on screen rather than burying it",
     "in this comment."
   ],
-  "version": "safety-guide-v1",
-  "revised": "2026-09-04",
+  "version": "safety-guide-v2",
+  "revised": "2026-09-12",
   "disclaimer": {
-    "en": "General first-aid guidance only. Not a diagnosis, and not a substitute for emergency services or a doctor.",
-    "hi": "यह केवल सामान्य प्राथमिक उपचार जानकारी है। यह निदान नहीं है और आपातकालीन सेवा या डॉक्टर का विकल्प नहीं है।",
-    "as": "ই কেৱল সাধাৰণ প্ৰাথমিক চিকিৎসাৰ তথ্য। ই ৰোগ নিৰ্ণয় নহয় আৰু জৰুৰীকালীন সেৱা বা চিকিৎসকৰ বিকল্প নহয়।"
+    "en": "General first-aid and road-safety guidance only. Not a diagnosis, and not a substitute for emergency services or a doctor.",
+    "hi": "यह केवल सामान्य प्राथमिक उपचार और सड़क-सुरक्षा जानकारी है। यह निदान नहीं है और आपातकालीन सेवा या डॉक्टर का विकल्प नहीं है।",
+    "as": "ই কেৱল সাধাৰণ প্ৰাথমিক চিকিৎসা আৰু পথ-সুৰক্ষাৰ তথ্য। ই ৰোগ নিৰ্ণয় নহয় আৰু জৰুৰীকালীন সেৱা বা চিকিৎসকৰ বিকল্প নহয়।"
   },
   "emergency": {
     "banner": {
@@ -98,6 +98,18 @@
       "name": "NHS - Stroke symptoms (FAST)",
       "url": "https://www.nhs.uk/conditions/stroke/symptoms/",
       "retrieved": "2026-09-04"
+    },
+    {
+      "id": "ndma-landslide",
+      "name": "NDMA India - Landslides: do's and don'ts",
+      "url": "https://ndma.gov.in/Natural-Hazards/Landslide",
+      "retrieved": "2026-09-12"
+    },
+    {
+      "id": "ndma-floods",
+      "name": "NDMA India - Floods: do's and don'ts",
+      "url": "https://ndma.gov.in/Natural-Hazards/Floods",
+      "retrieved": "2026-09-12"
     }
   ],
   "topics": [
@@ -107,21 +119,57 @@
       "escalate": [],
       "en": {
         "title": "Severe bleeding",
-        "recognise": ["Blood soaking through clothing", "Blood spurting from the wound", "Bleeding that will not stop"],
-        "do": ["Press hard directly on the wound with the cleanest cloth you have.", "Keep pressing. Do not lift the cloth to look.", "Put more cloth on top if it soaks through.", "Lay the person down and raise the injured part if you can."],
-        "avoid": ["Do not pull out anything stuck in the wound - press around it.", "Do not use a tourniquet unless you have been trained."]
+        "recognise": [
+          "Blood soaking through clothing",
+          "Blood spurting from the wound",
+          "Bleeding that will not stop"
+        ],
+        "do": [
+          "Press hard directly on the wound with the cleanest cloth you have.",
+          "Keep pressing. Do not lift the cloth to look.",
+          "Put more cloth on top if it soaks through.",
+          "Lay the person down and raise the injured part if you can."
+        ],
+        "avoid": [
+          "Do not pull out anything stuck in the wound - press around it.",
+          "Do not use a tourniquet unless you have been trained."
+        ]
       },
       "hi": {
         "title": "अत्यधिक रक्तस्राव",
-        "recognise": ["कपड़ों से खून रिस रहा हो", "घाव से खून की धार निकल रही हो", "खून बंद न हो रहा हो"],
-        "do": ["सबसे साफ कपड़े से घाव पर सीधे ज़ोर से दबाएँ।", "दबाते रहें। देखने के लिए कपड़ा न हटाएँ।", "कपड़ा भीग जाए तो ऊपर और कपड़ा रखें।", "व्यक्ति को लिटाएँ और हो सके तो घायल हिस्सा ऊपर उठाएँ।"],
-        "avoid": ["घाव में धँसी चीज़ बाहर न निकालें - उसके चारों ओर दबाएँ।", "प्रशिक्षण के बिना टूर्निकेट का प्रयोग न करें।"]
+        "recognise": [
+          "कपड़ों से खून रिस रहा हो",
+          "घाव से खून की धार निकल रही हो",
+          "खून बंद न हो रहा हो"
+        ],
+        "do": [
+          "सबसे साफ कपड़े से घाव पर सीधे ज़ोर से दबाएँ।",
+          "दबाते रहें। देखने के लिए कपड़ा न हटाएँ।",
+          "कपड़ा भीग जाए तो ऊपर और कपड़ा रखें।",
+          "व्यक्ति को लिटाएँ और हो सके तो घायल हिस्सा ऊपर उठाएँ।"
+        ],
+        "avoid": [
+          "घाव में धँसी चीज़ बाहर न निकालें - उसके चारों ओर दबाएँ।",
+          "प्रशिक्षण के बिना टूर्निकेट का प्रयोग न करें।"
+        ]
       },
       "as": {
         "title": "গুৰুতৰ ৰক্তক্ষৰণ",
-        "recognise": ["কাপোৰেৰে তেজ ওলাই আছে", "ঘাৰ পৰা তেজ বেগেৰে ওলাই আছে", "তেজ ওলোৱা বন্ধ হোৱা নাই"],
-        "do": ["আটাইতকৈ পৰিষ্কাৰ কাপোৰেৰে ঘাটোত পোনপটীয়াকৈ জোৰেৰে হেঁচা দিয়ক।", "হেঁচা দি থাকক। চাবলৈ কাপোৰখন নুতুলিব।", "কাপোৰ তিতিলে ওপৰত আৰু কাপোৰ দিয়ক।", "ব্যক্তিজনক শুৱাই দিয়ক আৰু পাৰিলে আঘাতপ্ৰাপ্ত অংশ ওপৰলৈ তুলি ধৰক।"],
-        "avoid": ["ঘাত সোমাই থকা বস্তু উলিয়াই নানিব - ইয়াৰ চাৰিওফালে হেঁচা দিয়ক।", "প্ৰশিক্ষণ নোহোৱাকৈ টাৰ্নিকেট ব্যৱহাৰ নকৰিব।"]
+        "recognise": [
+          "কাপোৰেৰে তেজ ওলাই আছে",
+          "ঘাৰ পৰা তেজ বেগেৰে ওলাই আছে",
+          "তেজ ওলোৱা বন্ধ হোৱা নাই"
+        ],
+        "do": [
+          "আটাইতকৈ পৰিষ্কাৰ কাপোৰেৰে ঘাটোত পোনপটীয়াকৈ জোৰেৰে হেঁচা দিয়ক।",
+          "হেঁচা দি থাকক। চাবলৈ কাপোৰখন নুতুলিব।",
+          "কাপোৰ তিতিলে ওপৰত আৰু কাপোৰ দিয়ক।",
+          "ব্যক্তিজনক শুৱাই দিয়ক আৰু পাৰিলে আঘাতপ্ৰাপ্ত অংশ ওপৰলৈ তুলি ধৰক।"
+        ],
+        "avoid": [
+          "ঘাত সোমাই থকা বস্তু উলিয়াই নানিব - ইয়াৰ চাৰিওফালে হেঁচা দিয়ক।",
+          "প্ৰশিক্ষণ নোহোৱাকৈ টাৰ্নিকেট ব্যৱহাৰ নকৰিব।"
+        ]
       }
     },
     {
@@ -130,21 +178,60 @@
       "escalate": [],
       "en": {
         "title": "Suspected heart attack",
-        "recognise": ["Chest pain, pressure or tightness", "Pain spreading to arm, jaw, neck or back", "Cold sweat, feeling sick, short of breath"],
-        "do": ["Stop driving safely and stay stopped.", "Sit down and rest. Do not walk about.", "Loosen tight clothing.", "Call 112."],
-        "avoid": ["Do not drive yourself, and do not let them drive.", "Do not dismiss it as indigestion.", "Do not take any medicine unless a doctor has already prescribed it to you."]
+        "recognise": [
+          "Chest pain, pressure or tightness",
+          "Pain spreading to arm, jaw, neck or back",
+          "Cold sweat, feeling sick, short of breath"
+        ],
+        "do": [
+          "Stop driving safely and stay stopped.",
+          "Sit down and rest. Do not walk about.",
+          "Loosen tight clothing.",
+          "Call 112."
+        ],
+        "avoid": [
+          "Do not drive yourself, and do not let them drive.",
+          "Do not dismiss it as indigestion.",
+          "Do not take any medicine unless a doctor has already prescribed it to you."
+        ]
       },
       "hi": {
         "title": "दिल का दौरा होने की आशंका",
-        "recognise": ["छाती में दर्द, दबाव या जकड़न", "दर्द का बाँह, जबड़े, गर्दन या पीठ तक फैलना", "ठंडा पसीना, जी मिचलाना, साँस फूलना"],
-        "do": ["सुरक्षित जगह पर गाड़ी रोकें और रुके रहें।", "बैठ जाएँ और आराम करें। चलें-फिरें नहीं।", "तंग कपड़े ढीले करें।", "112 पर कॉल करें।"],
-        "avoid": ["खुद गाड़ी न चलाएँ और न ही उन्हें चलाने दें।", "इसे गैस या बदहज़मी समझकर टालें नहीं।", "कोई भी दवा न लें, जब तक डॉक्टर ने पहले से न दी हो।"]
+        "recognise": [
+          "छाती में दर्द, दबाव या जकड़न",
+          "दर्द का बाँह, जबड़े, गर्दन या पीठ तक फैलना",
+          "ठंडा पसीना, जी मिचलाना, साँस फूलना"
+        ],
+        "do": [
+          "सुरक्षित जगह पर गाड़ी रोकें और रुके रहें।",
+          "बैठ जाएँ और आराम करें। चलें-फिरें नहीं।",
+          "तंग कपड़े ढीले करें।",
+          "112 पर कॉल करें।"
+        ],
+        "avoid": [
+          "खुद गाड़ी न चलाएँ और न ही उन्हें चलाने दें।",
+          "इसे गैस या बदहज़मी समझकर टालें नहीं।",
+          "कोई भी दवा न लें, जब तक डॉक्टर ने पहले से न दी हो।"
+        ]
       },
       "as": {
         "title": "হৃদৰোগৰ আক্ৰমণৰ সন্দেহ",
-        "recognise": ["বুকুত বিষ, হেঁচা বা জাপ লগা অনুভৱ", "বিষ বাহু, চেঁচৰ, ডিঙি বা পিঠিলৈ বিয়পা", "ঠাণ্ডা ঘাম, বমি ভাব, উশাহত কষ্ট"],
-        "do": ["নিৰাপদ ঠাইত গাড়ী ৰাখক আৰু ৰৈ থাকক।", "বহি জিৰণি লওক। ইফালে সিফালে নাফুৰিব।", "টান কাপোৰ ঢিলা কৰক।", "১১২ নম্বৰত ফোন কৰক।"],
-        "avoid": ["নিজে গাড়ী নচলাব আৰু তেওঁকো চলাব নিদিব।", "ইয়াক হজম নোহোৱাৰ সমস্যা বুলি এৰি নিদিব।", "চিকিৎসকে আগতে দিয়া নাথাকিলে কোনো ঔষধ নাখাব।"]
+        "recognise": [
+          "বুকুত বিষ, হেঁচা বা জাপ লগা অনুভৱ",
+          "বিষ বাহু, চেঁচৰ, ডিঙি বা পিঠিলৈ বিয়পা",
+          "ঠাণ্ডা ঘাম, বমি ভাব, উশাহত কষ্ট"
+        ],
+        "do": [
+          "নিৰাপদ ঠাইত গাড়ী ৰাখক আৰু ৰৈ থাকক।",
+          "বহি জিৰণি লওক। ইফালে সিফালে নাফুৰিব।",
+          "টান কাপোৰ ঢিলা কৰক।",
+          "১১২ নম্বৰত ফোন কৰক।"
+        ],
+        "avoid": [
+          "নিজে গাড়ী নচলাব আৰু তেওঁকো চলাব নিদিব।",
+          "ইয়াক হজম নোহোৱাৰ সমস্যা বুলি এৰি নিদিব।",
+          "চিকিৎসকে আগতে দিয়া নাথাকিলে কোনো ঔষধ নাখাব।"
+        ]
       }
     },
     {
@@ -153,21 +240,57 @@
       "escalate": [],
       "en": {
         "title": "Suspected stroke - FAST",
-        "recognise": ["Face: has one side drooped? Ask them to smile.", "Arms: can they raise both arms and keep them up?", "Speech: is it slurred or muddled?", "Time: note when the symptoms started, and call 112."],
-        "do": ["Call 112 immediately - say you suspect a stroke.", "Write down the time the symptoms started.", "Keep them sitting or lying comfortably and stay with them."],
-        "avoid": ["Do not drive them yourself.", "Do not give food or drink - swallowing may be affected."]
+        "recognise": [
+          "Face: has one side drooped? Ask them to smile.",
+          "Arms: can they raise both arms and keep them up?",
+          "Speech: is it slurred or muddled?",
+          "Time: note when the symptoms started, and call 112."
+        ],
+        "do": [
+          "Call 112 immediately - say you suspect a stroke.",
+          "Write down the time the symptoms started.",
+          "Keep them sitting or lying comfortably and stay with them."
+        ],
+        "avoid": [
+          "Do not drive them yourself.",
+          "Do not give food or drink - swallowing may be affected."
+        ]
       },
       "hi": {
         "title": "लकवे (स्ट्रोक) की आशंका - FAST",
-        "recognise": ["चेहरा: क्या एक तरफ लटक गया है? मुस्कुराने को कहें।", "बाँहें: क्या वे दोनों बाँहें उठाकर रोक पाते हैं?", "बोली: क्या आवाज़ लड़खड़ा रही है?", "समय: लक्षण शुरू होने का समय नोट करें और 112 पर कॉल करें।"],
-        "do": ["तुरंत 112 पर कॉल करें - कहें कि स्ट्रोक की आशंका है।", "लक्षण शुरू होने का समय लिख लें।", "उन्हें आराम से बैठाकर या लिटाकर साथ रहें।"],
-        "avoid": ["उन्हें खुद गाड़ी में लेकर न जाएँ।", "कुछ खाने या पीने को न दें - निगलने में दिक्कत हो सकती है।"]
+        "recognise": [
+          "चेहरा: क्या एक तरफ लटक गया है? मुस्कुराने को कहें।",
+          "बाँहें: क्या वे दोनों बाँहें उठाकर रोक पाते हैं?",
+          "बोली: क्या आवाज़ लड़खड़ा रही है?",
+          "समय: लक्षण शुरू होने का समय नोट करें और 112 पर कॉल करें।"
+        ],
+        "do": [
+          "तुरंत 112 पर कॉल करें - कहें कि स्ट्रोक की आशंका है।",
+          "लक्षण शुरू होने का समय लिख लें।",
+          "उन्हें आराम से बैठाकर या लिटाकर साथ रहें।"
+        ],
+        "avoid": [
+          "उन्हें खुद गाड़ी में लेकर न जाएँ।",
+          "कुछ खाने या पीने को न दें - निगलने में दिक्कत हो सकती है।"
+        ]
       },
       "as": {
         "title": "ষ্ট্ৰোকৰ সন্দেহ - FAST",
-        "recognise": ["মুখ: এফালে জোপ খাইছে নেকি? হাঁহিবলৈ কওক।", "বাহু: দুয়োখন বাহু তুলি ৰাখিব পাৰেনে?", "কথা: কথা জৰি গৈছে বা বেমেজালি হৈছে নেকি?", "সময়: লক্ষণ আৰম্ভ হোৱা সময় টুকি লওক আৰু ১১২ ত ফোন কৰক।"],
-        "do": ["লগে লগে ১১২ ত ফোন কৰক - ষ্ট্ৰোকৰ সন্দেহ বুলি কওক।", "লক্ষণ আৰম্ভ হোৱা সময়টো লিখি থওক।", "তেওঁক আৰামেৰে বহুৱাই বা শুৱাই লগত থাকক।"],
-        "avoid": ["নিজে গাড়ীৰে তেওঁক লৈ নাযাব।", "খাবলৈ বা পান কৰিবলৈ নিদিব - ঢোক গিলাত অসুবিধা হ'ব পাৰে।"]
+        "recognise": [
+          "মুখ: এফালে জোপ খাইছে নেকি? হাঁহিবলৈ কওক।",
+          "বাহু: দুয়োখন বাহু তুলি ৰাখিব পাৰেনে?",
+          "কথা: কথা জৰি গৈছে বা বেমেজালি হৈছে নেকি?",
+          "সময়: লক্ষণ আৰম্ভ হোৱা সময় টুকি লওক আৰু ১১২ ত ফোন কৰক।"
+        ],
+        "do": [
+          "লগে লগে ১১২ ত ফোন কৰক - ষ্ট্ৰোকৰ সন্দেহ বুলি কওক।",
+          "লক্ষণ আৰম্ভ হোৱা সময়টো লিখি থওক।",
+          "তেওঁক আৰামেৰে বহুৱাই বা শুৱাই লগত থাকক।"
+        ],
+        "avoid": [
+          "নিজে গাড়ীৰে তেওঁক লৈ নাযাব।",
+          "খাবলৈ বা পান কৰিবলৈ নিদিব - ঢোক গিলাত অসুবিধা হ'ব পাৰে।"
+        ]
       }
     },
     {
@@ -176,21 +299,51 @@
       "escalate": [],
       "en": {
         "title": "Someone is unconscious",
-        "recognise": ["No response when you speak loudly or tap their shoulders"],
-        "do": ["Check whether they are breathing normally.", "If they are breathing, roll them onto their side and tilt the head back so the airway stays open.", "Call 112.", "Stay with them and keep checking their breathing."],
-        "avoid": ["Do not put anything in their mouth.", "Do not move them if a neck or back injury is possible, unless where they lie is dangerous."]
+        "recognise": [
+          "No response when you speak loudly or tap their shoulders"
+        ],
+        "do": [
+          "Check whether they are breathing normally.",
+          "If they are breathing, roll them onto their side and tilt the head back so the airway stays open.",
+          "Call 112.",
+          "Stay with them and keep checking their breathing."
+        ],
+        "avoid": [
+          "Do not put anything in their mouth.",
+          "Do not move them if a neck or back injury is possible, unless where they lie is dangerous."
+        ]
       },
       "hi": {
         "title": "कोई बेहोश हो जाए",
-        "recognise": ["ज़ोर से बुलाने या कंधा थपथपाने पर कोई प्रतिक्रिया न हो"],
-        "do": ["देखें कि साँस सामान्य चल रही है या नहीं।", "साँस चल रही हो तो करवट पर लिटाएँ और सिर पीछे झुकाएँ ताकि साँस की नली खुली रहे।", "112 पर कॉल करें।", "साथ रहें और साँस जाँचते रहें।"],
-        "avoid": ["उनके मुँह में कुछ न डालें।", "गर्दन या पीठ में चोट की आशंका हो तो उन्हें हिलाएँ नहीं, जब तक वहाँ पड़े रहना खतरनाक न हो।"]
+        "recognise": [
+          "ज़ोर से बुलाने या कंधा थपथपाने पर कोई प्रतिक्रिया न हो"
+        ],
+        "do": [
+          "देखें कि साँस सामान्य चल रही है या नहीं।",
+          "साँस चल रही हो तो करवट पर लिटाएँ और सिर पीछे झुकाएँ ताकि साँस की नली खुली रहे।",
+          "112 पर कॉल करें।",
+          "साथ रहें और साँस जाँचते रहें।"
+        ],
+        "avoid": [
+          "उनके मुँह में कुछ न डालें।",
+          "गर्दन या पीठ में चोट की आशंका हो तो उन्हें हिलाएँ नहीं, जब तक वहाँ पड़े रहना खतरनाक न हो।"
+        ]
       },
       "as": {
         "title": "কোনোবা অচেতন হৈ পৰিলে",
-        "recognise": ["জোৰেৰে মাতিলে বা কান্ধত টোকৰ মাৰিলেও কোনো সঁহাৰি নাই"],
-        "do": ["উশাহ স্বাভাৱিকভাৱে চলি আছে নে চাওক।", "উশাহ চলি থাকিলে কাতিকৈ শুৱাই দিয়ক আৰু মূৰটো পিছফালে হেলাই দিয়ক যাতে বায়ুপথ খোলা থাকে।", "১১২ ত ফোন কৰক।", "লগত থাকক আৰু উশাহ চাই থাকক।"],
-        "avoid": ["মুখত একো নুসুমুৱাব।", "ডিঙি বা পিঠিত আঘাতৰ সম্ভাৱনা থাকিলে লৰচৰ নকৰাব, যদিহে শুই থকা ঠাইখন বিপজ্জনক নহয়।"]
+        "recognise": [
+          "জোৰেৰে মাতিলে বা কান্ধত টোকৰ মাৰিলেও কোনো সঁহাৰি নাই"
+        ],
+        "do": [
+          "উশাহ স্বাভাৱিকভাৱে চলি আছে নে চাওক।",
+          "উশাহ চলি থাকিলে কাতিকৈ শুৱাই দিয়ক আৰু মূৰটো পিছফালে হেলাই দিয়ক যাতে বায়ুপথ খোলা থাকে।",
+          "১১২ ত ফোন কৰক।",
+          "লগত থাকক আৰু উশাহ চাই থাকক।"
+        ],
+        "avoid": [
+          "মুখত একো নুসুমুৱাব।",
+          "ডিঙি বা পিঠিত আঘাতৰ সম্ভাৱনা থাকিলে লৰচৰ নকৰাব, যদিহে শুই থকা ঠাইখন বিপজ্জনক নহয়।"
+        ]
       }
     },
     {
@@ -199,159 +352,743 @@
       "escalate": [],
       "en": {
         "title": "Trouble breathing or choking",
-        "recognise": ["Cannot speak or cough", "Gasping, or noisy breathing", "Lips or face turning blue or grey"],
-        "do": ["Call 112.", "Help them sit upright, leaning slightly forward.", "Loosen tight clothing at the neck and chest.", "If they are choking, encourage hard coughing; if that fails, give firm blows between the shoulder blades."],
-        "avoid": ["Do not lay them flat on their back.", "Do not put your fingers blindly into their mouth."]
+        "recognise": [
+          "Cannot speak or cough",
+          "Gasping, or noisy breathing",
+          "Lips or face turning blue or grey"
+        ],
+        "do": [
+          "Call 112.",
+          "Help them sit upright, leaning slightly forward.",
+          "Loosen tight clothing at the neck and chest.",
+          "If they are choking, encourage hard coughing; if that fails, give firm blows between the shoulder blades."
+        ],
+        "avoid": [
+          "Do not lay them flat on their back.",
+          "Do not put your fingers blindly into their mouth."
+        ]
       },
       "hi": {
         "title": "साँस लेने में दिक्कत या गला अटकना",
-        "recognise": ["बोल या खाँस नहीं पा रहे", "हाँफना या आवाज़ के साथ साँस", "होंठ या चेहरा नीला या भूरा पड़ना"],
-        "do": ["112 पर कॉल करें।", "उन्हें सीधा बैठाएँ, थोड़ा आगे झुकाकर।", "गले और छाती के तंग कपड़े ढीले करें।", "गला अटका हो तो ज़ोर से खाँसने को कहें; न हो तो कंधों के बीच पीठ पर ज़ोरदार थपकी दें।"],
-        "avoid": ["उन्हें पीठ के बल सीधा न लिटाएँ।", "बिना देखे मुँह में उँगली न डालें।"]
+        "recognise": [
+          "बोल या खाँस नहीं पा रहे",
+          "हाँफना या आवाज़ के साथ साँस",
+          "होंठ या चेहरा नीला या भूरा पड़ना"
+        ],
+        "do": [
+          "112 पर कॉल करें।",
+          "उन्हें सीधा बैठाएँ, थोड़ा आगे झुकाकर।",
+          "गले और छाती के तंग कपड़े ढीले करें।",
+          "गला अटका हो तो ज़ोर से खाँसने को कहें; न हो तो कंधों के बीच पीठ पर ज़ोरदार थपकी दें।"
+        ],
+        "avoid": [
+          "उन्हें पीठ के बल सीधा न लिटाएँ।",
+          "बिना देखे मुँह में उँगली न डालें।"
+        ]
       },
       "as": {
         "title": "উশাহত কষ্ট বা ডিঙিত লগা",
-        "recognise": ["কথা ক'ব বা কাহিব নোৱাৰে", "হাঁপ ধৰা বা শব্দ কৰি উশাহ লোৱা", "ওঁঠ বা মুখ নীলা বা ধোঁৱাবৰণীয়া হোৱা"],
-        "do": ["১১২ ত ফোন কৰক।", "তেওঁক পোনকৈ বহুৱাওক, অলপ আগলৈ হেলনীয়া কৰি।", "ডিঙি আৰু বুকুৰ টান কাপোৰ ঢিলা কৰক।", "ডিঙিত লাগি থাকিলে জোৰেৰে কাহিবলৈ কওক; নহ'লে কান্ধৰ মাজত পিঠিত জোৰেৰে চাপৰি মাৰক।"],
-        "avoid": ["পিঠিৰ ওপৰত পোনকৈ শুৱাই নিদিব।", "নাচাই মুখত আঙুলি নুসুমুৱাব।"]
+        "recognise": [
+          "কথা ক'ব বা কাহিব নোৱাৰে",
+          "হাঁপ ধৰা বা শব্দ কৰি উশাহ লোৱা",
+          "ওঁঠ বা মুখ নীলা বা ধোঁৱাবৰণীয়া হোৱা"
+        ],
+        "do": [
+          "১১২ ত ফোন কৰক।",
+          "তেওঁক পোনকৈ বহুৱাওক, অলপ আগলৈ হেলনীয়া কৰি।",
+          "ডিঙি আৰু বুকুৰ টান কাপোৰ ঢিলা কৰক।",
+          "ডিঙিত লাগি থাকিলে জোৰেৰে কাহিবলৈ কওক; নহ'লে কান্ধৰ মাজত পিঠিত জোৰেৰে চাপৰি মাৰক।"
+        ],
+        "avoid": [
+          "পিঠিৰ ওপৰত পোনকৈ শুৱাই নিদিব।",
+          "নাচাই মুখত আঙুলি নুসুমুৱাব।"
+        ]
+      }
+    },
+    {
+      "id": "LANDSLIDE_WARNING",
+      "emergency": false,
+      "escalate": [
+        "Rocks or earth are already moving onto the road",
+        "The road surface has cracked, sunk or tilted",
+        "A vehicle or person has been hit or trapped"
+      ],
+      "en": {
+        "title": "Landslide warning on the road",
+        "recognise": [
+          "Fresh cracks in the road or the slope above it",
+          "Trees, poles or walls leaning downhill",
+          "Small stones or mud trickling onto the road",
+          "Unusual rumbling from the hillside, especially in heavy rain"
+        ],
+        "do": [
+          "Slow down and do not stop under a steep cut slope.",
+          "If a slide area is ahead, stop well back and wait - do not drive through.",
+          "Move the truck to open ground away from the slope if you can do so safely.",
+          "Tell dispatch your position and what you see."
+        ],
+        "avoid": [
+          "Do not drive across fresh debris - the slope may still be moving.",
+          "Do not park below an overhang or cut slope to wait it out.",
+          "Do not get out to clear rocks by hand while the slope is active."
+        ]
+      },
+      "hi": {
+        "title": "सड़क पर भूस्खलन की चेतावनी",
+        "recognise": [
+          "सड़क या ऊपर की ढलान में नई दरारें",
+          "पेड़, खंभे या दीवारें ढलान की ओर झुकी हुई",
+          "सड़क पर छोटे पत्थर या कीचड़ गिरना",
+          "पहाड़ी से असामान्य गड़गड़ाहट, खासकर तेज़ बारिश में"
+        ],
+        "do": [
+          "धीमे चलें और खड़ी कटी ढलान के नीचे न रुकें।",
+          "आगे भूस्खलन हो तो काफी पीछे रुककर प्रतीक्षा करें - उसमें से गाड़ी न निकालें।",
+          "सुरक्षित हो तो ट्रक को ढलान से दूर खुली जगह ले जाएँ।",
+          "डिस्पैच को अपनी स्थिति और जो दिख रहा है, बताएँ।"
+        ],
+        "avoid": [
+          "ताज़ा मलबे के ऊपर से गाड़ी न चलाएँ - ढलान अभी भी खिसक सकती है।",
+          "इंतज़ार के लिए ऊपर लटकती चट्टान या कटी ढलान के नीचे न खड़े हों।",
+          "ढलान सक्रिय हो तो हाथ से पत्थर हटाने बाहर न निकलें।"
+        ]
+      },
+      "as": {
+        "title": "পথত ভূমিস্খলনৰ সতৰ্কবাণী",
+        "recognise": [
+          "পথ বা ওপৰৰ ঢালত নতুন ফাট",
+          "গছ, খুঁটা বা দেৱাল ঢালৰ ফালে হালি থকা",
+          "পথত সৰু শিল বা বোকা পৰি থকা",
+          "পাহাৰৰ পৰা অস্বাভাৱিক গৰ্জন, বিশেষকৈ ধাৰাসাৰ বৰষুণত"
+        ],
+        "do": [
+          "লাহে চলাওক আৰু ঠিয় কটা ঢালৰ তলত নৰখিব।",
+          "আগত ভূমিস্খলন হ'লে বহু পিছত ৰৈ অপেক্ষা কৰক - তাৰ মাজেৰে গাড়ী নচলাব।",
+          "নিৰাপদ হ'লে ট্ৰাকখন ঢালৰ পৰা আঁতৰত মুকলি ঠাইলৈ নিয়ক।",
+          "ডিছপেচক আপোনাৰ অৱস্থান আৰু কি দেখিছে জনাওক।"
+        ],
+        "avoid": [
+          "সতেজ ধ্বংসাৱশেষৰ ওপৰেৰে গাড়ী নচলাব - ঢাল এতিয়াও লৰিব পাৰে।",
+          "অপেক্ষা কৰিবলৈ ওলমি থকা শিল বা কটা ঢালৰ তলত নৰখিব।",
+          "ঢাল সক্ৰিয় থাকিলে হাতেৰে শিল আঁতৰাবলৈ বাহিৰ নোলাব।"
+        ]
+      }
+    },
+    {
+      "id": "HEAVY_RAIN",
+      "emergency": false,
+      "escalate": [
+        "You cannot see the road edge or the vehicle ahead",
+        "Water is crossing the road faster than walking pace",
+        "The slope beside the road has started to move"
+      ],
+      "en": {
+        "title": "Heavy rain",
+        "recognise": [
+          "Wipers on full and still not clearing",
+          "Standing water and spray hiding the lane markings",
+          "Streams running across the road from the hillside"
+        ],
+        "do": [
+          "Slow down and double the gap to the vehicle in front.",
+          "Turn headlights on - dipped, not high beam.",
+          "If you cannot see the road edge, pull over on firm ground and wait it out.",
+          "Check the Personal Route AI card for landslide exposure on the stretch ahead."
+        ],
+        "avoid": [
+          "Do not brake hard on a wet slope - the load will push the truck.",
+          "Do not stop under a cut slope or on a bridge approach.",
+          "Do not enter water flowing across the road."
+        ]
+      },
+      "hi": {
+        "title": "तेज़ बारिश",
+        "recognise": [
+          "वाइपर पूरी गति पर फिर भी साफ नहीं दिखता",
+          "पानी भरा है और फुहार से लेन की लाइनें छिप गई हैं",
+          "पहाड़ी से सड़क के आर-पार पानी की धाराएँ"
+        ],
+        "do": [
+          "धीमे चलें और आगे वाले वाहन से दूरी दोगुनी रखें।",
+          "हेडलाइट जलाएँ - लो बीम, हाई बीम नहीं।",
+          "सड़क का किनारा न दिखे तो पक्की ज़मीन पर किनारे रुककर प्रतीक्षा करें।",
+          "आगे के हिस्से में भूस्खलन जोखिम के लिए पर्सनल रूट AI कार्ड देखें।"
+        ],
+        "avoid": [
+          "गीली ढलान पर ज़ोर से ब्रेक न लगाएँ - लोड ट्रक को धकेलेगा।",
+          "कटी ढलान के नीचे या पुल के मुहाने पर न रुकें।",
+          "सड़क के आर-पार बहते पानी में न उतरें।"
+        ]
+      },
+      "as": {
+        "title": "ধাৰাসাৰ বৰষুণ",
+        "recognise": [
+          "ৱাইপাৰ পূৰ্ণ গতিত থাকিলেও স্পষ্ট নেদেখা",
+          "জমা পানী আৰু ছিটিকনিয়ে লেনৰ দাগ ঢাকি পেলোৱা",
+          "পাহাৰৰ পৰা পথৰ ওপৰেৰে পানীৰ সোঁত বৈ যোৱা"
+        ],
+        "do": [
+          "লাহে চলাওক আৰু আগৰ গাড়ীৰ পৰা দূৰত্ব দুগুণ ৰাখক।",
+          "হেডলাইট জ্বলাওক - ল' বীম, হাই বীম নহয়।",
+          "পথৰ কাষ নেদেখিলে টান মাটিত কাষত ৰৈ অপেক্ষা কৰক।",
+          "আগৰ অংশত ভূমিস্খলনৰ আশংকাৰ বাবে পাৰ্চনেল ৰুট AI কাৰ্ড চাওক।"
+        ],
+        "avoid": [
+          "তিতা ঢালত জোৰেৰে ব্ৰেক নামাৰিব - মালে ট্ৰাকখন ঠেলিব।",
+          "কটা ঢালৰ তলত বা দলঙৰ মুখত নৰখিব।",
+          "পথৰ ওপৰেৰে বৈ যোৱা পানীত নোসোমাব।"
+        ]
+      }
+    },
+    {
+      "id": "FLOODED_ROAD",
+      "emergency": false,
+      "escalate": [
+        "Water is rising around a stopped vehicle",
+        "The truck has stalled in water and cannot be restarted",
+        "Someone has been swept off their feet"
+      ],
+      "en": {
+        "title": "Flooded road",
+        "recognise": [
+          "Water across the road with no visible surface",
+          "Debris, branches or foam moving on the water",
+          "Other vehicles turning back"
+        ],
+        "do": [
+          "Stop before the water. Judge depth by a fixed marker, never by another vehicle.",
+          "Turn back or wait on high ground - a laden truck floats sooner than you think.",
+          "If the truck stalls in water, leave it through the upstream side and climb to higher ground.",
+          "Tell dispatch the road is closed by water."
+        ],
+        "avoid": [
+          "Do not drive into moving water, however shallow it looks.",
+          "Do not follow a car through - its depth is not your depth.",
+          "Do not wade in to check the road."
+        ]
+      },
+      "hi": {
+        "title": "बाढ़ से डूबी सड़क",
+        "recognise": [
+          "सड़क के आर-पार पानी, नीचे की सतह नहीं दिखती",
+          "पानी पर मलबा, टहनियाँ या झाग बहते हुए",
+          "दूसरे वाहन वापस मुड़ रहे हैं"
+        ],
+        "do": [
+          "पानी से पहले रुकें। गहराई किसी स्थिर निशान से आँकें, दूसरे वाहन से नहीं।",
+          "वापस मुड़ें या ऊँची जगह पर प्रतीक्षा करें - भरा हुआ ट्रक जल्दी तैरने लगता है।",
+          "पानी में ट्रक बंद हो जाए तो धारा की ऊपरी ओर से बाहर निकलकर ऊँची जगह जाएँ।",
+          "डिस्पैच को बताएँ कि सड़क पानी से बंद है।"
+        ],
+        "avoid": [
+          "बहते पानी में गाड़ी न उतारें, चाहे कितना भी उथला दिखे।",
+          "किसी कार के पीछे-पीछे न जाएँ - उसकी गहराई आपकी गहराई नहीं है।",
+          "सड़क जाँचने के लिए पानी में न उतरें।"
+        ]
+      },
+      "as": {
+        "title": "বানপানীত ডুবা পথ",
+        "recognise": [
+          "পথৰ ওপৰেৰে পানী, তলৰ পৃষ্ঠ নেদেখা",
+          "পানীত ধ্বংসাৱশেষ, ডাল বা ফেন বৈ যোৱা",
+          "আন গাড়ীবোৰ ঘূৰি যোৱা"
+        ],
+        "do": [
+          "পানীৰ আগতে ৰওক। গভীৰতা স্থিৰ চিহ্নেৰে জুখিব, আন গাড়ীৰে নহয়।",
+          "ঘূৰি যাওক বা ওখ ঠাইত অপেক্ষা কৰক - মাল ভৰা ট্ৰাক ভবাতকৈ সোনকালে ওপঙে।",
+          "পানীত ট্ৰাক বন্ধ হ'লে সোঁতৰ ওপৰৰ ফালেৰে ওলাই ওখ ঠাইলৈ যাওক।",
+          "ডিছপেচক জনাওক যে পথ পানীয়ে বন্ধ কৰিছে।"
+        ],
+        "avoid": [
+          "বৈ থকা পানীত গাড়ী নোসোমাব, যিমানেই কম দেখক।",
+          "কাৰৰ পিছে পিছে নাযাব - তাৰ গভীৰতা আপোনাৰ গভীৰতা নহয়।",
+          "পথ পৰীক্ষা কৰিবলৈ পানীত নোনামিব।"
+        ]
+      }
+    },
+    {
+      "id": "BREAKDOWN",
+      "emergency": false,
+      "escalate": [
+        "Smoke or flames from the engine or brakes",
+        "The truck is stopped on a blind bend or a bridge and cannot be moved",
+        "Fuel or cargo is leaking"
+      ],
+      "en": {
+        "title": "Breakdown on the highway",
+        "recognise": [
+          "Warning lights, loss of power, unusual noise or smell",
+          "Steering or brakes not responding normally",
+          "A tyre gone or the load shifted"
+        ],
+        "do": [
+          "Get the truck off the carriageway onto firm ground if it will still move.",
+          "Hazard lights on. Place the warning triangle well back, further on a bend.",
+          "Get out on the side away from traffic and stand clear of the truck.",
+          "Call 1033 for highway help and tell dispatch. Use the roadside search on the Navigate screen for the nearest tyre or repair service."
+        ],
+        "avoid": [
+          "Do not work under the truck on a slope.",
+          "Do not stand between the truck and passing traffic.",
+          "Do not leave the cab door open into the road."
+        ]
+      },
+      "hi": {
+        "title": "हाईवे पर गाड़ी खराब",
+        "recognise": [
+          "चेतावनी लाइटें, पावर कम, असामान्य आवाज़ या गंध",
+          "स्टीयरिंग या ब्रेक सामान्य रूप से काम नहीं कर रहे",
+          "टायर फटा या लोड खिसका"
+        ],
+        "do": [
+          "ट्रक चल सके तो उसे सड़क से हटाकर पक्की ज़मीन पर ले जाएँ।",
+          "हैज़र्ड लाइट जलाएँ। चेतावनी त्रिकोण काफी पीछे रखें, मोड़ पर और पीछे।",
+          "ट्रैफिक से दूर वाली ओर से उतरें और ट्रक से दूर खड़े हों।",
+          "हाईवे सहायता के लिए 1033 पर कॉल करें और डिस्पैच को बताएँ। नज़दीकी टायर या मरम्मत सेवा के लिए नेविगेट स्क्रीन पर सड़क किनारे खोज का उपयोग करें।"
+        ],
+        "avoid": [
+          "ढलान पर ट्रक के नीचे काम न करें।",
+          "ट्रक और गुज़रते ट्रैफिक के बीच खड़े न हों।",
+          "केबिन का दरवाज़ा सड़क की ओर खुला न छोड़ें।"
+        ]
+      },
+      "as": {
+        "title": "হাইৱেত গাড়ী বেয়া হোৱা",
+        "recognise": [
+          "সতৰ্কবাণীৰ লাইট, শক্তি কমা, অস্বাভাৱিক শব্দ বা গোন্ধ",
+          "ষ্টিয়াৰিং বা ব্ৰেক স্বাভাৱিকভাৱে কাম নকৰা",
+          "টায়াৰ ফাটা বা মাল লৰি যোৱা"
+        ],
+        "do": [
+          "ট্ৰাক চলিলে পথৰ পৰা আঁতৰাই টান মাটিত ৰাখক।",
+          "হেজাৰ্ড লাইট জ্বলাওক। সতৰ্কবাণীৰ ত্ৰিভুজ বহু পিছত ৰাখক, বাঁকত আৰু পিছত।",
+          "ট্ৰাফিকৰ পৰা আঁতৰৰ ফালেৰে নামক আৰু ট্ৰাকৰ পৰা আঁতৰত থিয় হওক।",
+          "হাইৱে সহায়ৰ বাবে ১০৩৩ নম্বৰত ফোন কৰক আৰু ডিছপেচক জনাওক। ওচৰৰ টায়াৰ বা মেৰামতি সেৱাৰ বাবে নেভিগেট স্ক্ৰীনৰ পথৰ কাষৰ সন্ধান ব্যৱহাৰ কৰক।"
+        ],
+        "avoid": [
+          "ঢালত ট্ৰাকৰ তলত কাম নকৰিব।",
+          "ট্ৰাক আৰু পাৰ হৈ যোৱা ট্ৰাফিকৰ মাজত থিয় নহ'ব।",
+          "কেবিনৰ দুৱাৰ পথৰ ফালে খুলি নাৰাখিব।"
+        ]
+      }
+    },
+    {
+      "id": "NETWORK_LOSS",
+      "emergency": false,
+      "escalate": [
+        "You need help and no phone has signal",
+        "The trip is overdue at a stop and you cannot report",
+        "An emergency and the dialler will not connect on 112"
+      ],
+      "en": {
+        "title": "No network signal",
+        "recognise": [
+          "No bars, or calls that will not connect",
+          "The app shows OFFLINE, LAST KNOWN or STALE",
+          "Messages not sending"
+        ],
+        "do": [
+          "Keep driving the planned route - the saved route, stops and last assessment stay on the phone.",
+          "Treat LAST KNOWN conditions as old: rain and slides may have changed since.",
+          "Try 112 anyway - it can connect through any network with signal.",
+          "At the next town or high point, let the app reconnect and report to dispatch."
+        ],
+        "avoid": [
+          "Do not leave the planned route to look for signal.",
+          "Do not assume a green reading from before the blackout still holds.",
+          "Do not turn the phone off to save battery - keep it on for the fix."
+        ]
+      },
+      "hi": {
+        "title": "नेटवर्क सिग्नल नहीं",
+        "recognise": [
+          "सिग्नल की लाइनें नहीं, या कॉल नहीं लग रही",
+          "ऐप में OFFLINE, LAST KNOWN या STALE दिख रहा",
+          "संदेश नहीं जा रहे"
+        ],
+        "do": [
+          "तय मार्ग पर चलते रहें - सहेजा मार्ग, पड़ाव और अंतिम आकलन फोन में रहते हैं।",
+          "LAST KNOWN स्थिति को पुराना मानें - बारिश और भूस्खलन तब से बदल सकते हैं।",
+          "फिर भी 112 आज़माएँ - यह सिग्नल वाले किसी भी नेटवर्क से जुड़ सकता है।",
+          "अगले कस्बे या ऊँची जगह पर ऐप को फिर जुड़ने दें और डिस्पैच को रिपोर्ट करें।"
+        ],
+        "avoid": [
+          "सिग्नल ढूँढने के लिए तय मार्ग न छोड़ें।",
+          "यह न मानें कि ब्लैकआउट से पहले की हरी रीडिंग अब भी सही है।",
+          "बैटरी बचाने के लिए फोन बंद न करें - लोकेशन के लिए चालू रखें।"
+        ]
+      },
+      "as": {
+        "title": "নেটৱৰ্ক ছিগনেল নাই",
+        "recognise": [
+          "ছিগনেলৰ দাগ নাই, বা ফোন সংযোগ নোহোৱা",
+          "এপত OFFLINE, LAST KNOWN বা STALE দেখুওৱা",
+          "বাৰ্তা নোযোৱা"
+        ],
+        "do": [
+          "নিৰ্ধাৰিত পথেৰে চলি থাকক - সংৰক্ষিত পথ, ষ্টপ আৰু শেষ মূল্যায়ন ফোনত থাকে।",
+          "LAST KNOWN অৱস্থাক পুৰণি বুলি গণ্য কৰক - বৰষুণ আৰু ভূমিস্খলন তেতিয়াৰ পৰা সলনি হ'ব পাৰে।",
+          "তথাপিও ১১২ চেষ্টা কৰক - ছিগনেল থকা যিকোনো নেটৱৰ্কৰ জৰিয়তে সংযোগ হ'ব পাৰে।",
+          "পিছৰ নগৰ বা ওখ ঠাইত এপক পুনৰ সংযোগ হ'বলৈ দিয়ক আৰু ডিছপেচক জনাওক।"
+        ],
+        "avoid": [
+          "ছিগনেল বিচাৰি নিৰ্ধাৰিত পথ এৰি নাযাব।",
+          "ব্লেকআউটৰ আগৰ সেউজীয়া ৰিডিং এতিয়াও ঠিক বুলি নাভাবিব।",
+          "বেটাৰী বচাবলৈ ফোন বন্ধ নকৰিব - অৱস্থানৰ বাবে চালু ৰাখক।"
+        ]
       }
     },
     {
       "id": "HEAT_EXHAUSTION",
       "emergency": false,
-      "escalate": ["Confused, agitated, or not making sense", "Skin hot and dry, or sweating has stopped", "No better after 30 minutes of cooling", "Faints, or has a fit"],
+      "escalate": [
+        "Confused, agitated, or not making sense",
+        "Skin hot and dry, or sweating has stopped",
+        "No better after 30 minutes of cooling",
+        "Faints, or has a fit"
+      ],
       "en": {
         "title": "Heat exhaustion",
-        "recognise": ["Heavy sweating, tiredness, headache", "Muscle cramps", "Feeling sick or dizzy in the heat"],
-        "do": ["Stop and move into shade or an air-conditioned cab.", "Loosen or remove extra clothing.", "Sip water or oral rehydration solution.", "Cool the skin with a wet cloth on the neck, face and armpits."],
-        "avoid": ["Do not keep driving to reach the next stop.", "Do not drink alcohol."]
+        "recognise": [
+          "Heavy sweating, tiredness, headache",
+          "Muscle cramps",
+          "Feeling sick or dizzy in the heat"
+        ],
+        "do": [
+          "Stop and move into shade or an air-conditioned cab.",
+          "Loosen or remove extra clothing.",
+          "Sip water or oral rehydration solution.",
+          "Cool the skin with a wet cloth on the neck, face and armpits."
+        ],
+        "avoid": [
+          "Do not keep driving to reach the next stop.",
+          "Do not drink alcohol."
+        ]
       },
       "hi": {
         "title": "गर्मी से थकावट",
-        "recognise": ["बहुत पसीना, थकान, सिरदर्द", "मांसपेशियों में ऐंठन", "गर्मी में जी मिचलाना या चक्कर"],
-        "do": ["रुकें और छाँव या ठंडे केबिन में जाएँ।", "अतिरिक्त कपड़े ढीले करें या उतारें।", "थोड़ा-थोड़ा पानी या ORS पिएँ।", "गर्दन, चेहरे और बगल पर गीला कपड़ा रखकर शरीर ठंडा करें।"],
-        "avoid": ["अगले पड़ाव तक पहुँचने के लिए गाड़ी चलाते न रहें।", "शराब न पिएँ।"]
+        "recognise": [
+          "बहुत पसीना, थकान, सिरदर्द",
+          "मांसपेशियों में ऐंठन",
+          "गर्मी में जी मिचलाना या चक्कर"
+        ],
+        "do": [
+          "रुकें और छाँव या ठंडे केबिन में जाएँ।",
+          "अतिरिक्त कपड़े ढीले करें या उतारें।",
+          "थोड़ा-थोड़ा पानी या ORS पिएँ।",
+          "गर्दन, चेहरे और बगल पर गीला कपड़ा रखकर शरीर ठंडा करें।"
+        ],
+        "avoid": [
+          "अगले पड़ाव तक पहुँचने के लिए गाड़ी चलाते न रहें।",
+          "शराब न पिएँ।"
+        ]
       },
       "as": {
         "title": "গৰমৰ ক্লান্তি",
-        "recognise": ["বহুত ঘাম, ভাগৰ, মূৰৰ বিষ", "মাংসপেশীত জাপ লগা", "গৰমত বমি ভাব বা মূৰ ঘূৰোৱা"],
-        "do": ["ৰৈ ছাঁ বা ঠাণ্ডা কেবিনলৈ যাওক।", "অতিৰিক্ত কাপোৰ ঢিলা কৰক বা খুলি দিয়ক।", "অলপ অলপকৈ পানী বা ওআৰএছ খাওক।", "ডিঙি, মুখ আৰু বগলিত তিতা কাপোৰ দি গা ঠাণ্ডা কৰক।"],
-        "avoid": ["পিছৰ ষ্টপলৈ যাবলৈ গাড়ী চলাই নাথাকিব।", "মদ্যপান নকৰিব।"]
+        "recognise": [
+          "বহুত ঘাম, ভাগৰ, মূৰৰ বিষ",
+          "মাংসপেশীত জাপ লগা",
+          "গৰমত বমি ভাব বা মূৰ ঘূৰোৱা"
+        ],
+        "do": [
+          "ৰৈ ছাঁ বা ঠাণ্ডা কেবিনলৈ যাওক।",
+          "অতিৰিক্ত কাপোৰ ঢিলা কৰক বা খুলি দিয়ক।",
+          "অলপ অলপকৈ পানী বা ওআৰএছ খাওক।",
+          "ডিঙি, মুখ আৰু বগলিত তিতা কাপোৰ দি গা ঠাণ্ডা কৰক।"
+        ],
+        "avoid": [
+          "পিছৰ ষ্টপলৈ যাবলৈ গাড়ী চলাই নাথাকিব।",
+          "মদ্যপান নকৰিব।"
+        ]
       }
     },
     {
       "id": "DEHYDRATION",
       "emergency": false,
-      "escalate": ["Cannot keep fluids down", "Confused or very drowsy", "Has not passed urine for 8 hours", "Heartbeat feels very fast"],
+      "escalate": [
+        "Cannot keep fluids down",
+        "Confused or very drowsy",
+        "Has not passed urine for 8 hours",
+        "Heartbeat feels very fast"
+      ],
       "en": {
         "title": "Dehydration",
-        "recognise": ["Dark yellow urine, or passing very little", "Dry mouth and lips, thirst", "Headache, tiredness, dizziness"],
-        "do": ["Sip water or oral rehydration solution steadily, rather than drinking it all at once.", "Rest in shade before driving on.", "Keep drinking through the shift, not only when thirsty."],
-        "avoid": ["Do not rely on tea, coffee or energy drinks to rehydrate."]
+        "recognise": [
+          "Dark yellow urine, or passing very little",
+          "Dry mouth and lips, thirst",
+          "Headache, tiredness, dizziness"
+        ],
+        "do": [
+          "Sip water or oral rehydration solution steadily, rather than drinking it all at once.",
+          "Rest in shade before driving on.",
+          "Keep drinking through the shift, not only when thirsty."
+        ],
+        "avoid": [
+          "Do not rely on tea, coffee or energy drinks to rehydrate."
+        ]
       },
       "hi": {
         "title": "शरीर में पानी की कमी",
-        "recognise": ["गहरे पीले रंग का या बहुत कम पेशाब", "मुँह और होंठ सूखना, प्यास", "सिरदर्द, थकान, चक्कर"],
-        "do": ["एक साथ नहीं, थोड़ा-थोड़ा करके पानी या ORS पिएँ।", "आगे चलने से पहले छाँव में आराम करें।", "प्यास लगने पर ही नहीं, पूरी शिफ्ट पीते रहें।"],
-        "avoid": ["पानी की कमी पूरी करने के लिए चाय, कॉफी या एनर्जी ड्रिंक पर निर्भर न रहें।"]
+        "recognise": [
+          "गहरे पीले रंग का या बहुत कम पेशाब",
+          "मुँह और होंठ सूखना, प्यास",
+          "सिरदर्द, थकान, चक्कर"
+        ],
+        "do": [
+          "एक साथ नहीं, थोड़ा-थोड़ा करके पानी या ORS पिएँ।",
+          "आगे चलने से पहले छाँव में आराम करें।",
+          "प्यास लगने पर ही नहीं, पूरी शिफ्ट पीते रहें।"
+        ],
+        "avoid": [
+          "पानी की कमी पूरी करने के लिए चाय, कॉफी या एनर्जी ड्रिंक पर निर्भर न रहें।"
+        ]
       },
       "as": {
         "title": "শৰীৰত পানীৰ অভাৱ",
-        "recognise": ["গাঢ় হালধীয়া বা অতি কম প্ৰস্ৰাৱ", "মুখ আৰু ওঁঠ শুকান, পিয়াহ", "মূৰৰ বিষ, ভাগৰ, মূৰ ঘূৰোৱা"],
-        "do": ["একেলগে নহয়, অলপ অলপকৈ পানী বা ওআৰএছ খাওক।", "আগবাঢ়ি যোৱাৰ আগতে ছাঁত জিৰণি লওক।", "পিয়াহ লাগিলেহে নহয়, গোটেই ছিফ্টত পানী খাই থাকক।"],
-        "avoid": ["পানীৰ অভাৱ পূৰণৰ বাবে চাহ, কফী বা এনাৰ্জি ড্ৰিংকৰ ওপৰত নিৰ্ভৰ নকৰিব।"]
+        "recognise": [
+          "গাঢ় হালধীয়া বা অতি কম প্ৰস্ৰাৱ",
+          "মুখ আৰু ওঁঠ শুকান, পিয়াহ",
+          "মূৰৰ বিষ, ভাগৰ, মূৰ ঘূৰোৱা"
+        ],
+        "do": [
+          "একেলগে নহয়, অলপ অলপকৈ পানী বা ওআৰএছ খাওক।",
+          "আগবাঢ়ি যোৱাৰ আগতে ছাঁত জিৰণি লওক।",
+          "পিয়াহ লাগিলেহে নহয়, গোটেই ছিফ্টত পানী খাই থাকক।"
+        ],
+        "avoid": [
+          "পানীৰ অভাৱ পূৰণৰ বাবে চাহ, কফী বা এনাৰ্জি ড্ৰিংকৰ ওপৰত নিৰ্ভৰ নকৰিব।"
+        ]
       }
     },
     {
       "id": "DIZZINESS",
       "emergency": false,
-      "escalate": ["Chest pain or pressure", "Weakness on one side of the face or body", "Slurred speech", "Fainted, or nearly fainted"],
+      "escalate": [
+        "Chest pain or pressure",
+        "Weakness on one side of the face or body",
+        "Slurred speech",
+        "Fainted, or nearly fainted"
+      ],
       "en": {
         "title": "Dizziness or feeling faint",
-        "recognise": ["The road or cab feels like it is spinning", "Light-headed when standing up", "Vision greying at the edges"],
-        "do": ["Stop driving safely as soon as you feel it - do not try to reach the next stop.", "Sit or lie down until it passes.", "Drink water, and eat something if you have not eaten.", "Tell dispatch before you drive on."],
-        "avoid": ["Do not carry on driving to see whether it passes."]
+        "recognise": [
+          "The road or cab feels like it is spinning",
+          "Light-headed when standing up",
+          "Vision greying at the edges"
+        ],
+        "do": [
+          "Stop driving safely as soon as you feel it - do not try to reach the next stop.",
+          "Sit or lie down until it passes.",
+          "Drink water, and eat something if you have not eaten.",
+          "Tell dispatch before you drive on."
+        ],
+        "avoid": [
+          "Do not carry on driving to see whether it passes."
+        ]
       },
       "hi": {
         "title": "चक्कर आना या कमज़ोरी लगना",
-        "recognise": ["ऐसा लगे जैसे सड़क या केबिन घूम रहा हो", "खड़े होने पर सिर हल्का लगना", "आँखों के आगे अँधेरा छाना"],
-        "do": ["जैसे ही महसूस हो, सुरक्षित जगह गाड़ी रोकें - अगले पड़ाव तक जाने की कोशिश न करें।", "ठीक होने तक बैठ या लेट जाएँ।", "पानी पिएँ और कुछ न खाया हो तो कुछ खाएँ।", "आगे चलने से पहले डिस्पैच को बताएँ।"],
-        "avoid": ["यह देखने के लिए गाड़ी चलाते न रहें कि अपने आप ठीक होता है या नहीं।"]
+        "recognise": [
+          "ऐसा लगे जैसे सड़क या केबिन घूम रहा हो",
+          "खड़े होने पर सिर हल्का लगना",
+          "आँखों के आगे अँधेरा छाना"
+        ],
+        "do": [
+          "जैसे ही महसूस हो, सुरक्षित जगह गाड़ी रोकें - अगले पड़ाव तक जाने की कोशिश न करें।",
+          "ठीक होने तक बैठ या लेट जाएँ।",
+          "पानी पिएँ और कुछ न खाया हो तो कुछ खाएँ।",
+          "आगे चलने से पहले डिस्पैच को बताएँ।"
+        ],
+        "avoid": [
+          "यह देखने के लिए गाड़ी चलाते न रहें कि अपने आप ठीक होता है या नहीं।"
+        ]
       },
       "as": {
         "title": "মূৰ ঘূৰোৱা বা দুৰ্বল লগা",
-        "recognise": ["পথ বা কেবিন ঘূৰি থকা যেন লগা", "থিয় হ'লে মূৰ পাতল লগা", "চকুৰ আগত অন্ধকাৰ হোৱা"],
-        "do": ["অনুভৱ হোৱাৰ লগে লগে নিৰাপদ ঠাইত গাড়ী ৰাখক - পিছৰ ষ্টপলৈ যাবলৈ চেষ্টা নকৰিব।", "ভাল নোহোৱালৈকে বহি বা শুই থাকক।", "পানী খাওক আৰু একো নাখালে কিবা খাওক।", "আগবাঢ়ি যোৱাৰ আগতে ডিছপেচক জনাওক।"],
-        "avoid": ["নিজে ভাল হয় নে নহয় চাবলৈ গাড়ী চলাই নাথাকিব।"]
+        "recognise": [
+          "পথ বা কেবিন ঘূৰি থকা যেন লগা",
+          "থিয় হ'লে মূৰ পাতল লগা",
+          "চকুৰ আগত অন্ধকাৰ হোৱা"
+        ],
+        "do": [
+          "অনুভৱ হোৱাৰ লগে লগে নিৰাপদ ঠাইত গাড়ী ৰাখক - পিছৰ ষ্টপলৈ যাবলৈ চেষ্টা নকৰিব।",
+          "ভাল নোহোৱালৈকে বহি বা শুই থাকক।",
+          "পানী খাওক আৰু একো নাখালে কিবা খাওক।",
+          "আগবাঢ়ি যোৱাৰ আগতে ডিছপেচক জনাওক।"
+        ],
+        "avoid": [
+          "নিজে ভাল হয় নে নহয় চাবলৈ গাড়ী চলাই নাথাকিব।"
+        ]
       }
     },
     {
       "id": "MINOR_CUT",
       "emergency": false,
-      "escalate": ["Bleeding has not stopped after 10 minutes of firm pressure", "The wound is deep or gaping, or something is stuck in it", "The wound was made by something dirty or rusty", "Redness, swelling or pus appears later"],
+      "escalate": [
+        "Bleeding has not stopped after 10 minutes of firm pressure",
+        "The wound is deep or gaping, or something is stuck in it",
+        "The wound was made by something dirty or rusty",
+        "Redness, swelling or pus appears later"
+      ],
       "en": {
         "title": "Minor cut or graze",
-        "recognise": ["Small wound, and the bleeding slows when you press on it"],
-        "do": ["Wash your hands if you can.", "Rinse the wound with clean water.", "Press with a clean cloth until the bleeding stops.", "Cover with a clean dressing."],
-        "avoid": ["Do not put engine oil, grease or dirty rags on a wound."]
+        "recognise": [
+          "Small wound, and the bleeding slows when you press on it"
+        ],
+        "do": [
+          "Wash your hands if you can.",
+          "Rinse the wound with clean water.",
+          "Press with a clean cloth until the bleeding stops.",
+          "Cover with a clean dressing."
+        ],
+        "avoid": [
+          "Do not put engine oil, grease or dirty rags on a wound."
+        ]
       },
       "hi": {
         "title": "छोटा कट या छिलना",
-        "recognise": ["छोटा घाव, दबाने पर खून कम हो जाता है"],
-        "do": ["हो सके तो हाथ धोएँ।", "घाव को साफ पानी से धोएँ।", "साफ कपड़े से तब तक दबाएँ जब तक खून बंद न हो।", "साफ पट्टी से ढकें।"],
-        "avoid": ["घाव पर इंजन ऑयल, ग्रीस या गंदा कपड़ा न लगाएँ।"]
+        "recognise": [
+          "छोटा घाव, दबाने पर खून कम हो जाता है"
+        ],
+        "do": [
+          "हो सके तो हाथ धोएँ।",
+          "घाव को साफ पानी से धोएँ।",
+          "साफ कपड़े से तब तक दबाएँ जब तक खून बंद न हो।",
+          "साफ पट्टी से ढकें।"
+        ],
+        "avoid": [
+          "घाव पर इंजन ऑयल, ग्रीस या गंदा कपड़ा न लगाएँ।"
+        ]
       },
       "as": {
         "title": "সৰু কট বা ছাল যোৱা",
-        "recognise": ["সৰু ঘা, হেঁচা দিলে তেজ কমি আহে"],
-        "do": ["পাৰিলে হাত ধুই লওক।", "ঘাটো পৰিষ্কাৰ পানীৰে ধুই দিয়ক।", "তেজ বন্ধ নোহোৱালৈকে পৰিষ্কাৰ কাপোৰেৰে হেঁচা দিয়ক।", "পৰিষ্কাৰ পট্টিৰে ঢাকি দিয়ক।"],
-        "avoid": ["ঘাত ইঞ্জিন অইল, গ্ৰীজ বা লেতেৰা কাপোৰ নলগাব।"]
+        "recognise": [
+          "সৰু ঘা, হেঁচা দিলে তেজ কমি আহে"
+        ],
+        "do": [
+          "পাৰিলে হাত ধুই লওক।",
+          "ঘাটো পৰিষ্কাৰ পানীৰে ধুই দিয়ক।",
+          "তেজ বন্ধ নোহোৱালৈকে পৰিষ্কাৰ কাপোৰেৰে হেঁচা দিয়ক।",
+          "পৰিষ্কাৰ পট্টিৰে ঢাকি দিয়ক।"
+        ],
+        "avoid": [
+          "ঘাত ইঞ্জিন অইল, গ্ৰীজ বা লেতেৰা কাপোৰ নলগাব।"
+        ]
       }
     },
     {
       "id": "MINOR_BURN",
       "emergency": false,
-      "escalate": ["The burn is bigger than the palm of the hand", "The burn is on the face, hands, feet, joints or genitals", "The skin looks white, leathery or charred", "The burn was caused by chemicals or electricity"],
+      "escalate": [
+        "The burn is bigger than the palm of the hand",
+        "The burn is on the face, hands, feet, joints or genitals",
+        "The skin looks white, leathery or charred",
+        "The burn was caused by chemicals or electricity"
+      ],
       "en": {
         "title": "Minor burn or scald",
-        "recognise": ["Skin red and painful, over a small area"],
-        "do": ["Cool it under clean running water for 20 minutes.", "Remove rings or a watch near the burn before it swells.", "Cover loosely with clean non-fluffy cloth or cling film.", "Keep the person warm - cooling a burn can chill them."],
-        "avoid": ["Do not use ice, butter, oil or toothpaste.", "Do not burst blisters."]
+        "recognise": [
+          "Skin red and painful, over a small area"
+        ],
+        "do": [
+          "Cool it under clean running water for 20 minutes.",
+          "Remove rings or a watch near the burn before it swells.",
+          "Cover loosely with clean non-fluffy cloth or cling film.",
+          "Keep the person warm - cooling a burn can chill them."
+        ],
+        "avoid": [
+          "Do not use ice, butter, oil or toothpaste.",
+          "Do not burst blisters."
+        ]
       },
       "hi": {
         "title": "मामूली जलन",
-        "recognise": ["त्वचा लाल और दर्द भरी, छोटे हिस्से पर"],
-        "do": ["20 मिनट तक साफ बहते पानी के नीचे ठंडा करें।", "सूजन आने से पहले पास की अंगूठी या घड़ी उतार दें।", "साफ, रोएँ रहित कपड़े या क्लिंग फिल्म से ढीला ढकें।", "व्यक्ति को गर्म रखें - जलन ठंडी करने से ठंड लग सकती है।"],
-        "avoid": ["बर्फ, मक्खन, तेल या टूथपेस्ट न लगाएँ।", "छाले न फोड़ें।"]
+        "recognise": [
+          "त्वचा लाल और दर्द भरी, छोटे हिस्से पर"
+        ],
+        "do": [
+          "20 मिनट तक साफ बहते पानी के नीचे ठंडा करें।",
+          "सूजन आने से पहले पास की अंगूठी या घड़ी उतार दें।",
+          "साफ, रोएँ रहित कपड़े या क्लिंग फिल्म से ढीला ढकें।",
+          "व्यक्ति को गर्म रखें - जलन ठंडी करने से ठंड लग सकती है।"
+        ],
+        "avoid": [
+          "बर्फ, मक्खन, तेल या टूथपेस्ट न लगाएँ।",
+          "छाले न फोड़ें।"
+        ]
       },
       "as": {
         "title": "সৰু পোৰা",
-        "recognise": ["ছাল ৰঙা আৰু বিষাব ধৰা, সৰু অংশত"],
-        "do": ["২০ মিনিট পৰিষ্কাৰ বৈ থকা পানীৰ তলত ঠাণ্ডা কৰক।", "ফুলি যোৱাৰ আগতে ওচৰৰ আঙঠি বা ঘড়ী খুলি দিয়ক।", "পৰিষ্কাৰ, নোম নোহোৱা কাপোৰ বা ক্লিং ফিল্মেৰে ঢিলাকৈ ঢাকক।", "ব্যক্তিজনক গৰমে ৰাখক - পোৰা ঠাণ্ডা কৰিলে জাৰ লাগিব পাৰে।"],
-        "avoid": ["বৰফ, মাখন, তেল বা টুথপেষ্ট নলগাব।", "ফোহা নাফুটাব।"]
+        "recognise": [
+          "ছাল ৰঙা আৰু বিষাব ধৰা, সৰু অংশত"
+        ],
+        "do": [
+          "২০ মিনিট পৰিষ্কাৰ বৈ থকা পানীৰ তলত ঠাণ্ডা কৰক।",
+          "ফুলি যোৱাৰ আগতে ওচৰৰ আঙঠি বা ঘড়ী খুলি দিয়ক।",
+          "পৰিষ্কাৰ, নোম নোহোৱা কাপোৰ বা ক্লিং ফিল্মেৰে ঢিলাকৈ ঢাকক।",
+          "ব্যক্তিজনক গৰমে ৰাখক - পোৰা ঠাণ্ডা কৰিলে জাৰ লাগিব পাৰে।"
+        ],
+        "avoid": [
+          "বৰফ, মাখন, তেল বা টুথপেষ্ট নলগাব।",
+          "ফোহা নাফুটাব।"
+        ]
       }
     },
     {
       "id": "SPRAIN",
       "emergency": false,
-      "escalate": ["Cannot put any weight on it", "The limb looks bent or out of shape", "Numbness or tingling, or the part turns pale or cold"],
+      "escalate": [
+        "Cannot put any weight on it",
+        "The limb looks bent or out of shape",
+        "Numbness or tingling, or the part turns pale or cold"
+      ],
       "en": {
         "title": "Sprain or strain",
-        "recognise": ["Pain and swelling around a joint after a twist or a fall"],
-        "do": ["Rest the joint and stop using it.", "Wrap ice or a cold pack in a cloth and hold it on for up to 20 minutes.", "Support it with a firm bandage - snug, not tight.", "Raise the limb when you can."],
-        "avoid": ["Do not put ice directly on the skin.", "Do not drive if it is your braking or clutch leg."]
+        "recognise": [
+          "Pain and swelling around a joint after a twist or a fall"
+        ],
+        "do": [
+          "Rest the joint and stop using it.",
+          "Wrap ice or a cold pack in a cloth and hold it on for up to 20 minutes.",
+          "Support it with a firm bandage - snug, not tight.",
+          "Raise the limb when you can."
+        ],
+        "avoid": [
+          "Do not put ice directly on the skin.",
+          "Do not drive if it is your braking or clutch leg."
+        ]
       },
       "hi": {
         "title": "मोच या खिंचाव",
-        "recognise": ["मुड़ने या गिरने के बाद जोड़ के आसपास दर्द और सूजन"],
-        "do": ["जोड़ को आराम दें और उसका इस्तेमाल बंद करें।", "बर्फ या ठंडा पैक कपड़े में लपेटकर 20 मिनट तक रखें।", "मज़बूत पट्टी से सहारा दें - कसी हुई नहीं, बस ठीक-ठाक।", "हो सके तो अंग को ऊपर उठाकर रखें।"],
-        "avoid": ["बर्फ सीधे त्वचा पर न लगाएँ।", "अगर यह ब्रेक या क्लच वाला पैर है तो गाड़ी न चलाएँ।"]
+        "recognise": [
+          "मुड़ने या गिरने के बाद जोड़ के आसपास दर्द और सूजन"
+        ],
+        "do": [
+          "जोड़ को आराम दें और उसका इस्तेमाल बंद करें।",
+          "बर्फ या ठंडा पैक कपड़े में लपेटकर 20 मिनट तक रखें।",
+          "मज़बूत पट्टी से सहारा दें - कसी हुई नहीं, बस ठीक-ठाक।",
+          "हो सके तो अंग को ऊपर उठाकर रखें।"
+        ],
+        "avoid": [
+          "बर्फ सीधे त्वचा पर न लगाएँ।",
+          "अगर यह ब्रेक या क्लच वाला पैर है तो गाड़ी न चलाएँ।"
+        ]
       },
       "as": {
         "title": "মোচোৰ খোৱা বা টান লগা",
-        "recognise": ["মোচোৰ খোৱা বা পৰাৰ পিছত গাঁঠিৰ চাৰিওফালে বিষ আৰু ফুলা"],
-        "do": ["গাঁঠিটো জিৰণি দিয়ক আৰু ব্যৱহাৰ বন্ধ কৰক।", "বৰফ বা ঠাণ্ডা পেক কাপোৰত মেৰিয়াই ২০ মিনিটলৈকে ধৰি ৰাখক।", "টানকৈ নহয়, মজবুতকৈ পট্টি বান্ধি সহায় দিয়ক।", "পাৰিলে অংশটো ওপৰলৈ তুলি ৰাখক।"],
-        "avoid": ["বৰফ পোনপটীয়াকৈ ছালত নলগাব।", "ব্ৰেক বা ক্লাচৰ ভৰি হ'লে গাড়ী নচলাব।"]
+        "recognise": [
+          "মোচোৰ খোৱা বা পৰাৰ পিছত গাঁঠিৰ চাৰিওফালে বিষ আৰু ফুলা"
+        ],
+        "do": [
+          "গাঁঠিটো জিৰণি দিয়ক আৰু ব্যৱহাৰ বন্ধ কৰক।",
+          "বৰফ বা ঠাণ্ডা পেক কাপোৰত মেৰিয়াই ২০ মিনিটলৈকে ধৰি ৰাখক।",
+          "টানকৈ নহয়, মজবুতকৈ পট্টি বান্ধি সহায় দিয়ক।",
+          "পাৰিলে অংশটো ওপৰলৈ তুলি ৰাখক।"
+        ],
+        "avoid": [
+          "বৰফ পোনপটীয়াকৈ ছালত নলগাব।",
+          "ব্ৰেক বা ক্লাচৰ ভৰি হ'লে গাড়ী নচলাব।"
+        ]
       }
     }
   ]

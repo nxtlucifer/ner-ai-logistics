@@ -33,10 +33,13 @@ import {
   phrasebook,
   type PhraseLanguage,
 } from '../phrasebook/phrases'
-import { COLORS, TOUCH_TARGET } from '../theme'
+import { TOUCH_TARGET } from '../theme'
+import { makeStyles, useTheme } from '../theme-context'
 import TranslateBox from './TranslateBox'
 
 export default function PhrasebookScreen() {
+  const styles = useStyles()
+  const { colors: COLORS } = useTheme()
   // The driver's own language comes from the device, exactly as everywhere
   // else in the app. Only the LISTENER's language is a choice, because only
   // that one is a fact about the person in front of them.
@@ -108,7 +111,7 @@ export default function PhrasebookScreen() {
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((COLORS) => ({
   // Bounded and centred. These screens are built for a phone, and on the
   // desktop browser they are demonstrated in an unbounded column stretches a
   // sentence across the whole window. Below the maximum it simply fills.
@@ -165,4 +168,4 @@ const styles = StyleSheet.create({
 
   provenance: { marginTop: 4, gap: 3 },
   provenanceText: { color: COLORS.faint, fontSize: 11 },
-})
+}))

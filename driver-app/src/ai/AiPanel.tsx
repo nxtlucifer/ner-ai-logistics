@@ -25,7 +25,8 @@ import {
   View,
 } from 'react-native'
 
-import { COLORS, TOUCH_TARGET } from '../theme'
+import { TOUCH_TARGET } from '../theme'
+import { makeStyles, useTheme } from '../theme-context'
 import type { AiMode, AskOptions, LocalAi } from './useLocalAi'
 
 export interface AiPanelProps {
@@ -56,6 +57,8 @@ export default function AiPanel({
   askOptions,
   fallbackName,
 }: AiPanelProps) {
+  const styles = useStyles()
+  const { colors: COLORS } = useTheme()
   const [draft, setDraft] = useState('')
   const { status, state } = ai
 
@@ -214,7 +217,7 @@ export default function AiPanel({
   )
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((COLORS) => ({
   panel: {
     borderWidth: 1,
     borderColor: COLORS.border,
@@ -287,4 +290,4 @@ const styles = StyleSheet.create({
   },
   answerText: { color: COLORS.text, fontSize: 16, lineHeight: 23 },
   factsAt: { color: COLORS.muted, fontSize: 12 },
-})
+}))

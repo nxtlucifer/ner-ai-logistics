@@ -39,6 +39,51 @@ export function categorizeAuthError(error: unknown): UserFacingError {
     return { code: error.code, title: error.title, detail: error.detail }
   }
 
+  // The FastAPI client already knows WHAT failed. Status first, so that a
+  // backend whose database is away (503) is never reported as a wrong
+  // password, and a wrong password is never reported as "no connection".
+  // Duck-typed on `name`/`status` rather than imported: ../api/client imports
+  // this module's AuthError through supabaseApi, and a cycle here would drag
+  // expo-constants into every test that touches a login error.
+  const status = error instanceof Error && error.name === 'ApiError' ? (error as { status?: number }).status ?? 0 : 0
+  if (status) {
+    if (status === 401) {
+      return {
+        code: 'INVALID_CREDENTIALS',
+        title: 'Incorrect details',
+        detail: 'Phone number or password is incorrect.',
+      }
+    }
+    if (status === 429) {
+      return {
+        code: 'SERVER',
+        title: 'Too many attempts',
+        detail: 'Wait a minute, then try again.',
+      }
+    }
+    if (status >= 500) {
+      return {
+        code: 'SERVER',
+        title: 'Service offline',
+        detail: 'The service is reachable but not working right now. Try again shortly.',
+      }
+    }
+  }
+  if (error instanceof Error && error.name === 'NetworkError') {
+    const aborted = /abort/i.test(error.message)
+    return aborted
+      ? {
+          code: 'TIMEOUT',
+          title: 'Service not responding',
+          detail: 'Reached the network but the service did not answer in time. Try again.',
+        }
+      : {
+          code: 'NETWORK',
+          title: 'No connection',
+          detail: 'Unable to reach the service. Check your internet or Wi-Fi.',
+        }
+  }
+
   const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase()
 
   // 1. Invalid credentials

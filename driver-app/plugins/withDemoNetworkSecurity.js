@@ -10,7 +10,8 @@ function networkSecurityXml(base) {
   if (url?.protocol === 'http:') {
     const octets = url.hostname.split('.').map(Number)
     const privateAddress = octets.length === 4 && octets.every(n => Number.isInteger(n) && n >= 0 && n <= 255) &&
-      (octets[0] === 10 || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) || (octets[0] === 192 && octets[1] === 168))
+      // 127.x is the phone's own loopback, which `adb reverse` forwards over USB - the LAN-free demo path.
+      (octets[0] === 10 || octets[0] === 127 || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) || (octets[0] === 192 && octets[1] === 168))
     if (!privateAddress || url.username || url.password) throw new Error('Plain HTTP is permitted only for a private LAN demo IP')
     exception = `\n  <domain-config cleartextTrafficPermitted="true"><domain includeSubdomains="false">${url.hostname}</domain></domain-config>`
   }

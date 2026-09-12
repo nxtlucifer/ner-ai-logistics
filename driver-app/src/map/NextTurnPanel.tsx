@@ -32,6 +32,8 @@ import {
 } from './maneuvers'
 import { translateReasonCode, type Language } from '../i18n/reasonCodes'
 
+import { makeStyles, useTheme } from '../theme-context'
+
 export interface NextTurnPanelProps {
   /** Null when nothing is upcoming - no fix, no directions, or arrived. */
   next: { maneuver: NavigationManeuver; distanceM: number } | null
@@ -82,6 +84,8 @@ export default function NextTurnPanel({
   hold,
   language,
 }: NextTurnPanelProps) {
+  const styles = useStyles()
+  const { colors: COLORS } = useTheme()
   if (!available) {
     // The route is drawable; only the instructions are missing. Say which.
     const explained = reasonCodes
@@ -140,13 +144,24 @@ export default function NextTurnPanel({
   )
 }
 
-const styles = StyleSheet.create({
+/**
+ * Terrain puts the maneuver card in CHARCOAL, not blue.
+ *
+ * The card used to be a blue panel with blue-tinted text on it, floating over a
+ * map whose route line is also blue. Over a blue basemap stretch the card lost
+ * its edge entirely, and the one element that must never be ambiguous — the
+ * next turn — was the same hue as the road it was describing. Charcoal gives
+ * the card a constant, map-independent ground, and frees blue to mean route.
+ * The maneuver ARROW keeps route blue, because that is the one glyph that is
+ * genuinely about the road.
+ */
+const useStyles = makeStyles((COLORS) => ({
   panel: {
-    backgroundColor: '#0F2C59',
+    backgroundColor: COLORS.bg,
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#1E3A8A',
+    borderBottomColor: COLORS.border,
     gap: 3,
   },
   topRow: {
@@ -155,36 +170,36 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   icon: {
-    color: '#3EA6FF',
+    color: COLORS.routeOn,
     fontSize: 30,
     fontWeight: '900',
   },
   // Large because it is read at a glance from a driving position.
   distance: {
-    color: '#FFFFFF',
+    color: COLORS.text,
     fontSize: 28,
     fontWeight: '800',
     letterSpacing: -0.5,
   },
   instruction: {
-    color: '#F8FAFC',
+    color: COLORS.text,
     fontSize: 16,
     fontWeight: '600',
   },
   roadName: {
-    color: '#93C5FD',
+    color: COLORS.routeOn,
     fontSize: 13,
     fontWeight: '500',
     marginTop: 1,
   },
   state: {
-    color: '#FFFFFF',
+    color: COLORS.text,
     fontSize: 16,
     fontWeight: '700',
   },
   detail: {
-    color: '#DBEAFE',
+    color: COLORS.muted,
     fontSize: 13,
   },
-})
+}))
 

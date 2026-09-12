@@ -364,3 +364,27 @@ def _all(category: PlaceCategory):
     """Every unique place of a category, past the result cap."""
     loaded, _, _, _ = places._load()
     return [p for p in loaded if p.category is category]
+
+
+class TestCorridorWindows:
+    """A long road becomes a chain of bounded windows, never one wide box."""
+
+    def test_a_long_route_is_cut_into_windows_inside_the_bound(self) -> None:
+        from app.domain.places import MAX_BBOX_DEGREES, corridor_windows
+
+        # 12 degrees of longitude in 0.5 degree steps - far wider than the bound.
+        route = [(26.0 + 0.01 * i, 90.0 + 0.5 * i) for i in range(25)]
+        windows = corridor_windows(route)
+        assert len(windows) >= 3
+        for w in windows:
+            assert w.max_lon - w.min_lon <= MAX_BBOX_DEGREES
+            assert w.max_lat - w.min_lat <= MAX_BBOX_DEGREES
+        # Every vertex is inside some window, and neighbours overlap at the cut.
+        assert all(any(w.contains(lat, lon) for w in windows) for lat, lon in route)
+        for a, b in zip(windows, windows[1:]):
+            assert a.max_lon >= b.min_lon
+
+    def test_a_short_route_is_one_window(self) -> None:
+        from app.domain.places import corridor_windows
+
+        assert len(corridor_windows([(26.1, 91.7), (26.7, 94.2)])) == 1

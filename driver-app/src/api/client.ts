@@ -34,12 +34,35 @@ import {
  * fetch the bundle, so reusing its host gives a working default with no manual
  * configuration. An explicit EXPO_PUBLIC_API_BASE_URL always wins.
  */
+function isPrivateHost(host: string): boolean {
+  return (
+    host === 'localhost' ||
+    /^127\./.test(host) ||
+    /^10\./.test(host) ||
+    /^192\.168\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+  )
+}
+
 function resolveBaseUrl(): string {
   if (process.env.EXPO_PUBLIC_BACKEND === 'supabase') {
     return process.env.EXPO_PUBLIC_SUPABASE_URL ?? ''
   }
   const explicit = process.env.EXPO_PUBLIC_API_BASE_URL
-  if (explicit) return explicit
+  if (explicit) {
+    // Web build on a LAN: the browser reached the dev server at
+    // window.location.hostname, and the backend sits beside it. A LAN address
+    // baked in at bundle time goes stale the moment DHCP hands out a new one
+    // ("No connection" on a laptop that is plainly online), so a private
+    // explicit host is swapped for the page's own host. A hosted backend
+    // (public name) is left alone.
+    const w = (globalThis as { location?: { hostname?: string; protocol?: string } }).location
+    const m = /^(https?:)\/\/([^/:]+)(?::(\d+))?/.exec(explicit)
+    if (w?.hostname && m && isPrivateHost(m[2]) && w.hostname !== m[2]) {
+      return `${m[1]}//${w.hostname}:${m[3] ?? '80'}`
+    }
+    return explicit
+  }
 
   const hostUri =
     Constants.expoConfig?.hostUri ??
@@ -453,6 +476,44 @@ export interface CurrentTrip {
   driver_accepted_at: string | null
   shipment?: { total_weight_kg?: string | number | null } | null
   driver?: { full_name?: string | null } | null
+  active_emergency?: ActiveEmergency | null
+}
+
+export type EmergencyState =
+  | 'DRIVER_CHECK_REQUIRED'
+  | 'DRIVER_RESPONDED'
+  | 'SOS_ESCALATED'
+  | 'RESOLVED'
+  | 'FALSE_ALARM'
+
+export type DriverCheckResponse =
+  | 'I_AM_SAFE'
+  | 'TRAFFIC'
+  | 'MECHANICAL_BREAKDOWN'
+  | 'WEATHER_LANDSLIDE'
+  | 'REST_STOP'
+  | 'FUEL_EMPTY'
+  | 'MEDICAL_ISSUE'
+  | 'POLICE_CHECKPOST'
+  | 'ROAD_BLOCKED'
+  | 'NEED_HELP'
+
+export interface ActiveEmergency {
+  id: string
+  trip_id: string
+  state: EmergencyState
+  triggered_at: string
+  stationary_since: string
+  last_gps_point_id?: string | null
+  check_sent_at?: string | null
+  response_deadline_at?: string | null
+  driver_response?: DriverCheckResponse | null
+  responded_at?: string | null
+  escalated_at?: string | null
+  resolved_at?: string | null
+  resolved_by_user_id?: string | null
+  resolution_note?: string | null
+  briefing_snapshot?: Record<string, unknown> | null
 }
 
 /** The four service kinds the map offers. Matches the backend enum. */
@@ -555,10 +616,12 @@ export interface PlacesResponse {
 
 export interface PlacesQuery {
   category: PlaceCategory
-  south: number
-  west: number
-  north: number
-  east: number
+  /** Omitted for ROUTE_CORRIDOR: the server derives bounded windows from the
+   *  driver's own route, so the phone never sends one 300 km box. */
+  south?: number
+  west?: number
+  north?: number
+  east?: number
   anchor: SearchAnchor
   anchorLat?: number
   anchorLon?: number
@@ -585,12 +648,14 @@ export interface OfflineStop {
   lon: number | null
 }
 
-export interface OfflineRisk {
-  score: number
-  band: string
-  unavailable: string[]
-  reason_codes: string[]
-}
+/**
+ * The package carries the FULL assessment (the server builds it with the same
+ * `risk_read` as the live endpoint), so a phone in a valley can render the
+ * same per-factor cards it had online - labelled as a stored copy. This was a
+ * four-field subset, which is why the monitor could not show a last-known
+ * assessment offline: the data was there, the type hid it.
+ */
+export type OfflineRisk = RouteRisk
 
 /**
  * The whole journey, downloaded so it survives losing the network.
@@ -614,6 +679,131 @@ export interface OfflineRisk {
  * `package_hash` covers only the durable parts, so "has the corridor changed"
  * can be asked without the answer flipping every time the weather does.
  */
+/** Mirrors backend RouteRiskRead. `score` alone is dishonest, which is why
+ *  `inputs` and `unavailable` travel with it - see app/api/trips.py. */
+export interface RouteRiskComponent {
+  code: string
+  label: string
+  points: number
+  detail: string | null
+}
+
+export interface TerrainSegment {
+  start_m: number
+  end_m: number
+  grade_pct: number
+  terrain_class: 'FLAT' | 'ROLLING' | 'HILLY' | 'STEEP' | string
+}
+
+/** The DEM profile of the selected route. `usable` is false below the
+ *  engine's coverage floor, and the block still ships so the gap is visible. */
+export interface TerrainRead {
+  source: string
+  fetched_at: string
+  spacing_m: number
+  samples_requested: number
+  samples_answered: number
+  coverage: number
+  usable: boolean
+  min_elevation_m: number | null
+  max_elevation_m: number | null
+  total_ascent_m: number
+  total_descent_m: number
+  max_grade_pct: number
+  steep_km: number
+  class_km: Record<string, number>
+  segments: TerrainSegment[]
+}
+
+export interface LandslideEvent {
+  latitude: number
+  longitude: number
+  year: number | null
+  name: string | null
+}
+
+/** Recorded-landslide exposure. A label from published thresholds, never a
+ *  probability; `inventory_to_year` is the honest freshness. */
+export interface LandslideHistoryRead {
+  exposure: 'UNKNOWN' | 'LOW' | 'MODERATE' | 'HIGH' | string
+  data_status: string
+  provider: string | null
+  considered_count: number
+  on_route_count: number
+  imprecise_count: number
+  unlocatable_count: number
+  nearest_km: number | null
+  inventory_from_year: number | null
+  inventory_to_year: number | null
+  reason_codes: string[]
+  events: LandslideEvent[]
+}
+
+/** River discharge along the corridor against its own 30-day mean. Context, not a flood claim. */
+export interface FloodContextRead {
+  level: 'NORMAL' | 'ELEVATED' | 'UNKNOWN' | string
+  ratio_max: number | null
+  provider: string
+  observed_on: string | null
+  cells: number
+  reason_codes: string[]
+}
+
+/** NDMA SACHET (CAP) alerts naming a district the corridor crosses. Placement by district name. */
+export interface OfficialWarningRead {
+  identifier: string
+  sender: string
+  event: string
+  severity: string
+  urgency: string
+  headline: string
+  area_desc: string
+  sent: string | null
+  expires: string | null
+}
+
+export interface OfficialWarningsRead {
+  level: 'ACTIVE' | 'CLEAR' | 'UNKNOWN' | string
+  on_route: OfficialWarningRead[]
+  in_states: number
+  considered: number
+  districts: string[]
+  provider: string
+  fetched_at: string | null
+  reason_codes: string[]
+}
+
+export interface RouteRisk {
+  score: number
+  band: string
+  components: RouteRiskComponent[]
+  /** factor name -> "AVAILABLE" | "NOT_AVAILABLE" */
+  inputs: Record<string, string>
+  unavailable: string[]
+  reason_codes: string[]
+  observations_used: number
+  observations_stale: number
+  assessed_at: string
+  /** Absent on older servers and packages. */
+  terrain?: TerrainRead | null
+  landslide_history?: LandslideHistoryRead | null
+  flood?: FloodContextRead | null
+  official_warnings?: OfficialWarningsRead | null
+  /** CONTINUE / CAUTION / HOLD_AND_REVIEW / REROUTE_RECOMMENDED, derived
+   *  server-side from the band and the reroute assessment. Absent in older
+   *  cached packages. */
+  decision?: string | null
+  decision_reason_codes?: string[]
+  /** Present only when a genuinely better road exists. */
+  alternative?: {
+    route_id: string
+    band: string
+    score: number
+    distance_km: number | null
+    estimated_duration_min: number | null
+  } | null
+}
+
 export interface OfflinePackage {
   trip_id: string
   trip_code: string
@@ -846,6 +1036,15 @@ const restApi = {
     request<NavigationPackage>('/api/driver/me/trip/navigation'),
 
   /**
+   * Deterministic risk for this driver's OWN selected route.
+   *
+   * 404 no trip, 409 trip with no route selected. Both are states the Route
+   * Monitor renders, not errors to retry - a driver whose manager has not
+   * picked a road yet is not a failure.
+   */
+  routeRisk: () => request<RouteRisk>('/api/driver/me/trip/route-risk'),
+
+  /**
    * Roadside services near this driver's own trip.
    *
    * Served from a local corridor snapshot on the backend - no request leaves
@@ -857,10 +1056,14 @@ const restApi = {
       '/api/driver/me/trip/places?' +
         new URLSearchParams({
           category: query.category,
-          south: String(query.south),
-          west: String(query.west),
-          north: String(query.north),
-          east: String(query.east),
+          ...(query.south !== undefined && query.west !== undefined && query.north !== undefined && query.east !== undefined
+            ? {
+                south: String(query.south),
+                west: String(query.west),
+                north: String(query.north),
+                east: String(query.east),
+              }
+            : {}),
           anchor: query.anchor,
           ...(query.anchorLat !== undefined && query.anchorLon !== undefined
             ? {
@@ -906,6 +1109,11 @@ const restApi = {
       method: 'POST',
       body: { trip_id: tripId },
     }),
+  checkInEmergency: (tripId: string, response: DriverCheckResponse) =>
+    request<ActiveEmergency>('/api/driver/me/trip/check-in', {
+      method: 'POST',
+      body: { trip_id: tripId, response },
+    }),
 
   // Location upload gets its own timeout. It runs on a background cadence, so a
   // long hang would stall the queue behind it; failing sooner and retrying is
@@ -916,6 +1124,28 @@ const restApi = {
       body: { trip_id: tripId, fixes },
       timeoutMs: 10_000,
     }),
+
+  /**
+   * A road from where the truck is now, planned by the routing provider and
+   * stored as the trip's backup route. The trip stays on its selected road
+   * until the manager accepts the proposal; 409 when not under way, 503 when
+   * no provider answers.
+   */
+  requestReroute: (lat: number, lon: number) =>
+    request<RerouteProposed>('/api/driver/me/trip/reroute', {
+      method: 'POST',
+      body: { lat, lon },
+      timeoutMs: 15_000,
+    }),
+}
+
+export interface RerouteProposed {
+  route_id: string
+  kind: string
+  distance_km: number | null
+  estimated_duration_min: number | null
+  provider: string
+  has_guidance: boolean
 }
 
 // ---------------------------------------------------------------------------

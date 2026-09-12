@@ -75,10 +75,13 @@
   --font-display: Sora, 'Segoe UI', system-ui, sans-serif;
   --font-sans: Inter, 'Segoe UI', system-ui, sans-serif;
 
-  /* Radii — Terrain: controls 8, cards/panels 12, floating sheets 20. */
+  /* Radii — Terrain: controls 8, cards/panels 12. The scale's third step
+     (sheets, 20) is not declared here: this console has no bottom sheet, and
+     Tailwind strips an unreferenced theme variable anyway, so declaring it
+     would only look like a token that exists. It lives in the driver app,
+     which is where the sheet is. */
   --radius-control: 8px;
   --radius-card: 12px;
-  --radius-panel: 20px;
 
   /* Elevation. Two layers each: a tight contact shadow that seats the element
      on the canvas, and a wide diffuse one that gives it air. A single blurred

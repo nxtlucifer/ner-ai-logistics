@@ -419,6 +419,84 @@
       "en": "Weather data not available",
       "hi": "मौसम की जानकारी उपलब्ध नहीं",
       "as": "বতৰৰ তথ্য উপলব্ধ নহয়"
+    },
+    "STEEP_GRADIENT_ON_ROUTE": {
+      "speak": true,
+      "en": "Steep gradients on this route",
+      "hi": "इस मार्ग पर तीखी ढलानें हैं",
+      "as": "এই পথত খাড়া ঢাল আছে"
+    },
+    "TERRAIN_DATA_UNAVAILABLE": {
+      "speak": false,
+      "en": "Terrain elevation data is not available for this route.",
+      "hi": "इस मार्ग के लिए भू-भाग की ऊँचाई का डेटा उपलब्ध नहीं है।",
+      "as": "এই পথৰ বাবে ভূ-ভাগৰ উচ্চতাৰ তথ্য উপলব্ধ নহয়।"
+    },
+    "LANDSLIDE_HISTORY_NOT_CONFIGURED": {
+      "speak": false,
+      "en": "Landslide history is not available - no inventory is connected.",
+      "hi": "भूस्खलन का इतिहास उपलब्ध नहीं है - कोई सूची जुड़ी नहीं है।",
+      "as": "ভূমিস্খলনৰ ইতিহাস উপলব্ধ নহয় - কোনো তালিকা সংযোগ কৰা হোৱা নাই।"
+    },
+    "LANDSLIDE_HISTORY_SOURCE_FAILED": {
+      "speak": false,
+      "en": "The landslide history inventory could not be read.",
+      "hi": "भूस्खलन इतिहास की सूची पढ़ी नहीं जा सकी।",
+      "as": "ভূমিস্খলনৰ ইতিহাসৰ তালিকা পঢ়িব পৰা নগ'ল।"
+    },
+    "LANDSLIDE_HISTORY_ON_ROUTE": {
+      "speak": false,
+      "en": "Landslides have been recorded along this route in the past.",
+      "hi": "इस मार्ग पर पहले भूस्खलन दर्ज किए गए हैं।",
+      "as": "এই পথত অতীতত ভূমিস্খলন লিপিবদ্ধ হৈছে।"
+    },
+    "LANDSLIDE_HISTORY_NONE_RECORDED": {
+      "speak": false,
+      "en": "No past landslides are recorded along this route in the inventory.",
+      "hi": "सूची में इस मार्ग पर कोई पुराना भूस्खलन दर्ज नहीं है।",
+      "as": "তালিকাত এই পথত কোনো পুৰণি ভূমিস্খলন লিপিবদ্ধ হোৱা নাই।"
+    },
+    "LANDSLIDE_HISTORY_INVENTORY_AGED": {
+      "speak": false,
+      "en": "The landslide inventory ends in 2017 - recent years are not covered.",
+      "hi": "भूस्खलन सूची 2017 में समाप्त होती है - हाल के वर्ष शामिल नहीं हैं।",
+      "as": "ভূমিস্খলনৰ তালিকা ২০১৭ চনত শেষ হৈছে - শেহতীয়া বছৰবোৰ অন্তৰ্ভুক্ত নহয়।"
+    },
+    "RIVER_DISCHARGE_ELEVATED": {
+      "speak": true,
+      "en": "River levels near this route are running well above their recent average - watch for water on low crossings.",
+      "hi": "इस मार्ग के पास नदियों का जलस्तर हाल के औसत से काफी ऊपर है - निचले पुलों और रपटों पर पानी से सावधान रहें।",
+      "as": "এই পথৰ ওচৰৰ নদীৰ পানীৰ স্তৰ শেহতীয়া গড়তকৈ যথেষ্ট ওপৰত - নিম্ন পাৰাপাৰত পানীৰ প্ৰতি সতৰ্ক থাকক।"
+    },
+    "RIVER_DISCHARGE_NORMAL": {
+      "speak": false,
+      "en": "River levels near this route are close to their recent average.",
+      "hi": "इस मार्ग के पास नदियों का जलस्तर हाल के औसत के करीब है।",
+      "as": "এই পথৰ ওচৰৰ নদীৰ পানীৰ স্তৰ শেহতীয়া গড়ৰ ওচৰত আছে।"
+    },
+    "FLOOD_CONTEXT_UNAVAILABLE": {
+      "speak": false,
+      "en": "River level data is not available for this route.",
+      "hi": "इस मार्ग के लिए नदी जलस्तर का डेटा उपलब्ध नहीं है।",
+      "as": "এই পথৰ বাবে নদীৰ পানীৰ স্তৰৰ তথ্য উপলব্ধ নহয়।"
+    },
+    "OFFICIAL_WARNING_ON_ROUTE": {
+      "speak": true,
+      "en": "An official disaster alert names a district on this route.",
+      "hi": "एक आधिकारिक आपदा चेतावनी इस मार्ग के किसी ज़िले का नाम लेती है।",
+      "as": "এখন চৰকাৰী দুৰ্যোগ সতৰ্কবাণীয়ে এই পথৰ এখন জিলাৰ নাম উল্লেখ কৰিছে।"
+    },
+    "NO_OFFICIAL_WARNING_ON_ROUTE": {
+      "speak": false,
+      "en": "No official disaster alert names a district on this route right now.",
+      "hi": "अभी कोई आधिकारिक आपदा चेतावनी इस मार्ग के किसी ज़िले का नाम नहीं लेती।",
+      "as": "এতিয়া কোনো চৰকাৰী দুৰ্যোগ সতৰ্কবাণীয়ে এই পথৰ কোনো জিলাৰ নাম উল্লেখ কৰা নাই।"
+    },
+    "OFFICIAL_WARNINGS_UNAVAILABLE": {
+      "speak": false,
+      "en": "Official disaster alerts could not be checked for this route.",
+      "hi": "इस मार्ग के लिए आधिकारिक आपदा चेतावनियाँ जाँची नहीं जा सकीं।",
+      "as": "এই পথৰ বাবে চৰকাৰী দুৰ্যোগ সতৰ্কবাণী পৰীক্ষা কৰিব পৰা নগ'ল।"
     }
   }
 }
