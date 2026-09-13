@@ -9,6 +9,7 @@ vi.mock('../api/client', () => ({ api: { myTrip: mocked.myTrip } }))
 vi.mock('../components/ui', () => ({ errorMessage: () => ({ title: 'Failed', detail: 'Retry' }) }))
 vi.mock('../tracking/useLocationTracking', () => ({ useLocationTracking: mocked.tracking }))
 vi.mock('../notify/local', () => ({ notifyInBackground: mocked.notify }))
+vi.mock('../auth/AuthProvider', () => ({ useAuth: () => ({ supportView: false }) }))
 vi.mock('react-native', () => ({ AppState: { currentState: 'active', addEventListener: () => ({ remove: () => {} }) } }))
 import { TripProvider, useTrip, type TripContextValue, TRIP_POLL_MS } from './TripProvider'
 

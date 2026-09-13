@@ -73,6 +73,7 @@ import { api, type CurrentTrip } from '../api/client'
 import { notifyInBackground } from '../notify/local'
 import { errorMessage } from '../components/ui'
 import { useLocationTracking } from '../tracking/useLocationTracking'
+import { useAuth } from '../auth/AuthProvider'
 
 export type Phase = 'loading' | 'ready' | 'error'
 
@@ -236,9 +237,11 @@ export function TripProvider({ children }: { children: ReactNode }) {
 
   // Tracking runs only while the SERVER says this trip is in progress. The app
   // does not decide for itself when it is allowed to collect position.
+  // A manager's support view must never watch the MANAGER's position.
+  const { supportView } = useAuth()
   const tracking = useLocationTracking(
     trip?.id ?? null,
-    Boolean(trip?.tracking_expected),
+    Boolean(trip?.tracking_expected) && !supportView,
     trip?.tracking ?? null,
   )
 
