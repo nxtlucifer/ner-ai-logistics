@@ -862,7 +862,19 @@ code changed (`git diff 96fb47c..HEAD -- backend` is the two-gate patch only).
   `EXPO_PUBLIC_BACKEND=local EXPO_PUBLIC_API_BASE_URL=<Render URL>` in the
   environment and the MapTiler key from `driver-app/.env`. It is signed with
   the debug keystore, NOT the EAS keystore, so it cannot install over an EAS
-  build: uninstall first. `android/` is generated and gitignored.
+  build: uninstall first. `android/` is generated and gitignored. Install with
+  `bash .runtime/phone-install.sh` (answers ColorOS's "Continue installation"
+  prompt). NEVER leave an `adb install` hanging: each one parks a committed
+  session on the phone, ColorOS applies them in order on the next Continue,
+  and an old build can come back (1.0.11 replaced 1.0.12 that way); a wedged
+  queue ("Installing…" forever, `dumpsys package` Active install sessions with
+  mStageDirInUse=true) clears only with a phone restart.
+- **Phone state at handoff.** Judge flow 12/12 on 1.0.12 (`judge_e2e_polish.log`,
+  same UI code as 1.0.13 minus the danger-card/gauge overlap fix). The phone
+  then fell back to 1.0.11 through the session queue above and the installer
+  wedged; 1.0.13 (`.runtime/rasta-driver-1.0.13-local.apk`, aapt2: label
+  RASTA AI, versionCode 13) is built and waits for: restart phone -> unlock ->
+  `bash .runtime/phone-install.sh` -> `python .runtime/rehearsal/phone_e2e.py`.
 
 ## 7. Honesty rules this codebase enforces (do not regress)
 
@@ -877,6 +889,14 @@ code changed (`git diff 96fb47c..HEAD -- backend` is the two-gate patch only).
 ---
 
 ## 8. Gates (all green at handoff)
+
+13 Sep (18:45, VISUAL POLISH): Driver **600/600** + tsc · Manager **167/167** +
+tsc + `vite build --mode remote-demo` · Expo web export PASS · driver web sweep
+**40/40 states** (320/360/390/412 × day/night, no overflow, no raw codes) ·
+public manager sweep **13/13** (1280/1366/1920 + 768; System page shows the
+PostGIS flags string, expected) · phone (1.0.12, same UI code): judge E2E
+**12/12**, visual smoke 7/7 screens (`phone-polish-*.png`) · public manager
+redeployed with the brand (`/brand-mark.svg` 200). Backend untouched.
 
 13 Sep (16:00, TWO-GATE PATCH - FROZEN): Gate 1 server-enforced truck
 verification: driver verify without a photo on the current assignment = 422
