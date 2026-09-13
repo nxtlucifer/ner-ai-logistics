@@ -52,6 +52,7 @@ import { Linking } from 'react-native'
 import { useAuth } from '../auth/AuthProvider'
 import { Banner, Button, Loading, Row, errorMessage } from '../components/ui'
 import { emergencyNumbers } from '../safety/guide'
+import { useGuidanceClock } from '../map/useGuidanceClock'
 import { resolveLanguage } from '../i18n/language'
 import {
   formatDistanceKm,
@@ -454,6 +455,11 @@ function RouteSummary({ trip }: { trip: CurrentTrip }) {
   )
 }
 
+function ageLabel(ms: number): string {
+  const s = Math.max(0, ms / 1000)
+  return s < 60 ? `${Math.round(s)}s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`
+}
+
 /**
  * The Trip page with no trip: available, and told so with real facts only.
  * Driver and truck come from the session and the assignment; the connection
@@ -469,6 +475,9 @@ function NoTrip({ isStale, loadedAt, onOpenMap, onCheckTruck, onReload }: {
 }) {
   const styles = useStyles()
   const { driver } = useAuth()
+  // Ticks every few seconds so "Last sync" AGES between polls - and keeps
+  // ageing when the poll is failing, which is exactly when it matters.
+  const clock = useGuidanceClock()
   const [assignment, setAssignment] = useState<CurrentAssignment | null | undefined>(undefined)
   useEffect(() => {
     let alive = true
@@ -498,7 +507,7 @@ function NoTrip({ isStale, loadedAt, onOpenMap, onCheckTruck, onReload }: {
           value={assignment === undefined ? 'Checking…' : assignment === null ? 'No truck assigned' : `${assignment.truck.registration_number} · ${assignment.verified_at ? 'verified' : 'not verified'}`}
         />
         <Row label="Connection" value={isStale ? 'Reconnecting — showing last sync' : 'Connected'} />
-        <Row label="Last sync" value={loadedAt ? relativeTime(new Date(loadedAt).toISOString()) : 'never'} />
+        <Row label="Last sync" value={loadedAt ? ageLabel(clock.now - loadedAt) : 'never'} />
         {assignment && !assignment.verified_at && onCheckTruck ? (
           <View style={styles.emptyAction}>
             <Button label="Check the truck" variant="secondary" onPress={onCheckTruck} />
