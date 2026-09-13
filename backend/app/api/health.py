@@ -108,6 +108,13 @@ async def ready(response: Response) -> dict[str, Any]:
     }
 
 
+@router.get("/api/system/simulation", summary="Active DEMO SIMULATION scenarios")
+async def system_simulation(user: CurrentUser) -> dict[str, object]:
+    from app.services import simulation
+
+    return {"enabled": simulation.enabled(), "active": simulation.snapshot()}
+
+
 @router.get("/api/system/providers", summary="Data-source health and the intelligence inventory")
 async def providers(user: CurrentUser) -> dict[str, Any]:
     """What every external source last did, and what "AI" this repository holds.

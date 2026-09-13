@@ -261,6 +261,9 @@ class Settings(BaseSettings):
     WARNINGS_POLL_ENABLED: bool = False
     NOMINATIM_URL: str = "https://nominatim.openstreetmap.org"
 
+    # --- Demo simulation (services/simulation.py): synthetic, labelled evidence ---
+    DEMO_SIMULATION_ENABLED: bool = False
+
     # --- Driver push (Expo Push API) ---
     #: The relay is free and needs no key; EXPO_ACCESS_TOKEN only when the
     #: Expo project has "enhanced push security" on. Off in tests.

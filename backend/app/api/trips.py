@@ -18,6 +18,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel, Field
 
+from app.services import simulation
+from app.services import audit
+from app.models.enums import AuditAction
+from app.core.errors import BusinessRuleError
 from app.api.deps import DbSession, get_client_ip, require_permission
 from app.core import permissions as perm
 from app.core.errors import PermissionDeniedError
@@ -264,6 +268,53 @@ async def dispatch_trip(
     return TripRead.model_validate(
         await trip_service.dispatch(db, trip_id, actor=actor, ip=ip)
     )
+
+
+class SimulationRead(APIModel):
+    trip_id: uuid.UUID
+    route_id: uuid.UUID
+    scenario: str
+    remaining_s: int
+    label: str
+
+
+@trips_router.post("/{trip_id}/simulation", response_model=SimulationRead, summary="DEMO SIMULATION: inject a labelled scenario")
+async def start_simulation(
+    trip_id: uuid.UUID,
+    db: DbSession,
+    actor: Annotated[User, Depends(require_permission(perm.TRIP_DISPATCH))],
+    scenario: Annotated[str, Query(max_length=40)],
+    minutes: Annotated[int, Query(ge=1, le=simulation.MAX_MINUTES)] = 30,
+) -> SimulationRead:
+    """Synthetic evidence on the trip's SELECTED road only, for `minutes`,
+    always carrying DEMO_SIMULATION_ACTIVE. Scenarios: see services/simulation.py."""
+    if not simulation.enabled():
+        raise BusinessRuleError("Demo simulation is disabled on this service.")
+    if scenario not in simulation.SCENARIOS:
+        raise BusinessRuleError(f"Unknown scenario. One of: {', '.join(sorted(simulation.SCENARIOS))}")
+    trip = await trip_service.get(db, trip_id)
+    if trip.selected_route_id is None:
+        raise BusinessRuleError("The trip has no selected route to simulate on.")
+    sc = simulation.start(trip.id, trip.selected_route_id, scenario, minutes)
+    await audit.record(db, action=AuditAction.UPDATE, entity_type="trip", entity_id=trip.id, actor_user_id=actor.id,
+                       reason=f"demo simulation {scenario}", after={"minutes": minutes, "simulated": True})
+    await db.commit()
+    return SimulationRead(
+        trip_id=sc.trip_id, route_id=sc.route_id, scenario=sc.name, remaining_s=int(sc.until - sc.started_at), label=simulation.LABEL_CODE)
+
+
+@trips_router.delete("/{trip_id}/simulation", summary="DEMO SIMULATION: clear (recovery)")
+async def stop_simulation(
+    trip_id: uuid.UUID,
+    db: DbSession,
+    actor: Annotated[User, Depends(require_permission(perm.TRIP_DISPATCH))],
+) -> dict[str, bool]:
+    stopped = simulation.stop(trip_id)
+    if stopped:
+        await audit.record(db, action=AuditAction.UPDATE, entity_type="trip", entity_id=trip_id, actor_user_id=actor.id,
+                           reason="demo simulation cleared", after={"scenario": stopped.name})
+        await db.commit()
+    return {"cleared": stopped is not None}
 
 
 @trips_router.post(

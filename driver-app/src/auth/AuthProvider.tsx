@@ -29,6 +29,8 @@ import { clearRefreshToken } from './tokenStore'
 interface AuthState {
   driver: DriverMe | null
   isInitialising: boolean
+  /** A manager is looking at this driver's app through a read-only token. */
+  supportView: boolean
   login: (identifier: string, password: string) => Promise<void>
   logout: () => Promise<void>
 }
@@ -38,6 +40,7 @@ const AuthContext = createContext<AuthState | null>(null)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [driver, setDriver] = useState<DriverMe | null>(null)
   const [isInitialising, setIsInitialising] = useState(true)
+  const [supportView, setSupportView] = useState(false)
 
   const clear = useCallback(() => {
     setAccessToken(null)
@@ -55,7 +58,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     void (async () => {
       try {
-        const token = await refreshSession()
+        // Manager support view (web only): the token arrives in the URL
+        // FRAGMENT - never sent to any server - and is dropped from the bar.
+        const support = supportTokenFromUrl()
+        const token = support ?? (await refreshSession())
+        if (support) {
+          setAccessToken(support)
+          setSupportView(true)
+        }
         if (cancelled) return
         if (token) {
           const me = await api.me()
@@ -108,11 +118,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [clear])
 
   const value = useMemo(
-    () => ({ driver, isInitialising, login, logout }),
-    [driver, isInitialising, login, logout],
+    () => ({ driver, isInitialising, login, logout, supportView }),
+    [driver, isInitialising, login, logout, supportView],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+}
+
+function supportTokenFromUrl(): string | null {
+  if (typeof window === 'undefined' || !window.location?.hash) return null
+  const token = new URLSearchParams(window.location.hash.slice(1)).get('support')
+  if (token) window.history.replaceState(null, '', window.location.pathname)
+  return token
 }
 
 export function useAuth(): AuthState {

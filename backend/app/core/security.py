@@ -61,7 +61,7 @@ def needs_rehash(password_hash: str) -> bool:
 
 
 def create_access_token(
-    *, user_id: uuid.UUID, role: str, expires_delta: timedelta | None = None
+    *, user_id: uuid.UUID, role: str, expires_delta: timedelta | None = None, support_by: uuid.UUID | None = None
 ) -> tuple[str, datetime]:
     """Mint a short-lived access token.
 
@@ -83,6 +83,11 @@ def create_access_token(
         "exp": int(expires_at.timestamp()),
         "jti": secrets.token_urlsafe(16),
     }
+    if support_by is not None:
+        # A manager's read-only look at a driver's app (api/fleet.py
+        # support-session): the subject is the driver, the actor is recorded,
+        # and app/api/deps.py refuses anything but GET on such a token.
+        payload["support_by"] = str(support_by)
     token = jwt.encode(payload, settings.SECRET_KEY, algorithm=JWT_ALGORITHM)
     return token, expires_at
 

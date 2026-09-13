@@ -45,7 +45,7 @@ import * as Notifications from 'expo-notifications'
 
 import { TABS, type Tab } from './src/navigation'
 import { registerPush, screenFromResponse } from './src/notify/push'
-import { MoreIcon, NavigateIcon, SafetyIcon, TripIcon } from './src/components/icons'
+import { Icon, MoreIcon, NavigateIcon, SafetyIcon, TripIcon } from './src/components/icons'
 import { refreshProfilePhoto, useProfilePhotoUrl } from './src/files/profilePhoto'
 import { useAuthImage } from './src/files/useAuthImage'
 import { TripProvider, useTrip } from './src/trip/TripProvider'
@@ -88,7 +88,7 @@ function Signed() {
 function SignedShell() {
   const styles = useStyles()
   const { colors: COLORS, mode, toggle } = useTheme()
-  const { driver } = useAuth()
+  const { driver, supportView } = useAuth()
   const { tracking, isStale } = useTrip()
   const { t } = useAppLanguage()
   const isLive = Boolean(tracking?.isTracking) && !isStale
@@ -138,6 +138,12 @@ function SignedShell() {
 
   return (
     <SafeAreaView style={styles.flex}>
+        {supportView ? (
+          <View style={styles.supportBanner} accessibilityRole="alert">
+            <Icon name="eye" color="#7A5B12" size={16} />
+            <Text style={styles.supportBannerText}>{tr('MANAGER SUPPORT VIEW · read-only')}</Text>
+          </View>
+        ) : null}
         {tab !== 'navigate' ? (
           <View style={styles.header}>
             <View style={styles.identity}>
@@ -394,6 +400,8 @@ const useStyles = makeStyles((COLORS) => ({
     letterSpacing: 1,
   },
 
+  supportBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#FDE68A', paddingVertical: 6, paddingHorizontal: 12 },
+  supportBannerText: { color: '#7A5B12', fontSize: 12, fontWeight: '800', letterSpacing: 0.6 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

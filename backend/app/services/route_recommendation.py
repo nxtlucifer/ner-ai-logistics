@@ -52,6 +52,7 @@ from app.domain.routing import parse_wkt_linestring, sample_positions
 from app.models.enums import RouteKind, RouteState
 from app.models.operations import Trip, TripRoute
 from app.services import route_risk as route_risk_service
+from app.services import simulation
 from app.services import traffic as traffic_service
 from app.domain.traffic import TrafficSample, estimate as traffic_estimate
 from app.services.route_risk import ROUTE_SAMPLES
@@ -143,7 +144,7 @@ async def _risk_for(
     )
     distance = float(distance_km) if distance_km is not None else 0.0
     duration = float(duration_min) if duration_min is not None else 0.0
-    return assess(
+    return simulation.apply(route_id, assess(
         distance_km=distance,
         duration_min=duration,
         observations=observations,
@@ -153,7 +154,7 @@ async def _risk_for(
         flood=flood,
         warnings=warnings,
         traffic=traffic_estimate(geometry=geometry, samples=probes or [], distance_km=distance, duration_min=duration),
-    )
+    ))
 
 
 async def candidates_for_trip(

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { ApiError, api, type Driver, unavailableReason } from '../api/client'
+import { ApiError, DRIVER_WEB_URL, api, type Driver, unavailableReason } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
 import AuthImage, { initials } from '../components/AuthImage'
 import {
@@ -49,6 +49,15 @@ export default function DriversPage() {
   })
 
   const deactivate = useMutation((id: string) => api.deactivateDriver(id))
+  const support = useMutation((id: string) => api.supportSession(id))
+  const supportBlocked = unavailableReason('supportSession')
+
+  async function handleViewAsDriver(driver: Driver) {
+    // The token goes in the URL FRAGMENT: browsers never send fragments to a
+    // server, so no host log ever sees it. 15 minutes, GET-only, audited.
+    const { data } = await support.submit(driver.id)
+    if (data) window.open(`${DRIVER_WEB_URL}/#support=${encodeURIComponent(data.token)}`, '_blank', 'noopener')
+  }
 
   // See UNAVAILABLE_OPERATIONS: these have no hosted implementation, so the
   // controls say so rather than throwing when pressed.
@@ -281,6 +290,17 @@ export default function DriversPage() {
                         </div>
                       </td>
                       <td className="py-3 text-right">
+                        {can('driver:support_view') && driver.login_is_active ? (
+                          <Button
+                            variant="secondary"
+                            onClick={() => handleViewAsDriver(driver)}
+                            busy={support.isSubmitting}
+                            disabled={supportBlocked !== null}
+                            title={supportBlocked ?? "Open this driver's app read-only for 15 minutes. No password is shared."}
+                          >
+                            View as driver
+                          </Button>
+                        ) : null}{' '}
                         {can('driver:deactivate') ? (
                           <Button
                             variant="danger"

@@ -41,6 +41,8 @@ class TokenClaims:
 
     user_id: uuid.UUID
     role: str
+    #: Set on a manager support-view token: the manager's user id. Read-only.
+    support_by: uuid.UUID | None = None
 
 
 class TokenVerifier(Protocol):
@@ -91,7 +93,13 @@ class LocalJWTVerifier:
         if not isinstance(role, str) or not role:
             raise InvalidToken("token has no role claim")
 
-        return TokenClaims(user_id=user_id, role=role)
+        support_by = None
+        if payload.get("support_by"):
+            try:
+                support_by = uuid.UUID(str(payload["support_by"]))
+            except ValueError as exc:
+                raise InvalidToken("token is not valid") from exc
+        return TokenClaims(user_id=user_id, role=role, support_by=support_by)
 
 
 class VerifierUnavailable(Exception):

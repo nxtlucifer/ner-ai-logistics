@@ -12,6 +12,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel
 
+from datetime import datetime, timedelta
+from sqlalchemy import select
+from app.core.security import create_access_token
+from app.models.enums import AuditAction
+from app.services import audit
+from app.core.errors import BusinessRuleError
+from app.schemas.common import APIModel
 from app.api.deps import (
     CurrentDriver,
     DbSession,
@@ -132,6 +139,46 @@ async def deactivate_driver(
 
 
 # --- Trucks ---------------------------------------------------------------
+
+SUPPORT_SESSION_MINUTES = 15
+
+
+class SupportSession(APIModel):
+    token: str
+    expires_at: datetime
+    driver_id: uuid.UUID
+
+
+@drivers_router.post(
+    "/{driver_id}/support-session", response_model=SupportSession, summary="View as driver (read-only)"
+)
+async def support_session(
+    driver_id: uuid.UUID,
+    db: DbSession,
+    actor: Annotated[User, Depends(require_permission(perm.DRIVER_SUPPORT_VIEW))],
+    ip: ClientIp,
+) -> SupportSession:
+    """A 15-minute token that opens the driver app AS this driver, read-only.
+
+    No password is shared, shown or stored: the token is minted here from the
+    driver's user id and carries the manager's id (`support_by`), which
+    app/api/deps.py turns into "GET only". Every issue is an audit row with the
+    manager, the driver and the expiry; every read is logged with both ids.
+    """
+    driver = await driver_service.get(db, driver_id, actor=actor)
+    user = (await db.execute(select(User).where(User.id == driver.user_id))).scalar_one()
+    if not user.is_active:
+        raise BusinessRuleError("That driver's login is inactive.")
+    token, expires_at = create_access_token(
+        user_id=user.id, role=user.role.value, expires_delta=timedelta(minutes=SUPPORT_SESSION_MINUTES), support_by=actor.id
+    )
+    await audit.record(
+        db, action=AuditAction.DOCUMENT_ACCESS, entity_type="driver", entity_id=driver.id, actor_user_id=actor.id,
+        reason="manager support view", after={"expires_at": expires_at.isoformat(), "read_only": True}, ip_address=ip,
+    )
+    await db.commit()
+    return SupportSession(token=token, expires_at=expires_at, driver_id=driver.id)
+
 
 trucks_router = APIRouter(prefix="/api/trucks", tags=["trucks"])
 

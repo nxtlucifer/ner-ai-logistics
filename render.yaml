@@ -90,6 +90,8 @@ services:
         value: "true"
       - key: ROUTE_WATCH_ENABLED
         value: "true"
+      - key: DEMO_SIMULATION_ENABLED
+        value: "true"
 
       # Secrets. Never in this file - it is committed.
       - key: DATABASE_URL

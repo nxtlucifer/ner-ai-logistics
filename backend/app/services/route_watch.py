@@ -46,7 +46,7 @@ from app.domain.routing import haversine_m, parse_wkt_linestring, sample_positio
 from app.domain.traffic import estimate as traffic_estimate
 from app.models.enums import TripStatus
 from app.models.operations import Trip
-from app.services import notify, telemetry
+from app.services import notify, simulation, telemetry
 from app.services import traffic as traffic_service
 from app.services.driver_trips import IN_PROGRESS_STATUSES
 from app.services.route_risk import ROUTE_SAMPLES, _route_facts, evidence_for
@@ -146,12 +146,12 @@ async def look_ahead(db: AsyncSession, trip_id: uuid.UUID, route_id: uuid.UUID) 
     # that cache honest. Everything point-based sees only the window ahead.
     observations, landslide, terrain, history, flood, warnings = await evidence_for(route_id, geometry, positions)
     share = (1.0 - (progress.fraction_complete or 0.0)) if total_km else 1.0
-    risk = assess(
+    risk = simulation.apply(route_id, assess(
         distance_km=min(km, total_km * share) if total_km else km,
         duration_min=total_min * share,
         observations=observations, landslide=landslide, terrain=terrain, history=history, flood=flood, warnings=warnings,
         traffic=traffic_estimate(geometry=geometry, samples=probes, distance_km=total_km, duration_min=total_min),
-    )
+    ))
     exposure = risk.history.exposure.value if risk.history else None
     decision = driver_decision(risk.band, None, reason_codes=risk.reason_codes, history_exposure=exposure)
     return Ahead(decision=decision, codes=frozenset(risk.reason_codes), exposure=exposure, horizon_km=km,

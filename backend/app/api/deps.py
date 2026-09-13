@@ -1,3 +1,4 @@
+import logging
 """Request dependencies: database session, current user, permission gates.
 
 Every protected route goes through `require_permission(...)`. Routes never
@@ -22,6 +23,8 @@ from app.models.identity import Driver, User
 
 # auto_error=False so a missing header raises our own 401 envelope rather than
 # FastAPI's default shape, keeping every error response identical.
+logger = logging.getLogger(__name__)
+
 _bearer = HTTPBearer(auto_error=False)
 
 DbSession = Annotated[AsyncSession, Depends(get_session)]
@@ -61,6 +64,13 @@ async def get_current_user(
         raise AuthenticationError("Account is disabled.")
 
     request.state.actor_id = user.id
+    if claims.support_by is not None:
+        # Manager support view: the driver's screens, none of the driver's
+        # actions. One guard here covers every mutating endpoint at once.
+        if request.method != "GET":
+            raise PermissionDeniedError("Manager support view is read-only.")
+        request.state.support_by = claims.support_by
+        logger.info("support view: manager %s read %s as driver user %s", claims.support_by, request.url.path, user.id)
     return user
 
 

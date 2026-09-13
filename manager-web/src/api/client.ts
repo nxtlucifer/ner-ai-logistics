@@ -1040,6 +1040,9 @@ export const restApi = {
   getDriver: (id: string) => request<Driver>(`/api/drivers/${id}`),
   deactivateDriver: (id: string) =>
     request<Driver>(`/api/drivers/${id}/deactivate`, { method: 'POST' }),
+  /** 15-minute read-only token that opens the driver app as this driver. */
+  supportSession: (id: string) =>
+    request<SupportSession>(`/api/drivers/${id}/support-session`, { method: 'POST' }),
 
   listTrucks: (params: { limit?: number; cursor?: string; search?: string } = {}) =>
     request<Page<Truck>>(`/api/trucks${toQuery(params)}`),
@@ -1284,6 +1287,15 @@ export type ManagerApi = typeof restApi
  * hosted Supabase transport some operations have no implementation yet and the
  * control must say so instead of throwing when pressed.
  */
+export interface SupportSession {
+  token: string
+  expires_at: string
+  driver_id: string
+}
+
+/** Where the driver app's web build lives; the support token rides in its URL fragment. */
+export const DRIVER_WEB_URL: string = import.meta.env.VITE_DRIVER_WEB_URL ?? 'http://localhost:8123'
+
 export function unavailableReason(operation: string): string | null {
   if (BACKEND_TARGET !== 'supabase') return null
   return UNAVAILABLE_OPERATIONS[operation] ?? null

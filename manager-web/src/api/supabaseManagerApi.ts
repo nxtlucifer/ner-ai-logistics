@@ -17,6 +17,7 @@ import { IntelligenceUnavailableError, intelligenceFetch } from './intelligence'
 
 import type {
   Driver,
+  SupportSession,
   Truck,
   Assignment,
   Emergency,
@@ -153,6 +154,7 @@ export const UNAVAILABLE_OPERATIONS: Readonly<Record<string, string>> = {
   createDriver: 'Creating drivers needs an account service that is not connected yet.',
   updateDriver: 'Editing drivers is not available on the hosted service yet.',
   deactivateDriver: 'Deactivating drivers is not available on the hosted service yet.',
+  supportSession: 'View as driver needs the API service.',
   createTruck: 'Adding trucks is not available on the hosted service yet.',
   updateTruck: 'Editing trucks is not available on the hosted service yet.',
   retireTruck: 'Retiring trucks is not available on the hosted service yet.',
@@ -354,6 +356,7 @@ export const supabaseManagerApi = {
   createDriver: (_body: Record<string, unknown>): Promise<Driver> => notMigrated('createDriver'),
   updateDriver: (_id: string, _body: Record<string, unknown>): Promise<Driver> => notMigrated('updateDriver'),
   deactivateDriver: (_id: string): Promise<Driver> => notMigrated('deactivateDriver'),
+  supportSession: (_id: string): Promise<SupportSession> => notMigrated('supportSession'),
 
   listTrucks: async (params: { limit?: number; cursor?: string; search?: string } = {}): Promise<Page<Truck>> => {
     const supabase = getSupabase()

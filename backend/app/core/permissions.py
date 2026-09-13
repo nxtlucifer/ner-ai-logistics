@@ -26,6 +26,8 @@ DRIVER_READ: Final = "driver:read"
 DRIVER_CREATE: Final = "driver:create"
 DRIVER_UPDATE: Final = "driver:update"
 DRIVER_DEACTIVATE: Final = "driver:deactivate"
+#: Open a read-only, short-lived view of a driver's own app. Never their password.
+DRIVER_SUPPORT_VIEW: Final = "driver:support_view"
 DRIVER_READ_SENSITIVE: Final = "driver:read_sensitive"  # salary, full documents
 
 TRUCK_READ: Final = "truck:read"
@@ -82,7 +84,7 @@ EMERGENCY_RESOLVE: Final = "emergency:resolve"
 
 ALL_PERMISSIONS: Final[frozenset[str]] = frozenset(
     {
-        DRIVER_READ, DRIVER_CREATE, DRIVER_UPDATE, DRIVER_DEACTIVATE,
+        DRIVER_READ, DRIVER_CREATE, DRIVER_UPDATE, DRIVER_DEACTIVATE, DRIVER_SUPPORT_VIEW,
         DRIVER_READ_SENSITIVE,
         TRUCK_READ, TRUCK_CREATE, TRUCK_UPDATE, TRUCK_RETIRE,
         ASSIGNMENT_READ, ASSIGNMENT_CREATE, ASSIGNMENT_END, ASSIGNMENT_REVIEW,
@@ -101,7 +103,7 @@ ALL_PERMISSIONS: Final[frozenset[str]] = frozenset(
 
 _MANAGER_PERMISSIONS: Final[frozenset[str]] = frozenset(
     {
-        DRIVER_READ, DRIVER_CREATE, DRIVER_UPDATE, DRIVER_DEACTIVATE,
+        DRIVER_READ, DRIVER_CREATE, DRIVER_UPDATE, DRIVER_DEACTIVATE, DRIVER_SUPPORT_VIEW,
         TRUCK_READ, TRUCK_CREATE, TRUCK_UPDATE, TRUCK_RETIRE,
         ASSIGNMENT_READ, ASSIGNMENT_CREATE, ASSIGNMENT_END, ASSIGNMENT_REVIEW,
         SHIPMENT_READ, SHIPMENT_CREATE,
