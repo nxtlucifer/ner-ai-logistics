@@ -2,7 +2,7 @@
   "expo": {
     "name": "RASTA AI",
     "slug": "ner-driver-app",
-    "version": "1.0.15",
+    "version": "1.0.16",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -18,7 +18,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.nxtlucifer.nerlogistics.driver.preview",
-      "versionCode": 15
+      "versionCode": 16
     },
     "web": {
       "favicon": "./assets/favicon.png"

@@ -1011,6 +1011,14 @@ code changed (`git diff 96fb47c..HEAD -- backend` is the two-gate patch only).
   and `.runtime/rehearsal/sim_overnight.py` (virtual truck on the local demo
   backend: eight stress cases per run incl. reroute and recovery; log
   `.runtime/evidence/sim-overnight.jsonl`, summary `sim-overnight-summary.json`).
+- **Hosted demo driver restored** (13 Sep 23:5x IST): the demo driver had been
+  DEACTIVATED through the manager account at 17:26 UTC (22:56 IST) - not by
+  any script in this session, whose remote calls were read-only until then -
+  which soft-deleted the profile, suspended it and disabled the login. Restored
+  by a three-column SQL update with an audit row (`reason` names it), renamed
+  through the API to **RASTA Demo Driver** (same phone, same password). The
+  manager's Drivers page now has "View as driver" beside "Deactivate";
+  deactivate asks for confirmation, but be careful on the judge day.
 - **Not built, on purpose**: a news/search "verified incident" adapter - no
   machine-readable, licensable, stable news source was verified tonight; the
   official NDMA CAP feed is the confirmed-evidence input. Flagged UNVERIFIED
