@@ -38,7 +38,12 @@ trained and validated against. A model fitted on these inputs would produce a nu
 to check it — which Rule 1 forbids, because it could not be shown to beat a baseline, and Rule 5
 would then be broken by describing it as anything at all.
 
-`AI_ML = BLOCKED_BY_DATA`. Consequences, all of them deliberate:
+`AI_ML = BLOCKED_BY_DATA` for anything that would CONTROL a route. What exists as
+of 13 Sep 2026 is one **EXPERIMENTAL** research model that controls nothing:
+`landslide-day-logreg` in [MODEL_REGISTRY.md](MODEL_REGISTRY.md), validated on
+held-out temporal and geographic splits in [HAZARD_VALIDATION.md](HAZARD_VALIDATION.md)
+against a rain-rule baseline. Its numbers are reported as measured; 98% is the
+target, never the claim. Consequences of the data position, all of them deliberate:
 
 - `app/domain/road_memory.py` records evidence and enforces that **silence is not evidence** —
   no elapsed time may move a road toward VERIFIED_OPEN. That evidence log is what would one day

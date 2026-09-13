@@ -876,6 +876,86 @@ code changed (`git diff 96fb47c..HEAD -- backend` is the two-gate patch only).
   RASTA AI, versionCode 13) is built and waits for: restart phone -> unlock ->
   `bash .runtime/phone-install.sh` -> `python .runtime/rehearsal/phone_e2e.py`.
 
+## 6m. Final quality + intelligence pass (13 Sep, night) - speed, one language, assistant router, provider health, hazard validation
+
+**Driver app (APK 1.0.15, `.runtime/rasta-driver-1.0.15-local.apk`, installed on the OPPO).**
+- **Speed** (`src/tracking/speed.ts`): `SpeedFilter` - a fix with accuracy > 100 m or a
+  teleport (> 200 km/h implied) is `null` (shown `--`); otherwise MOVING/STATIONARY
+  with hysteresis (2 fixes of evidence to start moving, 3 without to stop).
+  Evidence = displacement from the rest anchor > both accuracy radii, or platform
+  speed >= 1.0 m/s. Stationary shows 0; moving shows the receiver's own speed (a
+  platform speed under 1 m/s shows 0), or a smoothed displacement speed when the
+  platform gives none. Both the tracker and the no-trip watch feed it; heading
+  only while moving (the parked-phone compass is gone). Phone sat still 3 min:
+  readings {0: 9, --: 7}, never 1 (`phone-speed-stationary.log`).
+- **Map**: one context card (the maneuver card), the navy "No trip right now"
+  toast deleted; rail shows only controls that act (mute/overview/layers/traffic
+  appear when they can); ONE marker system in `map/scene.ts`: GPS moving =
+  green chevron, GPS parked = green dot, NETWORK = amber dot + larger disc,
+  LAST KNOWN = grey dot + dashed disc, disc capped at 150 m; chip reads
+  `GPS · ±15 m` / `Network · ±44 m` / `Last known · 1 min`, localised.
+- **Profile photo**: `files/profilePhoto.ts` is the one store (header + My
+  details); `useAuthImage` caches data URIs by URL. Manager Drivers/Fleet read
+  the same `photo_url`.
+- **One language**: `resolveLanguage()` now mirrors the app language (was the
+  DEVICE locale - the safety guide, reason codes and phrasebook ignored the
+  picker); `ui.tsx` primitives (Button/Banner/Row/Field/Loading) localise their
+  props, so `<Button label="Try again">` is localised without touching screens;
+  `i18n/phrases.ts` carries hi/gu/as/bn for every phrase (drafts, unreviewed;
+  `coverage.test.ts` fails on a missing one). Turn instructions localised
+  (`maneuvers.instructionFor(m, t)`), maneuver glyphs are Feather icons. Guide,
+  reason codes: en/hi/as only - gu/bn read those in English (explicit fallback).
+  Phone audit (`phone_i18n.py`): Hindi Trip/Navigate/Safety/More/My details =
+  0-3 English strings each (driver name, a11y labels, "0s ago"); Gujarati the
+  same except Safety (guide content English). Language sheet: native name
+  primary, English secondary, subtle selected row + check icon, 56 dp rows.
+- **Assistant**: intents HEALTH / HEALTH_URGENT in en/hi/gu/as/bn + romanised
+  Hindi (`assistant/intents.ts`); local guidance answers (stop, rest, water,
+  108/112) with a `Call 112` dialler action; free-form questions the table
+  cannot place go to `/api/ai/ask` with the app language and the phone's own
+  facts (`contextForModel`), answer bubble labelled "Written by an online model
+  · Gemini"; offline or server fallback -> the local answer in the app
+  language. One user bubble + one answer bubble per question by construction
+  (turn id). Phone: "I am feeling dizziness" (Hindi UI) -> Hindi health card;
+  Hindi chip -> same; free question -> Gemini in Hindi (remote, 1.8 s).
+- **Backend AI router** (`services/gemini.py`): Gemini (one retry on 503/429,
+  default model `gemini-flash-lite-latest` - flash-latest returned 503 from
+  Render's egress) -> OpenRouter free models (`OPENROUTER_MODELS`, reasoning
+  off; verified live locally with the repo key) -> deterministic library.
+  Answer language pinned with its script (`ai_prompts.in_language`).
+  **Render still needs `OPENROUTER_API_KEY` set in the dashboard** (the
+  key is in `backend/.env`; render.yaml declares it `sync: false`).
+- **Provider health** (`services/provider_health.py`): every adapter records
+  success/failure category; freshness FRESH/AGING/STALE/EXPIRED/UNKNOWN/STATIC
+  per product cadence; `GET /api/system/providers`; manager System page shows
+  "Data sources" + "Intelligence components". `WARNINGS_POLL_ENABLED` (on for
+  Render) polls the NDMA feed once per TTL in the lifespan.
+- **Inventory** (`domain/intelligence_inventory.py`, `docs/AI_INVENTORY.md`):
+  TRUE_LOCAL_ML 0 · LOCAL_LLM 0 · DETERMINISTIC 18 · GEOMETRIC 5 · STATISTICAL 0
+  · OFFLINE_KNOWLEDGE 4 · ONLINE_LLM 2 · PROVIDER_MODEL_OUTPUT 5.
+- **Hazard validation** (`backend/scripts/hazard_validation/`,
+  `docs/HAZARD_VALIDATION.md`, `docs/MODEL_REGISTRY.md`): real dataset from the
+  NASA GLC NER slice (241 events ≤5 km accuracy) + ERA5-Land daily rain
+  (Open-Meteo archive, cached under `.runtime/data/hazard/`) + DEM slope proxy;
+  quiet-day negatives at the same sites; temporal and geographic splits; rule
+  baseline vs plain-Python logistic regression; recall-first threshold chosen
+  on train. Status EXPERIMENTAL, nothing deployed. Numbers in §8.
+- **KML** (`docs/KML_REVIEW.md`): both Google Earth exports are
+  `earthdatalayer:` overlays only - no Placemark/LineString/Polygon; nothing
+  imported; concepts mapped to the open sources already in use.
+- **Phone install**: `bash .runtime/phone-install.sh` now pushes the APK and
+  runs `pm install` on the device with a prompt watcher (streamed `adb install`
+  left committed sessions that wedged the installer). A wedge still needs a
+  restart; `.runtime/phone-after-unlock.sh <ver>` waits for the unlock and
+  installs. The system BACK key exits the app from a root screen - scripts use
+  the in-app chevron.
+- **Transcript hygiene**: the demo driver's password (from
+  `.runtime/demo-credentials.private.json`) was echoed into this session's
+  transcript by a file read - rotate it before sharing the transcript, along
+  with the MapTiler key noted in 6l.
+
+---
+
 ## 7. Honesty rules this codebase enforces (do not regress)
 
 - **UNKNOWN ≠ SAFE.** Never render a band without its unavailable-factor count.

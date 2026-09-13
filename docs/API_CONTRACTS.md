@@ -1162,16 +1162,18 @@ fetched cannot be stored by accident.
 **Status: no `GOOGLE_PLACES_API_KEY` is configured on the demo machine, so this
 has never made a real call to Google.**
 
-## 13c. `/api/ai` — local language model *(implemented, never executed)*
+## 13c. `/api/ai` — online model router (Gemini → OpenRouter → offline library)
 
-One model, three surfaces. Driver-scoped and takes NO id: the trip whose facts
+Three surfaces, one proxy. Driver-scoped and takes NO id: the trip whose facts
 reach the model comes from the signed-in driver's token, so there is no
-parameter that could select whose trip is described.
+parameter that could select whose trip is described. The model WORDS an answer
+from facts the deterministic engine supplies; it decides nothing.
 
 | Method | Path | Auth | Notes |
 | --- | --- | --- | --- |
-| GET | `/api/ai/status` | current driver | Checked live, never cached |
-| POST | `/api/ai/ask` | current driver | `mode`: `assistant` \| `safety` \| `translate` |
+| GET | `/api/ai/status` | current driver | Checked live, never cached. `providers` = per-provider health (`NOT_CONFIGURED` \| `CONFIGURED` \| `HEALTHY` \| `FAILED` \| `RATE_LIMITED`, error category only) |
+| POST | `/api/ai/ask` | current driver | `mode`: `assistant` \| `safety` \| `translate`; `language` (app language, the answer comes back in it, script pinned); `context` (≤2000 chars of facts the phone already holds, no identity/document numbers). Response `provider`: `GOOGLE_GEMINI` \| `OPENROUTER` \| `OFFLINE_ASSISTANT`; Gemini 429/5xx/timeout → one retry → OpenRouter (configured models in order, reasoning off) → offline library |
+| GET | `/api/system/providers` | any signed-in user | Data-source health (state, freshness `FRESH` \| `AGING` \| `STALE` \| `EXPIRED` \| `UNKNOWN` \| `STATIC`, last success/error category, never a key) + the code-audited intelligence inventory |
 
 Refusals, each a different action for the driver:
 
