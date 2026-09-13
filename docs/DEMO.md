@@ -15,10 +15,13 @@ bash .runtime/judge.sh reset     # one JUDGE-xxxxxx trip at DRAFT, driver + truc
 bash .runtime/judge.sh check     # backend, DB, manager, providers, trip state, driver, truck -> RESULT READY
 ```
 
-Flow: manager opens the JUDGE trip -> Review route -> Check conditions (terrain,
+Flow: manager opens the JUDGE trip (Drivers/Trucks pages show the demo driver
+portrait and truck reference image) -> Review route -> Check conditions (terrain,
 landslide history, weather, warnings, flood, unknown factors named) -> Use this
-route -> Dispatch. The phone receives it within ten seconds -> Accept -> Check the
-truck -> Start -> Navigate (Personal Route AI, hazards, traffic UNKNOWN until two
+route -> Dispatch. The phone receives it within ten seconds -> Accept -> **Check
+the truck: Take photo (camera) -> plate -> Confirm** (the reset made a fresh
+assignment, so this step is real every time; the Assignments page then reads
+"driver photo" with the trip verification photo) -> Start -> Navigate (Personal Route AI, hazards, traffic UNKNOWN until two
 trucks share a road) -> drives off the corridor -> real OSRM reroute -> manager
 accepts -> phone follows the new road -> stops -> Complete trip -> manager shows
 DELIVERED, driver and truck AVAILABLE. Rehearsed end to end on the physical phone
