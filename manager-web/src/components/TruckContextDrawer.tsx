@@ -76,6 +76,14 @@ export function TruckContextDrawer({
             <div className="text-xs text-muted">
               {trip.registration_number} · Trip {trip.trip_code}
             </div>
+            {/* Where the position comes from, said plainly. This build has ONE
+                source - the driver app. No phone telemetry means the manager
+                is on dispatcher check-ins by phone; nothing is invented. */}
+            <div className="text-[11px] text-muted" data-testid="position-source">
+              {trip.freshness === 'NO_LOCATION' || trip.freshness === 'NO_CONTACT'
+                ? 'Driver app: not reporting · Tracking: dispatcher check-in by phone call · Route intelligence still runs server-side'
+                : 'Position source: driver app GPS'}
+            </div>
           </div>
         </div>
         {onClose ? (

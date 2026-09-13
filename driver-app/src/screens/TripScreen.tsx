@@ -41,12 +41,17 @@ import {
 import {
   api,
   type ActiveEmergency,
+  type CurrentAssignment,
   type CurrentTrip,
   type DriverCheckResponse,
   type RouteProgress,
   type TripStop,
 } from '../api/client'
+import { Linking } from 'react-native'
+
+import { useAuth } from '../auth/AuthProvider'
 import { Banner, Button, Loading, Row, errorMessage } from '../components/ui'
+import { emergencyNumbers } from '../safety/guide'
 import { resolveLanguage } from '../i18n/language'
 import {
   formatDistanceKm,
@@ -449,6 +454,71 @@ function RouteSummary({ trip }: { trip: CurrentTrip }) {
   )
 }
 
+/**
+ * The Trip page with no trip: available, and told so with real facts only.
+ * Driver and truck come from the session and the assignment; the connection
+ * and last-sync rows are the provider's own poll. No ETA, route, risk or
+ * destination - none exists, so none is drawn.
+ */
+function NoTrip({ isStale, loadedAt, onOpenMap, onCheckTruck, onReload }: {
+  isStale: boolean
+  loadedAt: number | null
+  onOpenMap: () => void
+  onCheckTruck?: () => void
+  onReload: () => void
+}) {
+  const styles = useStyles()
+  const { driver } = useAuth()
+  const [assignment, setAssignment] = useState<CurrentAssignment | null | undefined>(undefined)
+  useEffect(() => {
+    let alive = true
+    api.myAssignment().then((a) => { if (alive) setAssignment(a) }, () => { if (alive) setAssignment(null) })
+    return () => { alive = false }
+  }, [loadedAt])
+  const numbers = emergencyNumbers(resolveLanguage()).slice(0, 3)
+  return (
+    <ScrollView style={styles.sheet} contentContainerStyle={styles.sheetContent}>
+      <View style={styles.empty}>
+        <Text style={styles.emptyTitle}>No active trip</Text>
+        <Text style={styles.emptyBody}>
+          You are available for assignment. Your next assigned trip will appear here automatically.
+        </Text>
+        <View style={styles.emptyAction}>
+          <Button label="Open map" onPress={onOpenMap} />
+        </View>
+        <View style={styles.emptyAction}>
+          <Button label="Check again" variant="secondary" onPress={onReload} />
+        </View>
+      </View>
+      <Section title="You" summary={driver?.full_name ?? 'Signed in'} initiallyOpen>
+        <View style={styles.card}>
+        <Row label="Driver" value={driver?.full_name ?? 'Signed in'} />
+        <Row
+          label="Truck"
+          value={assignment === undefined ? 'Checking…' : assignment === null ? 'No truck assigned' : `${assignment.truck.registration_number} · ${assignment.verified_at ? 'verified' : 'not verified'}`}
+        />
+        <Row label="Connection" value={isStale ? 'Reconnecting — showing last sync' : 'Connected'} />
+        <Row label="Last sync" value={loadedAt ? relativeTime(new Date(loadedAt).toISOString()) : 'never'} />
+        {assignment && !assignment.verified_at && onCheckTruck ? (
+          <View style={styles.emptyAction}>
+            <Button label="Check the truck" variant="secondary" onPress={onCheckTruck} />
+          </View>
+        ) : null}
+        </View>
+      </Section>
+      <Section title="Emergency numbers" summary="Tap to open the dialler" initiallyOpen>
+        <View style={styles.card}>
+        {numbers.map((n) => (
+          <Pressable key={n.number} onPress={() => { void Linking.openURL(`tel:${n.number}`).catch(() => {}) }} accessibilityRole="button" accessibilityLabel={`Call ${n.number}, ${n.label}`}>
+            <Row label={n.label} value={n.number} />
+          </Pressable>
+        ))}
+        </View>
+      </Section>
+    </ScrollView>
+  )
+}
+
 export default function TripScreen({
   onOpenMap,
   onCheckTruck,
@@ -470,6 +540,7 @@ export default function TripScreen({
     actionError,
     isBusy,
     isStale,
+    loadedAt,
     load,
     act,
     tracking,
@@ -608,21 +679,13 @@ export default function TripScreen({
 
   if (trip === null) {
     return (
-      <View style={styles.centrePadded}>
-        <View style={styles.empty}>
-          <Text style={styles.emptyTitle}>No trip right now</Text>
-          <Text style={styles.emptyBody}>
-            When your manager dispatches a trip it will appear here.
-          </Text>
-          <View style={styles.emptyAction}>
-            <Button
-              label="Check again"
-              variant="secondary"
-              onPress={() => void load()}
-            />
-          </View>
-        </View>
-      </View>
+      <NoTrip
+        isStale={isStale}
+        loadedAt={loadedAt}
+        onOpenMap={onOpenMap}
+        onCheckTruck={onCheckTruck}
+        onReload={() => void load()}
+      />
     )
   }
 

@@ -188,3 +188,32 @@ class TestApiRefusals:
         error = caught.value
         assert getattr(error, "status_code", None) == 503
         assert getattr(error, "code", None) == "GEOCODING_UNAVAILABLE"
+
+
+class TestProviderDown:
+    """Nominatim unreachable: the manager gets a retryable state, never a 500."""
+
+    @pytest.mark.anyio
+    async def test_suggest_reports_the_refusal_as_error_not_crash(self, monkeypatch) -> None:
+        from app.api.geocoding import suggest
+
+        async def dead(query, *, limit=6):
+            raise geocoding.GeocodingUnavailable("nominatim transport failed: boom")
+
+        monkeypatch.setattr(geocoding, "nominatim_search", dead)
+        out = await suggest(actor=None, q="guwahati", session_token="abcdefgh")
+        assert out.available is True and out.provider == "NOMINATIM"
+        assert out.suggestions == [] and out.error
+
+    @pytest.mark.anyio
+    async def test_resolve_link_reports_geocoder_outage_as_503(self, monkeypatch) -> None:
+        from app.api.geocoding import MapLinkBody, resolve_link
+
+        async def dead(query, *, limit=6):
+            raise geocoding.GeocodingUnavailable("nominatim returned 503")
+
+        monkeypatch.setattr(geocoding, "nominatim_search", dead)
+        with pytest.raises(Exception) as caught:
+            await resolve_link(actor=None, body=MapLinkBody(url="https://www.google.com/maps/place/Dimapur"))
+        assert getattr(caught.value, "status_code", None) == 503
+        assert getattr(caught.value, "code", None) == "GEOCODING_UNAVAILABLE"
