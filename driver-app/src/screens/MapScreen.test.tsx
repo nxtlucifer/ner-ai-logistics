@@ -48,6 +48,7 @@ vi.mock('react-native-safe-area-context', async () => {
 })
 vi.mock('../components/ui', () => ({ Banner: () => null, Button: () => null, Loading: () => null, errorMessage: () => ({ detail: 'Error' }) }))
 vi.mock('../i18n/language', () => ({ resolveLanguage: () => 'en' }))
+vi.mock('../i18n/tx', () => ({ useT: () => (en: string) => en }))
 vi.mock('../map/DriverRouteMap', () => ({ default: (props: Record<string, unknown>) => { state.map = props; return null } }))
 vi.mock('../map/useRouteGeometry', () => ({ useRouteGeometry: () => ({
   points: [[26, 91], [27, 92]], backupPoints: [], stops: [], routeId: 'route-a', distanceKm: 100,

@@ -57,6 +57,7 @@ import { locationChip } from '../map/locationLabel'
 import { HILLSHADE_URL } from '../map/scene'
 import { dangerAlert } from '../navigation/alerts'
 import { notifyInBackground } from '../notify/local'
+import { useT } from '../i18n/tx'
 import { useSpokenGuidance } from '../map/useSpokenGuidance'
 import { useGuidanceClock } from '../map/useGuidanceClock'
 import type { PositionKind } from '../map/types'
@@ -291,6 +292,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
   const styles = useStyles()
   const { colors: COLORS } = useTheme()
   const { trip, tracking, loadedAt, isStale } = useTrip()
+  const t = useT()
   // NO TRIP IS NOT NO MAP. The tracker uploads position only while the server
   // says a trip is in progress; outside that the map still needs to know
   // where the phone is, so a second, upload-free watch takes over. One watch
@@ -1100,8 +1102,8 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
               </View>
             ) : (
               <View style={styles.maneuverCard}>
-                <Text style={styles.maneuverInstruction}>{trip === null ? 'Browsing the map' : 'Route not selected'}</Text>
-                <Text style={styles.maneuverSub} numberOfLines={2}>{trip === null ? 'No trip right now · search, terrain and SOS still work' : 'Your manager assigns the road first'}</Text>
+                <Text style={styles.maneuverInstruction}>{trip === null ? t('Browsing the map') : t('Route not selected')}</Text>
+                <Text style={styles.maneuverSub} numberOfLines={2}>{trip === null ? t('No trip right now · search, terrain and SOS still work') : t('Your manager assigns the road first')}</Text>
               </View>
             )}
 
@@ -1245,7 +1247,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
           >
             <RecenterIcon color={canRecenter ? COLORS.onAccent : COLORS.faint} size={18} />
             <Text style={[styles.recentreText, !canRecenter && styles.recentreTextOff]}>
-              {canRecenter ? 'Re-centre' : locPermission === 'denied' ? 'Allow location' : 'No GPS fix'}
+              {canRecenter ? t('Re-centre') : locPermission === 'denied' ? t('Allow location') : t('No GPS fix')}
             </Text>
           </Pressable>
         </View>
@@ -1266,7 +1268,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
             hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
             style={styles.detailsBtn}
           >
-            <Text style={styles.detailsBtnText}>{isSheetExpanded ? 'HIDE' : 'DETAILS'}</Text>
+            <Text style={styles.detailsBtnText}>{isSheetExpanded ? t('HIDE') : t('DETAILS')}</Text>
           </Pressable>
         </View>
         <View style={styles.aiRow}>
@@ -1336,7 +1338,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
           nestedScrollEnabled
         >
           {browsing ? null : (<>
-          <Text style={styles.sectionTitle}>Evidence</Text>
+          <Text style={styles.sectionTitle}>{t('Evidence')}</Text>
           <View style={styles.factorGrid}>
             {factorRows.slice(0, 8).map(([name, state]) => (
               <View key={name} style={styles.factorRow}>
@@ -1387,7 +1389,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
           ) : null}
           </>)}
 
-          <Text style={styles.sectionTitle}>Roadside services</Text>
+          <Text style={styles.sectionTitle}>{t('Roadside services')}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipBar} contentContainerStyle={styles.chips}>
             {CATEGORY_LABELS.map((c) => (
               <Pressable
@@ -1462,12 +1464,12 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
           testID="browse-bar"
         >
           <View style={styles.etaCell}>
-            <Text style={styles.etaValue} numberOfLines={1}>{isSheetExpanded ? 'HIDE' : 'SERVICES'}</Text>
-            <Text style={styles.etaLabel}>{trip === null ? 'no trip' : 'no route yet'}</Text>
+            <Text style={styles.etaValue} numberOfLines={1}>{isSheetExpanded ? t('HIDE') : t('SERVICES')}</Text>
+            <Text style={styles.etaLabel}>{trip === null ? t('no trip') : t('no route')}</Text>
           </View>
           <View style={styles.etaCell}>
             <Text style={styles.etaValue} numberOfLines={1}>{chip.text}</Text>
-            <Text style={styles.etaLabel}>location</Text>
+            <Text style={styles.etaLabel}>{t('location')}</Text>
           </View>
         </Pressable>
       ) : (
@@ -1480,7 +1482,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
       >
         <View style={styles.etaCell}>
           <Text style={styles.etaValue} numberOfLines={1}>{eta.duration ?? '—'}</Text>
-          <Text style={styles.etaLabel}>{risk?.traffic && risk.traffic.delay_min > 0 ? `duration · +${Math.round(risk.traffic.delay_min)} min traffic` : 'duration'}</Text>
+          <Text style={styles.etaLabel}>{risk?.traffic && risk.traffic.delay_min > 0 ? `${t('duration')} · +${Math.round(risk.traffic.delay_min)} min traffic` : t('duration')}</Text>
         </View>
         <View style={styles.etaCell}>
           <Text style={styles.etaValue} numberOfLines={1}>{eta.distance ?? '—'}</Text>
@@ -1500,8 +1502,8 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
       {/* THE EMERGENCY SHEET. Bundled numbers; it never dials by itself. */}
       {showEmergency ? (
         <View style={styles.emergencyPanel} accessibilityRole="alert">
-          <Text style={styles.emergencyTitle}>Emergency</Text>
-          <Text style={styles.emergencyNote}>Tapping a number opens your dialler. You still press call.</Text>
+          <Text style={styles.emergencyTitle}>{t('Emergency')}</Text>
+          <Text style={styles.emergencyNote}>{t('Tapping a number opens your dialler. You still press call.')}</Text>
           {emergencyNumbers(resolveLanguage()).map((entry) => (
             <Pressable
               key={entry.number}
@@ -1516,7 +1518,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
               <Text style={styles.emergencyDialLabel}>{entry.label}</Text>
             </Pressable>
           ))}
-          <Button label="Cancel" variant="secondary" onPress={() => setShowEmergency(false)} />
+          <Button label={t('Cancel')} variant="secondary" onPress={() => setShowEmergency(false)} />
         </View>
       ) : null}
     </SafeAreaView>

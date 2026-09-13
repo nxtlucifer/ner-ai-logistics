@@ -28,6 +28,7 @@ vi.mock('../components/ui', async () => {
 })
 vi.mock('../hooks/useRouteRisk', () => ({ useRouteRisk: () => ({ risk: null, state: 'UNAVAILABLE' }) }))
 vi.mock('../i18n/language', () => ({ resolveLanguage: () => 'en' }))
+vi.mock('../i18n/tx', () => ({ useT: () => (en: string) => en }))
 vi.mock('../map/useGuidanceClock', () => ({ useGuidanceClock: () => ({ now: 160_000, platformPermission: null }) }))
 vi.mock('../safety/guide', () => ({ emergencyNumbers: () => [{ number: '112', label: 'Emergency' }, { number: '108', label: 'Ambulance' }] }))
 vi.mock('../trip/TripProvider', () => ({ useTrip: () => state.trip }))
