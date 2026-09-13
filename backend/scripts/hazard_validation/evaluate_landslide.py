@@ -243,7 +243,17 @@ def write_md(res: dict) -> None:
             lines += ["", "Calibration (LogReg): " + ", ".join(f"{b['bin']}: pred {b['mean_pred']} vs obs {b['observed']} (n={b['n']})" for b in cal), ""]
             fn = e["false_negatives"]
             lines += [f"False negatives at the recall-first point: {fn['count']} — " + ", ".join(f"{k}: {v}" for k, v in fn["taxonomy"].items()), ""]
-    lines += ["## Gate", "",
+    t = res["splits"]["TEMPORAL"]["same_day"]; g = res["splits"]["GEOGRAPHIC"]["same_day"]
+    best_auc = max(x for x in (t["LOGREG_0.5"]["roc_auc"], g["LOGREG_0.5"]["roc_auc"]) if x is not None)
+    reached = all(e[m]["recall"] >= 0.98 and e[m]["specificity"] >= 0.98 for e in (t, g) for m in ("LOGREG_0.5", "LOGREG_RECALL_FIRST"))
+    lines += ["## Verdict", "",
+              f"- `98_PERCENT_TARGET_REACHED = {'YES' if reached else 'NO'}` — no model reaches 98% recall AND 98% specificity on either held-out split.",
+              f"- Best held-out figures (logistic regression, threshold 0.5): temporal ROC-AUC {t['LOGREG_0.5']['roc_auc']}, recall {t['LOGREG_0.5']['recall']}, FPR {t['LOGREG_0.5']['false_positive_rate']}, F1 {t['LOGREG_0.5']['f1']}; geographic ROC-AUC {g['LOGREG_0.5']['roc_auc']}, recall {g['LOGREG_0.5']['recall']}, FPR {g['LOGREG_0.5']['false_positive_rate']}. Best ROC-AUC {best_auc}.",
+              f"- The production-style rain rule has recall {t['RULE']['recall']} (temporal) / {g['RULE']['recall']} (geographic): the learned model roughly doubles recall at the cost of a {t['LOGREG_0.5']['false_positive_rate']:.0%}-{g['LOGREG_0.5']['false_positive_rate']:.0%} false-positive rate. Pushing recall to 96% (geographic, threshold 0.23) costs a 65% false-positive rate - an alarm that fires on two of every three quiet days is not a warning.",
+              "- Calibration is poor across regions (east: predicted 0.28 vs observed 0.05 in the 0.2-0.4 bin), so the score must NOT be shown as a probability. Status stays **EXPERIMENTAL**; it controls nothing and reaches no screen.",
+              "- False negatives are dominated by non-rain triggers (mining, construction, unknown) and model error; a few are dry days in ERA5-Land (date/location uncertainty in a news-derived catalogue).",
+              "- Honest phrasing for judges: *on a held-out 2015-2017 set the rain+terrain model reaches ROC-AUC 0.79 and recall 0.70 at a 19% false-positive rate; the rule it would replace has recall 0.30.* Not \"98%\".",
+              "", "## Gate", "",
               "98% is the target, not the result. The 98% claim gate (held-out set, no leakage, temporal AND geographic splits, hazard-specific metrics, false-negative review, meaningful sample) is applied above; the outcome is written in the final report as ACHIEVED / NOT_ACHIEVED with the actual best figures, never rounded up.", ""]
     OUT_MD.write_text("\n".join(lines), encoding="utf-8")
 
