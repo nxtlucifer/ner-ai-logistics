@@ -82,6 +82,7 @@ def build_provider() -> OpenMeteoWeatherProvider:
     return OpenMeteoWeatherProvider(
         settings.WEATHER_PROVIDER_URL,
         timeout_s=settings.WEATHER_TIMEOUT_SECONDS,
+        fallback_url=settings.WEATHER_FALLBACK_URL,
     )
 
 

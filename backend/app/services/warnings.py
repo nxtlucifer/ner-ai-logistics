@@ -43,7 +43,10 @@ _feed: tuple[datetime, list[RssItem]] | None = None
 _caps: dict[str, OfficialWarning | None] = {}
 _districts: dict[str, tuple[set[str], set[str]]] = {}
 _locating: set[str] = set()
-_nominatim_lock = asyncio.Lock()
+# ONE lock for every Nominatim call this process makes - the address search in
+# geocoding.py included. Two locks were two callers at once, which is how the
+# shared Render egress IP earned a 429 from a service whose limit is 1/s.
+from app.services.geocoding import _nominatim_lock  # noqa: E402
 
 
 async def _get(client: httpx.AsyncClient, url: str, **params) -> bytes | None:
@@ -108,6 +111,15 @@ async def locate(route_id: object, positions: list[tuple[float, float]]) -> tupl
                     client, f"{settings.NOMINATIM_URL}/reverse",
                     lat=f"{lat:.5f}", lon=f"{lon:.5f}", format="jsonv2", zoom=8,
                 )
+                if raw is None:
+                    # One patient retry: a 429 on a shared IP clears in seconds,
+                    # and a district lookup that gives up leaves the whole
+                    # warnings factor UNKNOWN for the life of the process.
+                    await asyncio.sleep(3.0)
+                    raw = await _get(
+                        client, f"{settings.NOMINATIM_URL}/reverse",
+                        lat=f"{lat:.5f}", lon=f"{lon:.5f}", format="jsonv2", zoom=8,
+                    )
                 if raw is None:
                     continue
                 try:

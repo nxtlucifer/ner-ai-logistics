@@ -243,3 +243,60 @@ class TestOpenMeteoProvider:
         o = await self._current(monkeypatch, handler)
         assert o.wind_gust_kmh is None
         assert o.temperature_c == 24.3
+
+
+class TestMetNorwayFallback:
+    """Open-Meteo 429 (a shared egress IP over quota) -> MET Norway answers, named."""
+
+    async def _current(self, monkeypatch, handler, fallback="https://met.test"):
+        provider = OpenMeteoWeatherProvider("https://weather.test", name="om-test", fallback_url=fallback)
+        transport = httpx.MockTransport(handler)
+        real_init = httpx.AsyncClient.__init__
+
+        def patched(self, *args, **kwargs):
+            kwargs["transport"] = transport
+            real_init(self, *args, **kwargs)
+
+        monkeypatch.setattr(httpx.AsyncClient, "__init__", patched)
+        return await provider.current(*GUWAHATI)
+
+    @staticmethod
+    def _met_body():
+        return {"properties": {"timeseries": [{"time": "2026-09-13T06:00:00Z", "data": {
+            "instant": {"details": {"air_temperature": 30.3, "wind_speed": 1.7, "relative_humidity": 75.8}},
+            "next_1_hours": {"summary": {"symbol_code": "lightrain"}, "details": {"precipitation_amount": 0.1}},
+        }}]}}
+
+    async def test_429_falls_through_to_met_norway_and_says_so(self, monkeypatch) -> None:
+        calls: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(request.url.host)
+            if request.url.host == "weather.test":
+                return httpx.Response(429, json={"error": True, "reason": "Daily API request limit exceeded"})
+            assert request.headers.get("user-agent")
+            return httpx.Response(200, json=self._met_body())
+
+        o = await self._current(monkeypatch, handler)
+        assert calls == ["weather.test", "met.test"]
+        assert o.provider == "met-norway"
+        assert o.temperature_c == 30.3
+        assert o.precipitation_mm == 0.1
+        assert o.wind_speed_kmh == 6.1  # 1.7 m/s
+        assert o.wind_gust_kmh is None  # not in the compact product; never invented
+        assert o.condition_code == "lightrain"
+        assert o.metadata["fallback_for"] == "om-test"
+
+    async def test_no_fallback_configured_keeps_the_refusal(self, monkeypatch) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(429, json={"error": True})
+
+        with pytest.raises(WeatherRejected):
+            await self._current(monkeypatch, handler, fallback="")
+
+    async def test_both_down_is_unavailable_not_calm(self, monkeypatch) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(503)
+
+        with pytest.raises(WeatherUnavailable):
+            await self._current(monkeypatch, handler)

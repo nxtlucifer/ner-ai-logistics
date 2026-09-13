@@ -165,6 +165,8 @@ class Settings(BaseSettings):
     #: a dispatcher waiting on a risk panel is a worse experience than one told
     #: promptly that conditions are unknown.
     WEATHER_TIMEOUT_SECONDS: float = 6.0
+    #: MET Norway, tried when Open-Meteo answers 429 or is down. Empty = no fallback.
+    WEATHER_FALLBACK_URL: str = "https://api.met.no"
 
     # --- Address search (Google Places API (New)) ---
     #
