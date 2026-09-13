@@ -633,6 +633,7 @@ class TestAssignmentWorkflow:
         driver_headers = await auth_headers(
             api, driver_user.phone, factories.TEST_PASSWORD
         )
+        await api.post("/api/files?kind=TRUCK_VERIFICATION", headers=driver_headers, content=factories.PNG)
         r = await api.post(
             f"/api/assignments/{assignment['id']}/verify",
             headers=driver_headers,
@@ -663,6 +664,7 @@ class TestAssignmentWorkflow:
         driver_headers = await auth_headers(
             api, driver_user.phone, factories.TEST_PASSWORD
         )
+        await api.post("/api/files?kind=TRUCK_VERIFICATION", headers=driver_headers, content=factories.PNG)
         r = await api.post(
             f"/api/assignments/{assignment['id']}/verify",
             headers=driver_headers,
