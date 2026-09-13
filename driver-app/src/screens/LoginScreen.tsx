@@ -685,6 +685,9 @@ const useStyles = makeStyles((COLORS) => ({
   },
   passwordInput: {
     flex: 1,
+    // A flex item's default minimum is its content, and a long placeholder
+    // pushed the SHOW toggle off a 320 dp screen. Zero lets the field shrink.
+    minWidth: 0,
     paddingHorizontal: 8,
     color: COLORS.text,
     fontSize: 16,
