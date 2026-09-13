@@ -79,6 +79,13 @@ export interface DriverRouteMapProps {
    */
   hazards?: readonly { latitude: number; longitude: number; year: number | null; name: string | null }[]
   /**
+   * RASTA fleet traffic per stretch of the route, from the risk payload.
+   * Known states are painted as a thin secondary stroke INSIDE the blue
+   * route (green normal, amber slow, red congested); UNKNOWN paints nothing,
+   * because "no fleet has driven this" is not a colour.
+   */
+  trafficSegments?: readonly { start_m: number; end_m: number; state: string; observed_kmph: number | null; baseline_kmph: number | null; vehicle_count: number; newest_age_seconds: number | null }[]
+  /**
    * MapTiler hillshade over the OSM base - visual terrain context only,
    * never evidence. Drawn only when a key is configured; a dead tile server
    * removes the shading and leaves the map exactly as it was.

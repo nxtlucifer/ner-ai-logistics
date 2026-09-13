@@ -52,6 +52,8 @@ from app.domain.routing import parse_wkt_linestring, sample_positions
 from app.models.enums import RouteKind, RouteState
 from app.models.operations import Trip, TripRoute
 from app.services import route_risk as route_risk_service
+from app.services import traffic as traffic_service
+from app.domain.traffic import TrafficSample, estimate as traffic_estimate
 from app.services.route_risk import ROUTE_SAMPLES
 
 #: States in which a route is still something the trip could actually take.
@@ -115,7 +117,8 @@ async def _live_route_facts(
 
 
 async def _risk_for(
-    route_id: uuid.UUID, wkt: str, distance_km: Decimal | None, duration_min: int | None
+    route_id: uuid.UUID, wkt: str, distance_km: Decimal | None, duration_min: int | None,
+    probes: list[TrafficSample] | None = None,
 ) -> RouteRisk:
     """Score one route from geometry already read out of the database.
 
@@ -138,15 +141,18 @@ async def _risk_for(
     observations, landslide, terrain, history, flood, warnings = await route_risk_service.evidence_for(
         route_id, geometry, positions
     )
+    distance = float(distance_km) if distance_km is not None else 0.0
+    duration = float(duration_min) if duration_min is not None else 0.0
     return assess(
-        distance_km=float(distance_km) if distance_km is not None else 0.0,
-        duration_min=float(duration_min) if duration_min is not None else 0.0,
+        distance_km=distance,
+        duration_min=duration,
         observations=observations,
         landslide=landslide,
         terrain=terrain,
         history=history,
         flood=flood,
         warnings=warnings,
+        traffic=traffic_estimate(geometry=geometry, samples=probes or [], distance_km=distance, duration_min=duration),
     )
 
 
@@ -166,6 +172,8 @@ async def candidates_for_trip(
     an open transaction afterwards.
     """
     facts = await _live_route_facts(db, trip_id)
+    # Fleet probes per route, while the session is still held.
+    probes = {route_id: await traffic_service.samples_for(db, route_id) for route_id, *_ in facts}
 
     # Release the connection BEFORE the provider fan-out. See module docstring.
     await db.commit()
@@ -176,7 +184,7 @@ async def candidates_for_trip(
     # Concurrent across routes as well as within one: two serial assessments
     # would stack their timeouts, and the routes are independent.
     risks = await asyncio.gather(
-        *(_risk_for(route_id, wkt, distance, duration) for route_id, _, wkt, distance, duration in facts)
+        *(_risk_for(route_id, wkt, distance, duration, probes.get(route_id)) for route_id, _, wkt, distance, duration in facts)
     )
 
     return [

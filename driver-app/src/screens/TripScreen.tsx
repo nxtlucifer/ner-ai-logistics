@@ -439,6 +439,7 @@ function RouteSummary({ trip }: { trip: CurrentTrip }) {
         ai.landslide ? `landslide exposure ${ai.landslide}` : null,
         risk.official_warnings?.level === 'ACTIVE' ? `${risk.official_warnings.on_route.length} official alert${risk.official_warnings.on_route.length === 1 ? '' : 's'} on route` : null,
         risk.flood?.level === 'ELEVATED' ? 'river levels elevated' : null,
+        risk.traffic && risk.traffic.status !== 'UNKNOWN' && risk.traffic.status !== 'NORMAL' ? `fleet traffic ${risk.traffic.status.toLowerCase()} ahead` : null,
       ].filter(Boolean).join(' · ')
   return (
     <View style={styles.routeSummary} testID="trip-route-summary">

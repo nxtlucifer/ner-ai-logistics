@@ -59,6 +59,8 @@ from app.services.landslide.history import build_inventory
 from app.services.flood import flood_for
 from app.services.warnings import warnings_for
 from app.services.terrain import profile_for as terrain_profile_for
+from app.services import traffic as traffic_service
+from app.domain.traffic import estimate as traffic_estimate
 from app.services.weather import OpenMeteoWeatherProvider
 
 logger = logging.getLogger(__name__)
@@ -287,6 +289,9 @@ async def assess_route(db: AsyncSession, route_id: uuid.UUID) -> RouteRisk:
     wkt, distance_km, duration_min = await _route_facts(db, route_id)
     geometry = parse_wkt_linestring(wkt)
     positions = sample_positions(geometry, ROUTE_SAMPLES)
+    # Fleet probes come from OUR database, so they are read while the
+    # session is still held - before the provider fan-out below.
+    probes = await traffic_service.samples_for(db, route_id)
 
     # Release the connection BEFORE the provider fan-out. See module docstring.
     await db.commit()
@@ -295,15 +300,18 @@ async def assess_route(db: AsyncSession, route_id: uuid.UUID) -> RouteRisk:
         route_id, geometry, positions
     )
 
+    distance = float(distance_km) if distance_km is not None else 0.0
+    duration = float(duration_min) if duration_min is not None else 0.0
     return assess(
-        distance_km=float(distance_km) if distance_km is not None else 0.0,
-        duration_min=float(duration_min) if duration_min is not None else 0.0,
+        distance_km=distance,
+        duration_min=duration,
         observations=observations,
         landslide=landslide,
         terrain=terrain,
         history=history,
         flood=flood,
         warnings=warnings,
+        traffic=traffic_estimate(geometry=geometry, samples=probes, distance_km=distance, duration_min=duration),
     )
 
 

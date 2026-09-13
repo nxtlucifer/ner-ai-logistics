@@ -10,7 +10,7 @@
  * not read from `COLORS`).
  */
 
-import { splitRoute, terrainOverlays } from './routeDisplay'
+import { sliceRoute, splitRoute, terrainOverlays } from './routeDisplay'
 import type { DriverRouteMapProps } from './types'
 
 export const ROUTE = '#2563EB'
@@ -20,6 +20,7 @@ export const COMPLETED = '#93B9AF'
 export const TERRAIN_HILLY = '#B45309'
 export const TERRAIN_STEEP = '#B42318'
 export const ORIGIN = '#101820'
+export const TRAFFIC: Record<string, string> = { NORMAL: '#16A34A', SLOW: '#D97706', CONGESTED: '#DC2626' }
 export const LIVE = '#087F5B'
 export const LAST_KNOWN = '#B45309'
 
@@ -59,7 +60,7 @@ export type SceneLayer =
 
 export type SceneProps = Pick<
   DriverRouteMapProps,
-  | 'points' | 'progressFraction' | 'backupPoints' | 'showBackup' | 'terrainSegments' | 'hazards' | 'stops'
+  | 'points' | 'progressFraction' | 'backupPoints' | 'showBackup' | 'terrainSegments' | 'hazards' | 'stops' | 'trafficSegments'
   | 'position' | 'positionKind' | 'accuracyM' | 'positionAgeSeconds' | 'headingDeg' | 'places' | 'selectedPlaceId'
 >
 
@@ -82,6 +83,16 @@ export function sceneLayers(p: SceneProps): SceneLayer[] {
   for (const o of terrainOverlays(points, p.terrainSegments ?? [])) {
     const steep = o.terrainClass === 'STEEP'
     out.push({ k: 'line', p: o.points as Pt[], c: steep ? TERRAIN_STEEP : TERRAIN_HILLY, w: 6, tip: steep ? 'Steep: 10% grade or more' : 'Hilly: 6–10% grade' })
+  }
+  // Fleet traffic as a thin stroke inside the route: the road stays blue,
+  // the stretch says how the fleet is moving on it. Only KNOWN states.
+  for (const t of p.trafficSegments ?? []) {
+    const colour = TRAFFIC[t.state]
+    if (!colour) continue
+    const sliced = sliceRoute(points, t.start_m, t.end_m)
+    if (sliced.length < 2) continue
+    const age = t.newest_age_seconds == null ? '' : ` · ${Math.max(1, Math.round(t.newest_age_seconds / 60))} min ago`
+    out.push({ k: 'line', p: sliced as Pt[], c: colour, w: 3, tip: `Fleet traffic: ${t.state.toLowerCase()}${t.observed_kmph != null && t.baseline_kmph != null ? ` · ${Math.round(t.observed_kmph)} km/h vs ${Math.round(t.baseline_kmph)} planned` : ''} · ${t.vehicle_count} truck${t.vehicle_count === 1 ? '' : 's'}${age}` })
   }
   for (const h of p.hazards ?? []) {
     out.push({ k: 'dot', p: [h.latitude, h.longitude], r: 6, c: TERRAIN_STEEP, w: 2, f: '#FFFFFF', o: 1, tip: `Recorded landslide${h.year ? ` (${h.year})` : ''}${h.name ? ` — ${h.name}` : ''}` })

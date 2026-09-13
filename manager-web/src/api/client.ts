@@ -653,6 +653,32 @@ export interface RouteRiskSummary {
   landslide_history?: LandslideHistoryRead | null
   flood?: FloodContextRead | null
   official_warnings?: OfficialWarningsRead | null
+  /** RASTA fleet traffic from our own trucks' probes. UNKNOWN until proven. */
+  traffic?: TrafficRead | null
+}
+
+export interface TrafficSegmentRead {
+  start_m: number
+  end_m: number
+  state: 'UNKNOWN' | 'NORMAL' | 'SLOW' | 'CONGESTED' | string
+  observed_kmph: number | null
+  baseline_kmph: number | null
+  sample_count: number
+  vehicle_count: number
+  newest_age_seconds: number | null
+}
+
+export interface TrafficRead {
+  status: 'UNKNOWN' | 'NORMAL' | 'SLOW' | 'CONGESTED' | string
+  coverage: number
+  delay_min: number
+  sample_count: number
+  vehicle_count: number
+  newest_age_seconds: number | null
+  updated_at: string
+  provider: string
+  reason_codes: string[]
+  segments: TrafficSegmentRead[]
 }
 
 /** NDMA SACHET (CAP) alerts naming a district the corridor crosses. Placement by district name. */
@@ -940,6 +966,7 @@ export interface ResolvedMapLink {
   label: string | null
   normalized_url: string
   resolved_via: string
+  attribution?: string
 }
 
 export const restApi = {
@@ -963,24 +990,13 @@ export const restApi = {
         `&session_token=${encodeURIComponent(sessionToken)}`,
     ),
 
-  /** Resolve a Google Maps URL / short link via SSRF-protected edge function. */
-  resolveMapLink: async (url: string): Promise<ResolvedMapLink> => {
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://znaveeefzgfxsblsobdb.supabase.co'
-    const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
-    const resp = await fetch(`${supabaseUrl}/functions/v1/resolve-map-link`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(anonKey ? { apikey: anonKey, Authorization: `Bearer ${anonKey}` } : {}),
-      },
-      body: JSON.stringify({ url }),
-    })
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}))
-      throw new Error(err.error || `Failed to resolve Google Maps link (HTTP ${resp.status})`)
-    }
-    return (await resp.json()) as ResolvedMapLink
-  },
+  /**
+   * Resolve a pasted Google Maps link (full or maps.app.goo.gl) through our
+   * backend, which follows the share redirect by header only and hands any
+   * place text to our own geocoder. Nothing of Google's is scraped.
+   */
+  resolveMapLink: (url: string) =>
+    request<ResolvedMapLink>('/api/geocoding/resolve-link', { method: 'POST', body: { url } }),
 
   health: () => request<{ status: string }>('/health'),
   ready: () => request<ReadyResponse>('/ready'),

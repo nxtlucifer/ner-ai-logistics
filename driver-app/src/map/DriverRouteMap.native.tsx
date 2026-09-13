@@ -77,6 +77,7 @@ export default function DriverRouteMap({
   terrainSegments = [],
   hazards = [],
   hillshade = false,
+  trafficSegments,
   onSelectPlace,
   onViewportChange,
   onFollowChange,
@@ -112,11 +113,11 @@ export default function DriverRouteMap({
   const lastScene = useRef('')
   useEffect(() => {
     if (!ready) return
-    const json = JSON.stringify(sceneLayers({ points, progressFraction, backupPoints, showBackup, terrainSegments, hazards, stops, position, positionKind, accuracyM, positionAgeSeconds, headingDeg, places, selectedPlaceId }))
+    const json = JSON.stringify(sceneLayers({ points, progressFraction, backupPoints, showBackup, terrainSegments, hazards, stops, position, positionKind, accuracyM, positionAgeSeconds, headingDeg, places, selectedPlaceId, trafficSegments }))
     if (json === lastScene.current) return
     lastScene.current = json
     run('window.scene(' + json + ')')
-  }, [ready, run, points, progressFraction, backupPoints, showBackup, terrainSegments, hazards, stops, position, positionKind, accuracyM, positionAgeSeconds, headingDeg, places, selectedPlaceId])
+  }, [ready, run, points, progressFraction, backupPoints, showBackup, terrainSegments, hazards, stops, position, positionKind, accuracyM, positionAgeSeconds, headingDeg, places, selectedPlaceId, trafficSegments])
 
   useEffect(() => {
     if (ready) run(`window.hill(${JSON.stringify(hillshade ? HILLSHADE_URL : null)})`)

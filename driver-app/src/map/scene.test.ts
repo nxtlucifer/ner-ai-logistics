@@ -17,6 +17,15 @@ describe('sceneLayers', () => {
     expect(stale.at(-1)).toMatchObject({ k: 'dot', o: 0, tip: 'Last known position — 90s ago' })
     expect(stale.some((l) => l.k === 'circle' || l.k === 'arrow')).toBe(false)
   })
+  it('paints only KNOWN fleet traffic as a thin stroke inside the route', () => {
+    const layers = sceneLayers({ ...base, progressFraction: null, trafficSegments: [
+      { start_m: 0, end_m: 8000, state: 'CONGESTED', observed_kmph: 12, baseline_kmph: 48, vehicle_count: 2, newest_age_seconds: 240 },
+      { start_m: 8000, end_m: 16000, state: 'UNKNOWN', observed_kmph: null, baseline_kmph: 48, vehicle_count: 0, newest_age_seconds: null },
+    ] })
+    const traffic = layers.filter((l) => l.k === 'line' && l.w === 3)
+    expect(traffic).toHaveLength(1)
+    expect(traffic[0]).toMatchObject({ c: '#DC2626', tip: 'Fleet traffic: congested · 12 km/h vs 48 planned · 2 trucks · 4 min ago' })
+  })
   it('draws nothing for a null position and keeps place ids for taps', () => {
     const layers = sceneLayers({ ...base, points: [], places: [{ provider_id: 'osm:1', name: 'Lay-by', category: 'REST', lat: 26, lon: 91 } as never] })
     expect(layers).toEqual([expect.objectContaining({ k: 'dot', id: 'osm:1', tip: 'Lay-by - rest' })])

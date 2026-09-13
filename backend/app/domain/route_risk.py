@@ -59,6 +59,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, no runtime import
     from app.domain.warnings import OfficialWarnings
     from app.domain.fuel_model import FuelEstimate
     from app.domain.terrain import TerrainProfile
+    from app.domain.traffic import TrafficEstimate
 
 #: Points each landslide severity contributes to a route's score.
 #:
@@ -246,6 +247,11 @@ class RouteRisk:
     flood: "FloodContext | None" = None
     #: NDMA SACHET alerts naming a district on the corridor - see app/domain/warnings.py.
     warnings: "OfficialWarnings | None" = None
+    #: Fleet traffic on the corridor - see app/domain/traffic.py. NOT a risk
+    #: input and never in `inputs`/`unavailable`: it is an ETA channel, and a
+    #: road only our own trucks have driven must stay comparable with one
+    #: they have not.
+    traffic: "TrafficEstimate | None" = None
     assessed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @property
@@ -369,6 +375,7 @@ def assess(
     history: "LandslideHistory | None" = None,
     flood: "FloodContext | None" = None,
     warnings: "OfficialWarnings | None" = None,
+    traffic: "TrafficEstimate | None" = None,
     now: datetime | None = None,
 ) -> RouteRisk:
     """Score one route from the evidence available for it.
@@ -529,6 +536,12 @@ def assess(
     else:
         codes.append(REASON_OFFICIAL_WARNINGS_UNAVAILABLE)
 
+    # Fleet traffic: reason codes only. Zero points by design - congestion
+    # costs time in the ranking (`route_recommendation._sort_key`), never a
+    # danger alert. UNKNOWN travels as UNKNOWN.
+    if traffic is not None:
+        codes.extend(traffic.reason_codes)
+
     score = min(100, sum(c.points for c in components))
 
     landslide_known = landslide is not None and landslide.is_known
@@ -562,6 +575,7 @@ def assess(
         history=history,
         flood=flood,
         warnings=warnings,
+        traffic=traffic,
         observations_used=len(current),
         observations_stale=stale_count,
         assessed_at=moment,

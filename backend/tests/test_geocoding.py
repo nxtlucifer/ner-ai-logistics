@@ -111,20 +111,50 @@ class TestParseDetail:
 
 
 class TestUnconfigured:
-    """The state this machine is actually in."""
+    """The state this machine is actually in: no Google key, so Nominatim."""
 
-    def test_available_is_false_without_a_key(self) -> None:
-        assert geocoding.available() is False
-
-    @pytest.mark.anyio
-    async def test_autocomplete_refuses_rather_than_calling_google(self) -> None:
-        with pytest.raises(geocoding.GeocodingUnavailable, match="not configured"):
-            await geocoding.autocomplete("guwahati", "session-token-1234")
+    def test_available_without_a_key_because_nominatim_needs_none(self) -> None:
+        assert geocoding.available() is True
+        assert geocoding.provider() == "NOMINATIM"
 
     @pytest.mark.anyio
-    async def test_details_refuses_rather_than_calling_google(self) -> None:
+    async def test_autocomplete_goes_to_nominatim_not_google(self, monkeypatch) -> None:
+        seen = {}
+
+        async def fake(query, *, limit=6):
+            seen["query"] = query
+            return [geocoding.PlaceDetail(place_id="osm:26.144500,91.736200", address="Guwahati, Kamrup, Assam, India", lat=26.1445, lon=91.7362)]
+
+        monkeypatch.setattr(geocoding, "nominatim_search", fake)
+        found = await geocoding.autocomplete("guwahati", "session-token-1234")
+        assert seen["query"] == "guwahati"
+        assert found[0].place_id == "osm:26.144500,91.736200"
+        assert found[0].primary_text == "Guwahati"
+        assert found[0].secondary_text == "Kamrup, Assam, India"
+
+    @pytest.mark.anyio
+    async def test_details_refuses_a_google_id_rather_than_calling_google(self) -> None:
         with pytest.raises(geocoding.GeocodingUnavailable, match="not configured"):
             await geocoding.details("ChIJ_x", "session-token-1234")
+
+    @pytest.mark.anyio
+    async def test_a_remembered_osm_id_resolves_without_a_request(self) -> None:
+        detail = geocoding.PlaceDetail(place_id="osm:27.100000,93.600000", address="Itanagar", lat=27.1, lon=93.6)
+        geocoding._remember(geocoding._detail_cache, detail.place_id, detail)
+        assert await geocoding.details(detail.place_id, "session-token-1234") == detail
+
+
+class TestNominatimParsing:
+    def test_rows_map_and_bad_rows_are_dropped(self) -> None:
+        rows = [
+            {"lat": "26.1445", "lon": "91.7362", "display_name": "Guwahati, Assam, India"},
+            {"lat": "x", "lon": "91.7", "display_name": "broken"},
+            {"lat": "26.1", "lon": "91.7", "display_name": ""},
+            {"lat": "95.0", "lon": "91.7", "display_name": "off the planet"},
+        ]
+        found = geocoding.parse_nominatim_results(rows)
+        assert [f.address for f in found] == ["Guwahati, Assam, India"]
+        assert found[0].place_id == "osm:26.144500,91.736200"
 
 
 def test_only_the_fields_that_are_drawn_are_requested() -> None:

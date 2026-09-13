@@ -91,6 +91,7 @@ export function factorLabel(factor: string): string {
     truck_restrictions: 'Truck restrictions',
     historical_incidents: 'Past incidents',
     elevation: 'Elevation',
+    traffic: 'Fleet traffic',
   }
   if (named[factor]) return named[factor]
   const words = factor.replace(/_/g, ' ')

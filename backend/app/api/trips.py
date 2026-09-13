@@ -462,6 +462,39 @@ class OfficialWarningsRead(ReadModel):
     reason_codes: list[str]
 
 
+class TrafficSegmentRead(ReadModel):
+    start_m: float
+    end_m: float
+    #: UNKNOWN / NORMAL / SLOW / CONGESTED
+    state: str
+    observed_kmph: float | None
+    baseline_kmph: float | None
+    sample_count: int
+    vehicle_count: int
+    newest_age_seconds: float | None
+
+
+class TrafficRead(ReadModel):
+    """RASTA FLEET TRAFFIC - from this fleet's own GPS probes, never Google.
+
+    `status` is the worst known segment; UNKNOWN when the evidence floor
+    (app/domain/traffic.py) is not met anywhere on the route. `coverage` is
+    the share of the route with a known state, so "NORMAL over 8% of the
+    road" reads as exactly that.
+    """
+
+    status: str
+    coverage: float
+    delay_min: float
+    sample_count: int
+    vehicle_count: int
+    newest_age_seconds: float | None
+    updated_at: datetime
+    provider: str
+    reason_codes: list[str]
+    segments: list[TrafficSegmentRead]
+
+
 class RouteRiskRead(ReadModel):
     """A route's risk, with its evidence AND its gaps.
 
@@ -495,6 +528,8 @@ class RouteRiskRead(ReadModel):
     landslide_history: LandslideHistoryRead | None = None
     flood: FloodContextRead | None = None
     official_warnings: OfficialWarningsRead | None = None
+    #: Fleet traffic estimate. Absent on older packages; UNKNOWN when unproven.
+    traffic: TrafficRead | None = None
     #: CONTINUE / CAUTION / HOLD_AND_REVIEW / REROUTE_RECOMMENDED - the driver's
     #: instruction, derived from `band` and the reroute assessment by
     #: `app/domain/reroute.driver_decision`. Optional for cached packages.
@@ -945,6 +980,30 @@ def risk_read(risk, reroute=None, alternative=None) -> RouteRiskRead:
                 reason_codes=list(risk.warnings.reason_codes),
             )
             if risk.warnings is not None
+            else None
+        ),
+        traffic=(
+            TrafficRead(
+                status=risk.traffic.status,
+                coverage=risk.traffic.coverage,
+                delay_min=risk.traffic.delay_min,
+                sample_count=risk.traffic.sample_count,
+                vehicle_count=risk.traffic.vehicle_count,
+                newest_age_seconds=risk.traffic.newest_age_seconds,
+                updated_at=risk.traffic.updated_at,
+                provider=risk.traffic.provider,
+                reason_codes=list(risk.traffic.reason_codes),
+                segments=[
+                    TrafficSegmentRead(
+                        start_m=seg.start_m, end_m=seg.end_m, state=seg.state,
+                        observed_kmph=seg.observed_kmph, baseline_kmph=seg.baseline_kmph,
+                        sample_count=seg.sample_count, vehicle_count=seg.vehicle_count,
+                        newest_age_seconds=seg.newest_age_seconds,
+                    )
+                    for seg in risk.traffic.segments
+                ],
+            )
+            if risk.traffic is not None
             else None
         ),
         decision=driver_decision(

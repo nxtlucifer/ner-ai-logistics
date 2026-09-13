@@ -81,7 +81,7 @@ function Harness({ initial = EMPTY_ENDPOINT, onChange = () => {} }: {
 
 async function searchFor(query = 'Test address') {
   fireEvent.change(screen.getByRole('combobox'), { target: { value: query } })
-  await act(() => vi.advanceTimersByTimeAsync(300))
+  await act(() => vi.advanceTimersByTimeAsync(700))
 }
 
 async function startDetails() {
@@ -185,7 +185,7 @@ describe('AddressPicker request ownership', () => {
     const pending = await startDetails()
     await act(async () => pending.resolve(resolved))
     expect(screen.getByTestId('origin-confirmed').textContent).toContain('From address search · 26.15000, 91.74000')
-    await act(() => vi.advanceTimersByTimeAsync(300))
+    await act(() => vi.advanceTimersByTimeAsync(700))
     expect(screen.queryByRole('option')).toBeNull()
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'Changed after selection' } })
     expect(screen.queryByTestId('origin-confirmed')).toBeNull()

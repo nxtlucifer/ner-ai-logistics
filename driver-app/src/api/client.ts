@@ -773,6 +773,31 @@ export interface OfficialWarningsRead {
   reason_codes: string[]
 }
 
+export interface TrafficSegmentRead {
+  start_m: number
+  end_m: number
+  /** UNKNOWN / NORMAL / SLOW / CONGESTED */
+  state: string
+  observed_kmph: number | null
+  baseline_kmph: number | null
+  sample_count: number
+  vehicle_count: number
+  newest_age_seconds: number | null
+}
+
+export interface TrafficRead {
+  status: string
+  coverage: number
+  delay_min: number
+  sample_count: number
+  vehicle_count: number
+  newest_age_seconds: number | null
+  updated_at: string
+  provider: string
+  reason_codes: string[]
+  segments: TrafficSegmentRead[]
+}
+
 export interface RouteRisk {
   score: number
   band: string
@@ -789,6 +814,8 @@ export interface RouteRisk {
   landslide_history?: LandslideHistoryRead | null
   flood?: FloodContextRead | null
   official_warnings?: OfficialWarningsRead | null
+  /** RASTA fleet traffic - our own trucks' probes, never Google. Absent on older packages. */
+  traffic?: TrafficRead | null
   /** CONTINUE / CAUTION / HOLD_AND_REVIEW / REROUTE_RECOMMENDED, derived
    *  server-side from the band and the reroute assessment. Absent in older
    *  cached packages. */

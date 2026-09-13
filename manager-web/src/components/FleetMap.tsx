@@ -59,7 +59,7 @@ setWorkerUrl(maplibreWorkerUrl)
 
 import type { FleetTrip, Freshness, Position } from '../api/client'
 import { drawableSegments, isolatedFixes, splitTrack } from './track'
-import { terrainOverlays } from './terrain'
+import { sliceRoute, terrainOverlays } from './terrain'
 
 /** Assam, so an empty map still opens somewhere meaningful to these operators. */
 export const NER_CENTRE: [number, number] = [92.9376, 26.2006]
@@ -113,6 +113,8 @@ export interface FleetMapProps {
   terrainSegments?: { start_m: number; end_m: number; terrain_class: string }[]
   /** Precisely-placed recorded landslides within the corridor buffer. */
   hazards?: { latitude: number; longitude: number; year: number | null; name: string | null }[]
+  /** RASTA fleet traffic per stretch; only KNOWN states are painted, inside the route. */
+  trafficSegments?: { start_m: number; end_m: number; state: string }[]
   /** Draft preview: frame once when the chosen route changes. */
   previewRouteId?: string
 }
@@ -189,6 +191,7 @@ export default function FleetMap({
   track,
   plannedRoute,
   terrainSegments,
+  trafficSegments,
   hazards,
   previewRouteId,
 }: FleetMapProps) {
@@ -266,6 +269,21 @@ export default function FleetMap({
           'line-color': ['match', ['get', 'cls'], 'STEEP', '#B42318', '#B45309'],
           'line-width': 5,
           'line-opacity': 0.9,
+        },
+      })
+      instance.addSource('traffic-overlay', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      })
+      instance.addLayer({
+        id: 'traffic-overlay',
+        type: 'line',
+        source: 'traffic-overlay',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': ['match', ['get', 'state'], 'CONGESTED', '#DC2626', 'SLOW', '#D97706', '#16A34A'],
+          'line-width': 2.5,
+          'line-opacity': 0.95,
         },
       })
       instance.addSource('hazard-sites', {
@@ -455,8 +473,21 @@ export default function FleetMap({
     if (!instance || !ready.current) return
     const overlay = instance.getSource('terrain-overlay') as GeoJSONSource | undefined
     const sites = instance.getSource('hazard-sites') as GeoJSONSource | undefined
+    const traffic = instance.getSource('traffic-overlay') as GeoJSONSource | undefined
     if (!overlay || !sites) return
     const route = plannedRoute ?? []
+    traffic?.setData({
+      type: 'FeatureCollection',
+      features: (trafficSegments ?? [])
+        .filter(t => t.state === 'NORMAL' || t.state === 'SLOW' || t.state === 'CONGESTED')
+        .map(t => ({ state: t.state, points: sliceRoute(route, t.start_m, t.end_m) }))
+        .filter(t => t.points.length > 1)
+        .map(t => ({
+          type: 'Feature' as const,
+          properties: { state: t.state },
+          geometry: { type: 'LineString' as const, coordinates: t.points.map(([lat, lon]) => [lon, lat]) },
+        })),
+    })
     overlay.setData({
       type: 'FeatureCollection',
       features: terrainOverlays(route, terrainSegments ?? []).map(o => ({
@@ -473,7 +504,7 @@ export default function FleetMap({
         geometry: { type: 'Point', coordinates: [h.longitude, h.latitude] },
       })),
     })
-  }, [plannedRoute, terrainSegments, hazards, loaded])
+  }, [plannedRoute, terrainSegments, hazards, trafficSegments, loaded])
 
   // Apply layer visibility. Separate from the data effects so toggling does not
   // rebuild a source.

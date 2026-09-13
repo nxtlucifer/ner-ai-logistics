@@ -572,3 +572,18 @@ describe('state subscription', () => {
     expect(seen).toHaveLength(countBefore)
   })
 })
+
+describe('location source and last-known seed', () => {
+  it('labels a coarse fix NETWORK and a tight one GPS, and seeds the map from the cached fix', async () => {
+    const device = makeAdapter()
+    const cached: Sample = { lat: 26.1, lon: 91.7, timestamp: 1_000, altitudeM: null, speedMs: null, headingDeg: null, accuracyM: 220, isMock: false }
+    ;(device.adapter as { lastKnown?: () => Promise<Sample | null> }).lastKnown = vi.fn(async () => cached)
+    const h = makeTracker(device)
+    await h.tracker.start()
+    expect(h.tracker.getState().lastPosition).toMatchObject({ lat: 26.1, lon: 91.7, source: 'NETWORK', at: 1_000 })
+    expect(h.uploads).toEqual([])
+    h.setClock(5_000)
+    device.emit({ ...cached, timestamp: 5_000, accuracyM: 9 })
+    expect(h.tracker.getState().lastPosition).toMatchObject({ source: 'GPS', accuracyM: 9, at: 5_000 })
+  })
+})

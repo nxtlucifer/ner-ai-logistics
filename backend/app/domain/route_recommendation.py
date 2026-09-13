@@ -250,9 +250,13 @@ def _sort_key(candidate: RouteCandidate) -> tuple[int, float, str]:
     A route with no duration estimate sorts last among equals rather than
     first, which is what treating its missing estimate as zero would do.
     """
+    # Fleet traffic enters HERE, as time: a congested road loses on the
+    # minutes it costs, after risk and before the id tie-break. UNKNOWN
+    # traffic adds nothing - it is not evidence of a clear road either.
+    delay = candidate.risk.traffic.delay_min if candidate.risk.traffic is not None else 0.0
     return (
         candidate.risk.score,
-        candidate.duration_min if candidate.duration_min is not None else float("inf"),
+        candidate.duration_min + delay if candidate.duration_min is not None else float("inf"),
         candidate.route_id,
     )
 

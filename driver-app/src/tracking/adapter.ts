@@ -17,6 +17,8 @@ import { Platform } from 'react-native'
 
 export type PermissionOutcome = 'granted' | 'denied' | 'unavailable'
 
+export { GPS_GRADE_ACCURACY_M, sourceOf, type LocationSource } from './source'
+
 /** One position, already reduced to what the engine cares about. */
 export interface Sample {
   lat: number
@@ -44,6 +46,12 @@ export interface LocationAdapter {
   /** Whether location services are switched on at all. */
   hasServicesEnabled(): Promise<boolean>
   requestPermission(): Promise<PermissionOutcome>
+  /**
+   * The platform's cached last fix, or null. Shown AS last-known (aged by its
+   * own timestamp) until a fresh fix arrives - never uploaded as new
+   * telemetry, never drawn as live.
+   */
+  lastKnown?(): Promise<Sample | null>
   watch(
     options: WatchOptions,
     onSample: (sample: Sample) => void,
@@ -95,10 +103,23 @@ export const expoLocationAdapter: LocationAdapter = {
     return status === 'granted' ? 'granted' : 'denied'
   },
 
+  async lastKnown() {
+    if (Platform.OS === 'web') return null
+    try {
+      const raw = await Location.getLastKnownPositionAsync({ maxAge: 6 * 60 * 60 * 1000 })
+      return raw ? toSample(raw) : null
+    } catch {
+      return null
+    }
+  },
+
   async watch(options, onSample, onError) {
     return Location.watchPositionAsync(
       {
-        accuracy: Location.Accuracy.Balanced,
+        // High = the fused provider prefers satellites and falls back to
+        // Wi-Fi/cell by itself when it has none. Balanced asked for
+        // block-level accuracy, which on Android rarely lights the GPS at all.
+        accuracy: Location.Accuracy.High,
         // ANDROID ONLY in SDK 57. Passed so Android can avoid waking the radio,
         // but never relied on: on iOS and web the callback fires as fast as the
         // platform delivers, so the engine applies the cadence itself.

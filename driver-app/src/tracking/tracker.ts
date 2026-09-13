@@ -23,6 +23,7 @@
  */
 
 import type { LocationAdapter, Sample, Subscription } from './adapter'
+import { sourceOf, type LocationSource } from './source'
 import { MemoryQueueStore, type QueueStore } from './queueStore'
 
 export type PermissionState =
@@ -89,6 +90,8 @@ export interface TrackerState {
     speedKmh?: number | null
     /** Course over ground in degrees, when the platform reported one. */
     headingDeg?: number | null
+    /** GPS-grade or network-grade, by reported accuracy. See adapter.ts. */
+    source?: LocationSource
     /** Device clock, milliseconds. The UI ages it to decide LIVE vs stale. */
     at: number
   } | null
@@ -340,6 +343,13 @@ export class LocationTracker {
     }
 
     this.emit({ permission: 'granted' })
+    // The platform's cached fix, shown as last-known until a real one lands.
+    // Not queued: it is not new telemetry, and its timestamp says its age.
+    const cached = await this.deps.adapter.lastKnown?.().catch(() => null)
+    if (this.stopped) return
+    if (cached && this.state.lastPosition === null) {
+      this.emit({ lastPosition: { lat: cached.lat, lon: cached.lon, accuracyM: cached.accuracyM ?? null, source: sourceOf(cached.accuracyM ?? null), at: cached.timestamp } })
+    }
     await this.beginWatch()
   }
 
@@ -410,6 +420,7 @@ export class LocationTracker {
         // Android reports bearing 0 when it has none, so a parked truck would
         // point north: a heading is only a heading while the truck moves.
         headingDeg: sample.speedMs !== null && sample.speedMs > 1 ? sample.headingDeg : null,
+        source: sourceOf(sample.accuracyM ?? null),
         at: sample.timestamp,
       },
     })

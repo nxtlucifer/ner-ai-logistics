@@ -64,7 +64,7 @@ export const EMPTY_ENDPOINT: EndpointValue = {
 }
 
 /** Debounce. Long enough that a typist does not bill a request per keystroke. */
-const DEBOUNCE_MS = 300
+const DEBOUNCE_MS = 700 // a pause, not a keystroke: the open geocoder is not an autocomplete service
 
 /** Google's own minimum for this feature, and a cost floor. */
 const MIN_QUERY = 3
@@ -84,7 +84,7 @@ function newSessionToken(): string {
 type SearchState =
   | { kind: 'IDLE' }
   | { kind: 'LOADING' }
-  | { kind: 'RESULTS'; suggestions: AddressSuggestion[] }
+  | { kind: 'RESULTS'; suggestions: AddressSuggestion[]; provider: string | null }
   | { kind: 'EMPTY' }
   /** No provider configured on the server. A setup step, not a failure. */
   | { kind: 'UNCONFIGURED' }
@@ -182,7 +182,7 @@ export default function AddressPicker({
           lat: String(resolved.latitude),
           lon: String(resolved.longitude),
           source: 'GOOGLE_MAPS_LINK',
-          attribution: 'Google Maps',
+          attribution: resolved.attribution ?? 'Google Maps',
         })
         setResolvingLink(false)
         setLinkInputOpen(false)
@@ -218,6 +218,12 @@ export default function AddressPicker({
     cancelPending()
     const id = issued.current
     if (query.length < MIN_QUERY || pickingOnMap) return
+    // A pasted Maps link is not an address to search for.
+    if (value.source === null && /^(https?:\/\/)?(www\.|maps\.)?(google\.[a-z.]+\/maps|maps\.app\.goo\.gl|goo\.gl\/maps)/i.test(query)) {
+      setSearch({ kind: 'IDLE' })
+      void handleResolveLink(query)
+      return
+    }
     // A confirmed selection is not a search term. Without this, choosing a
     // suggestion immediately re-searches for its own full address and reopens
     // the list under the manager's cursor.
@@ -242,7 +248,7 @@ export default function AddressPicker({
           setSearch(
             result.suggestions.length === 0
               ? { kind: 'EMPTY' }
-              : { kind: 'RESULTS', suggestions: result.suggestions },
+              : { kind: 'RESULTS', suggestions: result.suggestions, provider: result.provider },
           )
         })
         .catch((error: unknown) => {
@@ -259,7 +265,7 @@ export default function AddressPicker({
     }, DEBOUNCE_MS)
 
     return cancelPending
-  }, [query, value.source, pickingOnMap, cancelPending])
+  }, [query, value.source, pickingOnMap, cancelPending, handleResolveLink])
 
   const choose = useCallback(
     async (suggestion: AddressSuggestion) => {
@@ -313,7 +319,7 @@ export default function AddressPicker({
         <input
           name={name}
           value={value.address}
-          placeholder={placeholder}
+          placeholder={placeholder ?? 'Search address or paste Maps link'}
           autoComplete="off"
           role="combobox"
           aria-expanded={suggestions.length > 0}
@@ -385,7 +391,7 @@ export default function AddressPicker({
             </li>
           ))}
           <li className="border-t border-line px-3 py-1 text-[11px] text-muted">
-            Powered by Google
+            {search.kind === 'RESULTS' && search.provider === 'NOMINATIM' ? '© OpenStreetMap contributors · India, Nepal, Bhutan, Bangladesh, Myanmar' : 'Powered by Google'}
           </li>
         </ul>
       ) : null}
@@ -499,6 +505,7 @@ export default function AddressPicker({
           {value.attribution ? (
             <span className="ml-1 text-muted">({value.attribution})</span>
           ) : null}
+          <span className="ml-1 text-muted">· location valid; route availability is checked when you plan</span>
         </p>
       ) : value.source !== null ? (
         <p className="text-xs text-warning">
@@ -559,11 +566,7 @@ export default function AddressPicker({
       {pickingOnMap ? (
         <MapPointPicker
           title={label}
-          initial={
-            (value.source === 'MAP' || value.source === 'MANUAL') && hasCoordinate
-              ? [Number(value.lon), Number(value.lat)]
-              : null
-          }
+          initial={value.source !== null && value.source !== 'GOOGLE' && hasCoordinate ? [Number(value.lon), Number(value.lat)] : null}
           onCancel={() => setPickingOnMap(false)}
           onConfirm={([lon, lat]) => {
             changeEndpoint({

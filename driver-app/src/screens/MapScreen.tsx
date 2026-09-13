@@ -52,6 +52,9 @@ import { guidanceHold, upcomingManeuver, maneuverIcon, formatTurnDistance, instr
 import { navState, ON_ROUTE, projectOntoRoute, shouldRequestReroute, trackOffRoute, type NavState, type OffRouteTrack, type RerouteMark } from '../map/navState'
 import { routeAiCard } from '../navigation/routeAi'
 import { watchCompass } from '../tracking/adapter'
+import { useBrowsePosition } from '../tracking/useBrowsePosition'
+import { locationChip } from '../map/locationLabel'
+import { HILLSHADE_URL } from '../map/scene'
 import { dangerAlert } from '../navigation/alerts'
 import { useSpokenGuidance } from '../map/useSpokenGuidance'
 import { useGuidanceClock } from '../map/useGuidanceClock'
@@ -63,6 +66,13 @@ import { makeStyles, useTheme } from '../theme-context'
 import { AudioIcon, FitRouteIcon, RecenterIcon } from '../components/icons'
 import { useTrip } from '../trip/TripProvider'
 import { useAuth } from '../auth/AuthProvider'
+
+/** The fleet-traffic fact on the card: state, share of road, and its age. */
+function trafficLine(t: { status: string; coverage: number; newest_age_seconds: number | null; vehicle_count: number }): string {
+  if (t.status === 'UNKNOWN') return 'unknown · no fleet on this road in the last 15 min'
+  const age = t.newest_age_seconds == null ? '' : ` · updated ${Math.max(1, Math.round(t.newest_age_seconds / 60))} min ago`
+  return `${t.status.toLowerCase()} · ${Math.round(t.coverage * 100)}% of road · ${t.vehicle_count} truck${t.vehicle_count === 1 ? '' : 's'}${age}`
+}
 
 function relativeTime(iso: string | null): string {
   if (!iso) return 'never'
@@ -280,6 +290,18 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
   const styles = useStyles()
   const { colors: COLORS } = useTheme()
   const { trip, tracking, loadedAt, isStale } = useTrip()
+  // NO TRIP IS NOT NO MAP. The tracker uploads position only while the server
+  // says a trip is in progress; outside that the map still needs to know
+  // where the phone is, so a second, upload-free watch takes over. One watch
+  // at a time: browse is off exactly when the tracker is expected.
+  const browse = useBrowsePosition(!trip?.tracking_expected)
+  const fix = trip?.tracking_expected ? tracking.lastPosition : browse.lastPosition
+  const locPermission = trip?.tracking_expected ? tracking.permission : browse.permission
+  const locWatching = trip?.tracking_expected ? tracking.isTracking : browse.permission === 'granted'
+  const locRequestPermission = trip?.tracking_expected ? tracking.requestPermission : browse.requestPermission
+  /** No selected road: the map is a map, not a navigator. No ETA, no route
+   *  decision, no maneuvers - none of those exist yet and none is invented. */
+  const browsing = trip === null || trip.selected_route_id === null
   let driverName = 'Driver'
   try {
     const auth = useAuth()
@@ -293,7 +315,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
   const places = usePlaces(JSON.stringify([trip?.id, trip?.selected_route_id]))
 
   const [category, setCategory] = useState<PlaceCategory | null>(null)
-  const [mode, setMode] = useState<Mode>('ALONG_ROUTE')
+  const [mode, setMode] = useState<Mode>(trip?.selected_route_id ? 'ALONG_ROUTE' : 'THIS_AREA')
   const [areaTooWide, setAreaTooWide] = useState(false)
   const [viewport, setViewport] = useState<{
     south: number
@@ -370,8 +392,8 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
    */
   const clock = useGuidanceClock()
   const serverHold = guidanceHold({
-    permission: tracking.permission,
-    isTracking: tracking.isTracking,
+    permission: locPermission,
+    isTracking: locWatching,
     platformPermission: clock.platformPermission,
     freshness: trip?.last_fix?.freshness,
     loadedAt,
@@ -390,10 +412,10 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
    * provider's distance exactly as the server scales it.
    */
   const freshMs = (trip?.tracking.fresh_seconds ?? 60) * 1000
-  const fixAgeMs = tracking.lastPosition ? clock.now - tracking.lastPosition.at : null
+  const fixAgeMs = fix ? clock.now - fix.at : null
   const localFresh =
     fixAgeMs !== null && fixAgeMs >= 0 && fixAgeMs <= freshMs &&
-    tracking.isTracking && tracking.permission === 'granted' && clock.platformPermission !== 'denied'
+    locWatching && locPermission === 'granted' && clock.platformPermission !== 'denied'
   /**
    * The badge says GPS, because GPS is what it measures.
    *
@@ -404,16 +426,16 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
    * STALE" beside a green marker. It now ages the phone's own last fix
    * (`localFresh`, below); the network has its own chip.
    */
-  const gpsBadge =
-    tracking.permission === 'denied' || !tracking.isTracking
-      ? 'GPS OFF'
-      : localFresh
-        ? 'GPS LIVE'
-        : 'GPS STALE'
-  const isOnline = gpsBadge === 'GPS LIVE'
+  const chip = locationChip({
+    permission: locPermission,
+    fix,
+    kind: !fix || locPermission !== 'granted' ? null : localFresh ? 'LIVE' : 'LAST_KNOWN',
+    now: clock.now,
+  })
+  const isOnline = chip.tone !== 'off'
   const projection = useMemo(
-    () => (tracking.lastPosition ? projectOntoRoute(geometry.points, [tracking.lastPosition.lat, tracking.lastPosition.lon]) : null),
-    [geometry.points, tracking.lastPosition],
+    () => (fix ? projectOntoRoute(geometry.points, [fix.lat, fix.lon]) : null),
+    [geometry.points, fix],
   )
   const travelledM =
     localFresh && projection
@@ -424,12 +446,11 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
   const [offRoute, setOffRoute] = useState<OffRouteTrack>(ON_ROUTE)
   const countedFixAt = useRef<number | null>(null)
   useEffect(() => {
-    const fix = tracking.lastPosition
     // One count per FIX, keyed on its timestamp - not per render or reload.
     if (!projection || !fix || countedFixAt.current === fix.at) return
     countedFixAt.current = fix.at
     setOffRoute((prev) => trackOffRoute(prev, projection.crossTrackM, fix.accuracyM))
-  }, [projection, tracking.lastPosition])
+  }, [projection, fix])
   useEffect(() => { setOffRoute(ON_ROUTE) }, [selectedRouteId])
 
   // Permission is local and wins; with a fresh local fix the rest is decided
@@ -448,7 +469,6 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
    */
   const [reroute, setReroute] = useState<{ inFlight: boolean; proposal: RerouteProposed | null; error: string | null; last: RerouteMark | null }>({ inFlight: false, proposal: null, error: null, last: null })
   useEffect(() => {
-    const fix = tracking.lastPosition
     if (!fix || !localFresh) return
     const position: LatLon = [fix.lat, fix.lon]
     if (!shouldRequestReroute({ off: offRoute.off, pending: reroute.inFlight, online: !isStale, last: reroute.last, position, now: clock.now })) return
@@ -475,7 +495,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
   const [following, setFollowing] = useState(false)
   const nav: NavState = navState({
     hasRoute: geometry.points.length > 1,
-    tracking: tracking.isTracking && tracking.permission === 'granted' && clock.platformPermission !== 'denied',
+    tracking: locWatching && locPermission === 'granted' && clock.platformPermission !== 'denied',
     fixAgeMs,
     freshMs,
     offRoute: offRoute.off,
@@ -509,7 +529,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
    * and here is why" is the whole of the zero-dead-controls rule.
    */
   const voiceUsable = voice.available === true
-  const canRecenter = tracking.lastPosition != null
+  const canRecenter = fix != null
   const canFitRoute = geometry.points.length > 1
   const hasAlternative = geometry.backupPoints.length > 1
 
@@ -518,9 +538,9 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
   // the screen at sensor rate.
   const [compassDeg, setCompassDeg] = useState<number | null>(null)
   useEffect(() => {
-    if (!tracking.isTracking) return
+    if (!locWatching) return
     return watchCompass((deg) => setCompassDeg((prev) => (deg !== null && prev !== null && Math.abs(prev - deg) < 3 ? prev : deg)))
-  }, [tracking.isTracking])
+  }, [locWatching])
 
   const marker = useMemo((): {
     position: LatLon | null
@@ -528,16 +548,15 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
     accuracyM: number | null
     headingDeg: number | null
   } => {
-    const fix = tracking.lastPosition
-    if (!fix || tracking.permission !== 'granted' || clock.platformPermission === 'denied') return { position: null, kind: null, accuracyM: null, headingDeg: null }
+    if (!fix || locPermission !== 'granted' || clock.platformPermission === 'denied') return { position: null, kind: null, accuracyM: null, headingDeg: null }
     const freshMs = (trip?.tracking.fresh_seconds ?? 60) * 1000
     return {
       position: [fix.lat, fix.lon],
-      kind: tracking.isTracking && clock.now - fix.at >= 0 && clock.now - fix.at <= freshMs ? 'LIVE' : 'LAST_KNOWN',
+      kind: locWatching && clock.now - fix.at >= 0 && clock.now - fix.at <= freshMs ? 'LIVE' : 'LAST_KNOWN',
       accuracyM: fix.accuracyM,
       headingDeg: fix.headingDeg ?? compassDeg,
     }
-  }, [compassDeg, tracking.lastPosition, trip?.tracking.fresh_seconds, clock.now, clock.platformPermission, tracking.permission, tracking.isTracking])
+  }, [compassDeg, fix, trip?.tracking.fresh_seconds, clock.now, clock.platformPermission, locPermission, locWatching])
 
   /**
    * Open the platform dialler. It does NOT place the call.
@@ -684,17 +703,13 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
   /** Terrain and landslide overlays, on by default; the rail button hides
    *  them for a driver who wants the bare road for a moment. */
   const [showHazards, setShowHazards] = useState(true)
+  /** Fleet traffic stroke. On by default, but it only exists where the
+   *  fleet has evidence; UNKNOWN draws nothing either way. */
+  const [showTraffic, setShowTraffic] = useState(true)
+  const trafficKnown = (risk?.traffic?.coverage ?? 0) > 0
 
   function renderCanvas() {
-    if (trip === null) {
-      return (
-        <MapPlaceholder
-          title="No trip"
-          detail="This trip is no longer yours. Go back to see your current state."
-        />
-      )
-    }
-    // NO EARLY RETURN FOR A MISSING ROUTE.
+    // NO EARLY RETURN FOR A MISSING TRIP OR ROUTE.
     //
     // This used to swap the whole canvas for a placeholder the moment
     // `selectedRouteId` was null, which unmounted the map and left a blank
@@ -741,7 +756,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
           <DriverRouteMap
             routeId={selectedRouteId}
             progressFraction={null}
-            positionAgeSeconds={tracking.lastPosition ? Math.max(0, (clock.now - tracking.lastPosition.at) / 1000) : null}
+            positionAgeSeconds={fix ? Math.max(0, (clock.now - fix.at) / 1000) : null}
             points={[]}
             backupPoints={[]}
             showBackup={false}
@@ -753,6 +768,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
             places={places.result?.places ?? []}
             selectedPlaceId={places.selected?.provider_id ?? null}
             onSelectPlace={places.select}
+            hillshade={showHazards}
             onViewportChange={setViewport}
             cameraTrigger={cameraTrigger}
             cameraMode={cameraMode}
@@ -762,9 +778,11 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
               this is instead of one vague "standby". */}
           <View style={styles.standbyToast}>
             <Text style={styles.standbyToastText}>
-              {selectedRouteId === null
-                ? 'Route not selected — your manager assigns the road before turn-by-turn can start.'
-                : 'Route selected, but its geometry has not loaded yet.'}
+              {trip === null
+                ? 'No trip right now — browse the map, search roadside services, or call for help.'
+                : selectedRouteId === null
+                  ? 'Route not selected — your manager assigns the road before turn-by-turn can start.'
+                  : 'Route selected, but its geometry has not loaded yet.'}
             </Text>
           </View>
         </View>
@@ -775,7 +793,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
       <DriverRouteMap
         routeId={selectedRouteId}
         progressFraction={guidanceHasPosition && geometry.distanceKm && travelledM !== null ? travelledM / (geometry.distanceKm * 1000) : null}
-        positionAgeSeconds={tracking.lastPosition ? Math.max(0, (clock.now - tracking.lastPosition.at) / 1000) : null}
+        positionAgeSeconds={fix ? Math.max(0, (clock.now - fix.at) / 1000) : null}
         points={geometry.points}
         backupPoints={geometry.backupPoints}
         showBackup={showAltRoute}
@@ -790,6 +808,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
         terrainSegments={showHazards ? risk?.terrain?.segments ?? [] : []}
         hazards={showHazards ? risk?.landslide_history?.events ?? [] : []}
         hillshade={showHazards}
+        trafficSegments={showTraffic ? risk?.traffic?.segments ?? [] : []}
         onViewportChange={setViewport}
         onFollowChange={setFollowing}
         cameraTrigger={cameraTrigger}
@@ -934,17 +953,12 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
    * The factor rows behind the card. Operational state first - GPS is a
    * FACTOR, not a gate, so a denied permission never hides the assessment.
    */
-  const gpsRow: [string, string] =
-    tracking.permission === 'denied'
-      ? ['GPS', 'Off']
-      : marker.kind === 'LAST_KNOWN'
-        ? ['GPS', 'Stale']
-        : marker.kind === 'LIVE'
-          ? ['GPS', 'Fresh']
-          : ['GPS', 'No fix']
+  const gpsRow: [string, string] = ['Location', chip.text]
+  const trafficRow: [string, string] = ['Fleet traffic', risk?.traffic && risk.traffic.status !== 'UNKNOWN' ? 'Available' : 'Not available']
   const factorRows: [string, string][] = risk
     ? [
         gpsRow,
+        trafficRow,
         ...Object.entries(risk.inputs)
           .filter(([, v]) => v === 'AVAILABLE')
           .map(([k]) => [factorTitle(k) ?? k.replace(/_/g, ' '), 'Available'] as [string, string]),
@@ -1078,8 +1092,8 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
               </View>
             ) : (
               <View style={styles.maneuverCard}>
-                <Text style={styles.maneuverInstruction}>Route not selected</Text>
-                <Text style={styles.maneuverSub}>Your manager assigns the road first</Text>
+                <Text style={styles.maneuverInstruction}>{trip === null ? 'Browsing the map' : 'Route not selected'}</Text>
+                <Text style={styles.maneuverSub} numberOfLines={2}>{trip === null ? 'No trip right now · search, terrain and SOS still work' : 'Your manager assigns the road first'}</Text>
               </View>
             )}
 
@@ -1162,11 +1176,20 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
           <MapControl
             onPress={() => setShowHazards((v) => !v)}
             label={showHazards ? 'Hide terrain and landslide overlays' : 'Show terrain and landslide overlays'}
-            disabled={!risk?.terrain?.usable && !risk?.landslide_history?.events?.length}
-            disabledHint="No terrain or landslide evidence for this route"
+            disabled={!risk?.terrain?.usable && !risk?.landslide_history?.events?.length && HILLSHADE_URL === null}
+            disabledHint="No terrain overlay available"
             active={showHazards}
           >
             <Text style={[styles.railGlyph, showHazards && styles.railGlyphOn]}>⚠</Text>
+          </MapControl>
+          <MapControl
+            onPress={() => setShowTraffic((v) => !v)}
+            label={showTraffic ? 'Hide fleet traffic' : 'Show fleet traffic'}
+            disabled={!trafficKnown}
+            disabledHint="No fleet telemetry on this road yet"
+            active={showTraffic && trafficKnown}
+          >
+            <Text style={[styles.railGlyph, showTraffic && trafficKnown && styles.railGlyphOn]}>≋</Text>
           </MapControl>
           {hasAlternative ? (
             <MapControl
@@ -1187,13 +1210,13 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
         <View style={styles.bottomLeft} pointerEvents="box-none">
           <View style={styles.speedGauge}>
             <Text style={styles.speedValue}>
-              {localFresh && tracking.lastPosition?.speedKmh != null ? tracking.lastPosition.speedKmh : '--'}
+              {localFresh && fix?.speedKmh != null ? fix.speedKmh : '--'}
             </Text>
             <Text style={styles.speedUnit}>km/h</Text>
           </View>
-          <View style={[styles.gpsChip, !isOnline && styles.gpsChipOff]}>
+          <View style={[styles.gpsChip, !isOnline && styles.gpsChipOff, chip.tone === 'coarse' && styles.navChipWarn]}>
             <View style={[styles.gpsDot, !isOnline && styles.gpsDotOff]} />
-            <Text style={[styles.gpsText, !isOnline && styles.gpsTextOff]}>{gpsBadge}</Text>
+            <Text style={[styles.gpsText, !isOnline && styles.gpsTextOff, chip.tone === 'coarse' && styles.navChipWarnText]}>{chip.text}</Text>
           </View>
           <View style={[styles.gpsChip, styles.navChip, (nav === 'OFF_ROUTE' || nav === 'REROUTING') && styles.navChipWarn, (nav === 'GPS_STALE' || nav === 'OFFLINE' || nav === 'IDLE') && styles.gpsChipOff]} testID="nav-state">
             <Text style={[styles.gpsText, (nav === 'OFF_ROUTE' || nav === 'REROUTING') && styles.navChipWarnText, (nav === 'GPS_STALE' || nav === 'OFFLINE' || nav === 'IDLE') && styles.gpsTextOff]}>{nav.replace('_', ' ')}</Text>
@@ -1205,23 +1228,26 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
         {following && nav === 'FOLLOWING' ? null : (
         <View style={styles.bottomCentre} pointerEvents="box-none">
           <Pressable
-            onPress={canRecenter ? handleRecenter : tracking.permission === 'denied' ? tracking.requestPermission : undefined}
-            disabled={!canRecenter && tracking.permission !== 'denied'}
+            onPress={canRecenter ? handleRecenter : locPermission === 'denied' ? locRequestPermission : undefined}
+            disabled={!canRecenter && locPermission !== 'denied'}
             accessibilityRole="button"
             accessibilityLabel={canRecenter ? 'Re-centre the map on the truck' : 'Waiting for a GPS position'}
-            accessibilityState={{ disabled: !canRecenter && tracking.permission !== 'denied' }}
+            accessibilityState={{ disabled: !canRecenter && locPermission !== 'denied' }}
             style={[styles.recentrePill, !canRecenter && styles.recentrePillOff]}
           >
             <RecenterIcon color={canRecenter ? COLORS.onAccent : COLORS.faint} size={18} />
             <Text style={[styles.recentreText, !canRecenter && styles.recentreTextOff]}>
-              {canRecenter ? 'Re-centre' : tracking.permission === 'denied' ? 'Allow location' : 'No GPS fix'}
+              {canRecenter ? 'Re-centre' : locPermission === 'denied' ? 'Allow location' : 'No GPS fix'}
             </Text>
           </Pressable>
         </View>
         )}
       </View>
 
-      {/* PERSONAL ROUTE AI - the decision the engine reached, in words. */}
+      {/* PERSONAL ROUTE AI - the decision the engine reached, in words.
+          Absent without a road: there is no decision to show and none is
+          made up. */}
+      {browsing ? null : (
       <View style={styles.aiCard} testID="route-ai-card">
         <View style={styles.aiHead}>
           <Text style={styles.aiEyebrow}>PERSONAL ROUTE AI{riskStale ? ' · LAST KNOWN' : isStale ? ' · OFFLINE' : ''}</Text>
@@ -1273,6 +1299,9 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
           {ai.weather ? (
             <Text style={styles.aiFact} numberOfLines={1}>Weather: <Text style={styles.aiFactStrong}>{ai.weather}</Text></Text>
           ) : null}
+          {risk?.traffic ? (
+            <Text style={styles.aiFact} numberOfLines={1}>Fleet traffic: <Text style={styles.aiFactStrong}>{trafficLine(risk.traffic)}</Text></Text>
+          ) : null}
         </View>
         {holdDecision ? (
           <Pressable onPress={findStop} accessibilityRole="button" accessibilityLabel="Find a place to stop" style={styles.stopLink}>
@@ -1288,6 +1317,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
             : ''}
         </Text>
       </View>
+      )}
 
       {/* DETAILS SHEET - the evidence behind the card, services, trip facts. */}
       {isSheetExpanded ? (
@@ -1297,6 +1327,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
           keyboardShouldPersistTaps="handled"
           nestedScrollEnabled
         >
+          {browsing ? null : (<>
           <Text style={styles.sectionTitle}>Evidence</Text>
           <View style={styles.factorGrid}>
             {factorRows.slice(0, 8).map(([name, state]) => (
@@ -1346,6 +1377,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
               {risk.observations_stale > 0 ? ` (${risk.observations_stale} stale)` : ''} · deterministic engine, no probabilities
             </Text>
           ) : null}
+          </>)}
 
           <Text style={styles.sectionTitle}>Roadside services</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipBar} contentContainerStyle={styles.chips}>
@@ -1388,6 +1420,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
           ) : null}
           {renderResults()}
 
+          {trip === null ? null : (<>
           <Text style={styles.sectionTitle}>Trip</Text>
           <Text style={styles.tripLine} numberOfLines={2}>
             {geometry.stops[0]?.name ?? geometry.stops[0]?.address ?? 'Origin'} → {geometry.stops.at(-1)?.name ?? geometry.stops.at(-1)?.address ?? 'Destination'}
@@ -1406,10 +1439,30 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
               ]}
             />
           </View>
+          </>)}
         </ScrollView>
       ) : null}
 
-      {/* ETA BAR. Duration and arrival only from the server's planned pace. */}
+      {/* ETA BAR. Duration and arrival only from the server's planned pace.
+          Without a road there is no ETA, so the bar is a services handle. */}
+      {browsing ? (
+        <Pressable
+          onPress={() => setIsSheetExpanded((v) => !v)}
+          accessibilityRole="button"
+          accessibilityLabel={isSheetExpanded ? 'Hide roadside services' : 'Show roadside services'}
+          style={styles.etaBar}
+          testID="browse-bar"
+        >
+          <View style={styles.etaCell}>
+            <Text style={styles.etaValue} numberOfLines={1}>{isSheetExpanded ? 'HIDE' : 'SERVICES'}</Text>
+            <Text style={styles.etaLabel}>{trip === null ? 'no trip' : 'no route yet'}</Text>
+          </View>
+          <View style={styles.etaCell}>
+            <Text style={styles.etaValue} numberOfLines={1}>{chip.text}</Text>
+            <Text style={styles.etaLabel}>location</Text>
+          </View>
+        </Pressable>
+      ) : (
       <Pressable
         onPress={() => setIsSheetExpanded((v) => !v)}
         accessibilityRole="button"
@@ -1419,7 +1472,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
       >
         <View style={styles.etaCell}>
           <Text style={styles.etaValue} numberOfLines={1}>{eta.duration ?? '—'}</Text>
-          <Text style={styles.etaLabel}>duration</Text>
+          <Text style={styles.etaLabel}>{risk?.traffic && risk.traffic.delay_min > 0 ? `duration · +${Math.round(risk.traffic.delay_min)} min traffic` : 'duration'}</Text>
         </View>
         <View style={styles.etaCell}>
           <Text style={styles.etaValue} numberOfLines={1}>{eta.distance ?? '—'}</Text>
@@ -1430,6 +1483,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
           <Text style={styles.etaLabel}>{eta.arrival ? (isStale ? 'arrival · last known' : 'arrival') : selectedRouteId === null ? 'no route' : guidanceHasPosition ? 'on route' : 'no fix'}</Text>
         </View>
       </Pressable>
+      )}
 
       {places.selected ? (
         <PlaceSheet place={places.selected} onClose={() => places.select(null)} onCall={call} />

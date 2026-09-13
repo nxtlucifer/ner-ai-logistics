@@ -295,3 +295,59 @@ class TestRiskDoesNotHoldTheDatabase:
             "a pooled database connection was held across the weather calls "
             f"(baseline {baseline}, during call {during[0]})"
         )
+
+
+class TestFleetTraffic:
+    """RASTA fleet traffic rides on the risk payload - one poll, one contract."""
+
+    async def test_no_telemetry_is_unknown_not_normal(
+        self, api: AsyncClient, session: AsyncSession, manager_headers: dict, stub_weather,
+    ) -> None:
+        stub_weather(rain=0.0, gust=5.0)
+        trip, route_id = await _planned_route(api, session, manager_headers)
+        r = await api.get(f"/api/trips/{trip.id}/routes/{route_id}/risk", headers=manager_headers)
+        assert r.status_code == 200, r.text
+        traffic = r.json()["traffic"]
+        assert traffic["status"] == "UNKNOWN"
+        assert traffic["coverage"] == 0.0
+        assert traffic["sample_count"] == 0
+        assert traffic["provider"] == "RASTA fleet telemetry"
+        assert all(s["state"] == "UNKNOWN" for s in traffic["segments"])
+        # Traffic is an ETA channel, never a risk input.
+        assert "traffic" not in r.json()["inputs"]
+        assert "TRAFFIC_UNKNOWN" in r.json()["reason_codes"]
+
+    async def test_real_fixes_on_the_road_are_map_matched_but_one_truck_stays_unknown(
+        self, api: AsyncClient, session: AsyncSession, manager_headers: dict, stub_weather,
+    ) -> None:
+        stub_weather(rain=0.0, gust=5.0)
+        driver, user = await factories.make_driver(session)
+        truck = await factories.make_truck(session)
+        assignment = await factories.make_assignment(session, driver, truck)
+        trip = await factories.make_trip(session, driver, truck, assignment=assignment, stops=2)
+        planned = await api.post(f"/api/trips/{trip.id}/routes/recalculate", headers=manager_headers)
+        assert planned.status_code == 201, planned.text
+        route_id = planned.json()["route"]["id"]
+        driver_headers = await auth_headers(api, user.phone, factories.TEST_PASSWORD)
+        started = await api.post("/api/driver/me/trip/start", headers=driver_headers, json={})
+        assert started.status_code == 200, started.text
+        fixes = [
+            {
+                "device_fix_id": str(uuid.uuid4()),
+                "location": {"lat": GEOMETRY[0][0], "lon": GEOMETRY[0][1]},
+                "recorded_at": datetime.now(UTC).isoformat(),
+                "speed_kmph": "38.0", "heading_deg": "80.0", "accuracy_m": "9.0",
+                "is_mock_location": False,
+            }
+            for _ in range(4)
+        ]
+        sent = await api.post("/api/driver/me/location", headers=driver_headers, json={"fixes": fixes})
+        assert sent.status_code == 202, sent.text
+
+        r = await api.get(f"/api/trips/{trip.id}/routes/{route_id}/risk", headers=manager_headers)
+        assert r.status_code == 200, r.text
+        traffic = r.json()["traffic"]
+        assert traffic["sample_count"] >= 1
+        assert traffic["vehicle_count"] == 1
+        assert traffic["status"] == "UNKNOWN"  # one vehicle is not traffic
+        assert traffic["newest_age_seconds"] is not None

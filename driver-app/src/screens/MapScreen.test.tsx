@@ -12,6 +12,8 @@ const state = vi.hoisted(() => {
     clear: vi.fn(),
     reroute: vi.fn(),
     geometry: { error: null as unknown, reload: vi.fn() },
+    trip: { id: 'trip-a', trip_code: 'DEMO', selected_route_id: 'route-a', tracking: { fresh_seconds: 60 }, tracking_expected: true, status: 'ACTIVE', stops: [] } as Record<string, unknown> | null,
+    browse: { permission: 'unknown', lastPosition: null as null | Record<string, unknown>, requestPermission: vi.fn() },
   }
 })
 vi.mock('react-native', async () => {
@@ -53,6 +55,7 @@ vi.mock('../map/useRouteGeometry', () => ({ useRouteGeometry: () => ({
 }) }))
 vi.mock('../map/useNavigationPackage', () => ({ useNavigationPackage: () => ({ available: false, maneuvers: [], reasonCodes: [] }) }))
 vi.mock('../tracking/adapter', () => ({ watchCompass: () => () => {} }))
+vi.mock('../tracking/useBrowsePosition', () => ({ useBrowsePosition: () => state.browse }))
 vi.mock('../map/useGuidanceClock', () => ({ useGuidanceClock: () => state.clock }))
 vi.mock('../map/useSpokenGuidance', () => ({ useSpokenGuidance: () => ({ available: false }) }))
 vi.mock('../map/NextTurnPanel', () => ({ default: () => null }))
@@ -60,7 +63,7 @@ vi.mock('../places/usePlaces', () => ({ usePlaces: () => ({
   result: null, selected: null, error: null, isSearching: false, clear: state.clear,
 }) }))
 vi.mock('../trip/TripProvider', () => ({ useTrip: () => ({
-  trip: { id: 'trip-a', trip_code: 'DEMO', selected_route_id: 'route-a', tracking: { fresh_seconds: 60 }, status: 'ACTIVE', stops: [] },
+  trip: state.trip,
   tracking: state.tracking, loadedAt: new Date(100_000),
 }) }))
 vi.mock('../auth/AuthProvider', () => ({
@@ -77,6 +80,8 @@ beforeEach(() => {
   state.clock = { now: 100_000, platformPermission: null }
   state.tracking = { permission: 'granted', isTracking: true, lastPosition: { lat: 26, lon: 91, accuracyM: 20, at: 100_000 } }
   state.geometry = { error: null, reload: vi.fn() }
+  state.trip = { id: 'trip-a', trip_code: 'DEMO', selected_route_id: 'route-a', tracking: { fresh_seconds: 60 }, tracking_expected: true, status: 'ACTIVE', stops: [] }
+  state.browse = { permission: 'unknown', lastPosition: null, requestPermission: vi.fn() }
   host = document.createElement('div')
   root = createRoot(host)
 })
@@ -153,5 +158,36 @@ describe('map position truthfulness without new GPS samples', () => {
     // The card names its source and never shows a decision it was not given.
     expect(host.textContent).toContain('PERSONAL ROUTE AI')
     expect(host.textContent).not.toContain('CONTINUE')
+  })
+})
+
+describe('the map without a trip, and the words on the location chip', () => {
+  it('still draws the map from the phone position, with no route decision and no ETA', async () => {
+    state.trip = null
+    state.browse = { permission: 'granted', lastPosition: { lat: 26.3, lon: 91.9, accuracyM: 180, source: 'NETWORK', at: 100_000 }, requestPermission: vi.fn() }
+    await render()
+    expect(state.map.position).toEqual([26.3, 91.9])
+    expect(state.map.positionKind).toBe('LIVE')
+    expect(host.textContent).not.toContain('PERSONAL ROUTE AI')
+    expect(host.textContent).not.toContain('duration')
+    expect(host.textContent).toContain('Browsing the map')
+    // A network fix is named as one, with its metres - never GPS.
+    expect(host.textContent).toContain('NETWORK ±180 m')
+    expect(host.textContent).not.toContain('GPS LIVE')
+  })
+
+  it('names a GPS-grade fix with its metres while tracking', async () => {
+    state.tracking = { ...state.tracking, lastPosition: { lat: 26, lon: 91, accuracyM: 12, source: 'GPS', at: 100_000 } as never }
+    await render()
+    expect(host.textContent).toContain('GPS ±12 m')
+    expect(host.textContent).toContain('PERSONAL ROUTE AI')
+  })
+
+  it('shows LOCATION OFF when the browse permission is denied', async () => {
+    state.trip = null
+    state.browse = { permission: 'denied', lastPosition: null, requestPermission: vi.fn() }
+    await render()
+    expect(state.map.position).toBeNull()
+    expect(host.textContent).toContain('LOCATION OFF')
   })
 })

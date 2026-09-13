@@ -21,12 +21,25 @@ const FleetMap = lazy(() => import('./FleetMap'))
  * more recorded slides within 5 km of the road in the inventory - a published
  * threshold, stated in the copy.
  */
+/** Weather / Terrain / Warnings / Traffic as AVAILABLE or UNKNOWN. An area
+ *  nothing answered for is unknown, never clear. */
+function evidenceCoverage(risk: RouteRiskSummary): string {
+  const rows: [string, boolean][] = [
+    ['Weather', !risk.unavailable.includes('weather')],
+    ['Terrain', !!risk.terrain?.usable],
+    ['Warnings', !!risk.official_warnings && risk.official_warnings.level !== 'UNKNOWN'],
+    ['Traffic', !!risk.traffic && risk.traffic.status !== 'UNKNOWN'],
+  ]
+  return rows.map(([name, ok]) => `${name} ${ok ? 'AVAILABLE' : 'UNKNOWN'}`).join(' · ')
+}
+
 function TerrainHazardSummary({ risk }: { risk: RouteRiskSummary }) {
   const terrain = risk.terrain ?? null
   const history = risk.landslide_history ?? null
   const flood = risk.flood ?? null
   const warnings = risk.official_warnings ?? null
-  if (!terrain && !history && !flood && !warnings) return null
+  const traffic = risk.traffic ?? null
+  if (!terrain && !history && !flood && !warnings && !traffic) return null
   const tone = (label: string) =>
     label === 'HIGH'
       ? 'bg-danger-soft text-danger'
@@ -138,6 +151,19 @@ function TerrainHazardSummary({ risk }: { risk: RouteRiskSummary }) {
           <p className="mt-1.5 text-[12.5px] text-muted">The alert feed or the district lookup did not answer for this corridor.</p>
         )}
       </div>
+      <div className="rounded-[10px] border border-line bg-surface p-3 sm:col-span-2" data-testid="traffic-summary">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.13em] text-muted">Fleet traffic</span>
+          <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-bold ${traffic?.status === 'CONGESTED' ? 'bg-danger-soft text-danger' : traffic?.status === 'SLOW' ? 'bg-warning-soft text-warning' : traffic?.status === 'NORMAL' ? 'bg-primary-soft text-primary' : 'bg-soft text-muted'}`}>
+            {traffic && traffic.status !== 'UNKNOWN' ? traffic.status : 'UNKNOWN'}
+          </span>
+        </div>
+        <p className="mt-1.5 text-[12.5px] text-muted">
+          {traffic && traffic.status !== 'UNKNOWN'
+            ? `${Math.round(traffic.coverage * 100)}% of the road graded from ${traffic.vehicle_count} RASTA truck${traffic.vehicle_count === 1 ? '' : 's'} (${traffic.sample_count} probes)${traffic.newest_age_seconds !== null ? `, updated ${Math.max(1, Math.round(traffic.newest_age_seconds / 60))} min ago` : ''}${traffic.delay_min > 0 ? ` · about ${Math.round(traffic.delay_min)} min slower than the planned pace` : ''}. Observed by our own fleet against the router's planned pace - not Google live traffic.`
+            : `No RASTA truck has driven this road in the last 15 minutes${traffic && traffic.sample_count > 0 ? ` (${traffic.sample_count} probe${traffic.sample_count === 1 ? '' : 's'} from one truck - one vehicle is not traffic)` : ''}. Unknown, not clear.`}
+        </p>
+      </div>
     </div>
   )
 }
@@ -218,6 +244,7 @@ export default function TripRouteReview({ trip, onChanged }: { trip: Trip; onCha
             previewRouteId={route.id}
             terrainSegments={eligible?.risk.terrain?.segments ?? []}
             hazards={eligible?.risk.landslide_history?.events ?? []}
+            trafficSegments={eligible?.risk.traffic?.segments ?? []}
           />
         </Suspense>
         <p className="text-xs text-muted my-3">{route.is_current ? 'Assigned route' : 'Route preview'} · Planned {new Date(route.created_at).toLocaleString()}. Free-flow time excludes traffic, breaks and stops; arrival time is unavailable.</p>
@@ -282,6 +309,7 @@ export default function TripRouteReview({ trip, onChanged }: { trip: Trip; onCha
         <p className="text-sm">{eligible?.eligibility === 'REJECTED' ? 'An active hazard blocks this road. It cannot be selected.' : eligible?.eligibility === 'REQUIRES_REVIEW' ? authorization ? 'A reviewer authorized one selection. Hazard evidence remains incomplete.' : 'Hazard evidence is incomplete or elevated. An authorised reviewer must review this route before selection. Refresh conditions after review.' : eligible?.eligibility === 'ELIGIBLE' ? 'Eligible under the checks that ran. This is not a safety guarantee.' : 'Check current conditions before selecting a route.'}</p>
         {eligible ? <p className="text-xs text-muted">{translateReasonCodes(eligible.risk.reason_codes, 'en').join(' · ')}</p> : null}
         {assessment?.unavailable_inputs.length ? <p className="text-xs text-muted">Unavailable: {factorLabels(assessment.unavailable_inputs)}</p> : null}
+        {eligible ? <p className="text-xs text-muted" data-testid="evidence-coverage">Evidence coverage · {evidenceCoverage(eligible.risk)}</p> : null}
         {eligible ? <TerrainHazardSummary risk={eligible.risk} /> : null}
         {can('route:select') && editable ? <Button disabled={busy !== null || !selectable || route.is_current} busy={busy === 'select'} onClick={() => void run('select', async () => {
           if (!selectable) return
