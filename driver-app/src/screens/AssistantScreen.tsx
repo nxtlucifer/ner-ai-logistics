@@ -625,6 +625,9 @@ const useStyles = makeStyles((COLORS) => ({
   inputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   input: {
     flex: 1,
+    // 320 dp: without this the placeholder's intrinsic width pushed the send
+    // button half off the screen.
+    minWidth: 0,
     minHeight: TOUCH_TARGET,
     borderWidth: 1,
     borderColor: COLORS.border,
