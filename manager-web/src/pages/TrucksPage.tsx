@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { ApiError, api, type Truck, unavailableReason } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
+import AuthImage from '../components/AuthImage'
 import {
   Button,
   Card,
@@ -236,7 +237,16 @@ export default function TrucksPage() {
                 {trucks.data?.items.map((truck) => (
                   <tr key={truck.id}>
                     <td className="py-3 font-mono font-medium text-ink">
-                      {truck.registration_number}
+                      <span className="inline-flex items-center gap-2">
+                        <AuthImage src={truck.photo_url} alt={`${truck.registration_number} photo`} fallback="🚚" className="h-9 w-12 rounded-md" label="reference" />
+                        {truck.registration_number}
+                        {can('truck:update') ? (
+                          <label className="cursor-pointer text-[11px] font-normal text-route hover:underline">
+                            photo
+                            <input type="file" accept="image/jpeg,image/png" className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; if (f) void api.uploadTruckPhoto(truck.id, f).then(() => trucks.reload()) }} />
+                          </label>
+                        ) : null}
+                      </span>
                     </td>
                     <td className="py-3 text-muted">
                       {[truck.make, truck.model].filter(Boolean).join(' ') ||

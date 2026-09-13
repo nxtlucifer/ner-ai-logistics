@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { api, unavailableReason } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
+import AuthImage from '../components/AuthImage'
 import {
   Button,
   Card,
@@ -23,6 +24,11 @@ export default function AssignmentsPage() {
 
   const assign = useMutation((d: string, t: string) => api.createAssignment(d, t))
   const end = useMutation((id: string) => api.endAssignment(id))
+  // No-smartphone fallback: the manager confirms the plate by hand. The
+  // record says MANAGER_MANUAL; no photo is pretended.
+  const manual = useMutation((id: string, plate: string) => api.verifyAssignmentManually(id, plate))
+  const [manualFor, setManualFor] = useState<string | null>(null)
+  const [manualPlate, setManualPlate] = useState('')
   const endBlocked = unavailableReason('endAssignment')
 
   const driverName = (id: string) =>
@@ -183,13 +189,37 @@ export default function AssignmentsPage() {
                             </span>
                             <div className="mt-1 text-[11px] text-muted">
                               {new Date(a.verified_at).toLocaleString()}
+                              {' · '}
+                              {a.verification_source === 'DRIVER_APP_PHOTO' ? 'driver photo' : a.verification_source === 'MANAGER_MANUAL' ? 'manager by hand (no photo)' : 'driver, plate only'}
                             </div>
+                            {a.verification_photo_url ? (
+                              <div className="mt-1"><AuthImage src={a.verification_photo_url} alt="Trip verification photo" fallback="🚚" className="h-12 w-16 rounded-md" label="trip verification photo" /></div>
+                            ) : null}
                           </div>
                         )
                       ) : (
-                        <span className="inline-block rounded-full border border-line bg-soft px-2 py-0.5 text-[11px] font-semibold text-muted">
-                          AWAITING DRIVER
-                        </span>
+                        <div>
+                          <span className="inline-block rounded-full border border-line bg-soft px-2 py-0.5 text-[11px] font-semibold text-muted">
+                            AWAITING DRIVER
+                          </span>
+                          {can('assignment:review') ? (
+                            manualFor === a.id ? (
+                              <form
+                                className="mt-1 flex items-center gap-1"
+                                onSubmit={(e) => { e.preventDefault(); void manual.submit(a.id, manualPlate).then((r) => { if (r.data) { setManualFor(null); setManualPlate(''); assignments.reload() } }) }}
+                              >
+                                <input aria-label="Number plate on the truck" value={manualPlate} onChange={(e) => setManualPlate(e.target.value.toUpperCase())} placeholder={truckReg(a.truck_id)} className="w-32 rounded border border-line bg-surface px-1.5 py-1 font-mono text-xs" />
+                                <Button type="submit" busy={manual.isSubmitting} disabled={manualPlate.trim().length < 4}>Confirm</Button>
+                                <button type="button" onClick={() => setManualFor(null)} className="text-[11px] text-muted hover:text-ink">cancel</button>
+                              </form>
+                            ) : (
+                              <button type="button" onClick={() => { setManualFor(a.id); setManualPlate('') }} className="mt-1 block text-[11px] text-route hover:underline" data-testid={`manual-verify-${a.id}`}>
+                                Verify by hand (driver has no smartphone)
+                              </button>
+                            )
+                          ) : null}
+                          {manual.error && manualFor === a.id ? <div className="mt-1 text-[11px] text-danger">{manual.error instanceof Error ? manual.error.message : 'Could not verify.'}</div> : null}
+                        </div>
                       )}
                     </td>
                     <td className="py-3 text-right">

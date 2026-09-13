@@ -91,6 +91,8 @@ export function setUnauthenticatedHandler(handler: (() => void) | null): void {
 interface RequestOptions {
   method?: string
   body?: unknown
+  /** Raw bytes with their own type (a photo). Sent as-is, not JSON. */
+  raw?: Blob
   /** Internal: prevents infinite refresh recursion. */
   skipRefresh?: boolean
   signal?: AbortSignal
@@ -101,6 +103,7 @@ const REQUEST_TIMEOUT_MS = 15_000
 async function rawRequest(path: string, options: RequestOptions): Promise<Response> {
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (options.body !== undefined) headers['Content-Type'] = 'application/json'
+  if (options.raw) headers['Content-Type'] = options.raw.type || 'application/octet-stream'
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`
 
   // A backend that accepts the connection and never answers (pool exhausted,
@@ -116,7 +119,7 @@ async function rawRequest(path: string, options: RequestOptions): Promise<Respon
     const response = await fetch(`${API_BASE_URL}${path}`, {
       method: options.method ?? 'GET',
       headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body: options.raw ?? (options.body === undefined ? undefined : JSON.stringify(options.body)),
       // Required for the HttpOnly refresh cookie to be sent and stored.
       credentials: 'include',
       signal,
@@ -355,6 +358,8 @@ export interface Driver {
 export interface Truck {
   id: string
   registration_number: string
+  /** `/api/files/{id}` - a reference or trip photo; read with AuthImage. */
+  photo_url?: string | null
   truck_type: string | null
   make: string | null
   model: string | null
@@ -374,6 +379,20 @@ export interface Assignment {
   verified_at: string | null
   mismatch_flagged: boolean
   ended_at: string | null
+  /** DRIVER_APP_PHOTO | DRIVER_APP | MANAGER_MANUAL | null - who verified. */
+  verification_source?: string | null
+  verification_photo_url?: string | null
+  reported_registration?: string | null
+}
+
+export interface DriverDocumentStatus {
+  id: string
+  doc_type: string
+  number_masked: string | null
+  issued_on: string | null
+  expires_on: string | null
+  status: string
+  file_url: string | null
 }
 
 export interface Page<T> {
@@ -1041,6 +1060,14 @@ export const restApi = {
     }),
   endAssignment: (id: string) =>
     request<Assignment>(`/api/assignments/${id}/end`, { method: 'POST' }),
+  /** A driver without a smartphone: the manager confirms the plate by hand. */
+  verifyAssignmentManually: (id: string, registration: string, note?: string) =>
+    request<Assignment>(`/api/assignments/${id}/verify-manual`, { method: 'POST', body: { reported_registration: registration, note } }),
+  /** Masked document status for one driver (never the number). */
+  driverDocuments: (driverId: string) => request<DriverDocumentStatus[]>(`/api/drivers/${driverId}/documents`),
+  /** A truck's reference photo (JPEG/PNG bytes). Labelled DEMO_REFERENCE or TRUCK_PHOTO by kind. */
+  uploadTruckPhoto: (truckId: string, file: File, kind: 'TRUCK_PHOTO' | 'DEMO_REFERENCE' = 'TRUCK_PHOTO') =>
+    request<{ id: string; url: string }>(`/api/files?kind=${kind}&truck_id=${truckId}`, { method: 'POST', raw: file }),
 
   listShipments: (params: { limit?: number } = {}) =>
     request<Page<Shipment>>(`/api/shipments${toQuery(params)}`),

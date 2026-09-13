@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { ApiError, api, type Driver, unavailableReason } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
+import AuthImage, { initials } from '../components/AuthImage'
 import {
   Button,
   Card,
@@ -241,7 +242,10 @@ export default function DriversPage() {
                   return (
                     <tr key={driver.id}>
                       <td className="py-3 font-medium text-ink">
-                        {driver.full_name}
+                        <span className="inline-flex items-center gap-2">
+                          <AuthImage src={driver.photo_url} alt={`${driver.full_name} photo`} fallback={initials(driver.full_name)} />
+                          {driver.full_name}
+                        </span>
                       </td>
                       <td className="py-3 text-muted">{driver.phone}</td>
                       <td className="py-3 font-mono text-xs text-muted">

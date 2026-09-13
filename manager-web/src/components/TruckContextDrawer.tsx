@@ -1,3 +1,4 @@
+import AuthImage, { initials } from './AuthImage'
 import type { Driver, FleetTrip, Freshness, TripDetail, Truck } from '../api/client'
 
 export interface TruckContextDrawerProps {
@@ -66,6 +67,8 @@ export function TruckContextDrawer({
           </div>
           <div>
             <div className="flex items-center gap-2">
+              <AuthImage src={driver?.photo_url} alt={`${trip.driver_name} photo`} fallback={initials(trip.driver_name)} className="h-8 w-8 rounded-full" />
+              <AuthImage src={truck?.photo_url} alt={`${trip.registration_number} photo`} fallback="🚚" className="h-8 w-10 rounded-md" label="reference" />
               <h2 className="text-sm font-bold text-ink">{trip.driver_name}</h2>
               <span
                 className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${freshnessStyle.className}`}
