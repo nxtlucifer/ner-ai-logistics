@@ -14,9 +14,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 
-import { API_BASE_URL, api, authHeaders, type DocumentRead, type DriverProfile } from '../api/client'
+import { api, type DocumentRead, type DriverProfile } from '../api/client'
 import { Banner, Button, Field, Loading, errorMessage } from '../components/ui'
 import { pickDocument, pickPhoto, upload } from '../files/pick'
+import { useAuthImage } from '../files/useAuthImage'
 import { useT } from '../i18n/tx'
 import { makeStyles, useTheme } from '../theme-context'
 
@@ -25,6 +26,7 @@ const DOC_TYPES = [
   ['GOVERNMENT_ID', 'Government ID'],
   ['OTHER', 'Other'],
 ] as const
+const TYPE_LABEL: Record<string, string> = { DRIVING_LICENCE: 'Driving Licence', GOVERNMENT_ID: 'Government ID', OTHER: 'Other', INSURANCE: 'Insurance' }
 
 function initials(name: string): string {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? '').join('') || '?'
@@ -44,6 +46,7 @@ export default function MyDetailsScreen({ onBack }: { onBack: () => void }) {
   const [error, setError] = useState<{ title: string; detail: string } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [form, setForm] = useState<null | { kind: 'DRIVER_DOCUMENT' | 'TRUCK_DOCUMENT' }>(null)
+  const photoUri = useAuthImage(profile?.photo_url)
 
   const load = useCallback(async () => {
     try {
@@ -83,8 +86,8 @@ export default function MyDetailsScreen({ onBack }: { onBack: () => void }) {
         <>
           <View style={styles.card}>
             <View style={styles.avatarRow}>
-              {profile.photo_url ? (
-                <Image source={{ uri: `${API_BASE_URL}${profile.photo_url}`, headers: authHeaders() }} style={styles.avatar} accessibilityLabel="Profile photo" />
+              {photoUri ? (
+                <Image source={{ uri: photoUri }} style={styles.avatar} accessibilityLabel="Profile photo" />
               ) : (
                 <View style={[styles.avatar, styles.avatarFallback]}><Text style={styles.avatarText}>{initials(profile.full_name)}</Text></View>
               )}
@@ -153,7 +156,7 @@ function DocList({ title, empty, rows, addLabel, onAdd }: { title: string; empty
       {rows.map((d) => (
         <View key={d.id} style={styles.doc} testID={`doc-${d.doc_type}`}>
           <View style={styles.docText}>
-            <Text style={styles.docTitle}>{t(DOC_TYPES.find(([k]) => k === d.doc_type)?.[1] ?? d.doc_type.replace(/_/g, ' '))}</Text>
+            <Text style={styles.docTitle}>{t(TYPE_LABEL[d.doc_type] ?? d.doc_type.replace(/_/g, ' '))}</Text>
             <Text style={styles.sub}>{d.number_masked ?? '—'}{d.expires_on ? ` · ${t('Valid until')} ${fmtDate(d.expires_on)}` : ''}</Text>
           </View>
           <Text style={[styles.status, d.status === 'EXPIRED' && styles.statusBad, d.status === 'EXPIRING_SOON' && styles.statusWarn]}>{d.status.replace(/_/g, ' ')}</Text>

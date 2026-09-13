@@ -21,8 +21,9 @@ import {
   View,
 } from 'react-native'
 
-import { API_BASE_URL, api, authHeaders, type CurrentAssignment } from '../api/client'
+import { api, type CurrentAssignment } from '../api/client'
 import { pickPhoto, upload } from '../files/pick'
+import { useAuthImage } from '../files/useAuthImage'
 import { useT } from '../i18n/tx'
 import { Banner, Button, Field, Loading, Row, errorMessage } from '../components/ui'
 import { TOUCH_TARGET } from '../theme'
@@ -105,6 +106,7 @@ export default function AssignmentScreen({ onBack }: { onBack?: () => void } = {
   const [photo, setPhoto] = useState<{ uri: string; uploaded: boolean } | null>(null)
   const [photoBusy, setPhotoBusy] = useState(false)
   const t = useT()
+  const serverPhoto = useAuthImage(assignment?.verification_photo_url)
 
   async function takePhoto(source: 'camera' | 'library') {
     setPhotoBusy(true)
@@ -290,8 +292,8 @@ export default function AssignmentScreen({ onBack }: { onBack?: () => void } = {
                 <Text style={styles.fieldLabel}>{t('Truck photo')}</Text>
                 {photo ? (
                   <Image source={{ uri: photo.uri }} style={styles.photo} accessibilityLabel="Truck photo" testID="truck-photo" />
-                ) : assignment.verification_photo_url ? (
-                  <Image source={{ uri: `${API_BASE_URL}${assignment.verification_photo_url}`, headers: authHeaders() }} style={styles.photo} accessibilityLabel="Truck photo" testID="truck-photo" />
+                ) : serverPhoto ? (
+                  <Image source={{ uri: serverPhoto }} style={styles.photo} accessibilityLabel="Truck photo" testID="truck-photo" />
                 ) : null}
                 <View style={styles.photoRow}>
                   <View style={styles.photoCell}><Button label={t('Take photo')} variant="secondary" busy={photoBusy} onPress={() => void takePhoto('camera')} /></View>

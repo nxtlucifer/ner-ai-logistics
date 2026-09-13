@@ -124,6 +124,9 @@ export const PHRASES: Record<string, Phrase> = {
   'No insurance on file': { hi: 'कोई बीमा दर्ज नहीं', as: 'কোনো বীমা নথিভুক্ত নাই' },
   'Attach image or PDF': { hi: 'इमेज या PDF जोड़ें', as: 'ছবি বা PDF সংলগ্ন কৰক' },
   'Language': { hi: 'भाषा', as: 'ভাষা' },
+  // Login
+  'Secure driver access': { hi: 'सुरक्षित ड्राइवर पहुँच', as: 'সুৰক্ষিত চালক প্ৰৱেশ' },
+  'Need access? Contact your fleet manager — driver accounts and passwords are managed by dispatch.': { hi: 'पहुँच चाहिए? अपने फ्लीट मैनेजर से संपर्क करें — ड्राइवर खाते और पासवर्ड डिस्पैच द्वारा संभाले जाते हैं।', as: 'প্ৰৱেশ লাগে? আপোনাৰ ফ্লীট মেনেজাৰৰ সৈতে যোগাযোগ কৰক — চালকৰ একাউণ্ট আৰু পাছৱৰ্ড ডিচপেচে পৰিচালনা কৰে।' },
   'Theme': { hi: 'थीम', as: 'থীম' },
 }
 

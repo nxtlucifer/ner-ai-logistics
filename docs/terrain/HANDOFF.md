@@ -711,6 +711,68 @@ the off-route/reroute steps real; the proposal is a 2,449 km road, and it loads.
   events per corridor (5 km buffer, NASA GLC); no clustering - add it only if
   a corridor ever returns more than ~200.
 
+## 6k. Post-freeze additions (13 Sep, afternoon) - identity, documents, alerts
+
+- **Localisation.** Two mechanisms: the typed table `t(lang, key)` (57 keys,
+  five languages) and `useT()` / `tx(lang, english)` in `src/i18n/tx.ts`, keyed
+  on the English string with an EXPLICIT English fallback. Trip, Map, More,
+  Truck check and My Details labels flow through it. Locale status, honestly:
+  en VERIFIED · hi PARTIAL · as PARTIAL (both drafted here, not reviewed by a
+  native speaker) · gu, bn FALLBACK_ENGLISH beyond the 57 typed keys. The login
+  page is pinned to DAY (`<ThemeProvider fixed="day">`), its language chooser
+  works before sign-in and the choice persists into the app.
+- **Private files** (`app/api/files.py`, migration 0011): raw-body upload,
+  type by magic bytes (JPEG/PNG/PDF only, executables 415), 5 MB cap, rows in
+  `stored_files` (bytea) because this deployment holds no object-storage
+  credential and a bucket writable with an anon key is a public bucket. Read
+  only through `GET /api/files/{id}` with the bearer: owner driver or a
+  fleet role; anything else 404. Move to an object store when volume demands;
+  the URL shape stays.
+- **My Details** (More -> My details): name, phone, short driver id, assigned
+  truck + verified flag, emergency contact, profile photo (camera or gallery,
+  JPEG q0.5, initials fallback), documents (Driving Licence / Government ID /
+  Other - no Aadhaar workflow) and the assigned truck's INSURANCE. Numbers are
+  stored full, shown as `•••• 4821`, never logged. Status = VALID /
+  EXPIRING_SOON (30 d) / EXPIRED from the expiry date, MISSING without a file.
+  Nothing is checked with a government or an insurer and the page says so.
+  Offline: the upload fails with "Upload requires connection"; nothing is faked.
+- **Truck photo verification.** Accept -> Check the truck -> Take photo /
+  Choose image (uploaded as TRUCK_VERIFICATION, attached to the current
+  assignment) -> plate -> Confirm. The Confirm button is disabled until a
+  photo is on the assignment. The record carries `verification_source` =
+  DRIVER_APP_PHOTO / DRIVER_APP / MANAGER_MANUAL and the photo url. The
+  backend still accepts a plate-only verification from the API and labels it
+  DRIVER_APP - the gate is in the app; a hard server requirement would need
+  the test-suite's verifications to upload photos first. `demo.py reset` now
+  ENDS the previous assignment and creates a fresh PENDING_VERIFICATION one,
+  so every rehearsal creates new evidence. No OCR: the plate is typed.
+- **No smartphone:** Assignments page -> "Verify by hand (driver has no
+  smartphone)" -> plate -> `POST /api/assignments/{id}/verify-manual`
+  (`assignment:review`), source MANAGER_MANUAL, no photo pretended, audited.
+- **Manager photos:** `AuthImage` fetches a private file with the bearer and
+  shows it from an object URL; initials / a truck glyph otherwise. Drivers,
+  Trucks (with a "photo" upload for `truck:update`), the fleet drawer and the
+  assignment row (labelled "trip verification photo" vs "reference").
+- **Demo reference images:** `.runtime/seed_demo_images.py` draws a neutral
+  portrait and a flat truck with the standard library (no PIL, nothing
+  downloaded) and uploads them as `DEMO_REFERENCE` for the demo driver and
+  truck. They are reference images; the trip's own photo is TRUCK_VERIFICATION.
+- **Alerts** (`src/notify/local.ts`, expo-notifications): local notifications
+  ONLY when the app is not in the foreground, keyed and deduped with a 10-min
+  cooldown per key: trip assigned, reroute approved (from the trip poll) and
+  the danger card (same key and wording as the card, so "High historical
+  landslide exposure ahead" never becomes "landslide detected"). Foreground =
+  the in-app card. Remote push (Expo push / FCM): BLOCKED - no push credential
+  exists and none is pretended.
+- **Battery-aware tracking** (no measured saving is claimed): IDLE (no trip) =
+  no GPS unless the map is open (`useBrowsePosition`, upload-free);
+  TRIP_ACTIVE / NAV_ACTIVE = one tracker at the server's moving/stationary
+  cadence (the map adds a compass only); BACKGROUND = trip poll 30 s instead of
+  10 s, one refresh on return to foreground; OFFLINE = cached route/risk,
+  local projection, providers not polled. One location watcher, one trip
+  poller, one risk poller (5 min), timers and subscriptions cleared on unmount
+  (audited 13 Sep).
+
 ## 6g. What "AI" means here - verified 12 Sep, do not overclaim
 
 - **Personal Route AI** (`driver-app/src/navigation/routeAi.ts`) is a

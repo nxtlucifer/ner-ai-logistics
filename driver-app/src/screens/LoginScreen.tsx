@@ -19,6 +19,7 @@ import { useAppLanguage } from '../i18n/AppLanguageProvider'
 import { APP_LANGUAGES } from '../i18n/appLanguage'
 import { Banner } from '../components/ui'
 import { TOUCH_TARGET } from '../theme'
+import { useT } from '../i18n/tx'
 import { makeStyles, useTheme } from '../theme-context'
 
 export default function LoginScreen() {
@@ -26,6 +27,7 @@ export default function LoginScreen() {
   const { colors: COLORS } = useTheme()
   const { login } = useAuth()
   const { language, setLanguage, t } = useAppLanguage()
+  const tx = useT()
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -272,15 +274,14 @@ export default function LoginScreen() {
         <View style={styles.footerSection}>
           <View style={styles.secureRow}>
             <View style={styles.secureDot} />
-            <Text style={styles.secureBadge}>Secure driver access</Text>
+            <Text style={styles.secureBadge}>{tx('Secure driver access')}</Text>
           </View>
           {/* This is what the removed "Forgot password?" link actually did:
               it opened an alert saying dispatch manages passwords. A link
               shaped like a reset flow, which was not one. The sentence is the
               honest form of it, and it costs no tap. */}
           <Text style={styles.footer}>
-            Need access? Contact your fleet manager — driver accounts and
-            passwords are managed by dispatch.
+            {tx('Need access? Contact your fleet manager — driver accounts and passwords are managed by dispatch.')}
           </Text>
           <Text style={styles.mottoFooter}>Safe Routes. Stronger India.</Text>
         </View>
