@@ -1224,8 +1224,10 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
 
         {/* BOTTOM-LEFT: speed and GPS state. BOTTOM-CENTRE: re-centre.
             Hidden with the sheet open: the map is a strip then, and the
-            gauge climbed into the maneuver card on a 360 dp phone. */}
-        {isSheetExpanded ? null : (
+            gauge climbed into the maneuver card on a 360 dp phone. Hidden
+            under a danger card too: on a 412 dp phone the card's action row
+            landed on the gauge, and a gauge over OK, SEEN is a dead button. */}
+        {isSheetExpanded || shownAlert ? null : (
         <View style={styles.bottomLeft} pointerEvents="box-none">
           <View style={styles.speedGauge}>
             <Text style={styles.speedValue}>

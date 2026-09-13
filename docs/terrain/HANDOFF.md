@@ -809,6 +809,61 @@ So: ROUTE_AI_ARCHITECTURE_VERIFIED = YES, and the honest phrase for judges is
 
 ---
 
+## 6l. Visual polish pass (13 Sep, evening) - brand, icons, hierarchy
+
+Presentation only: no routing, risk, GPS, reroute, auth, verification or API
+code changed (`git diff 96fb47c..HEAD -- backend` is the two-gate patch only).
+
+- **Brand.** `brand/mark.svg` (navy tile, blue shield, green heading arrow -
+  route + safety + direction, three semantic colours, readable at 24px) is THE
+  mark. `node brand/render.mjs` renders it with headless Chrome (no PIL) into
+  the driver launcher/adaptive/monochrome/splash/favicon PNGs and
+  `assets/brand-mark.png`; the console uses the same SVG as favicon, rail mark
+  and login mark. Wordmark RASTA AI, caption NER LOGISTICS / NER FLEET CONSOLE.
+  The Expo template chevron icon and the Vite template `icons.svg` are gone.
+- **One icon family.** Driver: Feather via `@expo/vector-icons` (ships with
+  Expo; `src/components/icons.tsx` keeps the old export names, `Icon` is the
+  general form, `STATUS_ICON` maps decisions to glyphs). Manager: `lucide-react`
+  (Feather's successor, same 24-grid 2px stroke) for the nav, sign-out and the
+  truck placeholder. Every text glyph used as an icon (‹ › ✓ ⚠ ⌕ ≋ ⇄ and the
+  🚚 fallback) is replaced; the maneuver arrows inside `src/map` are untouched.
+  Vitest resolves `@expo/vector-icons` to `src/test/vectorIconsStub.tsx`.
+- **Driver hierarchy.** Header: identity + ONE chip (Day/Night); the EN and
+  sign-out chips duplicated More and truncated the name at 360; the avatar is
+  the My-details photo when one exists (re-read when that screen closes).
+  Login: mark + wordmark + `login_subtitle` = "Safer logistics through
+  difficult corridors" in all five languages; hero ridges at 45% so they stop
+  cutting through the title. No trip: truck glyph empty state. Trip: the
+  ACCEPT panel renders ABOVE the trip card until accepted (#1 action in view
+  at 360), metrics show an em dash instead of a mid-word-broken "Unavailable"
+  and wrap at 320, the ROUTE line carries the decision icon. Truck check:
+  4-step indicator (Truck / Photo / Plate / Confirm), Camera / Gallery labels,
+  primary button "Verify truck" (phone_e2e + AssignmentScreen.test updated).
+  More: icon per row, chevron icons, sign-out with its icon. Map: Feather rail
+  icons, danger card with a triangle, collapsed traffic line shortened
+  ("unknown · no fleet data"; the evidence table keeps the full reason), the
+  rail scales to 82% on screens under 700pt so it clears the SOS button at
+  320x640.
+- **Manager.** `.workspace { margin: 0 auto }` - `auto` in a grid cell centred
+  short pages VERTICALLY (Drivers/Trucks/System floated mid-screen). Nav icons,
+  brand mark, title "RASTA AI · Fleet console", Review page gets an h1,
+  thumbnails 40px, truck placeholder is a glyph not an emoji.
+- **Not changed on purpose.** Honest wording (historical landslide exposure,
+  fleet traffic estimate, UNKNOWN, evidence factors) and every claim; the
+  danger card still shows CAP severity verbatim. Safety topics stay red-
+  bordered (they are emergencies). The 320x640 maneuver card still truncates
+  its title to one line (cosmetic; the judge phone is 412-class).
+- **APK.** EAS free-plan Android builds were exhausted for September, so
+  1.0.11 was built LOCALLY: Temurin JDK 17 (winget), Android SDK at
+  `D:/android-sdk` (platform 36, build-tools 36.0.0, NDK 27.1.12297006, cmake),
+  Gradle 9.3.1 downloaded by hand to `D:/android-sdk/gradle` (the wrapper's
+  10 s connect timeout failed), `npx expo prebuild --platform android`, then
+  `gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a` with
+  `EXPO_PUBLIC_BACKEND=local EXPO_PUBLIC_API_BASE_URL=<Render URL>` in the
+  environment and the MapTiler key from `driver-app/.env`. It is signed with
+  the debug keystore, NOT the EAS keystore, so it cannot install over an EAS
+  build: uninstall first. `android/` is generated and gitignored.
+
 ## 7. Honesty rules this codebase enforces (do not regress)
 
 - **UNKNOWN ≠ SAFE.** Never render a band without its unavailable-factor count.
