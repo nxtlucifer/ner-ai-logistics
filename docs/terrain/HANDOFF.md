@@ -678,6 +678,16 @@ So: ROUTE_AI_ARCHITECTURE_VERIFIED = YES, and the honest phrase for judges is
 
 ## 8. Gates (all green at handoff)
 
+13 Sep (11:00, MAP + TRAFFIC + GEO): Backend **1102 passed / 5 skipped**
+(isolated DB; +traffic rule, map-matching API, Maps-link, Nominatim) · Driver
+**592/592** + tsc · Manager **166/166** + tsc + remote-demo build · Expo export
+PASS · remote geo/traffic probe 20/20 (`.runtime/geo_probe.py`) · public
+manager Maps-link import 6/6 incl. a real `maps.app.goo.gl` share link ·
+phone no-trip browse 11/11 (`.runtime/rehearsal/phone_browse.py`, LAST KNOWN ->
+GPS ±10 m) · **remote phone core demo with the new APK (EAS 2b2cfa05):
+G1 11/11, G2 11/11, G3 11/11** (`remote_e2e_G_rN.log`, `phone-e2e-GN-*.png`) ·
+manager sweep 9/9 · driver web sweep 24/24 states (360/390/412 × day/night).
+
 13 Sep (01:30, REMOTE): Backend **1075 passed / 5 skipped** (isolated DB) ·
 Driver **583/583** · Manager **166/166** · Typecheck PASS ×2 · Manager build
 PASS · Expo export PASS · **laptop-off remote core demo** (installed APK <->
