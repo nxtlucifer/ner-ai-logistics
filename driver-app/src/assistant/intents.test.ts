@@ -39,3 +39,13 @@ describe('classifyIntent', () => {
     expect(classifyIntent('what is the meaning of life')).toBe('UNKNOWN')
   })
 })
+
+describe('classifyIntent across scripts', () => {
+  it('lands the same intents from Tamil, Urdu, Nepali and Marathi text', () => {
+    expect(classifyIntent('எனக்கு தலைசுற்றல் இருக்கிறது')).toBe('HEALTH')
+    expect(classifyIntent('سینے میں درد ہے')).toBe('HEALTH_URGENT')
+    expect(classifyIntent('अगाडि पहिरो छ?')).toBe('LANDSLIDE')
+    expect(classifyIntent('पुढे वाहतूक कशी आहे')).toBe('TRAFFIC')
+    expect(classifyIntent('any earthquake warning today')).toBe('WARNING')
+  })
+})

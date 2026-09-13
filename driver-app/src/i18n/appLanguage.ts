@@ -1,12 +1,9 @@
 /**
  * Driver App UI Multi-Language System.
  *
- * Supported UI Languages:
- *   - English ('en')
- *   - Hindi ('hi' - हिन्दी)
- *   - Gujarati ('gu' - ગુજરાતી)
- *   - Assamese ('as' - অসমীয়া)
- *   - Bengali ('bn' - বাংলা)
+ * Supported UI Languages: the 22 scheduled languages of India + English
+ * (APP_LANGUAGES). Full drafts for hi/gu/as/bn; core-key drafts for
+ * ta/te/kn/ml/mr/pa/or/ur/ne (moreLanguages.ts); the rest render English.
  *
  * Persists chosen language in AsyncStorage under `@ner_driver_app_language`.
  * Rules:
@@ -15,25 +12,64 @@
  *   - Fallback to English if key missing.
  */
 
-export type AppLanguage = 'en' | 'hi' | 'gu' | 'as' | 'bn'
+/** The 22 scheduled languages of India plus English. */
+export type AppLanguage =
+  | 'en' | 'as' | 'bn' | 'brx' | 'doi' | 'gu' | 'hi' | 'kn' | 'ks' | 'kok' | 'mai' | 'ml'
+  | 'mni' | 'mr' | 'ne' | 'or' | 'pa' | 'sa' | 'sat' | 'sd' | 'ta' | 'te' | 'ur'
+
+/**
+ * VERIFIED - the source language. DRAFT - drafted by the team, NOT reviewed
+ * by a native speaker (hi/gu/as/bn: every phrase; the rest: core keys only,
+ * see moreLanguages.ts). FALLBACK_ENGLISH - selectable, renders English.
+ */
+export type LocaleStatus = 'VERIFIED' | 'DRAFT' | 'FALLBACK_ENGLISH'
 
 export interface AppLanguageOption {
   code: AppLanguage
   label: string
   nativeLabel: string
+  status: LocaleStatus
+  /** Perso-Arabic script: text runs right-to-left. The map is never mirrored. */
+  rtl?: boolean
 }
 
+/** A-Z by English name. */
 export const APP_LANGUAGES: AppLanguageOption[] = [
-  { code: 'en', label: 'English', nativeLabel: 'English' },
-  { code: 'hi', label: 'Hindi', nativeLabel: 'हिन्दी' },
-  { code: 'gu', label: 'Gujarati', nativeLabel: 'ગુજરાતી' },
-  { code: 'as', label: 'Assamese', nativeLabel: 'অসমীয়া' },
-  { code: 'bn', label: 'Bengali', nativeLabel: 'বাংলা' },
+  { code: 'as', label: 'Assamese', nativeLabel: 'অসমীয়া', status: 'DRAFT' },
+  { code: 'bn', label: 'Bengali', nativeLabel: 'বাংলা', status: 'DRAFT' },
+  { code: 'brx', label: 'Bodo', nativeLabel: 'बड़ो', status: 'FALLBACK_ENGLISH' },
+  { code: 'doi', label: 'Dogri', nativeLabel: 'डोगरी', status: 'FALLBACK_ENGLISH' },
+  { code: 'en', label: 'English', nativeLabel: 'English', status: 'VERIFIED' },
+  { code: 'gu', label: 'Gujarati', nativeLabel: 'ગુજરાતી', status: 'DRAFT' },
+  { code: 'hi', label: 'Hindi', nativeLabel: 'हिन्दी', status: 'DRAFT' },
+  { code: 'kn', label: 'Kannada', nativeLabel: 'ಕನ್ನಡ', status: 'DRAFT' },
+  { code: 'ks', label: 'Kashmiri', nativeLabel: 'کٲشُر', status: 'FALLBACK_ENGLISH', rtl: true },
+  { code: 'kok', label: 'Konkani', nativeLabel: 'कोंकणी', status: 'FALLBACK_ENGLISH' },
+  { code: 'mai', label: 'Maithili', nativeLabel: 'मैथिली', status: 'FALLBACK_ENGLISH' },
+  { code: 'ml', label: 'Malayalam', nativeLabel: 'മലയാളം', status: 'DRAFT' },
+  { code: 'mni', label: 'Manipuri', nativeLabel: 'মৈতৈলোন্', status: 'FALLBACK_ENGLISH' },
+  { code: 'mr', label: 'Marathi', nativeLabel: 'मराठी', status: 'DRAFT' },
+  { code: 'ne', label: 'Nepali', nativeLabel: 'नेपाली', status: 'DRAFT' },
+  { code: 'or', label: 'Odia', nativeLabel: 'ଓଡ଼ିଆ', status: 'DRAFT' },
+  { code: 'pa', label: 'Punjabi', nativeLabel: 'ਪੰਜਾਬੀ', status: 'DRAFT' },
+  { code: 'sa', label: 'Sanskrit', nativeLabel: 'संस्कृतम्', status: 'FALLBACK_ENGLISH' },
+  { code: 'sat', label: 'Santali', nativeLabel: 'ᱥᱟᱱᱛᱟᱲᱤ', status: 'FALLBACK_ENGLISH' },
+  { code: 'sd', label: 'Sindhi', nativeLabel: 'سنڌي', status: 'FALLBACK_ENGLISH', rtl: true },
+  { code: 'ta', label: 'Tamil', nativeLabel: 'தமிழ்', status: 'DRAFT' },
+  { code: 'te', label: 'Telugu', nativeLabel: 'తెలుగు', status: 'DRAFT' },
+  { code: 'ur', label: 'Urdu', nativeLabel: 'اردو', status: 'DRAFT', rtl: true },
 ]
 
-export const APP_LANGUAGE_CODES: readonly AppLanguage[] = ['en', 'hi', 'gu', 'as', 'bn'] as const
+export const APP_LANGUAGE_CODES: readonly AppLanguage[] = APP_LANGUAGES.map((o) => o.code)
+
+export const isRtl = (code: AppLanguage): boolean => APP_LANGUAGES.find((o) => o.code === code)?.rtl === true
+
+/** BCP 47 tag for the platform's speech engine. Nepali voices ship as ne-NP. */
+export const speechLocale = (code: AppLanguage): string => (code === 'ne' ? 'ne-NP' : `${code}-IN`)
 
 export const STORAGE_KEY = '@ner_driver_app_language'
+
+import { MORE_TRANSLATIONS } from './moreLanguages'
 
 export type TranslationKey =
   // Assistant composer (hi/gu/as/bn UNREVIEWED by native speakers, like the rest of this table)
@@ -103,8 +139,7 @@ export type TranslationKey =
   | 'common_offline'
   | 'common_change_language'
 
-export const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> = {
-  en: {
+const EN: Record<TranslationKey, string> = {
     ask_label: 'ASK',
     ask_placeholder: 'Ask me anything about this trip…',
     ask_listening: 'Listening…',
@@ -169,8 +204,10 @@ export const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> =
     common_online: 'Online',
     common_offline: 'Offline',
     common_change_language: 'Language',
-  },
+}
 
+export const TRANSLATIONS: Record<AppLanguage, Partial<Record<TranslationKey, string>>> = {
+  en: EN,
   hi: {
     ask_label: 'पूछें',
     ask_placeholder: 'इस यात्रा के बारे में कुछ भी पूछें…',
@@ -438,12 +475,14 @@ export const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> =
     common_offline: 'অফলাইন',
     common_change_language: 'ভাষা',
   },
-}
+  ...MORE_TRANSLATIONS,
+  brx: {}, doi: {}, ks: {}, kok: {}, mai: {}, mni: {}, sa: {}, sat: {}, sd: {},
+} as Record<AppLanguage, Partial<Record<TranslationKey, string>>>
 
 /** Translate string with English fallback */
 export function t(lang: AppLanguage, key: TranslationKey): string {
   const dict = TRANSLATIONS[lang] ?? TRANSLATIONS.en
-  return dict[key] ?? TRANSLATIONS.en[key] ?? key
+  return dict[key] ?? EN[key] ?? key
 }
 
 /** Validate if code is supported */

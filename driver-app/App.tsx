@@ -41,7 +41,10 @@ import LoginScreen from './src/screens/LoginScreen'
 import MapScreen from './src/screens/MapScreen'
 import SafetyScreen from './src/screens/SafetyScreen'
 import TripScreen from './src/screens/TripScreen'
+import * as Notifications from 'expo-notifications'
+
 import { TABS, type Tab } from './src/navigation'
+import { registerPush, screenFromResponse } from './src/notify/push'
 import { MoreIcon, NavigateIcon, SafetyIcon, TripIcon } from './src/components/icons'
 import { refreshProfilePhoto, useProfilePhotoUrl } from './src/files/profilePhoto'
 import { useAuthImage } from './src/files/useAuthImage'
@@ -115,6 +118,21 @@ function SignedShell() {
   // One photo source for every avatar (files/profilePhoto.ts); seeded once
   // here, updated by My details when a photo is uploaded.
   useEffect(refreshProfilePhoto, [])
+  // Remote push: register this phone once per sign-in, and open the screen a
+  // tapped notification names. Every outcome is a logged state, never a crash.
+  useEffect(() => {
+    registerPush().then((r) => console.log('[push]', r.status, r.reason ?? '')).catch(() => {})
+    const isTab = (s: string | null): s is Tab => s !== null && (TABS as readonly string[]).includes(s)
+    Notifications.getLastNotificationResponseAsync().then((res) => {
+      const s = screenFromResponse(res)
+      if (isTab(s)) setTab(s)
+    }).catch(() => {})
+    const sub = Notifications.addNotificationResponseReceivedListener((res) => {
+      const s = screenFromResponse(res)
+      if (isTab(s)) setTab(s)
+    })
+    return () => sub.remove()
+  }, [])
   const photo = useAuthImage(useProfilePhotoUrl())
   const [showAssignment, setShowAssignment] = useState(false)
 

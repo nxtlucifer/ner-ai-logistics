@@ -261,6 +261,13 @@ class Settings(BaseSettings):
     WARNINGS_POLL_ENABLED: bool = False
     NOMINATIM_URL: str = "https://nominatim.openstreetmap.org"
 
+    # --- Driver push (Expo Push API) ---
+    #: The relay is free and needs no key; EXPO_ACCESS_TOKEN only when the
+    #: Expo project has "enhanced push security" on. Off in tests.
+    PUSH_ENABLED: bool = True
+    EXPO_ACCESS_TOKEN: str | None = None
+    PUSH_TIMEOUT_SECONDS: float = 8.0
+
     # --- Fleet Sentinel Scheduler ---
     SENTINEL_SCHEDULER_ENABLED: bool = False
     SENTINEL_SWEEP_INTERVAL_SECONDS: int = 300

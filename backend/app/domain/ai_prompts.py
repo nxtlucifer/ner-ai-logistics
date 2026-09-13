@@ -77,6 +77,17 @@ DEMO_LANGUAGES: Final = {
     "mr": "Marathi",
     "pa": "Punjabi",
     "or": "Odia",
+    "ur": "Urdu",
+    "ne": "Nepali",
+    "mai": "Maithili",
+    "sa": "Sanskrit",
+    "kok": "Konkani",
+    "doi": "Dogri",
+    "brx": "Bodo",
+    "ks": "Kashmiri",
+    "mni": "Manipuri (Meitei)",
+    "sat": "Santali",
+    "sd": "Sindhi",
 }
 
 #: Marker the model is told to emit when it cannot do the pair. Checked by the
@@ -150,7 +161,13 @@ def is_navigation_authority_attempt(text: str) -> bool:
 
 
 #: Script the answer must be written in, so "Hindi" cannot come back romanised.
-_SCRIPT: Final = {"hi": "Devanagari", "gu": "Gujarati script", "as": "Assamese (Bengali-Assamese script)", "bn": "Bengali script"}
+_SCRIPT: Final = {
+    "hi": "Devanagari", "gu": "Gujarati script", "as": "Assamese (Bengali-Assamese script)", "bn": "Bengali script",
+    "ta": "Tamil script", "te": "Telugu script", "ml": "Malayalam script", "kn": "Kannada script", "mr": "Devanagari",
+    "pa": "Gurmukhi", "or": "Odia script", "ur": "Perso-Arabic (Nastaliq)", "ne": "Devanagari", "mai": "Devanagari",
+    "sa": "Devanagari", "kok": "Devanagari", "doi": "Devanagari", "brx": "Devanagari", "ks": "Perso-Arabic",
+    "mni": "Bengali script", "sat": "Ol Chiki", "sd": "Perso-Arabic",
+}
 
 
 def in_language(system: str, language: str) -> str:

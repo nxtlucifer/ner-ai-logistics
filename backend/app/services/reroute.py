@@ -59,6 +59,7 @@ from app.domain.route_recommendation import RouteCandidate
 from app.models.enums import TripEventKind
 from app.models.identity import User
 from app.models.operations import Trip, TripRoute
+from app.services import notify
 from app.services import routes as route_service
 from app.services import trips as trip_service
 from app.services.driver_trips import IN_PROGRESS_STATUSES
@@ -232,6 +233,12 @@ async def accept(
         actor_user_id=actor.id,
     )
 
+    await db.commit()
+    await notify.send(
+        db, driver_id=trip.driver_id, trip_id=trip.id, event="REROUTE_APPROVED",
+        title="Reroute approved", body="Your manager approved a new road. Open Navigate: guidance switches to it.",
+        fingerprint=f"REROUTE_APPROVED:{trip.id}:{to_route_id}", data={"screen": "navigate"},
+    )
     await db.commit()
     await db.refresh(trip)
     await db.refresh(route)

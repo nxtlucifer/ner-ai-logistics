@@ -18,6 +18,7 @@ import { normalizeAndValidatePhone } from '../auth/phone'
 import { categorizeAuthError, type UserFacingError } from '../auth/authErrors'
 import { useAppLanguage } from '../i18n/AppLanguageProvider'
 import { APP_LANGUAGES } from '../i18n/appLanguage'
+import { LanguageSheet } from '../i18n/LanguageSheet'
 import { Banner } from '../components/ui'
 import { TOUCH_TARGET } from '../theme'
 import { useT } from '../i18n/tx'
@@ -124,8 +125,7 @@ export default function LoginScreen() {
             this product intends to support - at five it already filled the
             width on a 360pt screen, and every added language would shrink the
             others below the touch target. The sheet scales; the row did not.
-            No search box: with five options a filter field is more chrome than
-            the list it filters. Add one past ~8 languages. */}
+            Search, recent and A-Z live in LanguageSheet. */}
         <Pressable
           onPress={() => setLangSheetOpen(true)}
           style={styles.langSelector}
@@ -296,50 +296,7 @@ export default function LoginScreen() {
           `transparent` + a pressable scrim gives tap-outside-to-close, and
           onRequestClose wires the Android back button, which a custom overlay
           would silently drop. */}
-      <Modal
-        visible={langSheetOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setLangSheetOpen(false)}
-      >
-        {/* flex-end wrapper + absolutely-filled scrim. A scrim with `flex: 1`
-            as a Modal's first child consumed the whole height and pushed the
-            sheet off the bottom of the screen. */}
-        <View style={styles.sheetRoot}>
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            accessibilityLabel="Close language chooser"
-            onPress={() => setLangSheetOpen(false)}
-          />
-          <View style={styles.sheet}>
-          <View style={styles.sheetGrip} />
-          <Text style={styles.sheetTitle}>{t('common_change_language')}</Text>
-          {APP_LANGUAGES.map((opt) => {
-            const selected = opt.code === language
-            return (
-              <Pressable
-                key={opt.code}
-                onPress={() => {
-                  void setLanguage(opt.code)
-                  setLangSheetOpen(false)
-                }}
-                style={[styles.sheetRow, selected && styles.sheetRowActive]}
-                accessibilityRole="radio"
-                accessibilityState={{ selected }}
-              >
-                <View style={styles.sheetRowText}>
-                  <Text style={styles.sheetNative}>{opt.nativeLabel}</Text>
-                  <Text style={styles.sheetLatin}>{opt.label}</Text>
-                </View>
-                {/* A tick, not colour alone: the selected row must survive a
-                    colour-vision deficiency and a sunlit windscreen. */}
-                {selected ? <Text style={styles.sheetTick}>✓</Text> : null}
-              </Pressable>
-            )
-            })}
-          </View>
-        </View>
-      </Modal>
+      <LanguageSheet open={langSheetOpen} onClose={() => setLangSheetOpen(false)} />
     </KeyboardAvoidingView>
   )
 }
@@ -427,48 +384,6 @@ const useStyles = makeStyles((COLORS) => ({
   langSelectorLabel: { color: COLORS.text, fontSize: 15, fontWeight: '700' },
   langSelectorChevron: { color: COLORS.muted, fontSize: 13, fontWeight: '800' },
 
-  sheetRoot: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(11,17,22,0.72)' },
-  sheet: {
-    backgroundColor: COLORS.card,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 28,
-    borderTopWidth: 1,
-    borderColor: COLORS.border,
-  },
-  sheetGrip: {
-    alignSelf: 'center',
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: COLORS.borderStrong,
-    marginBottom: 14,
-  },
-  sheetTitle: {
-    color: COLORS.muted,
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-    marginBottom: 8,
-  },
-  sheetRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    minHeight: TOUCH_TARGET,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  sheetRowActive: { backgroundColor: COLORS.routeBg, borderColor: COLORS.route },
-  sheetRowText: { flexDirection: 'row', alignItems: 'baseline', gap: 10, flexShrink: 1 },
-  sheetNative: { color: COLORS.text, fontSize: 16, fontWeight: '700' },
-  sheetLatin: { color: COLORS.faint, fontSize: 13 },
-  sheetTick: { color: COLORS.routeOn, fontSize: 16, fontWeight: '900' },
   container: {
     paddingHorizontal: 22,
     paddingTop: 36,

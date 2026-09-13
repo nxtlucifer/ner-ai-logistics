@@ -143,7 +143,7 @@ export default function AssistantScreen({
   // The APP's language, not the device's: a driver who picked Assamese in
   // the header meant it here too. Reason codes exist in en/hi/as; gu/bn fall
   // back to English there, by `matchLanguage`, rather than to a guess.
-  const { language: appLanguage, t: tk } = useAppLanguage()
+  const { language: appLanguage, t: tk, rtl } = useAppLanguage()
   const t = useT()
   const lang = matchLanguage(appLanguage)
   const [draft, setDraft] = useState('')
@@ -361,7 +361,7 @@ export default function AssistantScreen({
           <View key={turn.id}>
             <View style={styles.bubbleMeRow}>
               <View style={styles.bubbleMe}>
-                <Text style={styles.bubbleMeText}>{turn.question}</Text>
+                <Text style={[styles.bubbleMeText, rtl && styles.rtl]}>{turn.question}</Text>
               </View>
             </View>
 
@@ -378,7 +378,7 @@ export default function AssistantScreen({
               </View>
             ) : turn.answer ? (
               <View style={[styles.bubbleThem, turn.answer.intent === 'HEALTH_URGENT' && styles.bubbleUrgent]}>
-                <Text style={[styles.headline, turn.answer.intent === 'HEALTH_URGENT' && styles.headlineUrgent]}>{t(turn.answer.headline)}</Text>
+                <Text style={[styles.headline, rtl && styles.rtl, turn.answer.intent === 'HEALTH_URGENT' && styles.headlineUrgent]}>{t(turn.answer.headline)}</Text>
                 <Freshness answer={turn.answer} />
 
                 {turn.answer.facts.map((fact, i) => (
@@ -563,6 +563,7 @@ const useStyles = makeStyles((COLORS) => ({
     paddingVertical: 10,
   },
   bubbleMeText: { color: COLORS.text, fontSize: 15, fontWeight: '600' },
+  rtl: { writingDirection: 'rtl' },
 
   headline: { color: COLORS.text, fontSize: 19, fontWeight: '800', letterSpacing: -0.3 },
   headlineUrgent: { color: COLORS.bad },

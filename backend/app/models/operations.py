@@ -460,6 +460,32 @@ class TripRoute(Base):
     )
 
 
+class DriverNotification(Base):
+    """One row per push attempt - the audit trail AND the dedupe window
+    (services/notify.py). `delivery` is SENT / NO_TOKEN / DISABLED /
+    SKIPPED_COOLDOWN / FAILED:<category>."""
+
+    __tablename__ = "driver_notifications"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    driver_id: Mapped[uuid.UUID] = mapped_column(
+        postgresql.UUID(as_uuid=True), sa.ForeignKey("drivers.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    trip_id: Mapped[uuid.UUID | None] = mapped_column(
+        postgresql.UUID(as_uuid=True), sa.ForeignKey("trips.id", ondelete="SET NULL"), nullable=True
+    )
+    event: Mapped[str] = mapped_column(sa.String(40), nullable=False)
+    fingerprint: Mapped[str] = mapped_column(sa.String(200), nullable=False)
+    title: Mapped[str] = mapped_column(sa.String(120), nullable=False)
+    body: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    delivery: Mapped[str] = mapped_column(sa.String(40), nullable=False)
+    sent_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")
+    )
+
+    __table_args__ = (sa.Index("ix_driver_notifications_fingerprint", "fingerprint", "sent_at"),)
+
+
 class TripEvent(Base):
     """Append-only operational timeline of what happened on the road."""
 

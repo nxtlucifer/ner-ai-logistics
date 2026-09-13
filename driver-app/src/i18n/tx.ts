@@ -10,24 +10,21 @@
  *
  * LOCALE STATUS - do not overclaim:
  *   en  VERIFIED   the source language
- *   hi  PARTIAL    every phrase drafted (phrases.ts), NOT reviewed by a native speaker
- *   gu  PARTIAL    every phrase drafted, NOT reviewed by a native speaker
- *   as  PARTIAL    every phrase drafted, NOT reviewed by a native speaker
- *   bn  PARTIAL    every phrase drafted, NOT reviewed by a native speaker
+ *   hi/gu/as/bn  DRAFT   every phrase drafted (phrases.ts), NOT reviewed by a native speaker
+ *   ta/te/kn/ml/mr/pa/or/ur/ne  DRAFT   core keys only (moreLanguages.ts)
+ *   brx/doi/ks/kok/mai/mni/sa/sat/sd  FALLBACK_ENGLISH
  * The reason-code catalogue and the safety guide (reasonCodes.json,
  * safety/guide.json) exist in en/hi/as only; gu/bn read those in English.
  */
 
-import type { AppLanguage } from './appLanguage'
+import { APP_LANGUAGES, type AppLanguage, type LocaleStatus } from './appLanguage'
 import { useAppLanguage } from './AppLanguageProvider'
 import { PHRASES } from './phrases'
 
 export { PHRASES }
+export type { LocaleStatus }
 
-export type LocaleStatus = 'VERIFIED' | 'PARTIAL' | 'FALLBACK_ENGLISH'
-export const LOCALE_STATUS: Record<AppLanguage, LocaleStatus> = {
-  en: 'VERIFIED', hi: 'PARTIAL', as: 'PARTIAL', gu: 'PARTIAL', bn: 'PARTIAL',
-}
+export const LOCALE_STATUS = Object.fromEntries(APP_LANGUAGES.map((o) => [o.code, o.status])) as Record<AppLanguage, LocaleStatus>
 
 export function tx(lang: AppLanguage, en: string): string {
   if (lang === 'en') return en

@@ -94,6 +94,7 @@ __all__ = [
     "TripEventKind",
     "AuditAction",
     "Emergency",
+    "DriverNotification",
     "EmergencyState",
     "DriverCheckResponse",
 ]

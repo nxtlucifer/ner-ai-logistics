@@ -19,6 +19,8 @@ import { useEffect, useRef, useState } from 'react'
 import * as Speech from 'expo-speech'
 
 import type { NavigationManeuver } from '../api/client'
+import { speechLocale } from '../i18n/appLanguage'
+import { useAppLanguage } from '../i18n/AppLanguageProvider'
 import { emptySpokenState, nextAnnouncement } from './speech'
 
 export interface SpokenGuidanceInput {
@@ -46,6 +48,7 @@ export function useSpokenGuidance({
   held,
   muted,
 }: SpokenGuidanceInput): SpokenGuidance {
+  const { language } = useAppLanguage()
   const [available, setAvailable] = useState<boolean | null>(null)
   const spoken = useRef(emptySpokenState())
 
@@ -89,7 +92,7 @@ export function useSpokenGuidance({
     // Stop before speaking rather than queueing behind whatever is in flight:
     // the newest instruction is the only one that is still true.
     void Speech.stop()
-    Speech.speak(announcement.text, { language: 'en-IN', rate: 0.95 })
+    Speech.speak(announcement.text, { language: speechLocale(language), rate: 0.95 })
   }, [available, next, routeId, muted, held])
 
   // Leaving the screen stops the voice. Without this the driver hears a turn

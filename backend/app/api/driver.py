@@ -146,6 +146,21 @@ async def me(driver: CurrentDriver) -> DriverMe:
     return DriverMe.model_validate(driver)
 
 
+class PushTokenBody(APIModel):
+    #: Expo push token ("ExponentPushToken[...]"); null/empty unregisters.
+    token: Annotated[str | None, Field(default=None, max_length=200)]
+
+
+@router.post("/me/push-token", summary="Register this phone for push alerts")
+async def register_push_token(body: PushTokenBody, driver: CurrentDriver, db: DbSession) -> dict[str, bool]:
+    token = (body.token or "").strip() or None
+    if token is not None and not token.startswith(("ExponentPushToken[", "ExpoPushToken[")):
+        raise BusinessRuleError("Not an Expo push token")
+    driver.push_token = token
+    await db.commit()
+    return {"registered": token is not None}
+
+
 @router.get(
     "/me/assignment",
     response_model=CurrentAssignment | None,

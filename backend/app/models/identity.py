@@ -104,6 +104,8 @@ class Driver(TimestampMixin, SoftDeleteMixin, Base):
         server_default=DriverStatus.AVAILABLE.value,
     )
     base_salary_monthly: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
+    #: Expo push token of the driver's phone; null until the app registers one.
+    push_token: Mapped[str | None] = mapped_column(sa.String(200), nullable=True)
 
     user: Mapped[User] = relationship(back_populates="driver", lazy="raise")
     documents: Mapped[list["DriverDocument"]] = relationship(

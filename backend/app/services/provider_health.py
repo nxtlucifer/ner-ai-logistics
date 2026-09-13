@@ -40,6 +40,7 @@ CADENCE_S: Final[dict[str, int]] = {
     "OVERPASS": 24 * 60 * 60,
     "GOOGLE_GEMINI": 24 * 60 * 60,
     "OPENROUTER": 24 * 60 * 60,
+    "EXPO_PUSH": 24 * 60 * 60,
 }
 
 PRODUCT: Final[dict[str, tuple[str, str]]] = {
@@ -56,6 +57,7 @@ PRODUCT: Final[dict[str, tuple[str, str]]] = {
     "OVERPASS": ("Roadside services (OSM)", "REFERENCE"),
     "GOOGLE_GEMINI": ("Assistant wording", "ONLINE_LLM"),
     "OPENROUTER": ("Assistant wording (fallback)", "ONLINE_LLM"),
+    "EXPO_PUSH": ("Driver push notifications", "NOT_AI"),
 }
 
 

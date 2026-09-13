@@ -66,6 +66,8 @@ export type Intent =
   | 'WEATHER'
   | 'TERRAIN'
   | 'LANDSLIDE'
+  | 'WARNING'
+  | 'TRAFFIC'
   | 'BREAK'
   | 'CONNECTIVITY'
   | 'EMERGENCY'
@@ -410,9 +412,9 @@ function riskFreshness(ctx: AssistantContext, live: boolean, age: number | null)
 
 /** The three evidence questions. Each answers ONLY from the block the engine
  *  shipped for it, and says "not available" when that block is missing. */
-function answerEvidence(ctx: AssistantContext, intent: 'WEATHER' | 'TERRAIN' | 'LANDSLIDE'): Answer {
+function answerEvidence(ctx: AssistantContext, intent: 'WEATHER' | 'TERRAIN' | 'LANDSLIDE' | 'WARNING' | 'TRAFFIC'): Answer {
   const found = get_route_risk(ctx)
-  const headline = { WEATHER: 'Weather on the route', TERRAIN: 'Terrain on the route', LANDSLIDE: 'Landslide exposure' }[intent]
+  const headline = { WEATHER: 'Weather on the route', TERRAIN: 'Terrain on the route', LANDSLIDE: 'Landslide exposure', WARNING: 'Official warnings and incidents', TRAFFIC: 'Traffic on the route' }[intent]
   if (!found) {
     return {
       intent,
@@ -441,6 +443,14 @@ function answerEvidence(ctx: AssistantContext, intent: 'WEATHER' | 'TERRAIN' | '
       unavailable.push('WEATHER')
     }
     return { intent, headline, facts, reasonCodes: codes.filter((c) => /RAIN|WIND|WEATHER/.test(c)), freshness, allowedActions: [], unavailable }
+  }
+
+  if (intent === 'WARNING' || intent === 'TRAFFIC') {
+    // Deterministic: the reason codes the risk engine already emitted, nothing inferred here.
+    const pick = intent === 'WARNING' ? /WARNING|INCIDENT|CLOSURE|FLOOD/ : /TRAFFIC/
+    const mine = codes.filter((c) => pick.test(c))
+    if (!mine.length) unavailable.push(intent === 'WARNING' ? 'OFFICIAL_WARNINGS' : 'TRAFFIC')
+    return { intent, headline, facts, reasonCodes: mine, freshness, allowedActions: ['CONTACT_DISPATCH'], unavailable }
   }
 
   if (intent === 'TERRAIN') {
@@ -666,6 +676,8 @@ export function answer(intent: Intent, ctx: AssistantContext): Answer {
     case 'WEATHER':
     case 'TERRAIN':
     case 'LANDSLIDE':
+    case 'WARNING':
+    case 'TRAFFIC':
       return answerEvidence(ctx, intent)
     case 'BREAK':
       return answerBreak(ctx)
@@ -684,7 +696,7 @@ export function answer(intent: Intent, ctx: AssistantContext): Answer {
     default:
       return {
         intent: 'UNKNOWN',
-        headline: 'I can help with route, weather, terrain, landslide exposure, stops, breaks, the truck and emergencies.',
+        headline: 'I can help with route, weather, warnings, traffic, terrain, landslide exposure, stops, breaks, the truck, health and emergencies.',
         facts: [],
         reasonCodes: [],
         freshness: null,

@@ -43,7 +43,7 @@ from app.models.fleet import DriverTruckAssignment, Truck
 from app.models.identity import Driver, User
 from app.models.operations import Shipment, Trip, TripEvent, TripStop
 from app.schemas.domain import ShipmentCreate, TripCreate, TripPlanTrip
-from app.services import audit, shipments
+from app.services import audit, notify, shipments
 from app.services.pagination import (
     build_page,
     clamp_limit,
@@ -619,6 +619,14 @@ async def dispatch(
         after=audit.snapshot(trip, AUDITED_FIELDS),
         reason="dispatched",
         ip_address=ip,
+    )
+    await db.commit()
+    # After the commit: a trip that is assigned is assigned whether or not the
+    # phone hears about it now; the push must never roll a dispatch back.
+    await notify.send(
+        db, driver_id=trip.driver_id, trip_id=trip.id, event="TRIP_ASSIGNED",
+        title="New trip assigned", body=f"Trip {trip.trip_code}: open the app to review and accept.",
+        data={"screen": "trip"},
     )
     await db.commit()
     await db.refresh(trip)

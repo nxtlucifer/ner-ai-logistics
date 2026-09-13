@@ -3,14 +3,21 @@ import {
   APP_LANGUAGES,
   APP_LANGUAGE_CODES,
   isAppLanguage,
+  speechLocale,
   t,
   TRANSLATIONS,
 } from './appLanguage'
 
 describe('appLanguage i18n system', () => {
-  it('supports English, Hindi, Gujarati, Assamese, and Bengali', () => {
-    expect(APP_LANGUAGE_CODES).toEqual(['en', 'hi', 'gu', 'as', 'bn'])
-    expect(APP_LANGUAGES.length).toBe(5)
+  it('offers the 22 scheduled languages plus English, A-Z, each with an honest status', () => {
+    expect(APP_LANGUAGES.length).toBe(23)
+    expect(APP_LANGUAGE_CODES).toEqual(APP_LANGUAGES.map((o) => o.code))
+    const labels = APP_LANGUAGES.map((o) => o.label)
+    expect(labels).toEqual([...labels].sort())
+    expect(APP_LANGUAGES.filter((o) => o.status === 'VERIFIED').map((o) => o.code)).toEqual(['en'])
+    expect(APP_LANGUAGES.filter((o) => o.rtl).map((o) => o.code).sort()).toEqual(['ks', 'sd', 'ur'])
+    expect(speechLocale('hi')).toBe('hi-IN')
+    expect(speechLocale('ne')).toBe('ne-NP')
   })
 
   it('validates language codes correctly', () => {
@@ -51,13 +58,17 @@ describe('appLanguage i18n system', () => {
     expect(t('fr', 'login_title')).toBe('Welcome back')
   })
 
-  it('ensures every key present in English exists in all other languages', () => {
+  it('full drafts carry every key; every language renders something for every key', () => {
     const enKeys = Object.keys(TRANSLATIONS.en) as Array<keyof typeof TRANSLATIONS.en>
+    for (const lang of ['hi', 'gu', 'as', 'bn'] as const) {
+      for (const key of enKeys) expect(TRANSLATIONS[lang][key], `${lang}.${key}`).toBeTruthy()
+    }
     for (const lang of APP_LANGUAGE_CODES) {
+      for (const key of enKeys) expect(t(lang, key), `${lang}.${key}`).toBeTruthy()
       const dict = TRANSLATIONS[lang]
-      for (const key of enKeys) {
-        expect(dict[key]).toBeTruthy()
-      }
+      const status = APP_LANGUAGES.find((o) => o.code === lang)?.status
+      // A language listed as English fallback must not quietly carry a draft, and vice versa.
+      expect(Object.keys(dict).length > 0, lang).toBe(status !== 'FALLBACK_ENGLISH')
     }
   })
 })

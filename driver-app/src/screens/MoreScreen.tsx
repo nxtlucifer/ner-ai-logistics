@@ -12,13 +12,14 @@
  * absent one, because the driver pays the tap to find out.
  */
 import { useState } from 'react'
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 
 import { Icon } from '../components/icons'
 import { useT } from '../i18n/tx'
 import { useAuth } from '../auth/AuthProvider'
 import { useAppLanguage } from '../i18n/AppLanguageProvider'
 import { APP_LANGUAGES } from '../i18n/appLanguage'
+import { LanguageSheet } from '../i18n/LanguageSheet'
 import { TOUCH_TARGET } from '../theme'
 import { makeStyles, useTheme } from '../theme-context'
 
@@ -98,48 +99,7 @@ export default function MoreScreen({
         <Text style={[styles.rowTitle, { color: COLORS.bad }]}>{t('btn_sign_out')}</Text>
       </Pressable>
 
-      <Modal
-        visible={langOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setLangOpen(false)}
-      >
-        <View style={styles.sheetRoot}>
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            accessibilityLabel="Close language chooser"
-            onPress={() => setLangOpen(false)}
-          />
-          <View style={styles.sheet}>
-            <View style={styles.grip} />
-            <Text style={styles.section}>{t('common_change_language').toUpperCase()}</Text>
-            {/* Only languages with a real dictionary in appLanguage.ts. There
-                is no "coming soon" row: an option that cannot be chosen is
-                chrome, and this list is the actual coverage. */}
-            {APP_LANGUAGES.map((opt) => {
-              const selected = opt.code === language
-              return (
-                <Pressable
-                  key={opt.code}
-                  onPress={() => {
-                    void setLanguage(opt.code)
-                    setLangOpen(false)
-                  }}
-                  style={[styles.sheetRow, selected && styles.sheetRowActive]}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected }}
-                >
-                  <View style={styles.sheetText}>
-                    <Text style={styles.sheetNative}>{opt.nativeLabel}</Text>
-                    {opt.label !== opt.nativeLabel ? <Text style={styles.sheetLatin}>{opt.label}</Text> : null}
-                  </View>
-                  {selected ? <Icon name="check" color={COLORS.routeOn} size={20} /> : null}
-                </Pressable>
-              )
-            })}
-          </View>
-        </View>
-      </Modal>
+      <LanguageSheet open={langOpen} onClose={() => setLangOpen(false)} />
     </ScrollView>
   )
 }
@@ -172,33 +132,4 @@ const useStyles = makeStyles((COLORS) => ({
   value: { color: COLORS.muted, fontSize: 13, fontWeight: '700' },
   signOut: { marginTop: 20, justifyContent: 'center', gap: 8, borderColor: COLORS.badBorder },
 
-  sheetRoot: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(11,17,22,0.72)' },
-  sheet: {
-    backgroundColor: COLORS.card,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 28,
-  },
-  grip: {
-    alignSelf: 'center',
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: COLORS.borderStrong,
-    marginBottom: 10,
-  },
-  sheetRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    height: 56,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-  },
-  sheetRowActive: { backgroundColor: COLORS.sunken },
-  sheetText: { flex: 1 },
-  sheetNative: { color: COLORS.text, fontSize: 16, fontWeight: '700' },
-  sheetLatin: { color: COLORS.muted, fontSize: 12, marginTop: 1 },
 }))

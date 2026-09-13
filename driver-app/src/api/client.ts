@@ -1065,6 +1065,10 @@ const restApi = {
     signal?: AbortSignal,
   ) => request<AiAnswer>('/api/ai/ask', { method: 'POST', body, signal }),
 
+  /** Expo push token of this phone; null unregisters. */
+  registerPushToken: (token: string | null) =>
+    request<{ registered: boolean }>('/api/driver/me/push-token', { method: 'POST', body: { token } }),
+
   ready: () => request<ReadyResponse>('/ready'),
 
   login: async (identifier: string, password: string): Promise<TokenResponse> => {
