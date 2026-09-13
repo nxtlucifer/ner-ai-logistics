@@ -970,6 +970,25 @@ code changed (`git diff 96fb47c..HEAD -- backend` is the two-gate patch only).
 
 ## 8. Gates (all green at handoff)
 
+13 Sep (22:00, FINAL QUALITY + INTELLIGENCE): Backend **1127 passed / 5
+skipped** (+provider health, AI failover) · Driver **616/616** + tsc (+speed
+filter 10, health intents, online router, i18n coverage guard) · Manager
+**167/167** + tsc + `vite build --mode remote-demo` · Expo web export PASS ·
+driver web sweep **60/60 states** (320/360/390/412 × day / Hindi / night, no
+overflow, no raw codes; the 320 rail buttons at 39 px and the 72×36 ETA cell
+are the known pre-existing smalls) · local manager sweep 13/13 with the new
+System page (Data sources + Intelligence components) · phone 1.0.15:
+stationary 3 min = 0 km/h never 1 (`phone-speed-stationary.log`), Hindi and
+Gujarati screen audits (`phone-i18n*.log`, `phone-i18n-*.png`), health answer
+in Hindi from an English question and from the Hindi chip, online question
+answered by Gemini in Hindi (remote, `gemini-flash-lite-latest`) · judge flow
+on 1.0.15: steps 01-04, 06, 07 PASS; 05/08 were the renamed chip words
+(script fixed), 09-11 failed because the phone was in use (video call, app
+switched to Hindi) during the run - re-run `DEMO_BASE=https://ner-intelligence.onrender.com DEMO_CODE=JUDGE python .runtime/rehearsal/phone_e2e.py` with the
+phone free (12/12 on 1.0.12 stands for the unchanged lifecycle code) ·
+`judge.sh reset` -> READY, `check` -> READY · hazard validation: 98% NOT
+reached (`docs/HAZARD_VALIDATION.md`).
+
 13 Sep (18:45, VISUAL POLISH): Driver **600/600** + tsc · Manager **167/167** +
 tsc + `vite build --mode remote-demo` · Expo web export PASS · driver web sweep
 **40/40 states** (320/360/390/412 × day/night, no overflow, no raw codes) ·
