@@ -641,6 +641,62 @@ the off-route/reroute steps real; the proposal is a 2,449 km road, and it loads.
   (checked again 13 Sep 09:5x); the 2D Leaflet/OSM map with terrain and
   hazard overlays stays. Add MapLibre terrain only once a key answers 200.
 
+## 6j. Judge lock (13 Sep, midday) - reset, no-smartphone mode, freeze
+
+- **ONE command.** `bash .runtime/judge.sh reset` -> exactly one `JUDGE-xxxxxx`
+  trip at **DRAFT** (route selected, reviewer authorisation granted, terrain /
+  weather / landslide history / warnings / flood warmed by the reset's own
+  risk call), driver "Other Driver" and truck AS86QQ7606 AVAILABLE, then the
+  check. `bash .runtime/judge.sh check` proves: `/health`, `/ready` (Supabase +
+  PostGIS), public manager index, OSRM, Open-Meteo flood, NDMA RSS, one open
+  demo trip, route selected, risk answers with factor count, driver, truck.
+  DRAFT was chosen so the judge sees route generation -> terrain/hazards ->
+  governance -> dispatch; the code suffix is random because trip codes are
+  unique and old demo trips are cancelled, never deleted.
+- **No-smartphone / dispatch-assisted mode (documented, not built).** The
+  intelligence is server-side: a trip planned in the manager gets route, terrain,
+  weather, landslide history, official warnings and flood context with no phone
+  involved. What a phone adds is turn-by-turn guidance and the position source.
+  Without one: if the truck carries a telematics/GPS unit that becomes the
+  position source - NOT integrated, no provider exists in this project - and
+  without either the manager works on dispatcher check-ins by voice call. The
+  truck drawer says which: "Position source: driver app GPS" or "Driver app:
+  not reporting · Tracking: dispatcher check-in by phone call". No SMS is sent
+  and none is pretended: there is no SMS provider. Judge answer: "The
+  intelligence is server-side. A smartphone improves turn-by-turn guidance, but
+  the fleet manager can still assess the route. If the truck has a
+  telematics/GPS unit, that becomes the position source. Without either, the
+  system falls back to dispatcher/manual check-ins."
+- **Driver Trip page with no trip** (`NoTrip` in `TripScreen.tsx`): "No active
+  trip - you are available for assignment; your next assigned trip will appear
+  here automatically", Open map, Check again, then Driver / Truck (from the
+  assignment, verified or not, with "Check the truck") / Connection / Last
+  sync, and the emergency numbers as dialler links. No ETA, route, risk or
+  destination - none exists.
+- **Security sanity (13 Sep):** CORS answers only the Render manager origin
+  (foreign origin -> no ACAO header); plain http redirects 301 to https; bad
+  token -> `UNAUTHENTICATED` JSON with a request id, no stack; unknown trip id
+  -> 401/404 JSON; manager bundle and the APK export carry no DB URL, no anon
+  key, no service key (grep of both bundles) - the only client-side key is the
+  MapTiler tile key, which is a per-app client key by MapTiler's design and is
+  currently invalid anyway; route authorisation ids are claimed against
+  trip + route server-side (`route_review.claim`); coordinates are range-checked
+  by `Coordinate`; Maps links are parsed as URLs only, private/link-local hosts
+  refused before any request. RBAC has 13 test files asserting 403s.
+- **Android:** minSdk 24 (Android 7+), targetSdk 36. Physically certified on
+  ONE device only: OPPO CPH2691, Android 16. Every other version is a code-path
+  claim (Expo SDK 57 APIs), not a test. Widths 320/360/390/412 × day/night are
+  audited in the web renderer (`.runtime/rehearsal/sweep.mjs`, `WIDTHS=`).
+- **Performance (public system, warm):** `/health` 0.2 s, trips list 0.6 s,
+  fleet 0.5 s, route risk 1.9-2.4 s (six providers fanned out), manager index
+  0.5 s. Cold Render dyno: 30-50 s on the first request - open `/health` five
+  minutes before the slot. Manager pages hydrate from the local cache first
+  and refresh in the background; polling pauses while the tab is hidden and
+  refreshes once when it is shown again.
+- **Landslide markers:** the inventory answers a handful of precisely placed
+  events per corridor (5 km buffer, NASA GLC); no clustering - add it only if
+  a corridor ever returns more than ~200.
+
 ## 6g. What "AI" means here - verified 12 Sep, do not overclaim
 
 - **Personal Route AI** (`driver-app/src/navigation/routeAi.ts`) is a

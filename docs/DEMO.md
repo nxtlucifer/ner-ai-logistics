@@ -1,5 +1,31 @@
 # Running the demo
 
+## Judge demo (remote - the laptop is not required)
+
+| | |
+| --- | --- |
+| Manager | https://ner-manager.onrender.com |
+| API | https://ner-intelligence.onrender.com (open `/health` five minutes before the slot: the free dyno sleeps) |
+| Driver | the installed `remote-demo` APK on the phone (EAS build, package `...driver.preview`) |
+
+ONE reset, ONE check, both remote:
+
+```bash
+bash .runtime/judge.sh reset     # one JUDGE-xxxxxx trip at DRAFT, driver + truck AVAILABLE, evidence warmed
+bash .runtime/judge.sh check     # backend, DB, manager, providers, trip state, driver, truck -> RESULT READY
+```
+
+Flow: manager opens the JUDGE trip -> Review route -> Check conditions (terrain,
+landslide history, weather, warnings, flood, unknown factors named) -> Use this
+route -> Dispatch. The phone receives it within ten seconds -> Accept -> Check the
+truck -> Start -> Navigate (Personal Route AI, hazards, traffic UNKNOWN until two
+trucks share a road) -> drives off the corridor -> real OSRM reroute -> manager
+accepts -> phone follows the new road -> stops -> Complete trip -> manager shows
+DELIVERED, driver and truck AVAILABLE. Rehearsed end to end on the physical phone
+(`.runtime/evidence/judge_e2e_r*.log`).
+
+## Local fallback
+
 Everything below runs on your laptop against the isolated local database. It
 never touches shared Supabase.
 
