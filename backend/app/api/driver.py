@@ -105,6 +105,8 @@ class CurrentAssignment(ReadModel):
     assigned_at: datetime
     verified_at: datetime | None
     mismatch_flagged: bool
+    verification_photo_url: str | None = None
+    verification_source: str | None = None
     truck: TruckSummary
 
 
@@ -133,6 +135,8 @@ def _to_current(assignment, truck) -> CurrentAssignment:
         assigned_at=assignment.assigned_at,
         verified_at=assignment.verified_at,
         mismatch_flagged=assignment.mismatch_flagged,
+        verification_photo_url=assignment.verification_photo_url,
+        verification_source=assignment.verification_source,
         truck=TruckSummary.model_validate(truck),
     )
 

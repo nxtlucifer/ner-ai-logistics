@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import {
+  Image,
   Pressable,
   RefreshControl,
   SafeAreaView,
@@ -20,7 +21,9 @@ import {
   View,
 } from 'react-native'
 
-import { api, type CurrentAssignment } from '../api/client'
+import { API_BASE_URL, api, authHeaders, type CurrentAssignment } from '../api/client'
+import { pickPhoto, upload } from '../files/pick'
+import { useT } from '../i18n/tx'
 import { Banner, Button, Field, Loading, Row, errorMessage } from '../components/ui'
 import { TOUCH_TARGET } from '../theme'
 import { makeStyles, useTheme } from '../theme-context'
@@ -95,6 +98,30 @@ export default function AssignmentScreen({ onBack }: { onBack?: () => void } = {
     detail: string
   } | null>(null)
   const [justVerified, setJustVerified] = useState(false)
+  // TRUCK PHOTO. Captured on the phone, uploaded to the private files API,
+  // attached to this assignment by the server; the verify button is offered
+  // only once it is there. A photo already on the assignment (uploaded
+  // earlier, or on a reload) counts - the server is the record.
+  const [photo, setPhoto] = useState<{ uri: string; uploaded: boolean } | null>(null)
+  const [photoBusy, setPhotoBusy] = useState(false)
+  const t = useT()
+
+  async function takePhoto(source: 'camera' | 'library') {
+    setPhotoBusy(true)
+    setVerifyError(null)
+    try {
+      const file = await pickPhoto(source)
+      if (!file) return
+      setPhoto({ uri: file.uri, uploaded: false })
+      await upload(file, 'TRUCK_VERIFICATION')
+      setPhoto({ uri: file.uri, uploaded: true })
+    } catch (err) {
+      setPhoto(null)
+      setVerifyError({ title: t('Upload requires connection'), detail: errorMessage(err).detail })
+    } finally {
+      setPhotoBusy(false)
+    }
+  }
 
   const load = useCallback(async () => {
     try {
@@ -255,13 +282,26 @@ export default function AssignmentScreen({ onBack }: { onBack?: () => void } = {
 
             {verified ? null : (
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>Check the truck</Text>
+                <Text style={styles.cardTitle}>{t('Check the truck')}</Text>
                 <Text style={styles.help}>
                   Enter what you can see on the vehicle. If the registration does
                   not match, you can still continue — your manager will review it.
                 </Text>
+                <Text style={styles.fieldLabel}>{t('Truck photo')}</Text>
+                {photo ? (
+                  <Image source={{ uri: photo.uri }} style={styles.photo} accessibilityLabel="Truck photo" testID="truck-photo" />
+                ) : assignment.verification_photo_url ? (
+                  <Image source={{ uri: `${API_BASE_URL}${assignment.verification_photo_url}`, headers: authHeaders() }} style={styles.photo} accessibilityLabel="Truck photo" testID="truck-photo" />
+                ) : null}
+                <View style={styles.photoRow}>
+                  <View style={styles.photoCell}><Button label={t('Take photo')} variant="secondary" busy={photoBusy} onPress={() => void takePhoto('camera')} /></View>
+                  <View style={styles.photoCell}><Button label={t('Choose image')} variant="secondary" busy={photoBusy} onPress={() => void takePhoto('library')} /></View>
+                </View>
+                <Text style={styles.help}>
+                  {photo?.uploaded || assignment.verification_photo_url ? t('Photo uploaded') : t('Take a photo of the truck before you verify.')}
+                </Text>
                 <Field
-                  label="Registration on the truck"
+                  label={t('Registration on the truck')}
                   value={registration}
                   onChangeText={setRegistration}
                   placeholder={assignment.truck.registration_number}
@@ -289,9 +329,10 @@ export default function AssignmentScreen({ onBack }: { onBack?: () => void } = {
                   onSubmitEditing={() => void handleVerify()}
                 />
                 <Button
-                  label={isSubmitting ? 'Sending…' : 'Confirm this truck'}
+                  label={isSubmitting ? '…' : 'Confirm this truck'}
                   onPress={handleVerify}
                   busy={isSubmitting}
+                  disabled={!(photo?.uploaded || assignment.verification_photo_url) || !registration.trim()}
                 />
               </View>
             )}
@@ -337,6 +378,10 @@ const useStyles = makeStyles((COLORS) => ({
     marginBottom: 10,
   },
   help: { color: COLORS.muted, fontSize: 13, lineHeight: 19, marginVertical: 12 },
+  fieldLabel: { color: COLORS.muted, fontSize: 12, fontWeight: '700', marginTop: 4 },
+  photo: { width: '100%', height: 180, borderRadius: 12, backgroundColor: COLORS.dim, marginTop: 8 },
+  photoRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  photoCell: { flex: 1, minWidth: 0 },
 
   empty: { alignItems: 'center', paddingVertical: 56 },
   emptyTitle: { color: COLORS.text, fontSize: 18, fontWeight: '700' },

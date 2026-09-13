@@ -9,6 +9,7 @@ how a table silently disappears from a migration.
 from app.models.audit import AuditLog
 from app.models.auth import RefreshToken
 from app.models.emergency import Emergency
+from app.models.files import StoredFile
 from app.models.review import RouteReviewAuthorization
 from app.models.enums import (
     AssignmentStatus,
@@ -50,6 +51,7 @@ from app.models.operations import (
 )
 
 __all__ = [
+    "StoredFile",
     # Identity
     "User",
     "Driver",

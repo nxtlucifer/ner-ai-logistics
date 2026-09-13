@@ -64,6 +64,7 @@ import { useRouteRisk } from '../hooks/useRouteRisk'
 import { routeAiCard } from '../navigation/routeAi'
 import { } from '../theme'
 import { makeStyles, useTheme } from '../theme-context'
+import { useT } from '../i18n/tx'
 import { useTrip, type TripContextValue } from '../trip/TripProvider'
 
 function relativeTime(iso: string | null): string {
@@ -341,12 +342,13 @@ function SentinelCheckInCard({
  *  "Unavailable" rather than 0 km - a zero is a measurement, not a gap. */
 function TripMetrics({ trip }: { trip: CurrentTrip }) {
   const styles = useStyles()
+  const t = useT()
   const km = trip.progress?.remaining_distance_km
   const min = trip.progress?.remaining_at_planned_pace_min
   const cells: Array<[string, string]> = [
-    ['REMAINING', km == null ? 'Unavailable' : `${km.toFixed(0)} km`],
-    ['ETA', min == null ? 'Unavailable' : min >= 60 ? `${Math.floor(min / 60)} h ${Math.round(min % 60)} m` : `${Math.round(min)} min`],
-    ['TRUCK', trip.truck.registration_number],
+    [t('REMAINING'), km == null ? t('Unavailable') : `${km.toFixed(0)} km`],
+    ['ETA', min == null ? t('Unavailable') : min >= 60 ? `${Math.floor(min / 60)} h ${Math.round(min % 60)} m` : `${Math.round(min)} min`],
+    [t('Truck').toUpperCase(), trip.truck.registration_number],
   ]
   return (
     <View style={styles.metricRow}>
@@ -396,12 +398,13 @@ function TripStepper({ trip }: { trip: CurrentTrip }) {
 /** The reference's CURRENT TRIP card: code, status, corridor, metrics, steps. */
 function CurrentTripCard({ trip }: { trip: CurrentTrip }) {
   const styles = useStyles()
+  const t = useT()
   const from = trip.stops[0]?.address ?? trip.stops[0]?.name ?? 'Unavailable'
   const to = trip.stops.at(-1)?.address ?? trip.stops.at(-1)?.name ?? 'Unavailable'
   return (
     <View style={styles.heroCard}>
       <View style={styles.heroTop}>
-        <Text style={styles.heroEyebrow}>CURRENT TRIP</Text>
+        <Text style={styles.heroEyebrow}>{t('CURRENT TRIP')}</Text>
         <View style={styles.heroBadge}>
           <Text style={styles.heroBadgeText}>{trip.status.replace(/_/g, ' ')}</Text>
         </View>
@@ -415,9 +418,9 @@ function CurrentTripCard({ trip }: { trip: CurrentTrip }) {
           <View style={styles.railDotEnd} />
         </View>
         <View style={styles.corridorText}>
-          <Text style={styles.corridorLabel}>PICKUP</Text>
+          <Text style={styles.corridorLabel}>{t('PICKUP')}</Text>
           <Text style={styles.corridorPlace} numberOfLines={2}>{from}</Text>
-          <Text style={[styles.corridorLabel, styles.corridorLabelGap]}>DESTINATION</Text>
+          <Text style={[styles.corridorLabel, styles.corridorLabelGap]}>{t('DESTINATION')}</Text>
           <Text style={styles.corridorPlace} numberOfLines={2}>{to}</Text>
         </View>
       </View>
@@ -434,6 +437,7 @@ function CurrentTripCard({ trip }: { trip: CurrentTrip }) {
  *  nothing when the server has no assessment - silence reads as "fine". */
 function RouteSummary({ trip }: { trip: CurrentTrip }) {
   const styles = useStyles()
+  const t = useT()
   const { risk, state } = useRouteRisk(trip.selected_route_id, trip.id)
   if (trip.selected_route_id === null) return null
   const ai = routeAiCard(risk, null, resolveLanguage())
@@ -449,7 +453,7 @@ function RouteSummary({ trip }: { trip: CurrentTrip }) {
       ].filter(Boolean).join(' · ')
   return (
     <View style={styles.routeSummary} testID="trip-route-summary">
-      <Text style={styles.metricLabel}>ROUTE</Text>
+      <Text style={styles.metricLabel}>{t('ROUTE')}</Text>
       <Text style={styles.routeSummaryText} numberOfLines={3}>{text}</Text>
     </View>
   )
@@ -474,6 +478,7 @@ function NoTrip({ isStale, loadedAt, onOpenMap, onCheckTruck, onReload }: {
   onReload: () => void
 }) {
   const styles = useStyles()
+  const t = useT()
   const { driver } = useAuth()
   // Ticks every few seconds so "Last sync" AGES between polls - and keeps
   // ageing when the poll is failing, which is exactly when it matters.
@@ -488,34 +493,34 @@ function NoTrip({ isStale, loadedAt, onOpenMap, onCheckTruck, onReload }: {
   return (
     <ScrollView style={styles.sheet} contentContainerStyle={styles.sheetContent}>
       <View style={styles.empty}>
-        <Text style={styles.emptyTitle}>No active trip</Text>
+        <Text style={styles.emptyTitle}>{t('No active trip')}</Text>
         <Text style={styles.emptyBody}>
-          You are available for assignment. Your next assigned trip will appear here automatically.
+          {t('You are available for assignment. Your next assigned trip will appear here automatically.')}
         </Text>
         <View style={styles.emptyAction}>
-          <Button label="Open map" onPress={onOpenMap} />
+          <Button label={t('Open map')} onPress={onOpenMap} />
         </View>
         <View style={styles.emptyAction}>
-          <Button label="Check again" variant="secondary" onPress={onReload} />
+          <Button label={t('Check again')} variant="secondary" onPress={onReload} />
         </View>
       </View>
-      <Section title="You" summary={driver?.full_name ?? 'Signed in'} initiallyOpen>
+      <Section title={t('You')} summary={driver?.full_name ?? 'Signed in'} initiallyOpen>
         <View style={styles.card}>
-        <Row label="Driver" value={driver?.full_name ?? 'Signed in'} />
+        <Row label={t('Driver')} value={driver?.full_name ?? 'Signed in'} />
         <Row
-          label="Truck"
-          value={assignment === undefined ? 'Checking…' : assignment === null ? 'No truck assigned' : `${assignment.truck.registration_number} · ${assignment.verified_at ? 'verified' : 'not verified'}`}
+          label={t('Truck')}
+          value={assignment === undefined ? '…' : assignment === null ? t('No truck assigned') : `${assignment.truck.registration_number} · ${assignment.verified_at ? t('verified') : t('not verified')}`}
         />
-        <Row label="Connection" value={isStale ? 'Reconnecting — showing last sync' : 'Connected'} />
-        <Row label="Last sync" value={loadedAt ? ageLabel(clock.now - loadedAt) : 'never'} />
+        <Row label={t('Connection')} value={isStale ? t('Reconnecting — showing last sync') : t('Connected')} />
+        <Row label={t('Last sync')} value={loadedAt ? ageLabel(clock.now - loadedAt) : 'never'} />
         {assignment && !assignment.verified_at && onCheckTruck ? (
           <View style={styles.emptyAction}>
-            <Button label="Check the truck" variant="secondary" onPress={onCheckTruck} />
+            <Button label={t('Check the truck')} variant="secondary" onPress={onCheckTruck} />
           </View>
         ) : null}
         </View>
       </Section>
-      <Section title="Emergency numbers" summary="Tap to open the dialler" initiallyOpen>
+      <Section title={t('Emergency numbers')} summary={t('Tap to open the dialler')} initiallyOpen>
         <View style={styles.card}>
         {numbers.map((n) => (
           <Pressable key={n.number} onPress={() => { void Linking.openURL(`tel:${n.number}`).catch(() => {}) }} accessibilityRole="button" accessibilityLabel={`Call ${n.number}, ${n.label}`}>
@@ -538,6 +543,7 @@ export default function TripScreen({
 }) {
   const styles = useStyles()
   const { colors: COLORS } = useTheme()
+  const t = useT()
   // Trip state and the GPS tracker live in TripProvider, ABOVE the tab
   // navigation - see DRV-002 documented there. This screen is now a view of
   // them, which is why it is safe to unmount when the driver opens another
@@ -681,7 +687,7 @@ export default function TripScreen({
     return (
       <View style={styles.centrePadded}>
         <Banner {...errorMessage(loadError)} tone="bad" />
-        <Button label="Try again" onPress={() => void load()} />
+        <Button label={t('Try again')} onPress={() => void load()} />
       </View>
     )
   }
@@ -733,7 +739,7 @@ export default function TripScreen({
         {isStale ? (
           <Banner
             tone="warn"
-            title="Not up to date"
+            title={t('Not up to date')}
             detail="Could not reach the server on the last check. This is the last information received — pull down to try again."
           />
         ) : null}
@@ -741,7 +747,7 @@ export default function TripScreen({
         {trip.status === 'DELIVERED' ? (
           <Banner
             tone="ok"
-            title="Trip complete"
+            title={t('Trip complete')}
             detail="Your manager can see the delivery. Location sharing has stopped."
           />
         ) : null}
@@ -758,7 +764,7 @@ export default function TripScreen({
             accept the job they are already driving. */}
         {!isAccepted ? (
           <View style={styles.request}>
-            <Text style={styles.requestTitle}>New trip request</Text>
+            <Text style={styles.requestTitle}>{t('New trip request')}</Text>
             <Text style={styles.requestBody}>
               {trip.stops.length > 0
                 ? `${trip.stops[0].name ?? trip.stops[0].kind} → ${
@@ -772,20 +778,20 @@ export default function TripScreen({
               the trip or share your location.
             </Text>
             <Button
-              label={isAccepting ? 'Accepting…' : 'Accept trip'}
+              label={isAccepting ? '…' : t('Accept trip')}
               busy={isAccepting}
               onPress={() => void onAccept()}
             />
           </View>
         ) : (
           <View style={styles.request}>
-            <Text style={styles.requestTitle}>Accepted</Text>
+            <Text style={styles.requestTitle}>{t('Accepted')}</Text>
             <Text style={styles.requestBody}>
               {acceptedAt !== null
                 ? `You accepted this trip ${relativeTime(acceptedAt)}.`
                 : 'This trip is already running.'}
             </Text>
-            <Button label="Resume navigation" onPress={onOpenMap} />
+            <Button label={t('Resume navigation')} onPress={onOpenMap} />
           </View>
         )}
 
@@ -798,17 +804,17 @@ export default function TripScreen({
             {!trip.can_start && trip.start_blocked_reason ? (
               <Banner
                 tone="warn"
-                title="Cannot start yet"
+                title={t('Cannot start yet')}
                 detail={trip.start_blocked_reason}
               />
             ) : null}
             {/* The gate names the check; the button opens it. Without this the
                 check screen existed but nothing on the phone led to it. */}
             {!trip.can_start && trip.start_blocked_code === 'ASSIGNMENT_NOT_VERIFIED' && onCheckTruck ? (
-              <Button label="Check the truck" variant="secondary" onPress={onCheckTruck} />
+              <Button label={t('Check the truck')} variant="secondary" onPress={onCheckTruck} />
             ) : null}
             <Button
-              label={isBusy ? 'Starting…' : 'Start trip'}
+              label={isBusy ? '…' : t('Start trip')}
               busy={isBusy}
               disabled={!trip.can_start || isAccepting}
               onPress={() => void act(() => api.startTrip(trip.id))}
@@ -834,7 +840,7 @@ export default function TripScreen({
 
         {inProgress && !nextStop ? (
           <Button
-            label={isBusy ? 'Completing…' : 'Complete trip'}
+            label={isBusy ? '…' : t('Complete trip')}
             busy={isBusy}
             onPress={() => void act(() => api.completeTrip(trip.id))}
           />

@@ -4,10 +4,12 @@ import { createRoot, type Root } from 'react-dom/client'
 import { beforeEach, afterEach, it, expect, vi } from 'vitest'
 import type { CurrentTrip } from '../api/client'
 
-const mocked = vi.hoisted(() => ({ myTrip: vi.fn(), tracking: vi.fn() }))
+const mocked = vi.hoisted(() => ({ myTrip: vi.fn(), tracking: vi.fn(), notify: vi.fn<(key: string, title: string, body: string) => Promise<boolean>>(async () => false) }))
 vi.mock('../api/client', () => ({ api: { myTrip: mocked.myTrip } }))
 vi.mock('../components/ui', () => ({ errorMessage: () => ({ title: 'Failed', detail: 'Retry' }) }))
 vi.mock('../tracking/useLocationTracking', () => ({ useLocationTracking: mocked.tracking }))
+vi.mock('../notify/local', () => ({ notifyInBackground: mocked.notify }))
+vi.mock('react-native', () => ({ AppState: { currentState: 'active', addEventListener: () => ({ remove: () => {} }) } }))
 import { TripProvider, useTrip, type TripContextValue, TRIP_POLL_MS } from './TripProvider'
 
 const trip = (status: string) => ({ id: 'trip-a', status, tracking_expected: status === 'ACTIVE', tracking: {} }) as CurrentTrip
@@ -62,4 +64,18 @@ it('an older failed poll cannot label a newer successful action stale', async ()
   await act(async () => pending.reject(new Error('Old timeout')))
   expect(value.isStale).toBe(false)
   expect(value.trip?.status).toBe('ACTIVE')
+})
+
+it('asks for a background notification once when a trip is assigned, and once when its road changes', async () => {
+  mocked.notify.mockClear()
+  const assigned = { id: 'trip-n', trip_code: 'JUDGE-1', status: 'ASSIGNED', selected_route_id: 'r1', tracking_expected: false } as unknown as CurrentTrip
+  mocked.myTrip.mockResolvedValueOnce(null).mockResolvedValueOnce(assigned).mockResolvedValueOnce(assigned).mockResolvedValueOnce({ ...assigned, selected_route_id: 'r2' })
+  const host = document.createElement('div')
+  const root = createRoot(host)
+  await act(async () => root.render(createElement(TripProvider, null, createElement(() => null))))
+  for (let i = 0; i < 3; i += 1) await act(async () => { await vi.advanceTimersByTimeAsync(TRIP_POLL_MS) })
+  // Keys, not counts: the notifier itself dedupes a repeated key (notify/local.test.ts).
+  const keys = [...new Set(mocked.notify.mock.calls.map((c) => c[0]))].filter((k) => k.includes('trip-n') || k.includes('r2'))
+  expect(keys).toEqual(['trip-assigned:trip-n', 'reroute:r2'])
+  await act(async () => root.unmount())
 })

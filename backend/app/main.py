@@ -13,6 +13,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.ai import router as ai_router
+from app.api.files import router as files_router
+from app.api.documents import router as documents_router
 from app.api.auth import router as auth_router
 from app.api.driver import router as driver_router
 from app.api.emergencies import router as emergencies_router
@@ -143,6 +145,8 @@ def create_app() -> FastAPI:
     app.include_router(emergencies_router)
     app.include_router(geocoding_router)
     app.include_router(ai_router)
+    app.include_router(files_router)
+    app.include_router(documents_router)
     return app
 
 

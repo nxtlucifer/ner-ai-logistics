@@ -224,6 +224,12 @@ async def verify_current_assignment(
     assignment.reported_damage_notes = payload.reported_damage_notes
     assignment.verified_at = datetime.now(UTC)
     assignment.mismatch_flagged = mismatch
+    # Who verified, honestly: with a photo from the phone or by plate alone.
+    # The app requires the photo before it offers the button; the API records
+    # what actually arrived rather than assuming.
+    assignment.verification_source = (
+        "DRIVER_APP_PHOTO" if assignment.verification_photo_url else "DRIVER_APP"
+    )
     # A mismatch routes to manager review; it never blocks the driver.
     assignment.status = (
         AssignmentStatus.PENDING_VERIFICATION if mismatch else AssignmentStatus.ACTIVE

@@ -17,12 +17,15 @@ const ThemeContext = createContext<{
   toggle: () => void
 }>({ mode: 'night', colors: NIGHT, toggle: () => {} })
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
+export function ThemeProvider({ children, fixed }: { children: ReactNode; fixed?: ThemeMode }) {
   const system = useColorScheme()
   // System appearance is the INITIAL preference only; the manual toggle wins
   // afterwards. Persistence is deliberately not added here - it would mean a
   // storage dependency in the render path for a one-tap preference.
-  const [mode, setMode] = useState<ThemeMode>(system === 'light' ? 'day' : 'night')
+  const [chosen, setMode] = useState<ThemeMode>(system === 'light' ? 'day' : 'night')
+  // `fixed` pins a subtree: the login page is always DAY, whatever the phone
+  // or the previous session chose, so the brand reads the same on every device.
+  const mode = fixed ?? chosen
   const value = useMemo(
     () => ({
       mode,

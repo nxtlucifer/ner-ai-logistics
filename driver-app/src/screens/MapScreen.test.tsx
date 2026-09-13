@@ -55,6 +55,7 @@ vi.mock('../map/useRouteGeometry', () => ({ useRouteGeometry: () => ({
 }) }))
 vi.mock('../map/useNavigationPackage', () => ({ useNavigationPackage: () => ({ available: false, maneuvers: [], reasonCodes: [] }) }))
 vi.mock('../tracking/adapter', () => ({ watchCompass: () => () => {} }))
+vi.mock('../notify/local', () => ({ notifyInBackground: async () => false }))
 vi.mock('../tracking/useBrowsePosition', () => ({ useBrowsePosition: () => state.browse }))
 vi.mock('../map/useGuidanceClock', () => ({ useGuidanceClock: () => state.clock }))
 vi.mock('../map/useSpokenGuidance', () => ({ useSpokenGuidance: () => ({ available: false }) }))

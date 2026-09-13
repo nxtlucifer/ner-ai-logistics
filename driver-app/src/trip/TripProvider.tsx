@@ -67,8 +67,10 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { AppState } from 'react-native'
 
 import { api, type CurrentTrip } from '../api/client'
+import { notifyInBackground } from '../notify/local'
 import { errorMessage } from '../components/ui'
 import { useLocationTracking } from '../tracking/useLocationTracking'
 
@@ -143,6 +145,7 @@ export function TripProvider({ children }: { children: ReactNode }) {
   const writeSeq = useRef(0)
   const mutationInFlight = useRef(false)
   const hasLoaded = useRef(false)
+  const lastSeen = useRef<CurrentTrip | null>(null)
 
   const load = useCallback(async () => {
     const version = ++writeSeq.current
@@ -192,6 +195,16 @@ export function TripProvider({ children }: { children: ReactNode }) {
         // so ours is dropped rather than applied on top of it.
         if (cancelled || writeSeq.current !== seenAt) return
         writeSeq.current += 1
+        // BACKGROUND ALERTS from the same poll, never a second one. Only the
+        // two transitions a driver must not miss while the phone is in a
+        // pocket; the route-danger card has its own key on the map screen.
+        const before = lastSeen.current
+        if (fresh && (!before || before.id !== fresh.id) && fresh.status === 'ASSIGNED') {
+          void notifyInBackground(`trip-assigned:${fresh.id}`, 'New trip assigned', `${fresh.trip_code} - open RASTA to accept.`)
+        } else if (fresh && before && before.id === fresh.id && before.selected_route_id && fresh.selected_route_id && before.selected_route_id !== fresh.selected_route_id) {
+          void notifyInBackground(`reroute:${fresh.selected_route_id}`, 'Reroute approved', 'Your manager approved a new road. Open Navigate to follow it.')
+        }
+        lastSeen.current = fresh
         setTrip(fresh)
         setLoadedAt(Date.now())
         setIsStale(false)
@@ -205,10 +218,19 @@ export function TripProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    const timer = setInterval(() => void tick(), TRIP_POLL_MS)
+    // BATTERY-AWARE: the same poll runs three times slower while the app is
+    // in the background. Alerts still arrive (within 30 s); the radio is not
+    // woken every ten seconds for a screen nobody is looking at.
+    let timer = setInterval(() => void tick(), TRIP_POLL_MS)
+    const sub = AppState.addEventListener('change', (state) => {
+      clearInterval(timer)
+      timer = setInterval(() => void tick(), state === 'active' ? TRIP_POLL_MS : TRIP_POLL_MS * 3)
+      if (state === 'active') void tick()
+    })
     return () => {
       cancelled = true
       clearInterval(timer)
+      sub.remove()
     }
   }, [])
 

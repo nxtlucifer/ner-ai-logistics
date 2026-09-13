@@ -14,6 +14,7 @@
 import { useState } from 'react'
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 
+import { useT } from '../i18n/tx'
 import { useAuth } from '../auth/AuthProvider'
 import { useAppLanguage } from '../i18n/AppLanguageProvider'
 import { APP_LANGUAGES } from '../i18n/appLanguage'
@@ -22,12 +23,15 @@ import { makeStyles, useTheme } from '../theme-context'
 
 export default function MoreScreen({
   onOpenAssistant,
+  onOpenDetails,
 }: {
   onOpenAssistant: () => void
+  onOpenDetails: () => void
 }) {
   const styles = useStyles()
   const { colors: COLORS, mode, toggle } = useTheme()
   const { language, setLanguage, t } = useAppLanguage()
+  const tx = useT()
   const { logout } = useAuth()
   const [langOpen, setLangOpen] = useState(false)
 
@@ -35,6 +39,15 @@ export default function MoreScreen({
 
   return (
     <ScrollView contentContainerStyle={styles.content}>
+      <Text style={styles.section}>{tx('You').toUpperCase()}</Text>
+      <Pressable style={styles.row} onPress={onOpenDetails} accessibilityRole="button" testID="more-my-details">
+        <View style={styles.rowText}>
+          <Text style={styles.rowTitle}>{tx('My details')}</Text>
+          <Text style={styles.rowSub}>{tx('Profile, documents and insurance')}</Text>
+        </View>
+        <Text style={styles.chevron}>›</Text>
+      </Pressable>
+
       <Text style={styles.section}>ASSISTANT</Text>
       <Pressable style={styles.row} onPress={onOpenAssistant} accessibilityRole="button">
         <View style={styles.rowText}>
@@ -52,7 +65,7 @@ export default function MoreScreen({
         accessibilityLabel={`Language: ${active?.label ?? 'English'}. Opens language chooser`}
       >
         <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>Language</Text>
+          <Text style={styles.rowTitle}>{tx('Language')}</Text>
           <Text style={styles.rowSub}>
             {active?.nativeLabel ?? 'English'} · changes the app's own labels
           </Text>
@@ -63,7 +76,7 @@ export default function MoreScreen({
       <Text style={styles.section}>APPEARANCE</Text>
       <Pressable style={styles.row} onPress={toggle} accessibilityRole="button">
         <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>Theme</Text>
+          <Text style={styles.rowTitle}>{tx('Theme')}</Text>
           <Text style={styles.rowSub}>
             {mode === 'day' ? 'Day — light surfaces' : 'Night — dark cab surfaces'}
           </Text>

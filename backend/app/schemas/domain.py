@@ -144,6 +144,8 @@ class TruckUpdate(APIModel):
 class TruckRead(ReadModel):
     id: uuid.UUID
     registration_number: str
+    #: `/api/files/{id}` (a DEMO_REFERENCE or TRUCK_PHOTO upload), or None.
+    photo_url: str | None = None
     truck_type: str | None
     make: str | None
     model: str | None
@@ -188,6 +190,12 @@ class AssignmentRead(ReadModel):
     verified_at: datetime | None
     mismatch_flagged: bool
     ended_at: datetime | None
+    #: DRIVER_APP_PHOTO | DRIVER_APP | MANAGER_MANUAL | None. Said plainly so a
+    #: manager can tell a photographed truck from a hand-entered plate.
+    verification_source: str | None = None
+    #: `/api/files/{id}` when a verification photo exists; read with auth.
+    verification_photo_url: str | None = None
+    reported_registration: str | None = None
 
 
 # --- Shipment -------------------------------------------------------------

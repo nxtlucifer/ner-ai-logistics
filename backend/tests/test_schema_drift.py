@@ -78,6 +78,7 @@ def test_every_enum_type_exists_with_expected_labels(db: Connection) -> None:
 ENUM_LABELS_ADDED_AFTER_0002: dict[str, dict[str, str]] = {
     "user_role": {"AUTHORISED_REVIEWER": "0007_route_review_authorizations"},
     "trip_event_kind": {"ACCEPTED": "0008_trip_driver_acceptance"},
+    "driver_document_type": {"GOVERNMENT_ID": "0011_files_verification"},
 }
 
 #: Enum TYPES created after 0002, and the revision that creates each.

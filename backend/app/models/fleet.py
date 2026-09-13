@@ -225,6 +225,8 @@ class DriverTruckAssignment(Base):
 
     # Driver-submitted verification of the physical truck.
     verification_photo_url: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    #: DRIVER_APP_PHOTO | DRIVER_APP | MANAGER_MANUAL. Who verified, honestly.
+    verification_source: Mapped[str | None] = mapped_column(sa.String(32), nullable=True)
     reported_registration: Mapped[str | None] = mapped_column(
         sa.String(20), nullable=True
     )

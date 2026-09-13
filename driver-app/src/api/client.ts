@@ -117,6 +117,11 @@ export function setAccessToken(token: string | null): void {
   accessToken = token
 }
 
+/** Headers for an <Image> that points at a private `/api/files/...` URL. */
+export function authHeaders(): Record<string, string> {
+  return accessToken ? { Authorization: `Bearer ${accessToken}` } : {}
+}
+
 export function setUnauthenticatedHandler(handler: (() => void) | null): void {
   onUnauthenticated = handler
 }
@@ -137,6 +142,8 @@ export const REQUEST_TIMEOUT_MS = 15_000
 interface RequestOptions {
   method?: string
   body?: unknown
+  /** Raw bytes (a photo, a PDF) with their own content type: sent as-is, not JSON. */
+  raw?: { blob: Blob; contentType: string }
   skipRefresh?: boolean
   /** Override for a request that is legitimately slower. */
   timeoutMs?: number
@@ -154,6 +161,7 @@ interface RequestOptions {
 async function rawRequest(path: string, options: RequestOptions): Promise<Response> {
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (options.body !== undefined) headers['Content-Type'] = 'application/json'
+  if (options.raw) headers['Content-Type'] = options.raw.contentType
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`
 
   const controller = new AbortController()
@@ -175,7 +183,7 @@ async function rawRequest(path: string, options: RequestOptions): Promise<Respon
     return await fetch(`${API_BASE_URL}${path}`, {
       method: options.method ?? 'GET',
       headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body: options.raw ? options.raw.blob : options.body === undefined ? undefined : JSON.stringify(options.body),
       signal: controller.signal,
       // Deliberately NOT 'include'.
       //
@@ -332,7 +340,55 @@ export interface CurrentAssignment {
   assigned_at: string
   verified_at: string | null
   mismatch_flagged: boolean
+  /** `/api/files/{id}` once a truck photo is on the assignment. */
+  verification_photo_url?: string | null
+  verification_source?: string | null
   truck: TruckSummary
+}
+
+export type FileKind = 'PROFILE_PHOTO' | 'TRUCK_VERIFICATION' | 'DRIVER_DOCUMENT' | 'TRUCK_DOCUMENT'
+
+export interface StoredFileRead {
+  id: string
+  url: string
+  content_type: string
+  size_bytes: number
+}
+
+export interface DocumentRead {
+  id: string
+  doc_type: string
+  /** Last four characters only; the full number never reaches the phone. */
+  number_masked: string | null
+  issued_on: string | null
+  expires_on: string | null
+  /** VALID | EXPIRING_SOON | EXPIRED | MISSING (no file) - derived from dates, never a government check. */
+  status: string
+  file_url: string | null
+  created_at: string
+}
+
+export interface DocumentCreate {
+  doc_type: string
+  doc_number?: string
+  issued_on?: string
+  expires_on?: string
+  file_id?: string
+}
+
+export interface DriverProfile {
+  id: string
+  full_name: string
+  phone: string
+  photo_url: string | null
+  emergency_contact_name: string | null
+  emergency_contact_phone: string | null
+  licence_expiry: string
+  truck_registration: string | null
+  truck_photo_url: string | null
+  truck_verified: boolean
+  documents: DocumentRead[]
+  insurance: DocumentRead[]
 }
 
 export interface VerifyResult {
@@ -1031,6 +1087,22 @@ const restApi = {
 
   me: () => request<DriverMe>('/api/driver/me'),
   myAssignment: () => request<CurrentAssignment | null>('/api/driver/me/assignment'),
+
+  /** My details: profile, assigned truck, masked documents and insurance. */
+  myProfile: () => request<DriverProfile>('/api/driver/me/profile'),
+  myDocuments: () => request<DocumentRead[]>('/api/driver/me/documents'),
+  addDocument: (body: DocumentCreate) => request<DocumentRead>('/api/driver/me/documents', { method: 'POST', body }),
+  addTruckDocument: (body: DocumentCreate) => request<DocumentRead>('/api/driver/me/truck-documents', { method: 'POST', body }),
+  /**
+   * Upload one private file as raw bytes. The server sniffs the type (JPEG,
+   * PNG, PDF only), caps it at 5 MB and, by `kind`, attaches it: a profile
+   * photo to me, a truck photo to my current assignment. 60 s: a photo on a
+   * hill-road connection.
+   */
+  uploadFile: async (uri: string, kind: FileKind, contentType: string) => {
+    const blob = await (await fetch(uri)).blob()
+    return request<StoredFileRead>(`/api/files?kind=${kind}`, { method: 'POST', raw: { blob, contentType }, timeoutMs: 60_000 })
+  },
   verifyAssignment: (payload: VerifyPayload) =>
     request<VerifyResult>('/api/driver/me/assignment/verify', {
       method: 'POST',

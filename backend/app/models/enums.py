@@ -59,6 +59,9 @@ class DocumentStatus(_StrEnum):
 
 class DriverDocumentType(_StrEnum):
     DRIVING_LICENCE = "DRIVING_LICENCE"
+    #: Any government-issued identity document, stored as a masked number and a
+    #: file. Deliberately generic: no Aadhaar-specific workflow exists here.
+    GOVERNMENT_ID = "GOVERNMENT_ID"
     AADHAAR = "AADHAAR"
     PAN = "PAN"
     POLICE_VERIFICATION = "POLICE_VERIFICATION"

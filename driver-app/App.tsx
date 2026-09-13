@@ -33,6 +33,7 @@ import { APP_LANGUAGES, type TranslationKey } from './src/i18n/appLanguage'
 import AssistantScreen from './src/screens/AssistantScreen'
 import AssignmentScreen from './src/screens/AssignmentScreen'
 import MoreScreen from './src/screens/MoreScreen'
+import MyDetailsScreen from './src/screens/MyDetailsScreen'
 import LoginScreen from './src/screens/LoginScreen'
 import MapScreen from './src/screens/MapScreen'
 import SafetyScreen from './src/screens/SafetyScreen'
@@ -98,6 +99,7 @@ function SignedShell() {
   const [tab, setTab] = useState<Tab>('trip')
   const [showLangModal, setShowLangModal] = useState(false)
   const [showAssistant, setShowAssistant] = useState(false)
+  const [showDetails, setShowDetails] = useState(false)
   const [showAssignment, setShowAssignment] = useState(false)
 
   return (
@@ -217,8 +219,11 @@ function SignedShell() {
             <AssignmentScreen onBack={() => setShowAssignment(false)} />
           ) : null}
           {tab === 'safety' ? <SafetyScreen /> : null}
-          {tab === 'more' && !showAssistant ? (
-            <MoreScreen onOpenAssistant={() => setShowAssistant(true)} />
+          {tab === 'more' && !showAssistant && showDetails ? (
+            <MyDetailsScreen onBack={() => setShowDetails(false)} />
+          ) : null}
+          {tab === 'more' && !showAssistant && !showDetails ? (
+            <MoreScreen onOpenAssistant={() => setShowAssistant(true)} onOpenDetails={() => setShowDetails(true)} />
           ) : null}
           {tab === 'more' && showAssistant ? (
             // The assistant's own hand-offs land on real tabs. Without these
@@ -299,7 +304,20 @@ function Gate() {
   return driver ? (
     <Signed />
   ) : (
+    // LOGIN IS ALWAYS DAY. Pinned here, not in the screen, so every styled
+    // child (inputs, banners, the language chooser) follows without knowing.
+    <ThemeProvider fixed="day">
+      <LoginSurface />
+    </ThemeProvider>
+  )
+}
+
+/** The login page on its own day-mode surface, with the status bar to match. */
+function LoginSurface() {
+  const styles = useStyles()
+  return (
     <SafeAreaView style={styles.flex}>
+      <StatusBar style="dark" />
       <LoginScreen />
     </SafeAreaView>
   )

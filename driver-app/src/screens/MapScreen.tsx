@@ -56,6 +56,7 @@ import { useBrowsePosition } from '../tracking/useBrowsePosition'
 import { locationChip } from '../map/locationLabel'
 import { HILLSHADE_URL } from '../map/scene'
 import { dangerAlert } from '../navigation/alerts'
+import { notifyInBackground } from '../notify/local'
 import { useSpokenGuidance } from '../map/useSpokenGuidance'
 import { useGuidanceClock } from '../map/useGuidanceClock'
 import type { PositionKind } from '../map/types'
@@ -973,6 +974,13 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
   const ai = routeAiCard(risk, guidanceHasPosition ? travelledM : null, language)
   const alert = dangerAlert(risk, selectedRouteId, geometry.points, guidanceHasPosition ? travelledM : null)
   const shownAlert = alert && !acknowledged.has(alert.key) ? alert : null
+  // The same card, as a notification when the phone is in a pocket. Same
+  // key as the card, so a poll cannot repeat it; same wording, so it never
+  // says more than the evidence does.
+  useEffect(() => {
+    if (!shownAlert) return
+    void notifyInBackground(`danger:${shownAlert.key}`, `${shownAlert.title} · ${shownAlert.level}`, shownAlert.detail)
+  }, [shownAlert?.key])  // eslint-disable-line react-hooks/exhaustive-deps
   const holdDecision = risk?.decision === 'HOLD_AND_REVIEW' || risk?.decision === 'REROUTE_RECOMMENDED'
   const findStop = () => {
     setIsSheetExpanded(true)
