@@ -76,6 +76,7 @@ class TestPendingVerificationCountsAsCurrent:
 
         # A mismatch flags for review and leaves the driver holding truck A.
         drv = await auth_headers(api, user.phone, factories.TEST_PASSWORD)
+        await api.post("/api/files?kind=TRUCK_VERIFICATION", headers=drv, content=factories.PNG)
         verified = await api.post(
             "/api/driver/me/assignment/verify",
             headers=drv,
@@ -108,6 +109,7 @@ class TestPendingVerificationCountsAsCurrent:
 
         await api.post("/api/assignments", headers=manager_headers, json=body)
         drv = await auth_headers(api, user.phone, factories.TEST_PASSWORD)
+        await api.post("/api/files?kind=TRUCK_VERIFICATION", headers=drv, content=factories.PNG)
         await api.post(
             "/api/driver/me/assignment/verify",
             headers=drv,
@@ -135,6 +137,7 @@ class TestPendingVerificationCountsAsCurrent:
             json={"driver_id": str(driver_a.id), "truck_id": str(truck.id)},
         )
         drv = await auth_headers(api, user_a.phone, factories.TEST_PASSWORD)
+        await api.post("/api/files?kind=TRUCK_VERIFICATION", headers=drv, content=factories.PNG)
         await api.post(
             "/api/driver/me/assignment/verify",
             headers=drv,
@@ -337,6 +340,7 @@ class TestP5SafetyConsequence:
             json={"driver_id": str(driver.id), "truck_id": str(truck_a.id)},
         )
         drv = await auth_headers(api, user.phone, factories.TEST_PASSWORD)
+        await api.post("/api/files?kind=TRUCK_VERIFICATION", headers=drv, content=factories.PNG)
         await api.post(
             "/api/driver/me/assignment/verify",
             headers=drv,

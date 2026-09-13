@@ -25,7 +25,7 @@ pytestmark = pytest.mark.requires_db
 
 
 async def _assign(
-    session: AsyncSession, driver, truck, status=AssignmentStatus.ACTIVE
+    session: AsyncSession, driver, truck, status=AssignmentStatus.ACTIVE, *, photo=True
 ) -> DriverTruckAssignment:
     assignment = DriverTruckAssignment(
         driver_id=driver.id, truck_id=truck.id, status=status
@@ -33,6 +33,10 @@ async def _assign(
     session.add(assignment)
     await session.commit()
     await session.refresh(assignment)
+    # Verification needs the truck photo on the assignment; these tests are
+    # about everything else, so the photo is there unless a test says not.
+    if photo:
+        await factories.attach_verification_photo(session, driver, assignment)
     return assignment
 
 

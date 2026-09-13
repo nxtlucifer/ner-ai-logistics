@@ -740,10 +740,11 @@ the off-route/reroute steps real; the proposal is a 2,449 km road, and it loads.
   Choose image (uploaded as TRUCK_VERIFICATION, attached to the current
   assignment) -> plate -> Confirm. The Confirm button is disabled until a
   photo is on the assignment. The record carries `verification_source` =
-  DRIVER_APP_PHOTO / DRIVER_APP / MANAGER_MANUAL and the photo url. The
-  backend still accepts a plate-only verification from the API and labels it
-  DRIVER_APP - the gate is in the app; a hard server requirement would need
-  the test-suite's verifications to upload photos first. `demo.py reset` now
+  DRIVER_APP_PHOTO / MANAGER_MANUAL and the photo url. SERVER-ENFORCED since
+  the two-gate patch: a driver verification without a photo on THIS assignment
+  is 422 VERIFICATION_PHOTO_REQUIRED, without a plate 422 REGISTRATION_REQUIRED
+  (tests/test_files_documents.py::TestVerificationInvariant; DRIVER_APP is only
+  ever read on rows verified before the patch). `demo.py reset` now
   ENDS the previous assignment and creates a fresh PENDING_VERIFICATION one,
   so every rehearsal creates new evidence. No OCR: the plate is typed.
 - **No smartphone:** Assignments page -> "Verify by hand (driver has no

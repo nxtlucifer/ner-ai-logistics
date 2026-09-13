@@ -42,6 +42,7 @@ from app.models.enums import (
     TruckStatus,
     UserRole,
 )
+from app.models.files import StoredFile
 from app.models.fleet import DriverTruckAssignment, Truck
 from app.models.identity import Driver, User
 from app.models.operations import CargoItem, Shipment, Trip, TripStop
@@ -290,6 +291,28 @@ async def make_assignment(
     await db.commit()
     await db.refresh(assignment)
     return assignment
+
+
+#: Smallest bytes the files API sniffs as PNG.
+PNG = bytes([0x89]) + b"PNG" + bytes([13, 10, 26, 10]) + bytes(64)
+
+
+async def attach_verification_photo(
+    db: AsyncSession, driver: Driver, assignment: DriverTruckAssignment
+) -> str:
+    """A stored TRUCK_VERIFICATION photo bound to `assignment`, exactly as
+    `POST /api/files?kind=TRUCK_VERIFICATION` leaves it. Driver verification
+    refuses without one (VERIFICATION_PHOTO_REQUIRED)."""
+    stored = StoredFile(
+        owner_driver_id=driver.id, kind="TRUCK_VERIFICATION",
+        content_type="image/png", size_bytes=len(PNG), data=PNG,
+    )
+    db.add(stored)
+    await db.flush()
+    assignment.verification_photo_url = f"/api/files/{stored.id}"
+    await db.commit()
+    await db.refresh(assignment)
+    return assignment.verification_photo_url
 
 
 async def make_shipment(

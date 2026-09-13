@@ -12,6 +12,8 @@ VERIFICATION SEMANTICS, stated explicitly
 | First verification, registration differs | 200, PENDING_VERIFICATION, mismatch_flagged - the driver is never blocked |
 | Repeat with the SAME readings | 200, idempotent, returns the existing record unchanged |
 | Repeat with DIFFERENT readings | 409 ALREADY_VERIFIED - a correction is a manager review, not a silent overwrite |
+| No truck photo attached to THIS assignment | 422 VERIFICATION_PHOTO_REQUIRED - the app hides the button; the API refuses the same way |
+| No registration submitted | 422 REGISTRATION_REQUIRED |
 | Assignment has ended | 404 - an ended assignment is not "current", so there is nothing to verify |
 | Assignment superseded by a newer one | 409 ASSIGNMENT_SUPERSEDED |
 | Truck retired or broken down | 409 TRUCK_NOT_OPERATIONAL |
@@ -37,7 +39,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import ConflictError, NotFoundError
+from app.core.errors import BusinessRuleError, ConflictError, NotFoundError
 from app.models.enums import AssignmentStatus, AuditAction, TruckStatus
 from app.models.fleet import DriverTruckAssignment, Truck
 from app.models.identity import Driver, User
@@ -211,25 +213,34 @@ async def verify_current_assignment(
             code="ALREADY_VERIFIED",
         )
 
+    # SERVER-SIDE INVARIANT, not only an app gate: a driver verification is a
+    # photo of the truck attached to this very assignment plus the plate read
+    # off it. A direct API call without either is refused; a driver with no
+    # smartphone goes through the manager's verify-manual (plate, no photo).
+    if not assignment.verification_photo_url:
+        raise BusinessRuleError(
+            "Take a photo of the truck before you verify.",
+            code="VERIFICATION_PHOTO_REQUIRED",
+        )
+    if not (payload.reported_registration or "").strip():
+        raise BusinessRuleError(
+            "Enter the registration on the truck.", code="REGISTRATION_REQUIRED"
+        )
+
     before = audit.snapshot(assignment, AUDITED_FIELDS)
 
-    mismatch = False
-    if payload.reported_registration:
-        reported = normalise_registration(payload.reported_registration)
-        mismatch = reported != truck.registration_number
-        assignment.reported_registration = reported
+    reported = normalise_registration(payload.reported_registration)
+    mismatch = reported != truck.registration_number
+    assignment.reported_registration = reported
 
     assignment.reported_odometer_km = quantise_odometer(payload.reported_odometer_km)
     assignment.reported_fuel_level_pct = payload.reported_fuel_level_pct
     assignment.reported_damage_notes = payload.reported_damage_notes
     assignment.verified_at = datetime.now(UTC)
     assignment.mismatch_flagged = mismatch
-    # Who verified, honestly: with a photo from the phone or by plate alone.
-    # The app requires the photo before it offers the button; the API records
-    # what actually arrived rather than assuming.
-    assignment.verification_source = (
-        "DRIVER_APP_PHOTO" if assignment.verification_photo_url else "DRIVER_APP"
-    )
+    # Photo + plate is the only driver path left (checked above). DRIVER_APP
+    # remains readable on rows verified before this invariant existed.
+    assignment.verification_source = "DRIVER_APP_PHOTO"
     # A mismatch routes to manager review; it never blocks the driver.
     assignment.status = (
         AssignmentStatus.PENDING_VERIFICATION if mismatch else AssignmentStatus.ACTIVE

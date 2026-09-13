@@ -39,6 +39,7 @@ from sqlalchemy import text  # noqa: E402
 
 from app.core.security import hash_password  # noqa: E402
 from app.db import session as db_session  # noqa: E402
+PNG = bytes([0x89]) + b"PNG" + bytes([13, 10, 26, 10]) + bytes(64)  # verification photo the server now requires
 
 MARKER = "dspcert.invalid"
 TRIP_PREFIX = "DSPCERT-"
@@ -179,6 +180,7 @@ async def main(base_url: str) -> int:
 
                 # The P5 truck check comes first: a trip cannot start
                 # until the driver has verified the vehicle they are on.
+                await api.post("/api/files?kind=TRUCK_VERIFICATION", headers=drv, content=PNG)
                 r = await api.post(
                     "/api/driver/me/assignment/verify",
                     headers=drv,

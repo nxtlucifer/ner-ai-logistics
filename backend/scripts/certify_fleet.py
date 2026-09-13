@@ -58,6 +58,7 @@ configure_event_loop_policy()
 
 from app.core.security import hash_password  # noqa: E402
 from app.db import session as db_session  # noqa: E402
+PNG = bytes([0x89]) + b"PNG" + bytes([13, 10, 26, 10]) + bytes(64)  # verification photo the server now requires
 
 MARKER = "p5cert.invalid"
 TRIP_PREFIX = "P5CERT-"
@@ -156,6 +157,7 @@ async def main() -> int:
             r.text,
         )
 
+        await api.post("/api/files?kind=TRUCK_VERIFICATION", headers=drv, content=PNG)
         r = await api.post(
             "/api/driver/me/assignment/verify",
             headers=drv,
@@ -368,6 +370,7 @@ async def main() -> int:
             json={"driver_id": silent_driver_id, "truck_id": silent_truck_id},
         )
         silent = await login(silent_phone)
+        await api.post("/api/files?kind=TRUCK_VERIFICATION", headers=silent, content=PNG)
         await api.post(
             "/api/driver/me/assignment/verify",
             headers=silent,

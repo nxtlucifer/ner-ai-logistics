@@ -1108,6 +1108,8 @@ lay-by with no `hgv` tag is unknown, not permitted.
 | First verification, registration differs | 200, `PENDING_VERIFICATION`, `mismatch_flagged` — the driver is never blocked |
 | Repeat with the **same** readings | 200, idempotent, `already_verified: true` |
 | Repeat with **different** readings | 409 `ALREADY_VERIFIED` — a correction is a manager review, not a silent overwrite |
+| No truck photo on **this** assignment (`POST /api/files?kind=TRUCK_VERIFICATION`) | 422 `VERIFICATION_PHOTO_REQUIRED` — the app hides the button; the server refuses the same way. Drivers without a smartphone: manager `verify-manual` (plate, no photo) |
+| No `reported_registration` | 422 `REGISTRATION_REQUIRED` |
 | Assignment ended | 404 — an ended assignment is not *current*, so there is nothing to verify |
 | Assignment superseded (stale screen) | 409 `ASSIGNMENT_SUPERSEDED` |
 | Truck retired or broken down | 409 `TRUCK_NOT_OPERATIONAL` |

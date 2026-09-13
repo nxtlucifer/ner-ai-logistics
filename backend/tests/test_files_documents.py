@@ -124,3 +124,66 @@ class TestManualVerify:
         assert ok.json()["verification_photo_url"] is None  # no photo is pretended
         # A driver cannot use the manager path.
         assert (await api.post(f"/api/assignments/{assignment.id}/verify-manual", headers=headers, json={"reported_registration": truck.registration_number})).status_code == 403
+
+
+class TestVerificationInvariant:
+    """The server refuses what the app hides: no photo, no driver verification."""
+
+    async def test_driver_plate_without_photo_is_refused(self, api, session):
+        _, headers, truck, assignment = await _driver(api, session)
+        r = await api.post("/api/driver/me/assignment/verify", headers=headers, json={"reported_registration": truck.registration_number})
+        assert r.status_code == 422 and r.json()["error"]["code"] == "VERIFICATION_PHOTO_REQUIRED"
+        await session.refresh(assignment)
+        assert assignment.verified_at is None and assignment.verification_source is None
+
+    async def test_driver_photo_without_plate_is_refused(self, api, session):
+        _, headers, _, _ = await _driver(api, session)
+        assert (await api.post("/api/files?kind=TRUCK_VERIFICATION", headers=headers, content=PNG)).status_code == 201
+        r = await api.post("/api/driver/me/assignment/verify", headers=headers, json={"reported_registration": "  "})
+        assert r.status_code == 422 and r.json()["error"]["code"] == "REGISTRATION_REQUIRED"
+
+    async def test_driver_photo_and_correct_plate_pass(self, api, session):
+        _, headers, truck, assignment = await _driver(api, session)
+        up = await api.post("/api/files?kind=TRUCK_VERIFICATION", headers=headers, content=PNG)
+        r = await api.post("/api/driver/me/assignment/verify", headers=headers, json={"reported_registration": truck.registration_number})
+        assert r.status_code == 200, r.text
+        body = r.json()["assignment"]
+        assert body["status"] == "ACTIVE" and body["verification_source"] == "DRIVER_APP_PHOTO"
+        assert body["verification_photo_url"] == up.json()["url"]
+
+    async def test_manager_manual_plate_without_photo_passes(self, api, session, manager_headers):
+        _, _, truck, assignment = await _driver(api, session)
+        r = await api.post(f"/api/assignments/{assignment.id}/verify-manual", headers=manager_headers, json={"reported_registration": truck.registration_number})
+        assert r.status_code == 200 and r.json()["verification_source"] == "MANAGER_MANUAL" and r.json()["verification_photo_url"] is None
+
+    async def test_wrong_plate_is_refused_on_both_paths(self, api, session, manager_headers):
+        _, headers, truck, assignment = await _driver(api, session)
+        assert (await api.post("/api/files?kind=TRUCK_VERIFICATION", headers=headers, content=PNG)).status_code == 201
+        # Driver path: a mismatch never verifies the truck - it is flagged for review.
+        r = await api.post("/api/driver/me/assignment/verify", headers=headers, json={"reported_registration": "XX00XX0000"})
+        assert r.status_code == 200 and r.json()["assignment"]["status"] == "PENDING_VERIFICATION" and r.json()["assignment"]["mismatch_flagged"] is True
+        # Manager path: refused outright.
+        wrong = await api.post(f"/api/assignments/{assignment.id}/verify-manual", headers=manager_headers, json={"reported_registration": "XX00XX0000"})
+        assert wrong.status_code == 422 and wrong.json()["error"]["code"] == "REGISTRATION_MISMATCH"
+
+    async def test_photo_belongs_to_the_assignment_it_was_taken_for(self, api, session, manager_headers):
+        """A photo on an ended assignment does not verify the next truck."""
+        driver, headers, truck_a, first = await _driver(api, session)
+        up = await api.post("/api/files?kind=TRUCK_VERIFICATION", headers=headers, content=PNG)
+        assert (await api.post("/api/driver/me/assignment/verify", headers=headers, json={"reported_registration": truck_a.registration_number})).status_code == 200
+        await session.refresh(first)
+        assert first.truck_id == truck_a.id and first.verification_photo_url == up.json()["url"]
+        stored = await api.get(up.json()["url"], headers=headers)
+        assert stored.status_code == 200 and stored.content == PNG
+        # Manager moves the driver to truck B: the new assignment carries no photo.
+        truck_b = await factories.make_truck(session)
+        second = await api.post("/api/assignments", headers=manager_headers, json={"driver_id": str(driver.id), "truck_id": str(truck_b.id)})
+        assert second.status_code == 201 and second.json()["verification_photo_url"] is None
+        r = await api.post("/api/driver/me/assignment/verify", headers=headers, json={"reported_registration": truck_b.registration_number})
+        assert r.status_code == 422 and r.json()["error"]["code"] == "VERIFICATION_PHOTO_REQUIRED"
+        # A fresh photo binds to the NEW assignment, not the ended one.
+        up2 = await api.post("/api/files?kind=TRUCK_VERIFICATION", headers=headers, content=PNG)
+        r = await api.post("/api/driver/me/assignment/verify", headers=headers, json={"reported_registration": truck_b.registration_number})
+        assert r.status_code == 200 and r.json()["assignment"]["id"] == second.json()["id"] and r.json()["assignment"]["verification_photo_url"] == up2.json()["url"]
+        await session.refresh(first)
+        assert first.verification_photo_url == up.json()["url"]
