@@ -64,6 +64,9 @@ export const EMPTY_ENDPOINT: EndpointValue = {
 }
 
 /** Debounce. Long enough that a typist does not bill a request per keystroke. */
+/** A Google Maps host in the address box: full links, share links, ?q= links. */
+const MAPS_LINK = /^(https?:\/\/)?(([a-z0-9-]+\.)*google\.[a-z]{2,}(\.[a-z]{2,})?\/(maps\b|\?)|maps\.app\.goo\.gl\/|goo\.gl\/|g\.co\/)/i
+
 const DEBOUNCE_MS = 700 // a pause, not a keystroke: the open geocoder is not an autocomplete service
 
 /** Google's own minimum for this feature, and a cost floor. */
@@ -219,7 +222,7 @@ export default function AddressPicker({
     const id = issued.current
     if (query.length < MIN_QUERY || pickingOnMap) return
     // A pasted Maps link is not an address to search for.
-    if (value.source === null && /^(https?:\/\/)?(www\.|maps\.)?(google\.[a-z.]+\/maps|maps\.app\.goo\.gl|goo\.gl\/maps)/i.test(query)) {
+    if (value.source === null && MAPS_LINK.test(query)) {
       setSearch({ kind: 'IDLE' })
       void handleResolveLink(query)
       return
