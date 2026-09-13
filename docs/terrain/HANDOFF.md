@@ -693,6 +693,20 @@ the off-route/reroute steps real; the proposal is a 2,449 km road, and it loads.
   minutes before the slot. Manager pages hydrate from the local cache first
   and refresh in the background; polling pauses while the tab is hidden and
   refreshes once when it is shown again.
+- **Seen on Render, fixed (13 Sep, 11:45):** the shared free-tier egress IP
+  was over Open-Meteo's per-IP quota (429 on every weather call) and over
+  Nominatim's 1/s (429 on the district lookups) on somebody else's traffic.
+  Weather now falls through to **MET Norway** (`WEATHER_FALLBACK_URL`,
+  observation named `met-norway`, gusts stay None - not in the compact
+  product); every Nominatim call in the process goes through ONE lock and the
+  district lookup retries once after 3 s. Verified on the public API after the
+  redeploy: weather AVAILABLE (5 obs), official alerts ACTIVE with the corridor
+  districts resolved, 7/11 factors. If both weather hosts refuse, the factor is
+  NOT_AVAILABLE and says so - never calm.
+- **Demo-day phone note:** Google Password Manager offers the saved login on
+  the password field of this phone; it is the OS's sheet, not the app's. The
+  judge phone stays signed in (the refresh token survives restarts), so it
+  is not seen in the flow; if a sign-in is ever needed, tap "No, thanks".
 - **Landslide markers:** the inventory answers a handful of precisely placed
   events per corridor (5 km buffer, NASA GLC); no clustering - add it only if
   a corridor ever returns more than ~200.
@@ -733,6 +747,18 @@ So: ROUTE_AI_ARCHITECTURE_VERIFIED = YES, and the honest phrase for judges is
 ---
 
 ## 8. Gates (all green at handoff)
+
+13 Sep (12:00, JUDGE LOCK - FROZEN): Backend **1108 passed / 5 skipped** ·
+Driver **594/594** + tsc · Manager **167/167** + tsc + remote-demo build · Expo
+export PASS · public API/manager audit (CORS, tokens, bundles, https) clean ·
+driver web audit **32/32 states** (320/360/390/412 × day/night, local backend) ·
+manager 11/11 (desktop 1280/1366/1920 + 768) · phone compat: cold start, background
+/resume, network switch Wi-Fi->5G->Wi-Fi, night mode, dialler intent, keyboard,
+sign-out/in on the final APK (EAS 6a971bd3, installed 11:53) · public-manager
+judge steps (JUDGE trip -> route map -> conditions -> governance -> dispatch) PASS
+(`.runtime/evidence/judge_manager/`) · **judge phone E2E J1 11/11 · J2 11/11 ·
+J3 11/11** (`judge_e2e_r*.log`; J3's first attempt lost one dispatch request to
+the network - demo.py now retries once) · `bash .runtime/judge.sh reset` -> READY.
 
 13 Sep (11:00, MAP + TRAFFIC + GEO): Backend **1102 passed / 5 skipped**
 (isolated DB; +traffic rule, map-matching API, Maps-link, Nominatim) · Driver
