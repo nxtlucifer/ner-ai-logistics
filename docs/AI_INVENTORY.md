@@ -5,20 +5,22 @@ Source of truth: `backend/app/domain/intelligence_inventory.py`, served on `GET 
 ```
 TRUE_LOCAL_ML               = 0
 LOCAL_LLM                   = 0
-DETERMINISTIC_INTELLIGENCE  = 18
+DETERMINISTIC_INTELLIGENCE  = 20
 GEOMETRIC_ALGORITHM         = 5
 STATISTICAL_MODEL           = 0
 OFFLINE_KNOWLEDGE_SYSTEM    = 4
 ONLINE_LLM                  = 2
 PROVIDER_MODEL_OUTPUT       = 5
 TOTAL_TRUE_LOCAL_AI         = 0   (trained local ML + local LLM + statistical models)
-TOTAL_LOCAL_INTELLIGENCE    = 27   (deterministic + geometric + offline knowledge)
+TOTAL_LOCAL_INTELLIGENCE    = 29   (deterministic + geometric + offline knowledge)
 ```
 
 | Category | Module | What it is |
 |---|---|---|
 | DETERMINISTIC_INTELLIGENCE | `backend/app/domain/route_risk.py` | 11-factor route risk: points, bands, reason codes; UNKNOWN is not safe |
 | DETERMINISTIC_INTELLIGENCE | `backend/app/domain/route_eligibility.py` | landslide-inventory refusal rule |
+| DETERMINISTIC_INTELLIGENCE | `backend/app/services/route_watch.py` | route-ahead worker: corridor window by speed, material-change detection -> push events |
+| DETERMINISTIC_INTELLIGENCE | `backend/app/services/notify.py` | push dedupe: fingerprint + per-event cooldown |
 | DETERMINISTIC_INTELLIGENCE | `backend/app/domain/route_recommendation.py` | compare route options by evidence |
 | DETERMINISTIC_INTELLIGENCE | `backend/app/domain/reroute.py` | reroute governance: human authorises, never automatic |
 | DETERMINISTIC_INTELLIGENCE | `backend/app/domain/monsoon_risk.py` | monsoon-risk-engine-v1 weighted rule |

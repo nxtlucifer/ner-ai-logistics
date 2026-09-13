@@ -1191,6 +1191,18 @@ returns can change a route, a trip or a hazard decision — see
 `available: false` and `/ask` returns 503 — both verified against the running
 server. No token has ever been generated.
 
+## 13d. Push, support view, route watch, demo simulation *(implemented 13 Sep)*
+
+| Method | Path | Who | Notes |
+|---|---|---|---|
+| POST | `/api/driver/me/push-token` | driver | `{token: "ExponentPushToken[...]" \| null}` → `{registered}`. 422 for a non-Expo token. |
+| POST | `/api/drivers/{id}/support-session` | manager (`driver:support_view`) | `{token, expires_at, driver_id}`: a 15-min access token whose subject is the driver and whose `support_by` claim is the manager. **GET only** — every other method is 403 "Manager support view is read-only." Audited (`reason="manager support view"`); every read is logged with both ids. No password is shown, shared or stored. |
+| POST | `/api/trips/{id}/simulation?scenario=&minutes=` | manager (`trip:dispatch`) | DEMO SIMULATION on the trip's **selected** road only. Scenarios: `HEAVY_MONSOON_RAIN`, `LANDSLIDE_WARNING_AHEAD`, `FLOOD_HIGH_DISCHARGE`, `ROAD_INCIDENT`, `PROVIDER_FAILURE`. Every affected `RouteRisk` carries reason code `DEMO_SIMULATION_ACTIVE` and a `DEMO_SIMULATION` component; alternatives are untouched, so a reroute proposal is real. 422 when disabled (`DEMO_SIMULATION_ENABLED`). |
+| DELETE | `/api/trips/{id}/simulation` | manager | recovery: `{cleared}`. |
+| GET | `/api/system/simulation` | any user | `{enabled, active:[{trip_id, route_id, scenario, remaining_s, label}]}`. |
+
+Push events (`driver_notifications` rows, delivery `SENT / NO_TOKEN / DISABLED / SKIPPED_COOLDOWN / FAILED:<category>`): `TRIP_ASSIGNED` (dispatch), `REROUTE_APPROVED` (reroute accept), and from the route-ahead worker (`ROUTE_WATCH_ENABLED`, 60 s tick, per-trip refresh `ROUTE_WATCH_REFRESH_SECONDS`) `HOLD_AND_REVIEW`, `OFFICIAL_WARNING_NEW`, `WEATHER_SEVERITY_CHANGED`, `ROUTE_DANGER_AHEAD` ("High historical landslide exposure ahead" — never "landslide happening"). Fingerprint = event + trip + hazard; 30-min cooldown. The relay is Expo Push; device tokens need `google-services.json` (FCM) in the Android build.
+
 ## 14. WebSocket `/ws/fleet`
 
 Authenticated by access token in the connect query. Server → client events:

@@ -968,6 +968,54 @@ code changed (`git diff 96fb47c..HEAD -- backend` is the two-gate patch only).
 
 ---
 
+## 6n. 16-September intelligence pass (13 Sep, late) - languages, push, route watch, support view, simulation, overnight jobs
+
+- **Languages**: `APP_LANGUAGES` lists the 22 scheduled languages + English with an
+  honest status per row (VERIFIED en; DRAFT hi/gu/as/bn every phrase and
+  ta/te/kn/ml/mr/pa/or/ur/ne core keys via `i18n/moreLanguages.ts`;
+  FALLBACK_ENGLISH brx/doi/ks/kok/mai/mni/sa/sat/sd). ONE `LanguageSheet`
+  (search by English/native/code, recently used, A-Z) serves Login and More.
+  `rtl` flag (ur/sd/ks) drives `writingDirection` on the sheet and assistant
+  bubbles; the map is never mirrored. TTS locale follows the app language
+  (`speechLocale`). Backend answer-language pinning covers all 23 scripts.
+- **Assistant**: aliases for HEALTH_URGENT/EMERGENCY/HEALTH/WEATHER/LANDSLIDE in
+  nine more scripts; new deterministic intents WARNING (official warnings,
+  earthquake/fire/closure words) and TRAFFIC read the risk snapshot's codes.
+- **Push** (`services/notify.py`, migration 0012): `drivers.push_token`,
+  `driver_notifications` audit+dedupe rows, Expo relay, hooks on dispatch and
+  reroute accept; app registers on sign-in (`notify/push.ts`) and opens the
+  screen a tapped notification names. On this APK the token is UNAVAILABLE
+  until a Firebase `google-services.json` is added to the build - honest state,
+  in-app cards remain the alert.
+- **Route-ahead worker** (`services/route_watch.py`): 60 s tick, window 30-100 km
+  by speed, same evidence gather + same policy, material-change detection,
+  one push per hazard. Enabled on Render and the local demo.
+- **Manager "View as driver"**: `POST /api/drivers/{id}/support-session` mints a
+  15-min GET-only token (`support_by` claim, enforced in `deps.get_current_user`);
+  the manager's Drivers page opens the driver web build with it in the URL
+  fragment; the app shows "MANAGER SUPPORT VIEW · read-only". Audited.
+- **DEMO SIMULATION** (`services/simulation.py`): five scenarios injected after
+  the real score, on the selected road only, always labelled
+  `DEMO_SIMULATION_ACTIVE` (catalogued in both apps). `python .runtime/demo.py
+  simulate ROAD_INCIDENT 10` / `simulate clear`. Verified locally: band HIGH,
+  score 100, closure + label codes; clear restores.
+- **Demo package**: reset now sets the synthetic driver portrait and truck
+  reference photo (DEMO_REFERENCE) once; `demo.py verify` does the truck check
+  without the phone; `start` verifies when blocked. `check` reports provider,
+  AI, push and simulation health.
+- **Overnight jobs** (laptop, no phone): `backend/scripts/hazard_validation/overnight.py --expand`
+  (sklearn research venv `.runtime/ml-venv`; LOGREG/RF/HGB x feature sets x seeds on
+  temporal + geographic holdouts, calibration of the best, then the India-wide
+  NASA GLC dataset with the NER as the geographic holdout; checkpoints in
+  `.runtime/data/hazard/experiments/`, leaderboard -> `docs/HAZARD_EXPERIMENTS.md`)
+  and `.runtime/rehearsal/sim_overnight.py` (virtual truck on the local demo
+  backend: eight stress cases per run incl. reroute and recovery; log
+  `.runtime/evidence/sim-overnight.jsonl`, summary `sim-overnight-summary.json`).
+- **Not built, on purpose**: a news/search "verified incident" adapter - no
+  machine-readable, licensable, stable news source was verified tonight; the
+  official NDMA CAP feed is the confirmed-evidence input. Flagged UNVERIFIED
+  sources are not admitted (see the source admission gate in 6m).
+
 ## 8. Gates (all green at handoff)
 
 13 Sep (22:00, FINAL QUALITY + INTELLIGENCE): Backend **1127 passed / 5

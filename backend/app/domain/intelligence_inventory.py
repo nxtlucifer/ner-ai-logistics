@@ -42,6 +42,8 @@ INVENTORY: Final[list[tuple[str, str, str]]] = [
     ("DETERMINISTIC_INTELLIGENCE", "driver-app/src/assistant/assistant.ts", "assistant answers from application state; health guidance"),
     ("DETERMINISTIC_INTELLIGENCE", "driver-app/src/safety/breaks.ts", "break advice thresholds"),
     ("DETERMINISTIC_INTELLIGENCE", "driver-app/src/notify/local.ts", "danger alert dedupe/cooldown"),
+    ("DETERMINISTIC_INTELLIGENCE", "backend/app/services/route_watch.py", "route-ahead worker: corridor window by speed, material-change detection -> push events"),
+    ("DETERMINISTIC_INTELLIGENCE", "backend/app/services/notify.py", "push dedupe: fingerprint + per-event cooldown"),
     ("GEOMETRIC_ALGORITHM", "backend/app/domain/route_progress.py", "projection onto the route line, off-route threshold"),
     ("GEOMETRIC_ALGORITHM", "backend/app/domain/terrain.py", "slope/gradient from sampled DEM heights"),
     ("GEOMETRIC_ALGORITHM", "driver-app/src/map/navState.ts", "on-device projection with hysteresis (200/80 m, 3 fixes)"),
