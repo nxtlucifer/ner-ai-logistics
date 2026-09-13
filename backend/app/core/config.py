@@ -255,6 +255,9 @@ class Settings(BaseSettings):
     WARNINGS_ENABLED: bool = True
     WARNINGS_FEED_URL: str = "https://sachet.ndma.gov.in/cap_public_website/rss/rss_india.xml"
     WARNINGS_FEED_TTL_SECONDS: int = 600
+    #: Poll the NDMA feed in the background at the TTL above (bounded: one
+    #: request per TTL). Off in tests and local dev; on for the hosted API.
+    WARNINGS_POLL_ENABLED: bool = False
     NOMINATIM_URL: str = "https://nominatim.openstreetmap.org"
 
     # --- Fleet Sentinel Scheduler ---

@@ -25,6 +25,7 @@ import httpx
 
 from app.core.config import get_settings
 from app.domain import ai_prompts
+from app.services import provider_health
 
 log = logging.getLogger(__name__)
 
@@ -69,6 +70,11 @@ MAX_ANSWER_CHARS: Final = 1200
 
 def _mark(provider: str, state: str, detail: str | None = None) -> None:
     HEALTH[provider] = {"state": state, "detail": detail, "at": time.time()}
+    # Mirror into the shared registry the System page reads.
+    if state == "HEALTHY":
+        provider_health.ok(provider)
+    elif state in ("FAILED", "RATE_LIMITED"):
+        provider_health.fail(provider, "http_429" if state == "RATE_LIMITED" else (detail or "unreachable").split(":")[-1].strip().replace(" ", "_")[:24])
 
 
 def _clean(text: str) -> str:

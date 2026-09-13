@@ -33,6 +33,8 @@ from typing import Any, Final
 
 import httpx
 
+from app.services import provider_health
+
 from app.domain.weather import (
     WeatherMalformed,
     WeatherObservation,
@@ -104,14 +106,18 @@ class OpenMeteoWeatherProvider:
                     url, params=params, headers={"User-Agent": USER_AGENT}
                 )
         except httpx.TimeoutException as exc:
+            provider_health.fail("OPEN_METEO", "timeout")
             if self._fallback:
                 return await self._met_norway(lat, lon)
             raise WeatherUnavailable(f"{self.name} timed out") from exc
         except httpx.HTTPError as exc:
+            provider_health.fail("OPEN_METEO", "unreachable")
             if self._fallback:
                 return await self._met_norway(lat, lon)
             raise WeatherUnavailable(f"{self.name} is unreachable") from exc
 
+        if response.status_code >= 400:
+            provider_health.fail("OPEN_METEO", provider_health.category(Exception(), response.status_code))
         if (response.status_code >= 500 or response.status_code == 429) and self._fallback:
             return await self._met_norway(lat, lon)
         if response.status_code >= 500:
@@ -127,11 +133,15 @@ class OpenMeteoWeatherProvider:
         try:
             body: Any = response.json()
         except ValueError as exc:
+            provider_health.fail("OPEN_METEO", "unparseable")
             raise WeatherMalformed(f"{self.name} returned non-JSON") from exc
         if not isinstance(body, dict):
+            provider_health.fail("OPEN_METEO", "unparseable")
             raise WeatherMalformed(f"{self.name} returned a non-object body")
 
-        return self._parse(body, lat=lat, lon=lon)
+        observation = self._parse(body, lat=lat, lon=lon)
+        provider_health.ok("OPEN_METEO", data_at=observation.observed_at.timestamp())
+        return observation
 
     async def _met_norway(self, lat: float, lon: float) -> WeatherObservation:
         """MET Norway `locationforecast/2.0/compact`: the current hour's entry.
@@ -149,9 +159,13 @@ class OpenMeteoWeatherProvider:
                     headers={"User-Agent": USER_AGENT},
                 )
         except httpx.TimeoutException as exc:
+            provider_health.fail("MET_NORWAY", "timeout")
             raise WeatherUnavailable("met-norway timed out") from exc
         except httpx.HTTPError as exc:
+            provider_health.fail("MET_NORWAY", "unreachable")
             raise WeatherUnavailable("met-norway is unreachable") from exc
+        if response.status_code >= 400:
+            provider_health.fail("MET_NORWAY", provider_health.category(Exception(), response.status_code))
         if response.status_code >= 500:
             raise WeatherUnavailable(f"met-norway returned {response.status_code}")
         if response.status_code >= 400:
@@ -159,8 +173,11 @@ class OpenMeteoWeatherProvider:
         try:
             body = response.json()
         except ValueError as exc:
+            provider_health.fail("MET_NORWAY", "unparseable")
             raise WeatherMalformed("met-norway returned non-JSON") from exc
-        return self._parse_met_norway(body, lat=lat, lon=lon)
+        observation = self._parse_met_norway(body, lat=lat, lon=lon)
+        provider_health.ok("MET_NORWAY", data_at=observation.observed_at.timestamp())
+        return observation
 
     def _parse_met_norway(self, body: object, *, lat: float, lon: float) -> WeatherObservation:
         series = body.get("properties", {}).get("timeseries") if isinstance(body, dict) else None

@@ -46,6 +46,7 @@ _locating: set[str] = set()
 # ONE lock for every Nominatim call this process makes - the address search in
 # geocoding.py included. Two locks were two callers at once, which is how the
 # shared Render egress IP earned a 429 from a service whose limit is 1/s.
+from app.services import provider_health  # noqa: E402
 from app.services.geocoding import _nominatim_lock  # noqa: E402
 
 
@@ -54,8 +55,13 @@ async def _get(client: httpx.AsyncClient, url: str, **params) -> bytes | None:
         response = await client.get(url, params=params or None, headers={"User-Agent": USER_AGENT})
         response.raise_for_status()
         return response.content
+    except httpx.HTTPStatusError as exc:
+        logger.info("warnings fetch failed for %s: %s", url, type(exc).__name__)
+        provider_health.fail("NDMA_SACHET", provider_health.category(exc, exc.response.status_code))
+        return None
     except httpx.HTTPError as exc:
         logger.info("warnings fetch failed for %s: %s", url, type(exc).__name__)
+        provider_health.fail("NDMA_SACHET", provider_health.category(exc))
         return None
 
 
@@ -72,8 +78,10 @@ async def feed(client: httpx.AsyncClient) -> list[RssItem] | None:
         items = parse_rss(raw)
     except Exception:  # noqa: BLE001 - a malformed feed is an unavailable feed
         logger.warning("warnings feed unparseable", exc_info=True)
+        provider_health.fail("NDMA_SACHET", "unparseable")
         return _feed[1] if _feed else None
     _feed = (now, items)
+    provider_health.ok("NDMA_SACHET", items=len(items))
     return items
 
 

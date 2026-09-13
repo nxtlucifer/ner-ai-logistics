@@ -43,6 +43,8 @@ from typing import Final
 
 import httpx
 
+from app.services import provider_health
+
 from app.core.config import get_settings
 from app.domain.terrain import TerrainProfile, build_profile, sample_by_distance
 
@@ -132,12 +134,18 @@ class OpenMeteoElevationProvider:
                     out.extend(
                         float(h) if isinstance(h, (int, float)) else None for h in heights
                     )
+                    provider_health.ok("OPEN_METEO_ELEVATION")
                 except (httpx.HTTPError, ValueError) as error:
                     logger.info("terrain batch %d unavailable: %r", start // BATCH, error)
+                    status = getattr(getattr(error, "response", None), "status_code", None)
+                    provider_health.fail("OPEN_METEO_ELEVATION", provider_health.category(error, status))
                     try:
                         out.extend(await self._fallback_heights(client, chunk))
+                        provider_health.ok("OPENTOPODATA")
                     except (httpx.HTTPError, ValueError) as fallback_error:
                         logger.info("terrain fallback batch %d unavailable: %r", start // BATCH, fallback_error)
+                        status = getattr(getattr(fallback_error, "response", None), "status_code", None)
+                        provider_health.fail("OPENTOPODATA", provider_health.category(fallback_error, status))
                         out.extend([None] * len(chunk))
         return out
 

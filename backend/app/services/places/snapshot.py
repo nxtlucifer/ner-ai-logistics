@@ -23,6 +23,8 @@ dealers 42 km apart are two dealers, not one mapped twice).
 """
 
 import json
+
+from app.services import provider_health
 import logging
 import math
 from datetime import datetime
@@ -246,6 +248,7 @@ def _load() -> tuple[list[Place], PlaceSource, BoundingBox, dict]:
     meta = raw["source"]
     coverage = raw["coverage"]
     box = coverage["bbox"]
+    provider_health.static("OVERPASS", vintage=str(meta["retrieved_at"])[:10], records=len(places))
     source = PlaceSource(
         name=meta["name"],
         attribution=meta["attribution"],

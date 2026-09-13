@@ -20,6 +20,7 @@ from typing import Any
 from fastapi import APIRouter, Response, status
 from sqlalchemy import text
 
+from app.api.deps import CurrentUser
 from app.core.config import get_settings
 from app.db.session import get_sessionmaker
 
@@ -104,4 +105,24 @@ async def ready(response: Response) -> dict[str, Any]:
         # Safe: an enum of "supabase" | "local", carrying no credential.
         "provider": settings.DATABASE_PROVIDER,
         "checks": {"database": db_check, "postgis": postgis_check},
+    }
+
+
+@router.get("/api/system/providers", summary="Data-source health and the intelligence inventory")
+async def providers(user: CurrentUser) -> dict[str, Any]:
+    """What every external source last did, and what "AI" this repository holds.
+
+    Health rows carry a state, a freshness class judged against each product's
+    own cadence, timestamps and an error CATEGORY - never a key, a URL with a
+    key, or a response body. The inventory is the code-audited count from
+    `app/domain/intelligence_inventory.py`, so the System page and the report
+    cannot disagree.
+    """
+    from app.domain import intelligence_inventory
+    from app.services import provider_health
+
+    return {
+        "providers": provider_health.snapshot(),
+        "intelligence": {"counts": intelligence_inventory.counts(), **intelligence_inventory.totals(),
+                          "modules": [{"category": c, "module": m, "what": w} for c, m, w in intelligence_inventory.INVENTORY]},
     }

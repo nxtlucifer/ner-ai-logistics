@@ -43,6 +43,8 @@ from typing import Any, Final
 
 import httpx
 
+from app.services import provider_health
+
 from app.domain.routing import (
     Coordinate,
     Maneuver,
@@ -173,13 +175,16 @@ class OsrmRoutingProvider:
                     url, params=params, headers={"User-Agent": USER_AGENT}
                 )
         except httpx.TimeoutException as exc:
+            provider_health.fail("OSRM", "timeout")
             raise RoutingUnavailable(f"{self.name} timed out") from exc
         except httpx.HTTPError as exc:
+            provider_health.fail("OSRM", "unreachable")
             raise RoutingUnavailable(f"{self.name} is unreachable") from exc
 
         # 5xx is an outage - fall through. 4xx is usually a refusal, and OSRM
         # puts the reason in the body, so the body is parsed either way.
         if response.status_code >= 500:
+            provider_health.fail("OSRM", provider_health.category(Exception(), response.status_code))
             raise RoutingUnavailable(
                 f"{self.name} returned {response.status_code}"
             )
@@ -187,7 +192,9 @@ class OsrmRoutingProvider:
         try:
             body: Any = response.json()
         except ValueError as exc:
+            provider_health.fail("OSRM", "unparseable")
             raise RoutingMalformed(f"{self.name} returned non-JSON") from exc
+        provider_health.ok("OSRM")
 
         if not isinstance(body, dict):
             raise RoutingMalformed(f"{self.name} returned a non-object body")

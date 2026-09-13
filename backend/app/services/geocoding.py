@@ -36,6 +36,8 @@ from dataclasses import dataclass
 
 import httpx
 
+from app.services import provider_health
+
 from app.core.config import get_settings
 
 log = logging.getLogger(__name__)
@@ -160,11 +162,14 @@ async def nominatim_search(query: str, *, limit: int = _NOMINATIM_LIMIT) -> list
             )
             await asyncio.sleep(1.0)  # usage policy: at most one request per second
     except httpx.HTTPError as exc:
+        provider_health.fail("NOMINATIM", provider_health.category(exc))
         raise GeocodingUnavailable(f"nominatim transport failed: {exc}") from exc
     if response.status_code != 200:
         log.warning("nominatim refused: %s %s", response.status_code, response.text[:200])
+        provider_health.fail("NOMINATIM", provider_health.category(Exception(), response.status_code))
         raise GeocodingUnavailable(f"nominatim returned {response.status_code}")
     found = parse_nominatim_results(response.json())
+    provider_health.ok("NOMINATIM")
     for detail in found:
         _remember(_detail_cache, detail.place_id, detail)
     _remember(_search_cache, key, found)

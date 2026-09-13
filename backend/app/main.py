@@ -6,6 +6,7 @@ app-wide middleware granting or withholding access, because a gate you cannot
 see from the route is a gate nobody checks when adding the next route.
 """
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -57,7 +58,6 @@ async def lifespan(app: FastAPI):
 
     sentinel_task = None
     if settings.SENTINEL_SCHEDULER_ENABLED:
-        import asyncio
         from app.db.session import get_sessionmaker
         from app.services.sentinel import run_sentinel_sweep
 
@@ -83,14 +83,43 @@ async def lifespan(app: FastAPI):
 
         sentinel_task = asyncio.create_task(_sentinel_loop())
 
+    # Official warnings are the one source whose value is in being CURRENT
+    # before any route asks: the same bounded poll the route assessment uses
+    # (one RSS request per WARNINGS_FEED_TTL_SECONDS, cached), started here so
+    # the System page shows a real freshness the moment the process is up and
+    # a dispatch does not pay the first fetch. Weather, flood and terrain stay
+    # on demand per route: polling them for routes nobody is planning would
+    # only spend the providers' free quotas.
+    warnings_task = None
+    if settings.WARNINGS_ENABLED and settings.WARNINGS_POLL_ENABLED:
+        import httpx
+        from app.services import warnings as warnings_service
+
+        async def _warnings_loop():
+            while True:
+                try:
+                    async with httpx.AsyncClient(timeout=settings.WEATHER_TIMEOUT_SECONDS) as client:
+                        await warnings_service.feed(client)
+                except asyncio.CancelledError:
+                    break
+                except Exception as exc:  # noqa: BLE001 - a feed outage is a health row, not a crash
+                    logger.info("warnings poll failed: %s", type(exc).__name__)
+                try:
+                    await asyncio.sleep(settings.WARNINGS_FEED_TTL_SECONDS)
+                except asyncio.CancelledError:
+                    break
+
+        warnings_task = asyncio.create_task(_warnings_loop())
+
     yield
 
-    if sentinel_task is not None:
-        sentinel_task.cancel()
-        try:
-            await sentinel_task
-        except asyncio.CancelledError:
-            pass
+    for task in (sentinel_task, warnings_task):
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
     logger.info("Shutting down, disposing database pool")
     await dispose_engine()

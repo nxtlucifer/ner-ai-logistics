@@ -203,6 +203,10 @@ export const supabaseManagerApi = {
     return { status: 'healthy' }
   },
 
+  systemProviders: async () => {
+    throw new Error('systemProviders is not migrated to Supabase yet. It still requires the FastAPI backend.')
+  },
+
   ready: async (): Promise<ReadyResponse> => {
     const supabase = getSupabase()
     const { error } = await supabase.from('system_info').select('version').limit(1)

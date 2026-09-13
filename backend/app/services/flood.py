@@ -14,6 +14,8 @@ from typing import Final
 
 import httpx
 
+from app.services import provider_health
+
 from app.core.config import get_settings
 from app.domain.flood import FloodContext, flood_context, parse_open_meteo
 
@@ -49,9 +51,15 @@ async def flood_for(route_id: object, positions: list[tuple[float, float]]) -> F
             )
         response.raise_for_status()
         body = response.json()
+    except httpx.HTTPStatusError as exc:
+        logger.info("flood context unavailable: %s", type(exc).__name__)
+        provider_health.fail("GLOFAS", provider_health.category(exc, exc.response.status_code))
+        return None
     except (httpx.HTTPError, ValueError) as exc:
         logger.info("flood context unavailable: %s", type(exc).__name__)
+        provider_health.fail("GLOFAS", provider_health.category(exc))
         return None
     context = flood_context(parse_open_meteo(body, today=today), provider=PROVIDER)
+    provider_health.ok("GLOFAS", cells=len(positions))
     _cache[key] = context
     return context

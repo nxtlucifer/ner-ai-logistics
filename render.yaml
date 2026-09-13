@@ -86,6 +86,8 @@ services:
         value: "true"
       - key: WARNINGS_ENABLED
         value: "true"
+      - key: WARNINGS_POLL_ENABLED
+        value: "true"
 
       # Secrets. Never in this file - it is committed.
       - key: DATABASE_URL

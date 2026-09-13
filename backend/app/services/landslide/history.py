@@ -16,6 +16,8 @@ import csv
 import logging
 from datetime import UTC, datetime
 from functools import lru_cache
+
+from app.services import provider_health
 from pathlib import Path
 from typing import Final, Protocol
 
@@ -103,6 +105,8 @@ def load_snapshot(path: Path = SNAPSHOT) -> tuple[LandslideIncident, ...]:
                     ),
                 )
             )
+    dates = [i.event_date for i in out if i.event_date]
+    provider_health.static("NASA_GLC", vintage=f"{min(dates).year}-{max(dates).year}" if dates else "unknown", records=len(out))
     return tuple(out)
 
 

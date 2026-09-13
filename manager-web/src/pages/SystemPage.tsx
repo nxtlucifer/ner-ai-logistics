@@ -5,7 +5,7 @@
  * /health and /ready - there is no hardcoded status here.
  */
 
-import { API_BASE_URL, api } from '../api/client'
+import { API_BASE_URL, api, type ProviderHealthRow } from '../api/client'
 import { Card, ErrorState, LoadingState } from '../components/ui'
 import { useResource } from '../hooks/useResource'
 
@@ -57,8 +57,39 @@ const PROVIDER_LABEL: Record<string, string> = {
   local: 'Local (WSL2)',
 }
 
+const FRESH_TONE: Record<ProviderHealthRow['freshness'], RowState> = {
+  FRESH: 'ok', STATIC: 'ok', AGING: 'unknown', STALE: 'bad', EXPIRED: 'bad', UNKNOWN: 'unknown',
+}
+
+function ago(epoch: number | null): string {
+  if (epoch === null) return 'never'
+  const s = Math.max(0, Date.now() / 1000 - epoch)
+  if (s < 90) return `${Math.round(s)} s ago`
+  if (s < 5400) return `${Math.round(s / 60)} min ago`
+  if (s < 172800) return `${Math.round(s / 3600)} h ago`
+  return `${Math.round(s / 86400)} d ago`
+}
+
+/** One provider row: state + freshness in words, last success, last error CATEGORY. Never a key. */
+function ProviderRow({ row }: { row: ProviderHealthRow }) {
+  const state: RowState = row.state === 'HEALTHY' || row.state === 'STATIC' ? FRESH_TONE[row.freshness] : row.state === 'UNKNOWN' || row.state === 'NOT_CONFIGURED' ? 'unknown' : 'bad'
+  const value = row.state === 'STATIC'
+    ? `Static dataset${row.detail.vintage ? ` · ${String(row.detail.vintage)}` : ''}`
+    : row.state === 'UNKNOWN'
+      ? 'Not called yet'
+      : `${row.state === 'HEALTHY' ? 'Healthy' : row.state === 'RATE_LIMITED' ? 'Rate limited' : row.state === 'NOT_CONFIGURED' ? 'Not configured' : 'Failed'} · ${row.freshness.toLowerCase()}`
+  const detail = [
+    row.product,
+    row.evidence_type.replace(/_/g, ' ').toLowerCase(),
+    row.last_success_at !== null ? `updated ${ago(row.last_success_at)}` : null,
+    row.last_error ? `last error: ${row.last_error.replace(/_/g, ' ')} (${ago(row.last_error_at)})` : null,
+  ].filter(Boolean).join(' · ')
+  return <Row label={row.provider.replace(/_/g, ' ')} value={value} state={state} detail={detail} />
+}
+
 export default function SystemPage() {
   const ready = useResource(() => api.ready(), [])
+  const providers = useResource(() => api.systemProviders(), [])
 
   return (
     <div className="space-y-4">
@@ -113,22 +144,51 @@ export default function SystemPage() {
         ) : null}
       </Card>
 
+      <Card>
+        <h2 className="text-sm font-bold text-ink">Data sources</h2>
+        <p className="mb-2 text-xs text-muted">
+          What each external source last did, judged against its own refresh cadence. A source that is
+          down makes one evidence channel UNKNOWN — routing and navigation continue.
+        </p>
+        {providers.status === 'loading' ? (
+          <LoadingState label="Reading provider health…" />
+        ) : providers.status === 'error' ? (
+          <ErrorState error={providers.error} onRetry={providers.reload} />
+        ) : providers.data ? (
+          providers.data.providers.map((row) => <ProviderRow key={row.provider} row={row} />)
+        ) : null}
+      </Card>
+
+      {providers.data ? (
+        <Card>
+          <h2 className="text-sm font-bold text-ink">Intelligence components</h2>
+          <p className="mb-2 text-xs text-muted">
+            Counted from the code, not the pitch. No trained model runs here: every decision is a
+            published rule, and the online models only word answers.
+          </p>
+          {[
+            ['Local trained ML', providers.data.intelligence.counts.TRUE_LOCAL_ML],
+            ['Local language models', providers.data.intelligence.counts.LOCAL_LLM],
+            ['Deterministic engines', providers.data.intelligence.counts.DETERMINISTIC_INTELLIGENCE],
+            ['Geometric algorithms', providers.data.intelligence.counts.GEOMETRIC_ALGORITHM],
+            ['Statistical models', providers.data.intelligence.counts.STATISTICAL_MODEL],
+            ['Offline knowledge systems', providers.data.intelligence.counts.OFFLINE_KNOWLEDGE_SYSTEM],
+            ['Online AI providers', providers.data.intelligence.counts.ONLINE_LLM],
+            ['Provider model outputs', providers.data.intelligence.counts.PROVIDER_MODEL_OUTPUT],
+          ].map(([label, n]) => (
+            <Row key={String(label)} label={String(label)} value={String(n)} state={n === 0 ? 'unknown' : 'ok'} />
+          ))}
+        </Card>
+      ) : null}
+
       <p className="text-xs leading-relaxed text-muted">
-        SIH26002 — AI-Based Smart Logistics and Accessibility Intelligence Platform
-        for the North Eastern Region. Live GPS tracking, trip execution and route
-        planning are implemented. A planned route is drawn as a dashed line
-        beneath the solid observed GPS track, so the two are never confused.
-        Route risk — scored from distance, duration and current weather along the
-        corridor by a deterministic rule, not a model — is shown on Fleet, and a
-        lower-risk alternative is proposed there with its cost in minutes and
-        kilometres. A person accepts or rejects it: <strong>automatic</strong>{' '}
-        rerouting is not built, and nothing here changes a route on its own.
-        Landslide risk is not built — the historical inventory it needs is a bulk
-        GIS download and the live sources surveyed publish no road-reopening feed,
-        so the engine would have nothing honest to score. ETA, fuel AI and road
-        incidents are not built. There is no arrival estimate anywhere: a
-        provider's duration is not an ETA, and nothing on these screens computes
-        one.
+        SIH26002 — RASTA AI. Route risk is a deterministic rule over eleven evidence
+        factors (Open-Meteo/MET Norway weather, Copernicus DEM terrain, the NASA
+        landslide inventory as historical exposure, GloFAS discharge as flood context,
+        NDMA SACHET official warnings, fleet traffic). An input that is missing or
+        stale is reported UNKNOWN and is never scored as safe. Rerouting proposes; a
+        person authorises. No probability of any hazard is computed anywhere: no
+        model has been validated on a held-out set, so none is claimed.
       </p>
     </div>
   )

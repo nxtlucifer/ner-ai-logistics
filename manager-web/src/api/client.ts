@@ -1019,6 +1019,8 @@ export const restApi = {
 
   health: () => request<{ status: string }>('/health'),
   ready: () => request<ReadyResponse>('/ready'),
+  /** Data-source health + the code-audited intelligence inventory (System page). */
+  systemProviders: () => request<SystemProviders>('/api/system/providers'),
 
   login: (identifier: string, password: string) =>
     request<TokenResponse>('/api/auth/login', {
@@ -1244,6 +1246,32 @@ export const restApi = {
       method: 'POST',
       body: { note, is_false_alarm: isFalseAlarm ?? false },
     }),
+}
+
+export interface ProviderHealthRow {
+  provider: string
+  product: string
+  evidence_type: string
+  state: 'HEALTHY' | 'FAILED' | 'RATE_LIMITED' | 'STATIC' | 'UNKNOWN' | 'NOT_CONFIGURED'
+  freshness: 'FRESH' | 'AGING' | 'STALE' | 'EXPIRED' | 'UNKNOWN' | 'STATIC'
+  last_success_at: number | null
+  last_error_at: number | null
+  last_error: string | null
+  data_at: number | null
+  calls: number
+  failures: number
+  cadence_s: number | null
+  detail: Record<string, unknown>
+}
+
+export interface SystemProviders {
+  providers: ProviderHealthRow[]
+  intelligence: {
+    counts: Record<string, number>
+    TOTAL_TRUE_LOCAL_AI: number
+    TOTAL_LOCAL_INTELLIGENCE: number
+    modules: { category: string; module: string; what: string }[]
+  }
 }
 
 export type ManagerApi = typeof restApi
