@@ -212,12 +212,7 @@ function BrandMark({ compact = false }: { compact?: boolean }) {
           border: onDark ? '1px solid #2C3B44' : 'none',
         }}
       >
-        {/* Ridge line and the road through it: mint for the terrain, route
-            blue for the corridor. The product in one glyph. */}
-        <svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true">
-          <path d="M2 19 L9 8 L13 14 L16 10 L22 19 Z" fill="#34D399" />
-          <path d="M9 8 L13 14 L11 19 L2 19 Z" fill="#2563EB" opacity="0.85" />
-        </svg>
+        <img src="/brand-mark.svg" alt="" width={38} height={38} style={{ display: 'block', borderRadius: 10 }} />
       </span>
       <span className="leading-tight">
         <span
@@ -225,14 +220,14 @@ function BrandMark({ compact = false }: { compact?: boolean }) {
             onDark ? 'text-[#F5F8F6]' : 'text-ink'
           }`}
         >
-          NER Logistics
+          RASTA AI
         </span>
         <span
           className={`eyebrow mt-1 block text-[9.5px] ${
             onDark ? 'text-aqua' : 'text-primary'
           }`}
         >
-          Terrain Intelligence
+          NER Logistics
         </span>
       </span>
     </div>
