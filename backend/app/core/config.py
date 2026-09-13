@@ -268,6 +268,12 @@ class Settings(BaseSettings):
     EXPO_ACCESS_TOKEN: str | None = None
     PUSH_TIMEOUT_SECONDS: float = 8.0
 
+    # --- Route-ahead intelligence worker (services/route_watch.py) ---
+    #: Coordinator tick; providers are asked at most once per trip per REFRESH.
+    ROUTE_WATCH_ENABLED: bool = False
+    ROUTE_WATCH_TICK_SECONDS: int = 60
+    ROUTE_WATCH_REFRESH_SECONDS: int = 600
+
     # --- Fleet Sentinel Scheduler ---
     SENTINEL_SCHEDULER_ENABLED: bool = False
     SENTINEL_SWEEP_INTERVAL_SECONDS: int = 300

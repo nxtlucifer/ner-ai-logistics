@@ -111,9 +111,32 @@ async def lifespan(app: FastAPI):
 
         warnings_task = asyncio.create_task(_warnings_loop())
 
+    # Route-ahead worker: a cheap 60 s tick over moving trips; the window ahead
+    # of each truck is re-scored at most every ROUTE_WATCH_REFRESH_SECONDS and
+    # a material worsening becomes one push (services/route_watch.py).
+    watch_task = None
+    if settings.ROUTE_WATCH_ENABLED:
+        from app.db.session import get_sessionmaker
+        from app.services.route_watch import run_tick
+
+        async def _watch_loop():
+            while True:
+                try:
+                    await asyncio.sleep(settings.ROUTE_WATCH_TICK_SECONDS)
+                    async with get_sessionmaker()() as db:
+                        done = await run_tick(db)
+                        if done:
+                            logger.info("route watch: %s", done)
+                except asyncio.CancelledError:
+                    break
+                except Exception as exc:  # noqa: BLE001 - the loop outlives any one pass
+                    logger.error("route watch error: %s", type(exc).__name__)
+
+        watch_task = asyncio.create_task(_watch_loop())
+
     yield
 
-    for task in (sentinel_task, warnings_task):
+    for task in (sentinel_task, warnings_task, watch_task):
         if task is not None:
             task.cancel()
             try:
