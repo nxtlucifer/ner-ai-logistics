@@ -71,6 +71,10 @@ export type Intent =
   | 'EMERGENCY'
   | 'TRANSLATE'
   | 'VEHICLE_ISSUE'
+  /** Unwell (dizzy, headache, vomiting, fever...): stop, rest, water, help. */
+  | 'HEALTH'
+  /** A red flag (chest pain, breathing, fainting, stroke signs, heavy bleeding): stop, call 112/108. */
+  | 'HEALTH_URGENT'
   | 'UNKNOWN'
 
 /** One checkable statement. `value` is already formatted for display. */
@@ -101,6 +105,8 @@ export type AllowedAction =
   | 'OPEN_TRIP'
   | 'RECORD_BREAK'
   | 'CONTACT_DISPATCH'
+  /** Opens the dialler on 112. The driver still presses call. */
+  | 'CALL_EMERGENCY'
 
 export interface Answer {
   intent: Intent
@@ -113,6 +119,8 @@ export interface Answer {
   allowedActions: AllowedAction[]
   /** Named missing inputs. An empty answer is never silently a confident one. */
   unavailable: string[]
+  /** Short steps to take, as English keys the screen localises. Health only. */
+  guidance?: string[]
 }
 
 const NOT_AVAILABLE = 'not available'
@@ -232,6 +240,7 @@ export const QUESTIONS: readonly Question[] = [
   { id: 'q-safety', intent: 'EMERGENCY', labelKey: 'ask_emergency' },
   { id: 'q-talk', intent: 'TRANSLATE', labelKey: 'ask_talk' },
   { id: 'q-vehicle', intent: 'VEHICLE_ISSUE', labelKey: 'ask_truck' },
+  { id: 'q-health', intent: 'HEALTH', labelKey: 'ask_health' },
 ] as const
 
 // --- Resolver -------------------------------------------------------------
@@ -258,8 +267,9 @@ function answerMyTrip(ctx: AssistantContext): Answer {
   }
   return {
     intent: 'MY_TRIP',
-    headline: `Trip ${trip.trip_code}`,
+    headline: 'Your trip',
     facts: [
+      { code: 'TRIP_CODE', label: 'Trip code', value: trip.trip_code },
       { code: 'TRIP_STATUS', label: 'Status', value: trip.status },
       { code: 'TRUCK', label: 'Truck', value: trip.truck.registration_number },
       { code: 'STOPS', label: 'Stops', value: String(trip.stops.length) },
@@ -373,7 +383,7 @@ function answerRouteRisk(ctx: AssistantContext): Answer {
 
   return {
     intent: 'ROUTE_RISK',
-    headline: `Route risk ${found.risk.band}`,
+    headline: 'Route risk',
     facts: [
       { code: 'RISK_BAND', label: 'Risk', value: found.risk.band },
       { code: 'RISK_SCORE', label: 'Score', value: `${found.risk.score}/100` },
@@ -580,6 +590,46 @@ function answerTranslate(): Answer {
   }
 }
 
+/**
+ * Not medical advice: stop driving safely, rest, water, and where to get
+ * help. The one thing this may not do is name a condition or a medicine -
+ * the same boundary the online model is held to in ai_prompts.py.
+ */
+function answerHealth(urgent: boolean): Answer {
+  if (urgent) {
+    return {
+      intent: 'HEALTH_URGENT',
+      headline: 'Stop driving now — call 112 or 108',
+      facts: [],
+      reasonCodes: [],
+      freshness: null,
+      guidance: [
+        'Stop the truck safely and switch on the hazard lights.',
+        'Call 112 or 108 now and say where you are.',
+        'Sit upright, do not eat or drink, do not drive.',
+        'Open Safety for the step-by-step guide.',
+      ],
+      allowedActions: ['CALL_EMERGENCY', 'OPEN_SAFETY_GUIDE'],
+      unavailable: [],
+    }
+  }
+  return {
+    intent: 'HEALTH',
+    headline: 'Stop driving safely and rest',
+    facts: [],
+    reasonCodes: [],
+    freshness: null,
+    guidance: [
+      'Pull over where it is safe and switch the engine off.',
+      'Sit or lie down, loosen tight clothing, drink water in small sips.',
+      'Do not drive again until you feel steady. Tell your manager you have stopped.',
+      'If it gets worse or does not pass in 30 minutes, call 108 for an ambulance.',
+    ],
+    allowedActions: ['OPEN_SAFETY_GUIDE', 'CALL_EMERGENCY'],
+    unavailable: [],
+  }
+}
+
 function answerVehicleIssue(): Answer {
   // No vehicle diagnostics exist in this build - no OBD, no fault codes. The
   // useful, honest answer is the phrases that get a stranger to help and the
@@ -627,6 +677,10 @@ export function answer(intent: Intent, ctx: AssistantContext): Answer {
       return answerTranslate()
     case 'VEHICLE_ISSUE':
       return answerVehicleIssue()
+    case 'HEALTH':
+      return answerHealth(false)
+    case 'HEALTH_URGENT':
+      return answerHealth(true)
     default:
       return {
         intent: 'UNKNOWN',
@@ -638,4 +692,36 @@ export function answer(intent: Intent, ctx: AssistantContext): Answer {
         unavailable: [],
       }
   }
+}
+
+/**
+ * What the online model is told, as text. The SAME facts the local answers
+ * are built from - route decision, reasons, weather/terrain lines, the next
+ * stop, break state - and nothing about who the driver is: no name, phone,
+ * licence, document or insurance number ever enters this string. The model
+ * may restate these; it is told it may not add to them.
+ */
+export function contextForModel(ctx: AssistantContext): string {
+  const lines: string[] = []
+  const trip = answer('MY_TRIP', ctx)
+  for (const f of trip.facts) lines.push(`- ${f.label}: ${f.value}`)
+  const risk = answer('ROUTE_RISK', ctx)
+  if (!risk.unavailable.includes('ROUTE_RISK')) {
+    for (const f of risk.facts) lines.push(`- Route ${f.label.toLowerCase()}: ${f.value}`)
+    if (risk.reasonCodes.length) lines.push(`- Risk reasons: ${risk.reasonCodes.join(', ')}`)
+    if (risk.freshness) lines.push(`- Risk assessed ${risk.freshness.ageMinutes} min ago${risk.freshness.cached ? ' (stored copy)' : ''}${risk.freshness.stale ? ' (STALE)' : ''}`)
+  } else {
+    lines.push('- Route risk: unavailable')
+  }
+  for (const intent of ['WEATHER', 'TERRAIN', 'LANDSLIDE'] as const) {
+    const a = answer(intent, ctx)
+    for (const f of a.facts) lines.push(`- ${a.headline} — ${f.label}: ${f.value}`)
+  }
+  const stop = answer('NEXT_STOP', ctx)
+  if (!stop.unavailable.length) lines.push(`- Next stop: ${stop.headline}`)
+  const route = answer('MY_ROUTE', ctx)
+  for (const f of route.facts) lines.push(`- ${f.label}: ${f.value}`)
+  const brk = answer('BREAK', ctx)
+  lines.push(`- Break: ${brk.headline}`)
+  return lines.join('\n').slice(0, 2000)
 }

@@ -52,6 +52,7 @@ export type TranslationKey =
   | 'ask_emergency'
   | 'ask_talk'
   | 'ask_truck'
+  | 'ask_health'
   // Nav
   | 'nav_navigate'
   | 'nav_trip'
@@ -119,6 +120,7 @@ export const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> =
     ask_emergency: 'Emergency help',
     ask_talk: 'Help me talk',
     ask_truck: 'Truck problem',
+    ask_health: 'I feel unwell',
     nav_navigate: 'Navigate',
     nav_trip: 'Trip',
     nav_safety: 'Safety',
@@ -185,6 +187,7 @@ export const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> =
     ask_emergency: 'आपातकालीन मदद',
     ask_talk: 'बात करने में मदद',
     ask_truck: 'ट्रक की समस्या',
+    ask_health: 'तबीयत ठीक नहीं',
     nav_navigate: 'नेविगेट',
     nav_trip: 'ट्रिप',
     nav_safety: 'सुरक्षा',
@@ -251,6 +254,7 @@ export const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> =
     ask_emergency: 'કટોકટી મદદ',
     ask_talk: 'વાત કરવામાં મદદ',
     ask_truck: 'ટ્રકની સમસ્યા',
+    ask_health: 'તબિયત સારી નથી',
     nav_navigate: 'નેવિગેટ',
     nav_trip: 'ટ્રિપ',
     nav_safety: 'સુરક્ષા',
@@ -317,6 +321,7 @@ export const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> =
     ask_emergency: 'জৰুৰীকালীন সহায়',
     ask_talk: 'কথা পতাত সহায়',
     ask_truck: 'ট্ৰাকৰ সমস্যা',
+    ask_health: 'শৰীৰ ভাল লগা নাই',
     nav_navigate: 'নেভিগেট',
     nav_trip: 'ট্ৰিপ',
     nav_safety: 'সুৰক্ষা',
@@ -383,6 +388,7 @@ export const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> =
     ask_emergency: 'জরুরি সাহায্য',
     ask_talk: 'কথা বলতে সাহায্য',
     ask_truck: 'ট্রাকের সমস্যা',
+    ask_health: 'শরীর ভালো লাগছে না',
     nav_navigate: 'নেভিগেট',
     nav_trip: 'ট্রিপ',
     nav_more: 'আরও',

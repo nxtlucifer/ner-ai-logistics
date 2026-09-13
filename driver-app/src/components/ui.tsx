@@ -1,4 +1,13 @@
-/** Shared driver-app UI primitives. */
+/**
+ * Shared driver-app UI primitives.
+ *
+ * Every visible string these take (`label`, `title`, `detail`, `hint`,
+ * `placeholder`) goes through `useT()` HERE, so a screen that writes
+ * `<Button label="Try again" />` is localised without touching the screen:
+ * the English is the key, a translation renders when i18n/tx.ts has one, and
+ * the English itself otherwise. Already-translated text passes through
+ * unchanged (there is no phrase keyed on it).
+ */
 
 import type { ReactNode } from 'react'
 import {
@@ -11,6 +20,7 @@ import {
 } from 'react-native'
 
 import { ApiError, NetworkError } from '../api/client'
+import { useT } from '../i18n/tx'
 import { TOUCH_TARGET } from '../theme'
 import { makeStyles, useTheme } from '../theme-context'
 
@@ -29,6 +39,7 @@ export function Button({
 }) {
   const styles = useStyles()
   const { colors: COLORS } = useTheme()
+  const t = useT()
   // `busy` disables too - the double-submit guard. On a flaky mobile network a
   // driver will tap twice, and a duplicate verify must never be sent.
   const isOff = disabled || busy
@@ -53,7 +64,7 @@ export function Button({
           color={variant === 'secondary' ? COLORS.text : COLORS.onAccent}
         />
       ) : (
-        <Text style={[styles.buttonLabel, { color: variant === 'secondary' || isOff ? COLORS.text : COLORS.onAccent }]}>{label}</Text>
+        <Text style={[styles.buttonLabel, { color: variant === 'secondary' || isOff ? COLORS.text : COLORS.onAccent }]}>{t(label)}</Text>
       )}
     </Pressable>
   )
@@ -85,14 +96,15 @@ export function Field({
 }) {
   const styles = useStyles()
   const { colors: COLORS } = useTheme()
+  const t = useT()
   return (
     <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
+      <Text style={styles.fieldLabel}>{t(label)}</Text>
       <TextInput
         accessibilityLabel={label}
         value={value}
         onChangeText={onChangeText}
-        placeholder={placeholder}
+        placeholder={placeholder === undefined ? undefined : t(placeholder)}
         placeholderTextColor={COLORS.faint}
         secureTextEntry={secureTextEntry}
         keyboardType={keyboardType}
@@ -102,7 +114,7 @@ export function Field({
         returnKeyType={returnKeyType}
         style={styles.input}
       />
-      {hint ? <Text style={styles.fieldHint}>{hint}</Text> : null}
+      {hint ? <Text style={styles.fieldHint}>{t(hint)}</Text> : null}
     </View>
   )
 }
@@ -118,6 +130,7 @@ export function Banner({
 }) {
   const styles = useStyles()
   const { colors: COLORS } = useTheme()
+  const t = useT()
   const toneStyle = {
     ok: { bg: COLORS.okBg, border: COLORS.ok, text: COLORS.ok },
     bad: { bg: COLORS.badBg, border: COLORS.badBorder, text: COLORS.bad },
@@ -132,8 +145,8 @@ export function Banner({
         { backgroundColor: toneStyle.bg, borderColor: toneStyle.border },
       ]}
     >
-      <Text style={[styles.bannerTitle, { color: toneStyle.text }]}>{title}</Text>
-      {detail ? <Text style={styles.bannerDetail}>{detail}</Text> : null}
+      <Text style={[styles.bannerTitle, { color: toneStyle.text }]}>{t(title)}</Text>
+      {detail ? <Text style={styles.bannerDetail}>{t(detail)}</Text> : null}
     </View>
   )
 }
@@ -174,21 +187,22 @@ export function errorMessage(error: unknown): { title: string; detail: string } 
 export function Loading({ label }: { label: string }) {
   const styles = useStyles()
   const { colors: COLORS } = useTheme()
+  const t = useT()
   return (
     <View style={styles.loading}>
       <ActivityIndicator color={COLORS.muted} />
-      <Text style={styles.loadingLabel}>{label}</Text>
+      <Text style={styles.loadingLabel}>{t(label)}</Text>
     </View>
   )
 }
 
 export function Row({ label, value }: { label: string; value: ReactNode }) {
   const styles = useStyles()
-  const { colors: COLORS } = useTheme()
+  const t = useT()
   return (
     <View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={styles.rowValue}>{value}</Text>
+      <Text style={styles.rowLabel}>{t(label)}</Text>
+      <Text style={styles.rowValue}>{typeof value === 'string' ? t(value) : value}</Text>
     </View>
   )
 }

@@ -14,6 +14,7 @@ import { useEffect, useState } from 'react'
 
 import { expoLocationAdapter, type LocationAdapter } from './adapter'
 import { sourceOf } from './source'
+import { SpeedFilter } from './speed'
 import type { PermissionState, TrackerState } from './tracker'
 
 export interface BrowsePosition {
@@ -47,14 +48,15 @@ export function useBrowsePosition(enabled: boolean, adapter: LocationAdapter = e
         if (cached) {
           setLastPosition((prev) => prev ?? { lat: cached.lat, lon: cached.lon, accuracyM: cached.accuracyM ?? null, source: sourceOf(cached.accuracyM ?? null), at: cached.timestamp })
         }
+        const speed = new SpeedFilter()
         const sub = await adapter.watch(
           { intervalSeconds: 5 },
           (s) => setLastPosition({
             lat: s.lat,
             lon: s.lon,
             accuracyM: s.accuracyM ?? null,
-            speedKmh: s.speedMs !== null && s.speedMs >= 0 ? Math.round(s.speedMs * 3.6) : null,
-            headingDeg: s.speedMs !== null && s.speedMs > 1 ? s.headingDeg : null,
+            speedKmh: speed.next({ lat: s.lat, lon: s.lon, accuracyM: s.accuracyM ?? null, speedMs: s.speedMs, at: s.timestamp }),
+            headingDeg: speed.moving && s.speedMs !== null && s.speedMs > 1 ? s.headingDeg : null,
             source: sourceOf(s.accuracyM ?? null),
             at: s.timestamp,
           }),

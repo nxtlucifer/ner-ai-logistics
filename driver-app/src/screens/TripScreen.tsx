@@ -205,6 +205,8 @@ function Section({
   initiallyOpen?: boolean
 }) {
   const styles = useStyles()
+  const { colors: COLORS } = useTheme()
+  const t = useT()
   const [open, setOpen] = useState(initiallyOpen)
   return (
     <View style={styles.section}>
@@ -215,15 +217,15 @@ function Section({
         accessibilityLabel={`${title}${summary ? `, ${summary}` : ''}`}
         style={styles.sectionHeader}
       >
-        <Text style={styles.sectionTitle}>{title}</Text>
+        <Text style={styles.sectionTitle}>{t(title)}</Text>
         {summary ? (
           <Text style={styles.sectionSummary} numberOfLines={1}>
-            {summary}
+            {t(summary)}
           </Text>
         ) : null}
         {/* A caret drawn as text, not an emoji. It carries no meaning on its
             own - the accessible state above is what a screen reader uses. */}
-        <Text style={styles.sectionCaret}>{open ? '–' : '+'}</Text>
+        <Icon name={open ? 'chevron-up' : 'chevron-down'} size={18} color={COLORS.muted} />
       </Pressable>
       {open ? <View style={styles.sectionBody}>{children}</View> : null}
     </View>
@@ -240,6 +242,7 @@ function SentinelCheckInCard({
   busy: boolean
 }) {
   const styles = useStyles()
+  const t = useT()
   if (emergency.state === 'SOS_ESCALATED') {
     return (
       <View style={styles.emergencyCard}>
@@ -258,7 +261,7 @@ function SentinelCheckInCard({
         <Banner
           tone="warn"
           title="Safety Check Received"
-          detail={`Status recorded: ${(emergency.driver_response ?? 'Acknowledged').replace(/_/g, ' ')}. Manager operations desk has been notified.`}
+          detail={`${t('Status recorded')}: ${(emergency.driver_response ?? 'Acknowledged').replace(/_/g, ' ')}. ${t('Manager operations desk has been notified.')}`}
         />
       </View>
     )
@@ -276,7 +279,7 @@ function SentinelCheckInCard({
         detail="Stationary outside an approved stop for over 60 minutes. Please confirm your status to avoid automatic dispatch escalation."
       />
       <View style={styles.checkInOptions}>
-        <Text style={styles.checkInPrompt}>Select your current status:</Text>
+        <Text style={styles.checkInPrompt}>{t('Select your current status:')}</Text>
         <View style={styles.checkInButtonGrid}>
           <Pressable
             disabled={busy}
@@ -295,7 +298,7 @@ function SentinelCheckInCard({
             style={styles.checkInBtn}
             onPress={() => void onCheckIn('TRAFFIC')}
           >
-            <Text style={styles.checkInBtnText}>Traffic Congestion</Text>
+            <Text style={styles.checkInBtnText}>{t('Traffic Congestion')}</Text>
           </Pressable>
           <Pressable
             disabled={busy}
@@ -304,7 +307,7 @@ function SentinelCheckInCard({
             style={styles.checkInBtn}
             onPress={() => void onCheckIn('REST_STOP')}
           >
-            <Text style={styles.checkInBtnText}>Rest / Meal Stop</Text>
+            <Text style={styles.checkInBtnText}>{t('Rest / Meal Stop')}</Text>
           </Pressable>
           <Pressable
             disabled={busy}
@@ -313,7 +316,7 @@ function SentinelCheckInCard({
             style={styles.checkInBtn}
             onPress={() => void onCheckIn('MECHANICAL_BREAKDOWN')}
           >
-            <Text style={styles.checkInBtnText}>Breakdown / Flat Tyre</Text>
+            <Text style={styles.checkInBtnText}>{t('Breakdown / Flat Tyre')}</Text>
           </Pressable>
           <Pressable
             disabled={busy}
@@ -322,7 +325,7 @@ function SentinelCheckInCard({
             style={styles.checkInBtn}
             onPress={() => void onCheckIn('WEATHER_LANDSLIDE')}
           >
-            <Text style={styles.checkInBtnText}>Landslide / Weather Block</Text>
+            <Text style={styles.checkInBtnText}>{t('Landslide / Weather Block')}</Text>
           </Pressable>
           <Pressable
             disabled={busy}
@@ -332,7 +335,7 @@ function SentinelCheckInCard({
             onPress={() => void onCheckIn('NEED_HELP')}
           >
             <Icon name="alert-triangle" size={18} color="#fca5a5" />
-            <Text style={styles.checkInBtnTextSos}>NEED HELP / ESCALATE NOW</Text>
+            <Text style={styles.checkInBtnTextSos}>{t('NEED HELP / ESCALATE NOW')}</Text>
           </Pressable>
         </View>
       </View>
@@ -873,7 +876,7 @@ export default function TripScreen({
             away. Nothing here was deleted to make room for the map. */}
         <Section
           title="Stops"
-          summary={`${trip.stops.filter((s) => s.status === 'COMPLETED').length} of ${trip.stops.length} done`}
+          summary={`${trip.stops.filter((s) => s.status === 'COMPLETED').length} / ${trip.stops.length}`}
           initiallyOpen
         >
           {trip.stops.map((stop) => (
@@ -888,7 +891,7 @@ export default function TripScreen({
         {trip.progress ? (
           <Section
             title="Route progress"
-            summary={formatDistanceKm(trip.progress.remaining_distance_km) + ' left'}
+            summary={formatDistanceKm(trip.progress.remaining_distance_km) + ' ' + t('remaining')}
           >
             <ProgressCard progress={trip.progress} />
           </Section>
@@ -911,9 +914,9 @@ export default function TripScreen({
         </Section>
 
         <Text style={styles.note}>
-          {inProgress
+          {t(inProgress
             ? 'Your location is shared with your fleet manager while this trip is running. It stops when the trip is complete.'
-            : 'Your location is not being shared.'}
+            : 'Your location is not being shared.')}
         </Text>
       </ScrollView>
     </View>
@@ -933,6 +936,7 @@ function TrackingBanner({
 }) {
   const styles = useStyles()
   const { colors: COLORS } = useTheme()
+  const t = useT()
   if (tracking.permission === 'denied') {
     return (
       <View>
@@ -957,7 +961,7 @@ function TrackingBanner({
         title="Location unavailable"
         detail={
           tracking.lastError ??
-          'Location services are switched off on this device. Turn them on to share your position.'
+          t('Location services are switched off on this device. Turn them on to share your position.')
         }
       />
     )
@@ -975,8 +979,8 @@ function TrackingBanner({
       <Banner
         tone="bad"
         title="Location not reaching the server"
-        detail={`${tracking.queueDepth} fix(es) waiting. Retrying automatically — ${
-          tracking.lastError ?? 'no connection'
+        detail={`${tracking.queueDepth} ${t('fixes waiting. Retrying automatically')} — ${
+          tracking.lastError ?? t('no connection')
         }`}
       />
     )
@@ -990,11 +994,11 @@ function TrackingBanner({
     <Banner
       tone="ok"
       title="Location active"
-      detail={`Last sent ${
+      detail={`${t('Last sent')} ${
         tracking.lastAcceptedAt
           ? relativeTime(tracking.lastAcceptedAt.toISOString())
-          : 'not yet'
-      }${tracking.queueDepth ? ` · ${tracking.queueDepth} queued` : ''}`}
+          : t('not yet')
+      }${tracking.queueDepth ? ` · ${tracking.queueDepth} ${t('queued')}` : ''}`}
     />
   )
 }

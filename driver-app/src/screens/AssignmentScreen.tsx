@@ -198,7 +198,7 @@ export default function AssignmentScreen({ onBack }: { onBack?: () => void } = {
           style={styles.backRow}
         >
           <Icon name="chevron-left" size={20} color={COLORS.routeOn} />
-          <Text style={styles.backText}>{verified ? 'Back to trip — checked' : 'Back to trip'}</Text>
+          <Text style={styles.backText}>{t(verified ? 'Back to trip — checked' : 'Back to trip')}</Text>
         </Pressable>
       ) : null}
       <ScrollView
@@ -220,9 +220,9 @@ export default function AssignmentScreen({ onBack }: { onBack?: () => void } = {
           </>
         ) : assignment === null ? (
           <View style={styles.empty}>
-            <Text style={styles.emptyTitle}>No truck assigned</Text>
+            <Text style={styles.emptyTitle}>{t('No truck assigned')}</Text>
             <Text style={styles.emptyBody}>
-              Your manager has not assigned you a truck yet. Pull down to refresh.
+              {t('Your manager has not assigned you a truck yet. Pull down to refresh.')}
             </Text>
           </View>
         ) : (
@@ -268,7 +268,7 @@ export default function AssignmentScreen({ onBack }: { onBack?: () => void } = {
             </View>
 
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>Your truck</Text>
+              <Text style={styles.cardTitle}>{t('Your truck')}</Text>
               <Text style={styles.registration}>
                 {assignment.truck.registration_number}
               </Text>
@@ -291,7 +291,7 @@ export default function AssignmentScreen({ onBack }: { onBack?: () => void } = {
                 value={
                   verified
                     ? new Date(assignment.verified_at as string).toLocaleDateString()
-                    : 'Not yet'
+                    : t('Not yet')
                 }
               />
             </View>
@@ -304,8 +304,7 @@ export default function AssignmentScreen({ onBack }: { onBack?: () => void } = {
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>{t('Check the truck')}</Text>
                 <Text style={styles.help}>
-                  Enter what you can see on the vehicle. If the registration does
-                  not match, you can still continue — your manager will review it.
+                  {t('Enter what you can see on the vehicle. If the registration does not match, you can still continue — your manager will review it.')}
                 </Text>
                 <Text style={styles.fieldLabel}>{t('Truck photo')}</Text>
                 {photo ? (
@@ -358,9 +357,9 @@ export default function AssignmentScreen({ onBack }: { onBack?: () => void } = {
             )}
 
             <Text style={styles.note}>
-              {verified
+              {t(verified
                 ? 'This truck is checked. Location is shared only while a trip is running — see the Trip tab.'
-                : 'Check this truck before you can start a trip. Location is not being shared.'}
+                : 'Check this truck before you can start a trip. Location is not being shared.')}
             </Text>
           </>
         )}

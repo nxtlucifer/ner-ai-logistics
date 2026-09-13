@@ -498,10 +498,16 @@ describe('the fix payload', () => {
     const harness = makeTracker(device)
     await harness.tracker.start()
 
+    // One fast fix is not motion yet (speed.ts needs two); the second is.
     device.emit(sample({ timestamp: 0, speedMs: 12, headingDeg: 118 }))
+    expect(harness.tracker.getState().lastPosition?.headingDeg).toBeNull()
+    expect(harness.tracker.getState().lastPosition?.speedKmh).toBe(0)
+    device.emit(sample({ timestamp: 60_000, speedMs: 12, headingDeg: 118 }))
     expect(harness.tracker.getState().lastPosition?.headingDeg).toBe(118)
+    expect(harness.tracker.getState().lastPosition?.speedKmh).toBe(43)
     device.emit(sample({ timestamp: 120_000, speedMs: 0, headingDeg: 0 }))
     expect(harness.tracker.getState().lastPosition?.headingDeg).toBeNull()
+    expect(harness.tracker.getState().lastPosition?.speedKmh).toBe(0)
   })
 
   it('omits a reading the server would reject rather than losing the fix', async () => {

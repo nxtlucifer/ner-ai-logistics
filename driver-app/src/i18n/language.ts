@@ -65,5 +65,17 @@ export function deviceLanguage(): Language {
  */
 export function resolveLanguage(override?: string | null): Language {
   if (override) return matchLanguage(override)
-  return deviceLanguage()
+  return appLanguage ? matchLanguage(appLanguage) : deviceLanguage()
+}
+
+/**
+ * ONE language state. The app's chosen language (AppLanguageProvider) is
+ * mirrored here so the catalogues that are read outside React - reason codes,
+ * the safety guide, the phrasebook, Route AI - follow the same choice as the
+ * labels. Before it was the DEVICE locale, so a driver who picked Hindi got
+ * Hindi buttons around an English safety guide.
+ */
+let appLanguage: string | null = null
+export function setResolvedLanguage(tag: string | null): void {
+  appLanguage = tag ?? deviceLanguage()
 }

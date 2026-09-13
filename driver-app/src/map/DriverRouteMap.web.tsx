@@ -82,6 +82,7 @@ export default function DriverRouteMap({
   stops,
   position,
   positionKind,
+  positionSource = null,
   accuracyM,
   headingDeg = null,
   places = [],
@@ -195,10 +196,10 @@ export default function DriverRouteMap({
       drawn.current.push(layer)
     }
     const safeLabel = (text: string) => { const el = document.createElement('span'); el.textContent = text; return el }
-    for (const s of sceneLayers({ points, progressFraction, backupPoints, showBackup, terrainSegments, hazards, stops, position, positionKind, accuracyM, positionAgeSeconds, headingDeg, places, selectedPlaceId, trafficSegments })) {
+    for (const s of sceneLayers({ points, progressFraction, backupPoints, showBackup, terrainSegments, hazards, stops, position, positionKind, positionSource, accuracyM, positionAgeSeconds, headingDeg, places, selectedPlaceId, trafficSegments })) {
       let layer: L.Layer
       if (s.k === 'line') layer = L.polyline(s.p, { color: s.c, weight: s.w, dashArray: s.d, lineJoin: 'round', lineCap: 'round' })
-      else if (s.k === 'circle') layer = L.circle(s.p, { radius: s.r, color: s.c, weight: 1, fillColor: s.c, fillOpacity: 0.15 })
+      else if (s.k === 'circle') layer = L.circle(s.p, { radius: s.r, color: s.c, weight: 1, dashArray: s.d, fillColor: s.c, fillOpacity: 0.15 })
       else if (s.k === 'dot') layer = L.circleMarker(s.p, { radius: s.r, color: s.c, weight: s.w, fillColor: s.f, fillOpacity: s.o })
       else layer = L.marker(s.p, { icon: L.divIcon({ className: '', html: `<div style="${ARROW_STYLE}transform:rotate(${s.h}deg)"></div>`, iconSize: [22, 22], iconAnchor: [11, 11] }) })
       if (s.tip) layer.bindTooltip(safeLabel(s.tip))
@@ -212,6 +213,7 @@ export default function DriverRouteMap({
     stops,
     position,
     positionKind,
+    positionSource,
     accuracyM,
     progressFraction,
     positionAgeSeconds,

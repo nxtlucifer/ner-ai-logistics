@@ -23,6 +23,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { WebView, type WebViewMessageEvent } from 'react-native-webview'
 
+import { useT } from '../i18n/tx'
 import { boundsOf } from './geo'
 import { routeCameraKey } from './routeDisplay'
 import { ARROW_STYLE, HILLSHADE_ATTRIBUTION, HILLSHADE_URL, sceneLayers } from './scene'
@@ -51,7 +52,7 @@ var esc=function(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'
 var drawn=[];
 window.scene=function(layers){drawn.forEach(function(l){l.remove()});drawn=[];layers.forEach(function(s){var l;
  if(s.k==='line')l=L.polyline(s.p,{color:s.c,weight:s.w,dashArray:s.d,lineJoin:'round',lineCap:'round'});
- else if(s.k==='circle')l=L.circle(s.p,{radius:s.r,color:s.c,weight:1,fillColor:s.c,fillOpacity:.15});
+ else if(s.k==='circle')l=L.circle(s.p,{radius:s.r,color:s.c,weight:1,dashArray:s.d,fillColor:s.c,fillOpacity:.15});
  else if(s.k==='dot')l=L.circleMarker(s.p,{radius:s.r,color:s.c,weight:s.w,fillColor:s.f,fillOpacity:s.o});
  else l=L.marker(s.p,{icon:L.divIcon({className:'',html:'<div style="${ARROW_STYLE}transform:rotate('+s.h+'deg)"></div>',iconSize:[22,22],iconAnchor:[11,11]})});
  if(s.tip)l.bindTooltip(esc(s.tip));if(s.id)l.on('click',function(){send({t:'place',id:s.id})});l.addTo(map);drawn.push(l)})};
@@ -69,6 +70,7 @@ export default function DriverRouteMap({
   stops,
   position,
   positionKind,
+  positionSource = null,
   accuracyM,
   positionAgeSeconds,
   headingDeg = null,
@@ -87,6 +89,7 @@ export default function DriverRouteMap({
 }: DriverRouteMapProps) {
   const web = useRef<WebView | null>(null)
   const [ready, setReady] = useState(false)
+  const t = useT()
   const [tileError, setTileError] = useState(false)
   const [following, setFollowing] = useState(false)
   useEffect(() => { onFollowChange?.(following) }, [following, onFollowChange])
@@ -113,11 +116,11 @@ export default function DriverRouteMap({
   const lastScene = useRef('')
   useEffect(() => {
     if (!ready) return
-    const json = JSON.stringify(sceneLayers({ points, progressFraction, backupPoints, showBackup, terrainSegments, hazards, stops, position, positionKind, accuracyM, positionAgeSeconds, headingDeg, places, selectedPlaceId, trafficSegments }))
+    const json = JSON.stringify(sceneLayers({ points, progressFraction, backupPoints, showBackup, terrainSegments, hazards, stops, position, positionKind, positionSource, accuracyM, positionAgeSeconds, headingDeg, places, selectedPlaceId, trafficSegments }))
     if (json === lastScene.current) return
     lastScene.current = json
     run('window.scene(' + json + ')')
-  }, [ready, run, points, progressFraction, backupPoints, showBackup, terrainSegments, hazards, stops, position, positionKind, accuracyM, positionAgeSeconds, headingDeg, places, selectedPlaceId, trafficSegments])
+  }, [ready, run, points, progressFraction, backupPoints, showBackup, terrainSegments, hazards, stops, position, positionKind, positionSource, accuracyM, positionAgeSeconds, headingDeg, places, selectedPlaceId, trafficSegments])
 
   useEffect(() => {
     if (ready) run(`window.hill(${JSON.stringify(hillshade ? HILLSHADE_URL : null)})`)
@@ -185,7 +188,7 @@ export default function DriverRouteMap({
       {tileError ? (
         <View style={styles.tileError} accessibilityRole="alert">
           <Text style={styles.tileErrorText}>
-            Map tiles could not load. The route shown is from your trip and is still correct.
+            {t('Map tiles could not load. The route shown is from your trip and is still correct.')}
           </Text>
         </View>
       ) : null}

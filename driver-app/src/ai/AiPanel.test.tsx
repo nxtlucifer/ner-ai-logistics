@@ -3,7 +3,7 @@
  * The provenance label on an AI answer.
  *
  * This exists because the label used to be unconditional. Every answer said
- * "Written by AI - check anything important", including the deterministic
+ * "Written by an online model - check anything important", including the deterministic
  * offline assistant, which is bundled text a person reviewed. That is wrong in
  * both directions at once: it claims the assistant is online when it is not,
  * and it tells a driver to distrust the single answer on the screen that was
@@ -99,7 +99,7 @@ function panelWith(a: AiAnswer) {
 describe('AI answer provenance', () => {
   it('labels a model-written answer as written by AI', async () => {
     await panelWith(answer({ generated: true }))
-    expect(host.textContent).toContain('Written by AI')
+    expect(host.textContent).toContain('Written by an online model')
     expect(host.textContent).not.toContain('Offline guidance')
   })
 
@@ -113,7 +113,7 @@ describe('AI answer provenance', () => {
       }),
     )
     // The claim that must never appear over reviewed, bundled text.
-    expect(host.textContent).not.toContain('Written by AI')
+    expect(host.textContent).not.toContain('Written by an online model')
     expect(host.textContent).toContain('Offline guidance')
   })
 

@@ -1,68 +1,61 @@
 /**
- * Driver Assistant - a chat, and every word in it was written by a person.
+ * Driver Assistant - local first, online second, never in charge.
  *
- * THIS IS NOT A GENERATIVE ASSISTANT AND MUST NEVER BE DESCRIBED AS ONE
+ * ROUTER (one question, one answer bubble, always)
  *
- * Every reply on this screen comes from `src/assistant/assistant.ts`, which
- * imports no network client, no storage and no model. It is a pure function of
- * a context object the caller has already fetched: tap a question, get the
- * same answer every time from the same inputs. There is no model in the loop,
- * so there is nothing here to hallucinate a road being open.
+ *   text -> classifyIntent (keyword table, five languages, no model)
+ *     known intent  -> src/assistant/assistant.ts, a pure function of
+ *                      application state. Route, stop, risk, weather, break,
+ *                      truck, emergency and HEALTH answers are deterministic
+ *                      and identical offline.
+ *     UNKNOWN + online -> POST /api/ai/ask. The server tries Gemini, then
+ *                      OpenRouter, then its own offline library; the answer
+ *                      is labelled with the provider and rendered as prose.
+ *                      It is given the same facts this screen holds and may
+ *                      only EXPLAIN them - it cannot change a route, mark a
+ *                      road safe or send anything.
+ *     UNKNOWN + offline, or the server could not answer -> the local
+ *                      "I can help with…" answer, in the app language.
  *
- * The chat shape is for the driver, not the technology. A transcript is how a
- * person expects to ask a second question after reading the first answer, and
- * it keeps the previous answer on screen instead of replacing it - which is
- * what the old panel did, so a driver comparing "next stop" against "my route"
- * had to keep re-tapping.
+ * ONE LANGUAGE. Every headline, label and guidance line the local engine
+ * produces is an English key rendered through `useT()`, the quick questions
+ * come from the typed catalogue, speech input uses the app language, and the
+ * online request carries it so the model answers in it.
  *
- * IT ANSWERS OFFLINE, AND IT SAYS SO WHEN THE ANSWER IS OLD
- *
- * `Answer.freshness` travels with every reply and is rendered above the facts.
- * An answer built from a stored snapshot is labelled as one. The assistant is
- * allowed to be out of date; it is not allowed to be out of date quietly.
- *
- * IT CANNOT ACT
- *
- * `AllowedAction` is a closed set of NAVIGATION targets plus recording a break
- * on this phone. There is no reroute, no trip close, no dispatch send - a
- * route change is a manager decision, and this screen explains that rather
- * than offering it.
- *
- * THE COMPOSER: CHIPS, A TEXT BOX, AND A MICROPHONE
- *
- * Typed or spoken text goes through `assistant/intents.classifyIntent` - a
- * keyword table, not a model - and lands on the same answers the chips do.
- * Text that matches nothing is told what the assistant can do rather than
- * guessed at. The microphone is the browser's own recogniser where one exists
- * and is visibly disabled where none does; typing always works.
+ * IT CANNOT ACT. `AllowedAction` is a closed set of navigation targets, a
+ * break record on this phone, and the dialler on 112 (the driver still
+ * presses call). There is no reroute, no trip close, no dispatch send.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native'
+import { Linking, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
+import { api } from '../api/client'
 import {
   QUESTIONS,
   answer,
+  contextForModel,
   type AllowedAction,
   type Answer,
   type AssistantContext,
   type Intent,
 } from '../assistant/assistant'
 import { classifyIntent } from '../assistant/intents'
+import { Icon } from '../components/icons'
 import { useAppLanguage } from '../i18n/AppLanguageProvider'
 import { matchLanguage } from '../i18n/language'
-import { useSpeechInput } from '../speech/useSpeechInput'
-import { useRouteRisk } from '../hooks/useRouteRisk'
 import { isKnownReasonCode, translateReasonCode } from '../i18n/reasonCodes'
+import { useT } from '../i18n/tx'
+import { useRouteRisk } from '../hooks/useRouteRisk'
 import { OfflinePackageStore, type StoredPackage } from '../offline/packageStore'
 import { BREAK_REASON_TEXT, assessBreak } from '../safety/breaks'
 import { factorTitle } from '../safety/riskCards'
 import { readLastBreak, recordBreak } from '../safety/breakStore'
-import { useTrip } from '../trip/TripProvider'
+import { useSpeechInput } from '../speech/useSpeechInput'
 import { TOUCH_TARGET } from '../theme'
-import { Icon } from '../components/icons'
 import { makeStyles, useTheme } from '../theme-context'
+import { useTrip } from '../trip/TripProvider'
 import PhrasebookScreen from './PhrasebookScreen'
 
 /** One exchange. The answer is FROZEN at the moment it was asked - re-deriving
@@ -70,7 +63,11 @@ import PhrasebookScreen from './PhrasebookScreen'
 interface Turn {
   id: number
   question: string
-  answer: Answer
+  /** Local, deterministic. Null while an online answer is pending or shown. */
+  answer: Answer | null
+  /** Online prose, labelled with who wrote it. */
+  online?: { text: string; provider: string; model: string | null } | null
+  pending?: boolean
 }
 
 /** Where each hand-off goes. `CONTACT_DISPATCH` is deliberately absent: this
@@ -81,7 +78,10 @@ const ACTION_LABELS: Partial<Record<AllowedAction, string>> = {
   OPEN_SAFETY_GUIDE: 'Open Safety',
   OPEN_PHRASEBOOK: 'Open the translator',
   RECORD_BREAK: 'I stopped for a break',
+  CALL_EMERGENCY: 'Call 112',
 }
+
+const PROVIDER_NAMES: Record<string, string> = { GOOGLE_GEMINI: 'Gemini', OPENROUTER: 'OpenRouter' }
 
 /**
  * No SHOUTING_SNAKE_CASE ever reaches the screen.
@@ -116,14 +116,15 @@ function explain(code: string, lang: Parameters<typeof translateReasonCode>[1]):
 
 function Freshness({ answer: a }: { answer: Answer }) {
   const styles = useStyles()
+  const t = useT()
   if (!a.freshness) return null
   const { ageMinutes, cached, stale } = a.freshness
-  const age = ageMinutes === 0 ? 'just now' : `${ageMinutes} min ago`
+  const age = ageMinutes === 0 ? t('just now') : `${ageMinutes} ${t('min ago')}`
   return (
     <Text style={[styles.freshness, stale && styles.staleText]}>
-      {cached ? 'Stored copy' : 'Last updated'} {age}
-      {cached ? ' — may be out of date' : ''}
-      {stale ? ' — STALE' : ''}
+      {t(cached ? 'Stored copy' : 'Last updated')} {age}
+      {cached ? ` — ${t('may be out of date')}` : ''}
+      {stale ? ` — ${t('STALE')}` : ''}
     </Text>
   )
 }
@@ -142,7 +143,8 @@ export default function AssistantScreen({
   // The APP's language, not the device's: a driver who picked Assamese in
   // the header meant it here too. Reason codes exist in en/hi/as; gu/bn fall
   // back to English there, by `matchLanguage`, rather than to a guess.
-  const { language: appLanguage, t } = useAppLanguage()
+  const { language: appLanguage, t: tk } = useAppLanguage()
+  const t = useT()
   const lang = matchLanguage(appLanguage)
   const [draft, setDraft] = useState('')
   const speech = useSpeechInput()
@@ -157,6 +159,7 @@ export default function AssistantScreen({
   const [offlinePackage, setOfflinePackage] = useState<StoredPackage | null>(null)
   const nextId = useRef(1)
   const scroller = useRef<ScrollView | null>(null)
+  const inFlight = useRef<AbortController | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -170,6 +173,7 @@ export default function AssistantScreen({
       })
     return () => {
       alive = false
+      inFlight.current?.abort()
     }
   }, [])
 
@@ -211,16 +215,46 @@ export default function AssistantScreen({
     [contextAt],
   )
 
-  /** Typed or spoken text: classify locally, answer from the same context. */
+  /** A free-form question the local engine cannot place: the online model, then the local fallback. */
+  const askOnline = useCallback(
+    (question: string, ctx: AssistantContext) => {
+      const id = nextId.current++
+      setTurns((previous) => [...previous, { id, question, answer: null, pending: true }])
+      inFlight.current?.abort()
+      const controller = new AbortController()
+      inFlight.current = controller
+      const settle = (patch: Partial<Turn>) =>
+        setTurns((previous) => previous.map((turn) => (turn.id === id ? { ...turn, pending: false, ...patch } : turn)))
+      api
+        .aiAsk({ mode: 'assistant', question, language: appLanguage, context: contextForModel(ctx) }, controller.signal)
+        .then((res) => {
+          const provider = res.provider ?? 'OFFLINE_ASSISTANT'
+          if (res.generated && provider !== 'OFFLINE_ASSISTANT' && res.answer.trim()) {
+            settle({ online: { text: res.answer.trim(), provider, model: res.model } })
+          } else {
+            // The server fell back to its English library: the local answer
+            // says the same thing in the driver's language.
+            settle({ answer: answer('UNKNOWN', ctx) })
+          }
+        })
+        .catch(() => settle({ answer: answer('UNKNOWN', ctx) }))
+    },
+    [appLanguage],
+  )
+
+  /** Typed or spoken text: classify locally; only the unplaceable goes online. */
   const submit = useCallback(
     (text: string) => {
       const question = text.trim()
       if (!question) return
       setDraft('')
       speech.reset()
-      ask(question, classifyIntent(question), lastBreakAt)
+      const intent = classifyIntent(question)
+      const ctx = contextAt(lastBreakAt)
+      if (intent === 'UNKNOWN' && ctx.online) askOnline(question, ctx)
+      else ask(question, intent, lastBreakAt)
     },
-    [ask, lastBreakAt, speech],
+    [ask, askOnline, contextAt, lastBreakAt, speech],
   )
 
   // A finished recognition lands in the box for the driver to read before it
@@ -233,15 +267,14 @@ export default function AssistantScreen({
   // turn count: an effect on `turns.length` runs before the new bubble has
   // been measured, so it scrolled to the old end and the reply stayed below
   // the fold - which reads as a tap that did nothing.
-  // Not animated: a smooth scroll started against the pre-layout height and
-  // landed a few pixels down instead of at the new reply. It is also the right
-  // behaviour in a cab - the answer is there, rather than sliding into place.
   const toEnd = useCallback(() => scroller.current?.scrollToEnd?.({ animated: false }), [])
 
   const runAction = (action: AllowedAction) => {
     if (action === 'OPEN_TRIP') return onOpenTrip?.()
     if (action === 'OPEN_SAFETY_GUIDE') return onOpenSafety?.()
     if (action === 'OPEN_PHRASEBOOK') return setView('phrasebook')
+    // The dialler, not a call: the driver's thumb is still required.
+    if (action === 'CALL_EMERGENCY') return void Linking.openURL('tel:112').catch(() => {})
     if (action === 'RECORD_BREAK') {
       void recordBreak(new Date()).then(async (stored) => {
         // Never claim it was logged when it was not - the driver would rely on
@@ -251,7 +284,7 @@ export default function AssistantScreen({
             ...previous,
             {
               id: nextId.current++,
-              question: 'I stopped for a break',
+              question: t('I stopped for a break'),
               answer: {
                 intent: 'BREAK',
                 headline: 'Could not save that on this phone',
@@ -267,7 +300,7 @@ export default function AssistantScreen({
         }
         const updated = await readLastBreak()
         setLastBreakAt(updated)
-        ask('I stopped for a break', 'BREAK', updated)
+        ask(t('I stopped for a break'), 'BREAK', updated)
       })
     }
   }
@@ -282,12 +315,14 @@ export default function AssistantScreen({
           style={({ pressed }) => [styles.backRow, pressed && styles.pressed]}
         >
           <Icon name="chevron-left" size={20} color={COLORS.muted} />
-          <Text style={styles.backLabel}>Assistant</Text>
+          <Text style={styles.backLabel}>{t('Assistant')}</Text>
         </Pressable>
         <PhrasebookScreen />
       </View>
     )
   }
+
+  const canSend = draft.trim().length > 0
 
   return (
     <View style={styles.flex}>
@@ -304,22 +339,21 @@ export default function AssistantScreen({
             style={({ pressed }) => [styles.backRow, pressed && styles.pressed]}
           >
             <Icon name="chevron-left" size={20} color={COLORS.muted} />
-            <Text style={styles.backLabel}>More</Text>
+            <Text style={styles.backLabel}>{t('More')}</Text>
           </Pressable>
         ) : null}
 
-        <Text style={styles.title}>Assistant</Text>
+        <Text style={styles.title}>{t('Assistant')}</Text>
 
         {/* The opening line is a claim about how this screen works, and it is
-            a true one: no network call is made to answer anything below. */}
+            a true one: trip, route, risk, break and health answers are computed
+            on this phone; only a question none of those cover goes online. */}
         <View style={styles.bubbleThem}>
           <Text style={styles.opener}>
-            I answer from what this phone already knows — your trip, your stored
-            route package and your break timer. No connection needed.
+            {t('I answer from what this phone already knows — your trip, route, risk, breaks and how you feel. No connection needed.')}
           </Text>
           <Text style={styles.openerNote}>
-            I cannot change your route or close a stop. Those are your manager's
-            to decide and yours to do on the Trip screen.
+            {t('I cannot change your route or close a stop. Those are your manager\'s to decide and yours to do on the Trip screen.')}
           </Text>
         </View>
 
@@ -331,76 +365,96 @@ export default function AssistantScreen({
               </View>
             </View>
 
-            <View style={styles.bubbleThem}>
-              <Text style={styles.headline}>{turn.answer.headline}</Text>
-              <Freshness answer={turn.answer} />
-
-              {turn.answer.facts.map((fact, i) => (
-                <View key={`${fact.code}-${i}`} style={styles.fact}>
-                  <Text style={styles.factLabel}>{fact.label}</Text>
-                  <Text style={styles.factValue}>{readable(fact.value)}</Text>
-                </View>
-              ))}
-
-              {turn.answer.reasonCodes.length > 0 ? (
-                <View style={styles.reasons}>
-                  {turn.answer.reasonCodes.map((code) => (
-                    <Text key={code} style={styles.reason}>
-                      • {explain(code, lang)}
-                    </Text>
-                  ))}
-                </View>
-              ) : null}
-
-              {turn.answer.unavailable.length > 0 ? (
-                // Named gaps, every time. An answer that quietly omitted its
-                // missing inputs would read as a confident one.
+            {turn.pending ? (
+              <View style={styles.bubbleThem}>
+                <Text style={styles.openerNote}>{t('Thinking…')}</Text>
+              </View>
+            ) : turn.online ? (
+              <View style={styles.bubbleThem}>
+                <Text style={styles.prose}>{turn.online.text}</Text>
                 <Text style={styles.unavailable}>
-                  Not included: {turn.answer.unavailable.map(label).join(', ')}
+                  {t('Written by an online model')} · {PROVIDER_NAMES[turn.online.provider] ?? turn.online.provider} · {t('check anything important')}
                 </Text>
-              ) : null}
+              </View>
+            ) : turn.answer ? (
+              <View style={[styles.bubbleThem, turn.answer.intent === 'HEALTH_URGENT' && styles.bubbleUrgent]}>
+                <Text style={[styles.headline, turn.answer.intent === 'HEALTH_URGENT' && styles.headlineUrgent]}>{t(turn.answer.headline)}</Text>
+                <Freshness answer={turn.answer} />
 
-              {turn.answer.allowedActions.includes('CONTACT_DISPATCH') ? (
-                <Text style={styles.unavailable}>
-                  Tell dispatch on the number your operator gave you. This app has
-                  no dispatch line.
-                </Text>
-              ) : null}
+                {turn.answer.facts.map((fact, i) => (
+                  <View key={`${fact.code}-${i}`} style={styles.fact}>
+                    <Text style={styles.factLabel}>{t(fact.label)}</Text>
+                    <Text style={styles.factValue}>{t(readable(fact.value))}</Text>
+                  </View>
+                ))}
 
-              {turn.answer.allowedActions.some((a) => ACTION_LABELS[a]) ? (
-                <View style={styles.actions}>
-                  {turn.answer.allowedActions
-                    .filter((a) => ACTION_LABELS[a])
-                    .map((action) => (
-                      <Pressable
-                        key={action}
-                        onPress={() => runAction(action)}
-                        accessibilityRole="button"
-                        style={({ pressed }) => [styles.action, pressed && styles.pressed]}
-                      >
-                        <Text style={styles.actionLabel}>{ACTION_LABELS[action]}</Text>
-                      </Pressable>
+                {turn.answer.guidance?.length ? (
+                  <View style={styles.reasons}>
+                    {turn.answer.guidance.map((line) => (
+                      <Text key={line} style={styles.reason}>• {t(line)}</Text>
                     ))}
-                </View>
-              ) : null}
-            </View>
+                  </View>
+                ) : null}
+
+                {turn.answer.reasonCodes.length > 0 ? (
+                  <View style={styles.reasons}>
+                    {turn.answer.reasonCodes.map((code) => (
+                      <Text key={code} style={styles.reason}>
+                        • {explain(code, lang)}
+                      </Text>
+                    ))}
+                  </View>
+                ) : null}
+
+                {turn.answer.unavailable.length > 0 ? (
+                  // Named gaps, every time. An answer that quietly omitted its
+                  // missing inputs would read as a confident one.
+                  <Text style={styles.unavailable}>
+                    {t('Not included')}: {turn.answer.unavailable.map((u) => t(label(u))).join(', ')}
+                  </Text>
+                ) : null}
+
+                {turn.answer.allowedActions.includes('CONTACT_DISPATCH') ? (
+                  <Text style={styles.unavailable}>
+                    {t('Tell dispatch on the number your operator gave you. This app has no dispatch line.')}
+                  </Text>
+                ) : null}
+
+                {turn.answer.allowedActions.some((a) => ACTION_LABELS[a]) ? (
+                  <View style={styles.actions}>
+                    {turn.answer.allowedActions
+                      .filter((a) => ACTION_LABELS[a])
+                      .map((action) => (
+                        <Pressable
+                          key={action}
+                          onPress={() => runAction(action)}
+                          accessibilityRole="button"
+                          style={({ pressed }) => [styles.action, action === 'CALL_EMERGENCY' && styles.actionUrgent, pressed && styles.pressed]}
+                        >
+                          <Text style={[styles.actionLabel, action === 'CALL_EMERGENCY' && styles.actionLabelUrgent]}>{t(ACTION_LABELS[action] as string)}</Text>
+                        </Pressable>
+                      ))}
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
           </View>
         ))}
       </ScrollView>
 
-      {/* The composer: quick questions, then a box and a microphone. */}
+      {/* The composer: quick questions, then a box, a microphone and send. */}
       <View style={styles.composer}>
-        <Text style={styles.composerLabel}>{t('ask_label')}</Text>
+        <Text style={styles.composerLabel}>{tk('ask_label')}</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
           {QUESTIONS.map((q) => (
             <Pressable
               key={q.id}
-              onPress={() => ask(t(q.labelKey), q.intent, lastBreakAt)}
+              onPress={() => ask(tk(q.labelKey), q.intent, lastBreakAt)}
               accessibilityRole="button"
               testID={`ask-${q.id}`}
               style={({ pressed }) => [styles.chip, pressed && styles.pressed]}
             >
-              <Text style={styles.chipLabel}>{t(q.labelKey)}</Text>
+              <Text style={styles.chipLabel}>{tk(q.labelKey)}</Text>
             </Pressable>
           ))}
         </ScrollView>
@@ -420,13 +474,13 @@ export default function AssistantScreen({
             style={[styles.micBtn, speech.listening && styles.micBtnOn, !speech.available && styles.micBtnOff]}
             testID="assistant-mic"
           >
-            <Text style={[styles.micGlyph, !speech.available && styles.micGlyphOff]}>{speech.listening ? '■' : '🎤'}</Text>
+            <Icon name={speech.listening ? 'square' : 'mic'} size={20} color={!speech.available ? COLORS.faint : speech.listening ? COLORS.bad : COLORS.text} />
           </Pressable>
           <TextInput
             value={draft}
             onChangeText={setDraft}
             onSubmitEditing={() => submit(draft)}
-            placeholder={speech.listening ? t('ask_listening') : t('ask_placeholder')}
+            placeholder={speech.listening ? tk('ask_listening') : tk('ask_placeholder')}
             placeholderTextColor={COLORS.faint}
             returnKeyType="send"
             blurOnSubmit={false}
@@ -437,23 +491,23 @@ export default function AssistantScreen({
           />
           <Pressable
             onPress={() => submit(draft)}
-            disabled={!draft.trim()}
+            disabled={!canSend}
             accessibilityRole="button"
             accessibilityLabel="Send"
-            accessibilityState={{ disabled: !draft.trim() }}
-            style={[styles.sendBtn, !draft.trim() && styles.sendBtnOff]}
+            accessibilityState={{ disabled: !canSend }}
+            style={[styles.sendBtn, !canSend && styles.sendBtnOff]}
             testID="assistant-send"
           >
-            <Text style={[styles.sendGlyph, !draft.trim() && styles.sendGlyphOff]}>➤</Text>
+            <Icon name="send" size={18} color={canSend ? COLORS.onAccent : COLORS.faint} />
           </Pressable>
         </View>
         {speech.error ? <Text style={styles.speechNote}>{speech.error}</Text> : null}
         {speech.confidence !== null && speech.transcript ? (
-          <Text style={styles.speechNote}>Heard with {Math.round(speech.confidence * 100)}% confidence (engine figure)</Text>
+          <Text style={styles.speechNote}>{t('Heard with')} {Math.round(speech.confidence * 100)}% {t('confidence (engine figure)')}</Text>
         ) : speech.available ? (
-          <Text style={styles.speechNote}>{speech.listening ? 'Listening…' : 'Device speech · needs a connection · typing always works'}</Text>
+          <Text style={styles.speechNote}>{t(speech.listening ? 'Listening…' : 'Device speech · needs a connection · typing always works')}</Text>
         ) : (
-          <Text style={styles.speechNote}>Speech input not available on this device · typing works</Text>
+          <Text style={styles.speechNote}>{t('Speech input not available on this device · typing works')}</Text>
         )}
       </View>
     </View>
@@ -492,11 +546,12 @@ const useStyles = makeStyles((COLORS) => ({
     padding: 16,
     marginBottom: 12,
   },
+  bubbleUrgent: { borderColor: COLORS.badBorder, backgroundColor: COLORS.badBg },
   opener: { color: COLORS.text, fontSize: 15, lineHeight: 22 },
   openerNote: { color: COLORS.muted, fontSize: 13, lineHeight: 19, marginTop: 8 },
+  prose: { color: COLORS.text, fontSize: 15, lineHeight: 22 },
 
-  /** Mine: right-aligned, tinted, and short. It only ever holds one of the
-   *  nine labels, so it never needs to wrap far. */
+  /** Mine: right-aligned, tinted, and short. */
   bubbleMeRow: { alignItems: 'flex-end', marginBottom: 8 },
   bubbleMe: {
     maxWidth: '85%',
@@ -510,6 +565,7 @@ const useStyles = makeStyles((COLORS) => ({
   bubbleMeText: { color: COLORS.text, fontSize: 15, fontWeight: '600' },
 
   headline: { color: COLORS.text, fontSize: 19, fontWeight: '800', letterSpacing: -0.3 },
+  headlineUrgent: { color: COLORS.bad },
   freshness: { color: COLORS.faint, fontSize: 12, marginTop: 4 },
   staleText: { color: COLORS.warn },
 
@@ -546,7 +602,9 @@ const useStyles = makeStyles((COLORS) => ({
     borderColor: COLORS.accent,
     backgroundColor: COLORS.card,
   },
+  actionUrgent: { borderColor: COLORS.bad, backgroundColor: COLORS.bad },
   actionLabel: { color: COLORS.accent, fontSize: 14, fontWeight: '700' },
+  actionLabelUrgent: { color: '#FFFFFF' },
 
   composer: {
     borderTopWidth: 1,
@@ -588,8 +646,6 @@ const useStyles = makeStyles((COLORS) => ({
   },
   micBtnOn: { backgroundColor: COLORS.badBg, borderColor: COLORS.bad },
   micBtnOff: { opacity: 0.45 },
-  micGlyph: { fontSize: 20, color: COLORS.text },
-  micGlyphOff: { color: COLORS.faint },
   sendBtn: {
     width: TOUCH_TARGET,
     height: TOUCH_TARGET,
@@ -599,8 +655,6 @@ const useStyles = makeStyles((COLORS) => ({
     justifyContent: 'center',
   },
   sendBtnOff: { backgroundColor: COLORS.raised, borderWidth: 1, borderColor: COLORS.border },
-  sendGlyph: { fontSize: 18, color: COLORS.onAccent, fontWeight: '800' },
-  sendGlyphOff: { color: COLORS.faint },
   speechNote: { color: COLORS.faint, fontSize: 11 },
   chip: {
     minHeight: 44,

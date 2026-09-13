@@ -198,3 +198,32 @@ async def test_gemini_successful_live_generation():
             )
             assert resp.source_mode == "LIVE_DATA"
             assert resp.answer == "Your next delivery stop is Jorhat Hub at 14:00."
+
+
+@pytest.mark.asyncio
+async def test_gemini_5xx_fails_over_to_openrouter_then_offline():
+    """503 from Gemini -> OpenRouter answers (in the app language); OpenRouter 429 -> offline library."""
+    from unittest.mock import MagicMock
+    from app.domain import ai_prompts
+
+    gem = MagicMock(); gem.status_code = 503; gem.text = "overloaded"
+    orr = MagicMock(); orr.status_code = 200
+    orr.json.return_value = {"choices": [{"message": {"content": "सुरक्षित जगह पर रुकें।"}}]}
+    system = ai_prompts.in_language(ai_prompts.ASSISTANT_SYSTEM, "hi")
+    assert "Devanagari" in system
+
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock, side_effect=[gem, orr]):
+        with patch.object(get_settings(), "GEMINI_API_KEY", "test-key-123"), patch.object(get_settings(), "OPENROUTER_API_KEY", "or-key"):
+            resp = await gemini.generate(system=system, user="मुझे चक्कर आ रहा है", driver_id="driver-failover-1")
+    assert resp.provider == "OPENROUTER"
+    assert resp.answer == "सुरक्षित जगह पर रुकें।"
+    assert gemini.HEALTH["GOOGLE_GEMINI"]["state"] == "FAILED"
+    assert gemini.HEALTH["OPENROUTER"]["state"] == "HEALTHY"
+
+    limited = MagicMock(); limited.status_code = 429
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock, side_effect=[gem, limited, limited, limited]):
+        with patch.object(get_settings(), "GEMINI_API_KEY", "test-key-123"), patch.object(get_settings(), "OPENROUTER_API_KEY", "or-key"):
+            resp = await gemini.generate(system=system, user="How is the weather ahead?", driver_id="driver-failover-2")
+    assert resp.provider == "OFFLINE_ASSISTANT"
+    assert resp.source_mode == "CACHED_DATA"
+    assert gemini.HEALTH["OPENROUTER"]["state"] == "RATE_LIMITED"

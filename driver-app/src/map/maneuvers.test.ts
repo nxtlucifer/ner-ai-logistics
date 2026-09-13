@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { guidanceHold, upcomingManeuver, maneuverIcon } from './maneuvers'
+import { guidanceHold, upcomingManeuver, maneuverIcon, instructionFor } from './maneuvers'
 import type { NavigationManeuver } from '../api/client'
 
 function maneuver(
@@ -222,15 +222,20 @@ describe('guidanceHold platform permission', () => {
 })
 
 describe('maneuverIcon', () => {
-  it('returns appropriate directional symbols for turns and maneuvers', () => {
-    expect(maneuverIcon({ type: 'depart', modifier: null } as any)).toBe('▲')
-    expect(maneuverIcon({ type: 'arrive', modifier: null } as any)).toBe('◉')
-    expect(maneuverIcon({ type: 'roundabout', modifier: null } as any)).toBe('↻')
-    expect(maneuverIcon({ type: 'turn', modifier: 'left' } as any)).toBe('↰')
-    expect(maneuverIcon({ type: 'turn', modifier: 'slight_left' } as any)).toBe('↖')
-    expect(maneuverIcon({ type: 'turn', modifier: 'right' } as any)).toBe('↱')
-    expect(maneuverIcon({ type: 'turn', modifier: 'slight_right' } as any)).toBe('↗')
-    expect(maneuverIcon({ type: 'turn', modifier: 'uturn' } as any)).toBe('↶')
+  it('returns one Feather icon name per maneuver, never a text glyph', () => {
+    expect(maneuverIcon({ type: 'depart', modifier: null } as any)).toBe('navigation')
+    expect(maneuverIcon({ type: 'arrive', modifier: null } as any)).toBe('map-pin')
+    expect(maneuverIcon({ type: 'roundabout', modifier: null } as any)).toBe('rotate-cw')
+    expect(maneuverIcon({ type: 'turn', modifier: 'left' } as any)).toBe('corner-up-left')
+    expect(maneuverIcon({ type: 'turn', modifier: 'slight_left' } as any)).toBe('arrow-up-left')
+    expect(maneuverIcon({ type: 'turn', modifier: 'right' } as any)).toBe('corner-up-right')
+    expect(maneuverIcon({ type: 'turn', modifier: 'slight_right' } as any)).toBe('arrow-up-right')
+    expect(maneuverIcon({ type: 'turn', modifier: 'uturn' } as any)).toBe('corner-left-down')
+  })
+  it('localises the instruction words and leaves the road name alone', () => {
+    const hi = (en: string) => ({ Turn: 'मुड़ें', left: 'बाएँ', onto: 'पर' }[en] ?? en)
+    expect(instructionFor({ type: 'turn', modifier: 'left', name: 'NH 27' } as any, hi)).toBe('मुड़ें बाएँ पर NH 27')
+    expect(instructionFor({ type: 'turn', modifier: 'sharp_right', name: null } as any)).toBe('Turn sharp right')
   })
 })
 

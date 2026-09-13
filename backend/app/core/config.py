@@ -207,6 +207,13 @@ class Settings(BaseSettings):
     GEMINI_TIMEOUT_SECONDS: float = 8.0
     GEMINI_MAX_OUTPUT_TOKENS: int = 512
     GEMINI_RPM_LIMIT: int = 10
+    #: Second online provider, tried when Gemini is down, rate-limited or slow.
+    #: Free-tier models by default (0 credits on the demo account); a comma
+    #: list, first healthy one wins. Reasoning is disabled per request so a
+    #: thinking model does not leak its scratchpad into the answer.
+    OPENROUTER_API_KEY: str | None = None
+    OPENROUTER_MODELS: str = "nvidia/nemotron-3-super-120b-a12b:free,nvidia/nemotron-3.5-lightning:free,google/gemma-4-26b-a4b-it:free"
+    OPENROUTER_TIMEOUT_SECONDS: float = 12.0
 
     #: Off makes route risk return with weather NOT_AVAILABLE rather than
     #: reaching the network - for an offline demo, and for tests that must not

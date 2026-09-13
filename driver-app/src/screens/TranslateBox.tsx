@@ -43,6 +43,7 @@ import {
   VERIFIED_QUICK_TRANSLATIONS,
 } from '../phrasebook/offlineTranslator'
 import { TOUCH_TARGET } from '../theme'
+import { useT } from '../i18n/tx'
 import { makeStyles, useTheme } from '../theme-context'
 
 export type SourceMode = 'ONLINE_AI' | 'OFFLINE_PHRASEBOOK'
@@ -59,6 +60,7 @@ export interface TranslationDisplay {
 export default function TranslateBox() {
   const styles = useStyles()
   const { colors: COLORS } = useTheme()
+  const t = useT()
   const ai = useLocalAi()
   const [text, setText] = useState('')
   const [source, setSource] = useState('en')
@@ -234,7 +236,7 @@ export default function TranslateBox() {
     <View style={styles.container} testID="translate-box">
       {/* Header */}
       <View style={styles.headerRow}>
-        <Text style={styles.title}>Driver Translator</Text>
+        <Text style={styles.title}>{t('Driver Translator')}</Text>
         <View
           style={[
             styles.modeBadge,
@@ -247,7 +249,7 @@ export default function TranslateBox() {
               isAiOnline ? styles.modeBadgeTextAi : styles.modeBadgeTextOffline,
             ]}
           >
-            {isAiOnline ? 'ONLINE TRANSLATION' : 'LOCAL PHRASEBOOK'}
+            {t(isAiOnline ? 'ONLINE TRANSLATION' : 'LOCAL PHRASEBOOK')}
           </Text>
         </View>
       </View>
@@ -255,7 +257,7 @@ export default function TranslateBox() {
       {/* Language Pickers */}
       <View style={styles.pickersContainer}>
         <LanguagePicker
-          label="From"
+          label={t('From')}
           value={source}
           onChange={(val) => {
             handleStopSpeaking()
@@ -273,7 +275,7 @@ export default function TranslateBox() {
         </Pressable>
 
         <LanguagePicker
-          label="To"
+          label={t('To')}
           value={target}
           onChange={(val) => {
             handleStopSpeaking()
@@ -284,7 +286,7 @@ export default function TranslateBox() {
 
       {/* Quick Driver Phrases */}
       <View style={styles.quickPhrasesContainer}>
-        <Text style={styles.sectionLabel}>Quick Driver Phrases</Text>
+        <Text style={styles.sectionLabel}>{t('Quick Driver Phrases')}</Text>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -382,10 +384,10 @@ export default function TranslateBox() {
           {isAsking ? (
             <View style={styles.spinnerRow}>
               <ActivityIndicator size="small" color={COLORS.onAccent} />
-              <Text style={styles.primaryButtonText}>Translating…</Text>
+              <Text style={styles.primaryButtonText}>{t('Translating…')}</Text>
             </View>
           ) : (
-            <Text style={styles.primaryButtonText}>Translate</Text>
+            <Text style={styles.primaryButtonText}>{t('Translate')}</Text>
           )}
         </Pressable>
 
@@ -395,7 +397,7 @@ export default function TranslateBox() {
             accessibilityRole="button"
             style={styles.secondaryButton}
           >
-            <Text style={styles.secondaryButtonText}>Clear</Text>
+            <Text style={styles.secondaryButtonText}>{t('Clear')}</Text>
           </Pressable>
         )}
 
@@ -405,7 +407,7 @@ export default function TranslateBox() {
             accessibilityRole="button"
             style={styles.secondaryButton}
           >
-            <Text style={styles.secondaryButtonText}>Cancel</Text>
+            <Text style={styles.secondaryButtonText}>{t('Cancel')}</Text>
           </Pressable>
         )}
       </View>
@@ -414,7 +416,7 @@ export default function TranslateBox() {
       {!isAiOnline && (
         <View style={styles.noticeBox} testID="translate-unavailable">
           <Text style={styles.noticeTitle}>
-            Online translation unavailable. Showing the local phrasebook.
+            {t('Online translation unavailable. Showing the local phrasebook.')}
           </Text>
           <Text style={styles.noticeSubtitle}>
             Verified emergency and highway phrases function completely offline without
@@ -438,7 +440,7 @@ export default function TranslateBox() {
         <View style={styles.resultCard} testID="translate-result">
           <View style={styles.resultHeader}>
             <Text style={styles.resultTargetTitle}>
-              SHOW THIS TO THE OTHER PERSON
+              {t('SHOW THIS TO THE OTHER PERSON')}
             </Text>
             <View
               style={[
@@ -502,7 +504,7 @@ export default function TranslateBox() {
               style={[styles.resultButton, isSpeaking && styles.resultButtonSpeaking]}
             >
               <Text style={styles.resultButtonText}>
-                {isSpeaking ? 'Stop' : 'Speak'}
+                {t(isSpeaking ? 'Stop' : 'Speak')}
               </Text>
             </Pressable>
           </View>
@@ -524,7 +526,7 @@ export default function TranslateBox() {
                   style={styles.quickSpeakButton}
                   accessibilityLabel="Speak phrase"
                 >
-                  <Text style={styles.quickSpeakIcon}>Speak</Text>
+                  <Text style={styles.quickSpeakIcon}>{t('Speak')}</Text>
                 </Pressable>
               </View>
               <Text style={styles.offlineEnglish}>{match.english}</Text>

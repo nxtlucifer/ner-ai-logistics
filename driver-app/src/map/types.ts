@@ -48,6 +48,8 @@ export interface DriverRouteMapProps {
   /** A real fix, or null. Never a placeholder. */
   position: LatLon | null
   positionKind: PositionKind | null
+  /** GPS-grade or network-grade, by reported accuracy (tracking/source.ts). */
+  positionSource?: 'GPS' | 'NETWORK' | null
   /** Reported GPS accuracy in metres, when the platform gives one. */
   accuracyM: number | null
   /** Age of the device fix, explicitly shown for last-known positions. */

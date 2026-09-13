@@ -18,7 +18,7 @@ missing value as a plausible one, and a model is the easiest way to break that.
 """
 
 from datetime import datetime, timezone
-from typing import Annotated, Literal
+from typing import Any, Annotated, Literal
 
 from fastapi import APIRouter, Body, status as http_status
 from pydantic import Field
@@ -40,6 +40,9 @@ class AiStatusRead(ReadModel):
     detail: str | None
     #: Language codes the demo is prepared to translate between.
     languages: dict[str, str]
+    #: Per-provider health (NOT_CONFIGURED | CONFIGURED | HEALTHY | FAILED |
+    #: RATE_LIMITED) with the last error category. Never a key or a URL.
+    providers: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 class AskRequest(APIModel):
@@ -51,6 +54,13 @@ class AskRequest(APIModel):
     guidance: Annotated[str, Field(default="", max_length=4000)]
     source_language: Annotated[str, Field(default="en", max_length=8)]
     target_language: Annotated[str, Field(default="hi", max_length=8)]
+    #: The app's language: the answer must come back in it.
+    language: Annotated[str, Field(default="en", max_length=8)]
+    #: Facts the deterministic engine on the phone already holds (route
+    #: decision, weather line, next stop...). Text only, bounded, no identity
+    #: or document numbers - the client builds it from the same answer objects
+    #: it renders. Added to the server's own trip facts.
+    context: Annotated[str, Field(default="", max_length=2000)]
 
 
 class AskResponse(ReadModel):
@@ -65,6 +75,8 @@ class AskResponse(ReadModel):
     source_mode: str = "LIVE_DATA"
     actions: list[str] = Field(default_factory=list)
     disclaimer: str | None = None
+    #: GOOGLE_GEMINI | OPENROUTER | OFFLINE_ASSISTANT
+    provider: str = "OFFLINE_ASSISTANT"
 
 
 def _fact(label: str, value: object) -> str:
@@ -108,6 +120,7 @@ async def ai_status(driver: CurrentDriver) -> AiStatusRead:
             model=gemini_res.model,
             detail=gemini_res.detail,
             languages=ai_prompts.DEMO_LANGUAGES,
+            providers=gemini.HEALTH,
         )
 
     local_res = await inference.status()
@@ -126,6 +139,7 @@ async def ai_status(driver: CurrentDriver) -> AiStatusRead:
         model=None,
         detail=gemini_res.detail or local_res.detail,
         languages=ai_prompts.DEMO_LANGUAGES,
+        providers=gemini.HEALTH,
     )
 
 
@@ -153,8 +167,11 @@ async def ask(
         user = ai_prompts.safety_prompt(payload.question, payload.guidance)
     else:
         facts, facts_as_of = await _trip_facts(db, driver)
+        if payload.context.strip():
+            facts = f"{facts}\n{payload.context.strip()}"
         system = ai_prompts.ASSISTANT_SYSTEM
         user = ai_prompts.assistant_prompt(payload.question, facts)
+    system = ai_prompts.in_language(system, payload.language)
 
     gemini_res = await gemini.generate(
         system=system,
@@ -182,4 +199,5 @@ async def ask(
         source_mode=gemini_res.source_mode,
         actions=gemini_res.actions,
         disclaimer=gemini_res.disclaimer,
+        provider=gemini_res.provider,
     )

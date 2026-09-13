@@ -17,6 +17,7 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { api, type DocumentRead, type DriverProfile } from '../api/client'
 import { Banner, Button, Field, Loading, errorMessage } from '../components/ui'
 import { pickDocument, pickPhoto, upload } from '../files/pick'
+import { setProfilePhotoUrl } from '../files/profilePhoto'
 import { useAuthImage } from '../files/useAuthImage'
 import { Icon } from '../components/icons'
 import { useT } from '../i18n/tx'
@@ -27,6 +28,7 @@ const DOC_TYPES = [
   ['GOVERNMENT_ID', 'Government ID'],
   ['OTHER', 'Other'],
 ] as const
+const STATUS_WORD: Record<string, string> = { VALID: 'Valid', EXPIRING_SOON: 'Expiring soon', EXPIRED: 'Expired', MISSING: 'Missing', UNKNOWN: 'Unknown' }
 const TYPE_LABEL: Record<string, string> = { DRIVING_LICENCE: 'Driving Licence', GOVERNMENT_ID: 'Government ID', OTHER: 'Other', INSURANCE: 'Insurance' }
 
 function initials(name: string): string {
@@ -51,7 +53,9 @@ export default function MyDetailsScreen({ onBack }: { onBack: () => void }) {
 
   const load = useCallback(async () => {
     try {
-      setProfile(await api.myProfile())
+      const next = await api.myProfile()
+      setProfile(next)
+      setProfilePhotoUrl(next.photo_url)
       setError(null)
     } catch (e) {
       setError(errorMessage(e))
@@ -127,7 +131,7 @@ export default function MyDetailsScreen({ onBack }: { onBack: () => void }) {
             <DocForm kind="TRUCK_DOCUMENT" onDone={() => { setForm(null); void load() }} onCancel={() => setForm(null)} />
           ) : null}
           <Text style={[styles.sub, styles.foot]} testID="documents-disclaimer">
-            Status comes from the expiry date and the attached file. Nothing here is checked with a government or an insurer.
+            {t('Status comes from the expiry date and the attached file. Nothing here is checked with a government or an insurer.')}
           </Text>
         </>
       ) : null}
@@ -159,7 +163,7 @@ function DocList({ title, empty, rows, addLabel, onAdd }: { title: string; empty
             <Text style={styles.docTitle}>{t(TYPE_LABEL[d.doc_type] ?? d.doc_type.replace(/_/g, ' '))}</Text>
             <Text style={styles.sub}>{d.number_masked ?? '—'}{d.expires_on ? ` · ${t('Valid until')} ${fmtDate(d.expires_on)}` : ''}</Text>
           </View>
-          <Text style={[styles.status, d.status === 'EXPIRED' && styles.statusBad, d.status === 'EXPIRING_SOON' && styles.statusWarn]}>{d.status.replace(/_/g, ' ')}</Text>
+          <Text style={[styles.status, d.status === 'EXPIRED' && styles.statusBad, d.status === 'EXPIRING_SOON' && styles.statusWarn]}>{t(STATUS_WORD[d.status] ?? d.status.replace(/_/g, ' '))}</Text>
         </View>
       ))}
       {onAdd ? <Button label={addLabel} variant="secondary" onPress={onAdd} /> : null}

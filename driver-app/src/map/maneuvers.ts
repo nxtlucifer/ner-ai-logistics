@@ -7,6 +7,7 @@
  * which on this project means without pulling in React Native.
  */
 
+import type { IconName } from '../components/icons'
 import type { NavigationManeuver } from '../api/client'
 
 /**
@@ -157,70 +158,62 @@ export function formatTurnDistance(metres: number): string {
  * documents modifiers this project has not seen, and inventing "keep right"
  * for one of them would be a fabricated instruction.
  */
-export function instructionFor(maneuver: NavigationManeuver): string {
-  const road = maneuver.name ? ` onto ${maneuver.name}` : ''
+export function instructionFor(maneuver: NavigationManeuver, t: (en: string) => string = (en) => en): string {
+  const road = maneuver.name ? ` ${t('onto')} ${maneuver.name}` : ''
+  const mod = maneuver.modifier ? t(maneuver.modifier.replace(/_/g, ' ')) : ''
 
   switch (maneuver.type) {
     case 'depart':
-      return 'Start'
+      return t('Start')
     case 'arrive':
-      return 'Arrive'
+      return t('Arrive')
     case 'roundabout':
     case 'rotary':
       // The exit number is the whole instruction at a roundabout, and it is
       // absent often enough that "take the exit" has to be a real answer.
       return maneuver.exit
-        ? `At the roundabout, take exit ${maneuver.exit}${road}`
-        : `At the roundabout, take the exit${road}`
+        ? `${t('At the roundabout, take exit')} ${maneuver.exit}${road}`
+        : `${t('At the roundabout, take the exit')}${road}`
     case 'merge':
-      return maneuver.modifier ? `Merge ${maneuver.modifier}${road}` : `Merge${road}`
+      return mod ? `${t('Merge')} ${mod}${road}` : `${t('Merge')}${road}`
     case 'fork':
-      return maneuver.modifier ? `Keep ${maneuver.modifier}${road}` : `Keep ahead${road}`
+      return mod ? `${t('Keep')} ${mod}${road}` : `${t('Keep ahead')}${road}`
     case 'end of road':
-      return maneuver.modifier ? `Turn ${maneuver.modifier}${road}` : `Continue${road}`
+      return mod ? `${t('Turn')} ${mod}${road}` : `${t('Continue')}${road}`
     case 'new name':
     case 'continue':
-      return maneuver.modifier === 'straight' || !maneuver.modifier
-        ? `Continue${road}`
-        : `Continue ${maneuver.modifier}${road}`
+      return maneuver.modifier === 'straight' || !mod
+        ? `${t('Continue')}${road}`
+        : `${t('Continue')} ${mod}${road}`
     case 'turn':
-      return maneuver.modifier ? `Turn ${maneuver.modifier}${road}` : `Turn${road}`
+      return mod ? `${t('Turn')} ${mod}${road}` : `${t('Turn')}${road}`
     default:
-      return maneuver.modifier
-        ? `${maneuver.type} ${maneuver.modifier}${road}`
+      return mod
+        ? `${maneuver.type} ${mod}${road}`
         : `${maneuver.type}${road}`
   }
 }
 
 /**
- * Visual direction symbol for glancing at the upcoming turn.
+ * The Feather icon for one maneuver - the same family as every other icon in
+ * the app, so the next-turn card and the map controls share one stroke.
  */
-/**
- * The glyph for one maneuver.
- *
- * TYPOGRAPHIC SYMBOLS, NOT EMOJI. Arrive was 🏁 and roundabout 🔄 - the only two
- * colour-emoji in the set, so on the next-turn card they rendered at a
- * different weight and baseline from their neighbours (↰ ↱ ↑) and ignored the
- * card's own colour. '◉' and '↻' come from the same geometric block as the
- * arrows, inherit the text colour, and sit on the same baseline.
- */
-export function maneuverIcon(maneuver: NavigationManeuver): string {
+export function maneuverIcon(maneuver: NavigationManeuver): IconName {
   const mod = maneuver.modifier ?? ''
   switch (maneuver.type) {
     case 'depart':
-      return '▲'
+      return 'navigation'
     case 'arrive':
-      return '◉'
+      return 'map-pin'
     case 'roundabout':
     case 'rotary':
-      return '↻'
+      return 'rotate-cw'
     default:
-      if (mod.includes('sharp_left') || mod === 'left') return '↰'
-      if (mod === 'slight_left') return '↖'
-      if (mod.includes('sharp_right') || mod === 'right') return '↱'
-      if (mod === 'slight_right') return '↗'
-      if (mod.includes('uturn')) return '↶'
-      return '↑'
+      if (mod.includes('sharp_left') || mod === 'left') return 'corner-up-left'
+      if (mod === 'slight_left') return 'arrow-up-left'
+      if (mod.includes('sharp_right') || mod === 'right') return 'corner-up-right'
+      if (mod === 'slight_right') return 'arrow-up-right'
+      if (mod.includes('uturn')) return 'corner-left-down'
+      return 'arrow-up'
   }
 }
-

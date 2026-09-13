@@ -34,11 +34,13 @@ import {
   type PhraseLanguage,
 } from '../phrasebook/phrases'
 import { TOUCH_TARGET } from '../theme'
+import { useT } from '../i18n/tx'
 import { makeStyles, useTheme } from '../theme-context'
 import TranslateBox from './TranslateBox'
 
 export default function PhrasebookScreen() {
   const styles = useStyles()
+  const t = useT()
   const { colors: COLORS } = useTheme()
   // The driver's own language comes from the device, exactly as everywhere
   // else in the app. Only the LISTENER's language is a choice, because only
@@ -57,9 +59,9 @@ export default function PhrasebookScreen() {
           a version and a revision date. */}
       <TranslateBox />
 
-      <Text style={styles.lead}>Find the sentence, then turn the phone round.</Text>
+      <Text style={styles.lead}>{t('Find the sentence, then turn the phone round.')}</Text>
 
-      <Text style={styles.pickerLabel}>They speak</Text>
+      <Text style={styles.pickerLabel}>{t('They speak')}</Text>
       <View style={styles.picker}>
         {LANGUAGES.map((option) => {
           const selected = option.code === theirs
@@ -104,7 +106,7 @@ export default function PhrasebookScreen() {
             sentences with a stranger, and they have not been checked by a
             native speaker. */}
         <Text style={styles.provenanceText}>
-          Translations are not yet reviewed by a native speaker.
+          {t('Translations are not yet reviewed by a native speaker.')}
         </Text>
       </View>
     </ScrollView>

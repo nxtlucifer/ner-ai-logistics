@@ -25,6 +25,7 @@
 import type { LocationAdapter, Sample, Subscription } from './adapter'
 import { sourceOf, type LocationSource } from './source'
 import { MemoryQueueStore, type QueueStore } from './queueStore'
+import { SpeedFilter } from './speed'
 
 export type PermissionState =
   | 'unknown'
@@ -196,6 +197,7 @@ export function toFix(sample: Sample, id: string): GpsFix {
 }
 
 export class LocationTracker {
+  private speed = new SpeedFilter()
   private state: TrackerState = {
     permission: 'unknown',
     isTracking: false,
@@ -391,6 +393,9 @@ export class LocationTracker {
     if (this.stopped) return
 
     const here = { lat: sample.lat, lon: sample.lon }
+    // Every sample feeds the speed state, kept or not - a parked truck at the
+    // stationary cadence would otherwise judge motion from one fix a minute.
+    const speedKmh = this.speed.next({ ...here, accuracyM: sample.accuracyM ?? null, speedMs: sample.speedMs, at: sample.timestamp })
     const previous = this.lastKept
 
     if (previous) {
@@ -416,10 +421,10 @@ export class LocationTracker {
         lat: sample.lat,
         lon: sample.lon,
         accuracyM: sample.accuracyM ?? null,
-        speedKmh: sample.speedMs !== null && !isNaN(sample.speedMs) && sample.speedMs >= 0 ? Math.round(sample.speedMs * 3.6) : null,
+        speedKmh,
         // Android reports bearing 0 when it has none, so a parked truck would
         // point north: a heading is only a heading while the truck moves.
-        headingDeg: sample.speedMs !== null && sample.speedMs > 1 ? sample.headingDeg : null,
+        headingDeg: this.speed.moving && sample.speedMs !== null && sample.speedMs > 1 ? sample.headingDeg : null,
         source: sourceOf(sample.accuracyM ?? null),
         at: sample.timestamp,
       },

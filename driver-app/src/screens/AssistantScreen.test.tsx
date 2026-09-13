@@ -49,6 +49,12 @@ vi.mock('../ai/useLocalAi', () => ({
   }),
 }))
 
+const net = vi.hoisted(() => ({ ask: vi.fn() }))
+vi.mock('../api/client', () => ({
+  api: { aiAsk: (...a: unknown[]) => net.ask(...a), aiStatus: vi.fn().mockResolvedValue({ available: false }) },
+  API_BASE_URL: 'http://test', authHeaders: () => ({}), ApiError: class extends Error {}, NetworkError: class extends Error {},
+}))
+
 vi.mock('expo-speech', () => ({
   speak: vi.fn(),
   stop: vi.fn(),
@@ -107,6 +113,12 @@ describe('AssistantScreen', () => {
   let container: HTMLDivElement | null = null
   let root: Root | null = null
 
+  const type = (text: string) => {
+    const input = container!.querySelector<HTMLInputElement>('[data-testid="assistant-input"]')!
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    act(() => { set.call(input, text); input.dispatchEvent(new Event('input', { bubbles: true })) })
+  }
+
   const tap = (testId: string) => {
     const button = container?.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)
     expect(button, testId).not.toBeNull()
@@ -163,6 +175,30 @@ describe('AssistantScreen', () => {
     tap('ask-q-vehicle')
     expect(container?.textContent).toContain('Not included')
     expect(container?.textContent).toContain('Vehicle diagnostics')
+  })
+
+  it('answers a health question locally, with the dialler and Safety as the only actions', () => {
+    type('I am feeling dizziness')
+    tap('assistant-send')
+    expect(container?.textContent).toContain('Stop driving safely and rest')
+    expect(container?.textContent).toContain('call 108')
+    expect(container?.textContent).not.toContain('I can help with')
+    expect(net.ask).not.toHaveBeenCalled()
+  })
+
+  it('sends only an unplaceable question online, in the app language, and shows one labelled answer', async () => {
+    net.ask.mockResolvedValueOnce({ answer: 'Ha, aaj ka mausam saaf hai.', generated: true, model: 'gemini-flash-latest', facts_as_of: null, provider: 'GOOGLE_GEMINI' })
+    type('tell me a fact about tea gardens')
+    tap('assistant-send')
+    expect(net.ask).toHaveBeenCalledTimes(1)
+    expect(net.ask.mock.calls[0][0]).toMatchObject({ mode: 'assistant', language: 'en', question: 'tell me a fact about tea gardens' })
+    expect(String(net.ask.mock.calls[0][0].context)).toContain('Trip code: NER-101')
+    await act(async () => { await Promise.resolve(); await Promise.resolve() })
+    expect(container?.textContent).toContain('Ha, aaj ka mausam saaf hai.')
+    expect(container?.textContent).toContain('Gemini')
+    // One user bubble, one answer bubble.
+    expect((container?.textContent?.match(/tell me a fact about tea gardens/g) ?? []).length).toBe(1)
+    expect((container?.textContent?.match(/Ha, aaj ka mausam saaf hai\./g) ?? []).length).toBe(1)
   })
 
   it('never puts a raw code on screen', () => {

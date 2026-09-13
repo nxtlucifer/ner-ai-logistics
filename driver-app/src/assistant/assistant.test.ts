@@ -213,7 +213,8 @@ describe('driver assistant — it never invents a fact', () => {
 describe('driver assistant — cached is never called live', () => {
   it('marks route risk as cached and carries its age', () => {
     const a = answer('ROUTE_RISK', ctx())
-    expect(a.headline).toBe('Route risk HIGH')
+    expect(a.headline).toBe('Route risk')
+    expect(a.facts[0]).toMatchObject({ code: 'RISK_BAND', value: 'HIGH' })
     expect(a.freshness).not.toBeNull()
     expect(a.freshness!.cached).toBe(true)
     expect(a.freshness!.ageMinutes).toBe(60)

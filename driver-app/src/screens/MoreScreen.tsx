@@ -50,12 +50,12 @@ export default function MoreScreen({
         <Icon name="chevron-right" color={COLORS.faint} size={20} />
       </Pressable>
 
-      <Text style={styles.section}>ASSISTANT</Text>
+      <Text style={styles.section}>{tx('Assistant').toUpperCase()}</Text>
       <Pressable style={styles.row} onPress={onOpenAssistant} accessibilityRole="button">
         <Icon name="message-circle" color={COLORS.muted} />
         <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>Driver Assistant</Text>
-          <Text style={styles.rowSub}>Offline guidance and the translator</Text>
+          <Text style={styles.rowTitle}>{tx('Driver Assistant')}</Text>
+          <Text style={styles.rowSub}>{tx('Offline guidance and the translator')}</Text>
         </View>
         <Icon name="chevron-right" color={COLORS.faint} size={20} />
       </Pressable>
@@ -71,22 +71,22 @@ export default function MoreScreen({
         <View style={styles.rowText}>
           <Text style={styles.rowTitle}>{tx('Language')}</Text>
           <Text style={styles.rowSub}>
-            {active?.nativeLabel ?? 'English'} · changes the app's own labels
+            {active?.nativeLabel ?? 'English'} · {tx("changes the app's own labels")}
           </Text>
         </View>
         <Icon name="chevron-right" color={COLORS.faint} size={20} />
       </Pressable>
 
-      <Text style={styles.section}>APPEARANCE</Text>
+      <Text style={styles.section}>{tx('Appearance').toUpperCase()}</Text>
       <Pressable style={styles.row} onPress={toggle} accessibilityRole="button">
         <Icon name={mode === 'day' ? 'sun' : 'moon'} color={COLORS.muted} />
         <View style={styles.rowText}>
           <Text style={styles.rowTitle}>{tx('Theme')}</Text>
           <Text style={styles.rowSub}>
-            {mode === 'day' ? 'Day — light surfaces' : 'Night — dark cab surfaces'}
+            {tx(mode === 'day' ? 'Day — light surfaces' : 'Night — dark cab surfaces')}
           </Text>
         </View>
-        <Text style={styles.value}>{mode === 'day' ? 'Day' : 'Night'}</Text>
+        <Text style={styles.value}>{tx(mode === 'day' ? 'Day' : 'Night')}</Text>
       </Pressable>
 
       <Pressable
@@ -129,9 +129,11 @@ export default function MoreScreen({
                   accessibilityRole="radio"
                   accessibilityState={{ selected }}
                 >
-                  <Text style={styles.sheetNative}>{opt.nativeLabel}</Text>
-                  <Text style={styles.sheetLatin}>{opt.label}</Text>
-                  {selected ? <Text style={styles.tick}>✓</Text> : null}
+                  <View style={styles.sheetText}>
+                    <Text style={styles.sheetNative}>{opt.nativeLabel}</Text>
+                    {opt.label !== opt.nativeLabel ? <Text style={styles.sheetLatin}>{opt.label}</Text> : null}
+                  </View>
+                  {selected ? <Icon name="check" color={COLORS.routeOn} size={20} /> : null}
                 </Pressable>
               )
             })}
@@ -189,16 +191,14 @@ const useStyles = makeStyles((COLORS) => ({
   },
   sheetRow: {
     flexDirection: 'row',
-    alignItems: 'baseline',
+    alignItems: 'center',
     gap: 10,
-    minHeight: TOUCH_TARGET,
+    height: 56,
     paddingHorizontal: 14,
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'transparent',
   },
-  sheetRowActive: { backgroundColor: COLORS.routeBg, borderColor: COLORS.route },
+  sheetRowActive: { backgroundColor: COLORS.sunken },
+  sheetText: { flex: 1 },
   sheetNative: { color: COLORS.text, fontSize: 16, fontWeight: '700' },
-  sheetLatin: { color: COLORS.faint, fontSize: 13, flex: 1 },
-  tick: { color: COLORS.routeOn, fontSize: 16, fontWeight: '900' },
+  sheetLatin: { color: COLORS.muted, fontSize: 12, marginTop: 1 },
 }))

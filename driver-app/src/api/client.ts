@@ -1036,6 +1036,8 @@ export interface AiAnswer {
    * and refusal answers, null on a clean generated one.
    */
   disclaimer?: string | null
+  /** GOOGLE_GEMINI | OPENROUTER | OFFLINE_ASSISTANT - who wrote the answer. */
+  provider?: string
 }
 
 const restApi = {
@@ -1055,6 +1057,10 @@ const restApi = {
       guidance?: string
       source_language?: string
       target_language?: string
+      /** The app language: the answer comes back in it. */
+      language?: string
+      /** Facts the phone already holds, as text (assistant.contextForModel). */
+      context?: string
     },
     signal?: AbortSignal,
   ) => request<AiAnswer>('/api/ai/ask', { method: 'POST', body, signal }),

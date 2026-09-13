@@ -55,7 +55,6 @@ vi.mock('../map/useRouteGeometry', () => ({ useRouteGeometry: () => ({
   isLoading: false, error: state.geometry.error, source: 'LIVE', reload: state.geometry.reload,
 }) }))
 vi.mock('../map/useNavigationPackage', () => ({ useNavigationPackage: () => ({ available: false, maneuvers: [], reasonCodes: [] }) }))
-vi.mock('../tracking/adapter', () => ({ watchCompass: () => () => {} }))
 vi.mock('../notify/local', () => ({ notifyInBackground: async () => false }))
 vi.mock('../tracking/useBrowsePosition', () => ({ useBrowsePosition: () => state.browse }))
 vi.mock('../map/useGuidanceClock', () => ({ useGuidanceClock: () => state.clock }))
@@ -118,14 +117,14 @@ describe('map position truthfulness without new GPS samples', () => {
   it('names its state, believes off-route only after three fixes, and asks for a road once', async () => {
     state.reroute.mockResolvedValue({ route_id: 'route-b', kind: 'EMERGENCY_BACKUP', distance_km: 61, estimated_duration_min: 90, provider: 'osrm', has_guidance: true })
     await render()
-    expect(host.textContent).toContain('OVERVIEW')
+    expect(host.textContent).toContain('Overview')
     // Two fixes 50 km east of the line: jitter, still on route.
     for (const at of [101_000, 102_000]) {
       state.tracking = { ...state.tracking, lastPosition: { lat: 26.5, lon: 92.5, accuracyM: 20, at } }
       state.clock = { ...state.clock, now: at }
       await render()
     }
-    expect(host.textContent).not.toContain('OFF ROUTE')
+    expect(host.textContent).not.toContain('Off route')
     expect(state.reroute).not.toHaveBeenCalled()
     // The third is believed: the request goes out once, and the state says so.
     state.tracking = { ...state.tracking, lastPosition: { lat: 26.5, lon: 92.5, accuracyM: 20, at: 103_000 } }
@@ -133,7 +132,7 @@ describe('map position truthfulness without new GPS samples', () => {
     await render()
     expect(state.reroute).toHaveBeenCalledTimes(1)
     expect(state.reroute).toHaveBeenCalledWith(26.5, 92.5)
-    expect(host.textContent).toContain('REROUTING')
+    expect(host.textContent).toContain('Rerouting')
     expect(host.textContent).toContain('awaits manager')
     state.clock = { ...state.clock, now: 104_000 }
     await render()
@@ -141,7 +140,7 @@ describe('map position truthfulness without new GPS samples', () => {
     // Nothing new for a minute: the fix goes stale and guidance says so.
     state.clock = { ...state.clock, now: 170_000 }
     await render()
-    expect(host.textContent).toContain('GPS STALE')
+    expect(host.textContent).toContain('GPS stale')
   })
 
   it('retries a failed route fetch by itself while the trip poll is healthy', async () => {
@@ -173,23 +172,27 @@ describe('the map without a trip, and the words on the location chip', () => {
     expect(host.textContent).not.toContain('PERSONAL ROUTE AI')
     expect(host.textContent).not.toContain('duration')
     expect(host.textContent).toContain('Browsing the map')
-    // A network fix is named as one, with its metres - never GPS.
-    expect(host.textContent).toContain('NETWORK ±180 m')
+    // ONE context treatment: the card, not a second banner under it.
+    expect(host.textContent).not.toContain('No trip right now')
+    // A network fix is named as one, with its metres - never GPS - and the
+    // marker is told the source so it draws the amber dot.
+    expect(host.textContent).toContain('Network · ±180 m')
+    expect(state.map.positionSource).toBe('NETWORK')
     expect(host.textContent).not.toContain('GPS LIVE')
   })
 
   it('names a GPS-grade fix with its metres while tracking', async () => {
     state.tracking = { ...state.tracking, lastPosition: { lat: 26, lon: 91, accuracyM: 12, source: 'GPS', at: 100_000 } as never }
     await render()
-    expect(host.textContent).toContain('GPS ±12 m')
+    expect(host.textContent).toContain('GPS · ±12 m')
     expect(host.textContent).toContain('PERSONAL ROUTE AI')
   })
 
-  it('shows LOCATION OFF when the browse permission is denied', async () => {
+  it('shows Location off when the browse permission is denied', async () => {
     state.trip = null
     state.browse = { permission: 'denied', lastPosition: null, requestPermission: vi.fn() }
     await render()
     expect(state.map.position).toBeNull()
-    expect(host.textContent).toContain('LOCATION OFF')
+    expect(host.textContent).toContain('Location off')
   })
 })

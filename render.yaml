@@ -92,6 +92,11 @@ services:
         sync: false
       - key: SECRET_KEY
         generateValue: true
+      # Online assistant providers (set in the dashboard; the app works without either).
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
 
   # The manager web, built here against the API service above. ONE transport:
   # the same REST client the local demo and every test use (VITE_BACKEND=local).

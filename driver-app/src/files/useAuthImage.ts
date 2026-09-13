@@ -12,11 +12,19 @@ import { useEffect, useState } from 'react'
 
 import { API_BASE_URL, authHeaders } from '../api/client'
 
+// Same file, same bytes: the header and My details share one download.
+const cache = new Map<string, string>()
+
 export function useAuthImage(url: string | null | undefined): string | null {
-  const [uri, setUri] = useState<string | null>(null)
+  const [uri, setUri] = useState<string | null>(() => (url ? cache.get(url) ?? null : null))
   useEffect(() => {
     if (!url) {
       setUri(null)
+      return
+    }
+    const hit = cache.get(url)
+    if (hit) {
+      setUri(hit)
       return
     }
     let alive = true
@@ -31,7 +39,7 @@ export function useAuthImage(url: string | null | undefined): string | null {
             reader.readAsDataURL(blob)
           }),
       )
-      .then((dataUri) => { if (alive) setUri(dataUri) })
+      .then((dataUri) => { cache.set(url, dataUri); if (alive) setUri(dataUri) })
       .catch(() => { if (alive) setUri(null) })
     return () => { alive = false }
   }, [url])

@@ -32,6 +32,8 @@ import {
 } from './maneuvers'
 import { translateReasonCode, type Language } from '../i18n/reasonCodes'
 
+import { Icon } from '../components/icons'
+import { useT } from '../i18n/tx'
 import { makeStyles, useTheme } from '../theme-context'
 
 export interface NextTurnPanelProps {
@@ -86,6 +88,7 @@ export default function NextTurnPanel({
 }: NextTurnPanelProps) {
   const styles = useStyles()
   const { colors: COLORS } = useTheme()
+  const t = useT()
   if (!available) {
     // The route is drawable; only the instructions are missing. Say which.
     const explained = reasonCodes
@@ -93,9 +96,9 @@ export default function NextTurnPanel({
       .filter(Boolean)
     return (
       <View style={styles.panel} testID="next-turn-panel">
-        <Text style={styles.state}>Directions unavailable</Text>
+        <Text style={styles.state}>{t('Directions unavailable')}</Text>
         <Text style={styles.detail} numberOfLines={2}>
-          {explained[0] ?? 'This route has no stored directions.'}
+          {explained[0] ?? t('This route has no stored directions.')}
         </Text>
       </View>
     )
@@ -107,8 +110,8 @@ export default function NextTurnPanel({
     const [state, detail] = HOLD_TEXT[hold]
     return (
       <View style={styles.panel} testID="next-turn-panel">
-        <Text style={styles.state}>{state}</Text>
-        <Text style={styles.detail}>{detail}</Text>
+        <Text style={styles.state}>{t(state)}</Text>
+        <Text style={styles.detail}>{t(detail)}</Text>
       </View>
     )
   }
@@ -116,8 +119,8 @@ export default function NextTurnPanel({
   if (next === null) {
     return (
       <View style={styles.panel} testID="next-turn-panel">
-        <Text style={styles.state}>No further turns</Text>
-        <Text style={styles.detail}>Continue to the destination.</Text>
+        <Text style={styles.state}>{t('No further turns')}</Text>
+        <Text style={styles.detail}>{t('Continue to the destination.')}</Text>
       </View>
     )
   }
@@ -127,13 +130,13 @@ export default function NextTurnPanel({
   return (
     <View style={styles.panel} testID="next-turn-panel">
       <View style={styles.topRow}>
-        <Text style={styles.icon}>{icon}</Text>
+        <Icon name={icon} size={28} color={COLORS.text} />
         <Text style={styles.distance} testID="next-turn-distance">
           {formatTurnDistance(next.distanceM)}
         </Text>
       </View>
       <Text style={styles.instruction} numberOfLines={2} testID="next-turn-instruction">
-        {instructionFor(next.maneuver)}
+        {instructionFor(next.maneuver, t)}
       </Text>
       {next.maneuver.name ? (
         <Text style={styles.roadName} numberOfLines={1}>

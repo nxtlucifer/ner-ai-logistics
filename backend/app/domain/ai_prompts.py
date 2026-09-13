@@ -149,6 +149,27 @@ def is_navigation_authority_attempt(text: str) -> bool:
 
 
 
+#: Script the answer must be written in, so "Hindi" cannot come back romanised.
+_SCRIPT: Final = {"hi": "Devanagari", "gu": "Gujarati script", "as": "Assamese (Bengali-Assamese script)", "bn": "Bengali script"}
+
+
+def in_language(system: str, language: str) -> str:
+    """The same system prompt, with the answer language pinned to the app's.
+
+    Translate mode already names its own target and is left alone. English
+    needs no instruction. Everything else gets an explicit script, because a
+    model told "Hindi" alone will happily answer in Latin letters.
+    """
+    if language == "en" or "TRANSLATION_UNAVAILABLE" in system:
+        return system
+    name = DEMO_LANGUAGES.get(language)
+    if not name:
+        return system
+    script = _SCRIPT.get(language)
+    suffix = f" ({script})" if script else ""
+    return f"{system}\n\nAnswer ONLY in {name}{suffix}. Keep numbers, units, place names and phone numbers as written."
+
+
 def translation_prompt(text: str, source: str, target: str) -> str:
     """The user half of a translation request."""
     src = DEMO_LANGUAGES.get(source, source)

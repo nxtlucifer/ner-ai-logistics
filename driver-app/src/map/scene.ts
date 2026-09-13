@@ -21,8 +21,20 @@ export const TERRAIN_HILLY = '#B45309'
 export const TERRAIN_STEEP = '#B42318'
 export const ORIGIN = '#101820'
 export const TRAFFIC: Record<string, string> = { NORMAL: '#16A34A', SLOW: '#D97706', CONGESTED: '#DC2626' }
+/**
+ * ONE location-marker system, colour + shape together, never colour alone:
+ *   GPS, moving        green chevron, white halo, green accuracy disc
+ *   GPS, parked        green dot, white halo, green accuracy disc
+ *   NETWORK            amber dot, white halo, larger amber accuracy disc
+ *   LAST KNOWN         grey dot, dashed grey disc (the fix is old)
+ *   no fix             nothing - a marker is a claim about where the truck is
+ * The accuracy disc is capped so a 900 m Wi-Fi fix does not paint the whole
+ * screen; the chip still prints the real number.
+ */
 export const LIVE = '#087F5B'
-export const LAST_KNOWN = '#B45309'
+export const NETWORK = '#B45309'
+export const LAST_KNOWN = '#6B7280'
+export const ACCURACY_DISC_MAX_M = 150
 
 /** The truck as a triangle, rotated by heading. Inline CSS: the web map's
  *  divIcon and the WebView page both paste it verbatim. */
@@ -52,7 +64,7 @@ type Pt = [number, number]
 export type SceneLayer =
   | { k: 'line'; p: Pt[]; c: string; w: number; d?: string; tip?: string }
   /** Accuracy disc, radius in metres. */
-  | { k: 'circle'; p: Pt; r: number; c: string; tip?: undefined }
+  | { k: 'circle'; p: Pt; r: number; c: string; d?: string; tip?: undefined }
   /** Circle marker, radius in pixels. `id` = place provider_id, for taps. */
   | { k: 'dot'; p: Pt; r: number; c: string; w: number; f: string; o: number; tip?: string; id?: string }
   /** The truck with a known heading, degrees clockwise from north. */
@@ -61,7 +73,7 @@ export type SceneLayer =
 export type SceneProps = Pick<
   DriverRouteMapProps,
   | 'points' | 'progressFraction' | 'backupPoints' | 'showBackup' | 'terrainSegments' | 'hazards' | 'stops' | 'trafficSegments'
-  | 'position' | 'positionKind' | 'accuracyM' | 'positionAgeSeconds' | 'headingDeg' | 'places' | 'selectedPlaceId'
+  | 'position' | 'positionKind' | 'positionSource' | 'accuracyM' | 'positionAgeSeconds' | 'headingDeg' | 'places' | 'selectedPlaceId'
 >
 
 export function sceneLayers(p: SceneProps): SceneLayer[] {
@@ -104,15 +116,17 @@ export function sceneLayers(p: SceneProps): SceneLayer[] {
   // Only from a real fix. Null draws nothing - never a placeholder.
   if (p.position !== null && p.positionKind !== null) {
     const live = p.positionKind === 'LIVE'
+    const coarse = p.positionSource === 'NETWORK'
+    const colour = !live ? LAST_KNOWN : coarse ? NETWORK : LIVE
     const tip = live
-      ? 'Live position' + (p.accuracyM === null ? '' : ', accurate to ' + Math.round(p.accuracyM) + ' m')
+      ? (coarse ? 'Network position' : 'GPS position') + (p.accuracyM === null ? '' : ', accurate to ' + Math.round(p.accuracyM) + ' m')
       : `Last known position — ${p.positionAgeSeconds == null ? 'age unavailable' : `${Math.round(p.positionAgeSeconds)}s ago`}`
     // The accuracy disc only when the platform reported one: an invented
     // radius is an invented claim about certainty.
-    if (live && p.accuracyM !== null) out.push({ k: 'circle', p: p.position as Pt, r: p.accuracyM, c: LIVE })
+    if (p.accuracyM !== null) out.push({ k: 'circle', p: p.position as Pt, r: Math.min(p.accuracyM, ACCURACY_DISC_MAX_M), c: colour, d: live ? undefined : '6 6' })
     const heading = p.headingDeg
-    if (live && heading != null && Number.isFinite(heading) && heading >= 0) out.push({ k: 'arrow', p: p.position as Pt, h: heading, c: LIVE, tip })
-    else out.push({ k: 'dot', p: p.position as Pt, r: 9, c: live ? '#FFFFFF' : LAST_KNOWN, w: 3, f: live ? LIVE : 'transparent', o: live ? 1 : 0, tip })
+    if (live && !coarse && heading != null && Number.isFinite(heading) && heading >= 0) out.push({ k: 'arrow', p: p.position as Pt, h: heading, c: LIVE, tip })
+    else out.push({ k: 'dot', p: p.position as Pt, r: coarse ? 10 : 9, c: '#FFFFFF', w: 3, f: colour, o: 1, tip })
   }
   // Roadside services LAST so a pin is never hidden under the route casing.
   // The category is in the tooltip as WORDS, not only in the colour.

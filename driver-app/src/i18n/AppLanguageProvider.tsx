@@ -24,7 +24,7 @@ import {
   type AppLanguage,
   type TranslationKey,
 } from './appLanguage'
-import { matchLanguage } from './language'
+import { matchLanguage, setResolvedLanguage } from './language'
 
 export interface AppLanguageContextValue {
   language: AppLanguage
@@ -77,6 +77,10 @@ export function AppLanguageProvider({ children }: { children: ReactNode }) {
       // safe fallback
     }
   }, [])
+
+  // Mirror for the non-React readers (see language.ts). Set synchronously
+  // during render so a screen mounting in the same commit reads the new value.
+  setResolvedLanguage(language)
 
   const t = useCallback(
     (key: TranslationKey) => translateKey(language, key),

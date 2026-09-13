@@ -52,9 +52,9 @@ import { useNavigationPackage } from '../map/useNavigationPackage'
 import { guidanceHold, upcomingManeuver, maneuverIcon, formatTurnDistance, instructionFor, type GuidanceHold } from '../map/maneuvers'
 import { navState, ON_ROUTE, projectOntoRoute, shouldRequestReroute, trackOffRoute, type NavState, type OffRouteTrack, type RerouteMark } from '../map/navState'
 import { routeAiCard } from '../navigation/routeAi'
-import { watchCompass } from '../tracking/adapter'
 import { useBrowsePosition } from '../tracking/useBrowsePosition'
 import { locationChip } from '../map/locationLabel'
+import type { LocationSource } from '../tracking/source'
 import { HILLSHADE_URL } from '../map/scene'
 import { dangerAlert } from '../navigation/alerts'
 import { notifyInBackground } from '../notify/local'
@@ -94,6 +94,11 @@ const CATEGORY_LABELS: { id: PlaceCategory; label: string }[] = [
   { id: 'REST', label: 'Lay-bys & rest' },
 ]
 
+/** The nav-state chip, as words a driver reads rather than the machine name. */
+const NAV_WORDS: Record<string, string> = {
+  IDLE: 'Idle', OVERVIEW: 'Overview', FOLLOWING: 'Following', OFF_ROUTE: 'Off route', REROUTING: 'Rerouting', GPS_STALE: 'GPS stale', OFFLINE: 'Offline',
+}
+
 type Mode = 'NEAR_ME' | 'ALONG_ROUTE' | 'THIS_AREA'
 
 const MODE_LABELS: { id: Mode; label: string }[] = [
@@ -119,18 +124,19 @@ function MapPlaceholder({
   action?: { label: string; onPress: () => void }
 }) {
   const styles = useStyles()
+  const t = useT()
   return (
     <View style={styles.placeholder}>
-      <Text style={styles.placeholderTitle}>{title}</Text>
-      <Text style={styles.placeholderBody}>{detail}</Text>
+      <Text style={styles.placeholderTitle}>{t(title)}</Text>
+      <Text style={styles.placeholderBody}>{t(detail)}</Text>
       <View style={styles.placeholderAction}>
         {action ? (
           <View style={{ marginBottom: onRetry ? 10 : 0 }}>
-            <Button label={action.label} variant="primary" onPress={action.onPress} />
+            <Button label={t(action.label)} variant="primary" onPress={action.onPress} />
           </View>
         ) : null}
         {onRetry ? (
-          <Button label="Try again" variant="secondary" onPress={onRetry} />
+          <Button label={t('Try again')} variant="secondary" onPress={onRetry} />
         ) : null}
       </View>
     </View>
@@ -155,6 +161,7 @@ function PlaceSheet({
   onCall: (tel: string) => void
 }) {
   const styles = useStyles()
+  const t = useT()
   const phone = place.contact.phone
   return (
     <View style={styles.sheet} testID="place-sheet">
@@ -162,10 +169,10 @@ function PlaceSheet({
         <View style={styles.sheetHandle} />
       </View>
       <ScrollView contentContainerStyle={styles.sheetBody}>
-        <Text style={styles.sheetTitle}>{place.name ?? 'Unnamed place'}</Text>
+        <Text style={styles.sheetTitle}>{place.name ?? t('Unnamed place')}</Text>
         <Text style={styles.sheetKind}>
-          {CATEGORY_LABELS.find((c) => c.id === place.category)?.label ??
-            place.category}
+          {t(CATEGORY_LABELS.find((c) => c.id === place.category)?.label ??
+            place.category)}
         </Text>
 
         {place.straight_line_m !== null ? (
@@ -181,17 +188,17 @@ function PlaceSheet({
           calculated — the way there may be much longer.
         </Text>
 
-        <Row label="Phone" value={phone ?? UNKNOWN} />
-        <Row label="Opening hours" value={place.contact.opening_hours ?? UNKNOWN} />
-        <Row label="Operator" value={place.contact.operator ?? UNKNOWN} />
-        <Row label="Truck access (HGV)" value={place.access.hgv ?? UNKNOWN} />
-        <Row label="Max height" value={place.access.max_height ?? UNKNOWN} />
-        <Row label="Access" value={place.access.access ?? UNKNOWN} />
+        <Row label={t('Phone')} value={phone ?? UNKNOWN} />
+        <Row label={t('Opening hours')} value={place.contact.opening_hours ?? UNKNOWN} />
+        <Row label={t('Operator')} value={place.contact.operator ?? UNKNOWN} />
+        <Row label={t('Truck access (HGV)')} value={place.access.hgv ?? UNKNOWN} />
+        <Row label={t('Max height')} value={place.access.max_height ?? UNKNOWN} />
+        <Row label={t('Access')} value={place.access.access ?? UNKNOWN} />
         {place.category === 'REST' ? (
           <>
-            <Row label="Fee" value={place.access.fee ?? UNKNOWN} />
-            <Row label="Toilets" value={place.access.toilets ?? UNKNOWN} />
-            <Row label="Lit" value={place.access.lit ?? UNKNOWN} />
+            <Row label={t('Fee')} value={place.access.fee ?? UNKNOWN} />
+            <Row label={t('Toilets')} value={place.access.toilets ?? UNKNOWN} />
+            <Row label={t('Lit')} value={place.access.lit ?? UNKNOWN} />
           </>
         ) : null}
 
@@ -224,10 +231,10 @@ function PlaceSheet({
           <Button label={`Call ${phone}`} onPress={() => onCall(`tel:${phone}`)} />
         ) : (
           <Text style={styles.sheetNoCall}>
-            No phone number is recorded for this place.
+            {t('No phone number is recorded for this place.')}
           </Text>
         )}
-        <Button label="Close" variant="secondary" onPress={onClose} />
+        <Button label={t('Close')} variant="secondary" onPress={onClose} />
       </ScrollView>
     </View>
   )
@@ -237,42 +244,34 @@ function PlaceSheet({
  * One floating map control.
  *
  * 52dp, which is TOUCH_TARGET - these are pressed one-handed in a moving cab,
- * and the design floor of 48 is a floor rather than a target. Disabled state is
- * carried by opacity AND `accessibilityState`, and the reason is exposed as the
- * accessibility hint so a screen reader says why rather than just "dimmed".
+ * and the design floor of 48 is a floor rather than a target. There is no
+ * disabled look: a control that cannot act is not rendered (see the rail).
  */
 function MapControl({
   onPress,
   label,
   children,
-  disabled = false,
-  disabledHint,
   active = false,
   primary = false,
 }: {
   onPress: () => void
   label: string
   children: ReactNode
-  disabled?: boolean
-  disabledHint?: string
   active?: boolean
   primary?: boolean
 }) {
   const styles = useStyles()
   return (
     <Pressable
-      onPress={disabled ? undefined : onPress}
-      disabled={disabled}
+      onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityHint={disabled ? disabledHint : undefined}
-      accessibilityState={{ disabled, selected: active }}
+      accessibilityState={{ selected: active }}
       style={({ pressed }) => [
         styles.floatingCircleBtn,
         primary && styles.recenterCircleBtn,
         active && styles.floatingCircleBtnActive,
-        disabled && styles.floatingCircleBtnDisabled,
-        pressed && !disabled && styles.floatingCircleBtnPressed,
+        pressed && styles.floatingCircleBtnPressed,
       ]}
     >
       {children}
@@ -440,7 +439,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
     fix,
     kind: !fix || locPermission !== 'granted' ? null : localFresh ? 'LIVE' : 'LAST_KNOWN',
     now: clock.now,
-  })
+  }, t)
   const isOnline = chip.tone !== 'off'
   const projection = useMemo(
     () => (fix ? projectOntoRoute(geometry.points, [fix.lat, fix.lon]) : null),
@@ -542,30 +541,25 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
   const canFitRoute = geometry.points.length > 1
   const hasAlternative = geometry.backupPoints.length > 1
 
-  // Compass while parked: the tracker only publishes a GPS course in motion.
-  // Throttled to whole steps of 3° so a wobbling needle does not re-render
-  // the screen at sensor rate.
-  const [compassDeg, setCompassDeg] = useState<number | null>(null)
-  useEffect(() => {
-    if (!locWatching) return
-    return watchCompass((deg) => setCompassDeg((prev) => (deg !== null && prev !== null && Math.abs(prev - deg) < 3 ? prev : deg)))
-  }, [locWatching])
-
   const marker = useMemo((): {
     position: LatLon | null
     kind: PositionKind | null
+    source: LocationSource | null
     accuracyM: number | null
     headingDeg: number | null
   } => {
-    if (!fix || locPermission !== 'granted' || clock.platformPermission === 'denied') return { position: null, kind: null, accuracyM: null, headingDeg: null }
+    if (!fix || locPermission !== 'granted' || clock.platformPermission === 'denied') return { position: null, kind: null, source: null, accuracyM: null, headingDeg: null }
     const freshMs = (trip?.tracking.fresh_seconds ?? 60) * 1000
     return {
       position: [fix.lat, fix.lon],
       kind: locWatching && clock.now - fix.at >= 0 && clock.now - fix.at <= freshMs ? 'LIVE' : 'LAST_KNOWN',
+      source: fix.source ?? null,
       accuracyM: fix.accuracyM,
-      headingDeg: fix.headingDeg ?? compassDeg,
+      // A heading only while the truck moves (speed.ts decides): a parked
+      // phone's compass pointed the marker wherever the driver held it.
+      headingDeg: fix.headingDeg ?? null,
     }
-  }, [compassDeg, fix, trip?.tracking.fresh_seconds, clock.now, clock.platformPermission, locPermission, locWatching])
+  }, [fix, trip?.tracking.fresh_seconds, clock.now, clock.platformPermission, locPermission, locWatching])
 
   /**
    * Open the platform dialler. It does NOT place the call.
@@ -726,7 +720,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
     // route" is not "no map". Fall through to the empty-geometry branch below,
     // which already mounts the basemap and puts a status strip over it.
     if (geometry.isLoading && geometry.points.length === 0) {
-      return <Loading label="Loading your route…" />
+      return <Loading label={t('Loading your route…')} />
     }
     if (geometry.error !== null) {
       const err = errorMessage(geometry.error)
@@ -772,6 +766,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
             stops={geometry.stops}
             position={marker.position}
             positionKind={marker.kind}
+            positionSource={marker.source}
             accuracyM={marker.accuracyM}
             headingDeg={marker.headingDeg}
             places={places.result?.places ?? []}
@@ -783,17 +778,6 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
             cameraMode={cameraMode}
             testID="driver-route-map"
           />
-          {/* Overlay, not a replacement. Says which of the two empty cases
-              this is instead of one vague "standby". */}
-          <View style={styles.standbyToast}>
-            <Text style={styles.standbyToastText}>
-              {trip === null
-                ? 'No trip right now — browse the map, search roadside services, or call for help.'
-                : selectedRouteId === null
-                  ? 'Route not selected — your manager assigns the road before turn-by-turn can start.'
-                  : 'Route selected, but its geometry has not loaded yet.'}
-            </Text>
-          </View>
         </View>
       )
     }
@@ -809,6 +793,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
         stops={geometry.stops}
         position={marker.position}
         positionKind={marker.kind}
+        positionSource={marker.source}
         accuracyM={marker.accuracyM}
         headingDeg={marker.headingDeg}
         places={places.result?.places ?? []}
@@ -842,7 +827,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
       )
     }
     if (places.isSearching) {
-      return <Text style={styles.resultsNote}>Searching…</Text>
+      return <Text style={styles.resultsNote}>{t('Searching…')}</Text>
     }
     if (places.error !== null) {
       return (
@@ -853,7 +838,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
             detail={errorMessage(places.error).detail}
           />
           <Button
-            label="Try again"
+            label={t('Try again')}
             variant="secondary"
             onPress={() => void runSearch(mode, category)}
           />
@@ -923,7 +908,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
                 onPress={() => places.select(place)}
                 accessibilityRole="button"
                 accessibilityState={{ selected: isSelected }}
-                accessibilityLabel={`${place.name ?? 'Unnamed place'}${
+                accessibilityLabel={`${place.name ?? t('Unnamed place')}${
                   place.straight_line_m !== null
                     ? `, ${Math.round(place.straight_line_m / 100) / 10} kilometres in a straight line`
                     : ''
@@ -931,7 +916,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
                 style={[styles.resultRow, isSelected && styles.resultRowActive]}
               >
                 <Text style={styles.resultName} numberOfLines={1}>
-                  {place.name ?? 'Unnamed place'}
+                  {place.name ?? t('Unnamed place')}
                 </Text>
                 <Text style={styles.resultMeta}>
                   {place.straight_line_m !== null
@@ -1063,13 +1048,13 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
             {selectedRouteId !== null ? (
               <View style={styles.maneuverCard} testID="maneuver-card">
                 <View style={styles.maneuverMain}>
-                  <Text style={styles.maneuverIcon}>{nextTurn ? maneuverIcon(nextTurn.maneuver) : '▲'}</Text>
+                  <View style={styles.maneuverIcon}><Icon name={nextTurn ? maneuverIcon(nextTurn.maneuver) : 'navigation'} size={30} color="#FFFFFF" /></View>
                   <View style={styles.maneuverText}>
                     {nextTurn ? (
                       <>
                         <Text style={styles.maneuverDistance}>{formatTurnDistance(nextTurn.distanceM)}</Text>
                         <Text style={styles.maneuverInstruction} numberOfLines={1}>
-                          {instructionFor(nextTurn.maneuver)}
+                          {instructionFor(nextTurn.maneuver, t)}
                         </Text>
                       </>
                     ) : (
@@ -1079,12 +1064,12 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
                             "continue straight" is the one thing this card must
                             never show. */}
                         <Text style={styles.maneuverInstruction} numberOfLines={1}>
-                          {!navigation.available ? 'Guidance unavailable' : hold !== null ? 'Guidance paused' : 'No further turns'}
+                          {t(!navigation.available ? 'Guidance unavailable' : hold !== null ? 'Guidance paused' : 'No further turns')}
                         </Text>
                         <Text style={styles.maneuverSub} numberOfLines={hold === 'OFF_ROUTE' ? 3 : 1}>
                           {hold === 'OFF_ROUTE'
                             ? offRouteLine
-                            : !navigation.available
+                            : t(!navigation.available
                             ? 'Route overview active'
                             : hold === 'PERMISSION'
                               ? 'Allow location to start'
@@ -1092,7 +1077,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
                                 ? 'Waiting for a GPS fix'
                                 : hold === 'FIX_STALE' || hold === 'CONTACT_LOST'
                                   ? 'GPS fix is stale'
-                                  : 'Route overview active'}
+                                  : 'Route overview active')}
                         </Text>
                       </>
                     )}
@@ -1101,15 +1086,15 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
                 {thenTurn ? (
                   <View style={styles.thenRow}>
                     <Text style={styles.thenText} numberOfLines={1}>
-                      Then {maneuverIcon(thenTurn)} {instructionFor(thenTurn)}
+                      {t('Then')} <Icon name={maneuverIcon(thenTurn)} size={13} color={COLORS.muted} /> {instructionFor(thenTurn, t)}
                     </Text>
                   </View>
                 ) : null}
               </View>
             ) : (
               <View style={styles.maneuverCard}>
-                <Text style={styles.maneuverInstruction}>{trip === null ? t('Browsing the map') : t('Route not selected')}</Text>
-                <Text style={styles.maneuverSub} numberOfLines={2}>{trip === null ? t('No trip right now · search, terrain and SOS still work') : t('Your manager assigns the road first')}</Text>
+                <Text style={styles.maneuverInstruction}>{trip === null ? t('Browsing the map') : selectedRouteId === null ? t('Route not selected') : t('Loading the route')}</Text>
+                <Text style={styles.maneuverSub} numberOfLines={2}>{trip === null ? t('No active trip · search, terrain and SOS still work') : selectedRouteId === null ? t('Your manager assigns the road first') : t('Turn-by-turn starts once the road has loaded')}</Text>
               </View>
             )}
 
@@ -1145,10 +1130,10 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
               <Text style={styles.alertEvidence} numberOfLines={1}>Evidence · {shownAlert.evidence.join(' · ')}</Text>
               <View style={styles.alertActions}>
                 <Pressable onPress={() => setIsSheetExpanded(true)} accessibilityRole="button" accessibilityLabel="View route details" style={styles.alertBtn}>
-                  <Text style={styles.alertBtnText}>VIEW</Text>
+                  <Text style={styles.alertBtnText}>{t('VIEW')}</Text>
                 </Pressable>
                 <Pressable onPress={findStop} accessibilityRole="button" accessibilityLabel="Find a place to stop" style={styles.alertBtn}>
-                  <Text style={styles.alertBtnText}>STOPS</Text>
+                  <Text style={styles.alertBtnText}>{t('STOPS')}</Text>
                 </Pressable>
                 <Pressable
                   onPress={() => setAcknowledged((prev) => new Set(prev).add(shownAlert.key))}
@@ -1157,14 +1142,16 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
                   style={[styles.alertBtn, styles.alertBtnPrimary]}
                   testID="danger-alert-ack"
                 >
-                  <Text style={[styles.alertBtnText, styles.alertBtnTextPrimary]}>OK, SEEN</Text>
+                  <Text style={[styles.alertBtnText, styles.alertBtnTextPrimary]}>{t('OK, SEEN')}</Text>
                 </Pressable>
               </View>
             </View>
           ) : null}
         </View>
 
-        {/* RIGHT RAIL. Every control is live or visibly disabled with a reason.
+        {/* RIGHT RAIL. Only controls that DO something right now - a greyed
+            button is a promise the map cannot keep, so the mute, overview,
+            layers and traffic buttons appear when their function exists.
             Hidden while the details sheet has the map squeezed - a rail
             climbing into the maneuver card is worse than a tap to close. */}
         {isSheetExpanded ? null : (
@@ -1176,40 +1163,30 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
           >
             <Icon name="search" size={20} color={COLORS.text} />
           </MapControl>
-          <MapControl
-            onPress={() => setMuted((v) => !v)}
-            label={muted ? 'Unmute voice guidance' : 'Mute voice guidance'}
-            disabled={!voiceUsable}
-            disabledHint="No speech engine on this device"
-          >
-            <AudioIcon color={voiceUsable ? COLORS.text : COLORS.faint} size={20} muted={muted || !voiceUsable} />
-          </MapControl>
-          <MapControl
-            onPress={handleFitRoute}
-            label="Route overview — fit the whole route"
-            disabled={!canFitRoute}
-            disabledHint="No route to frame yet"
-          >
-            <FitRouteIcon color={canFitRoute ? COLORS.text : COLORS.faint} size={20} />
-          </MapControl>
-          <MapControl
-            onPress={() => setShowHazards((v) => !v)}
-            label={showHazards ? 'Hide terrain and landslide overlays' : 'Show terrain and landslide overlays'}
-            disabled={!risk?.terrain?.usable && !risk?.landslide_history?.events?.length && HILLSHADE_URL === null}
-            disabledHint="No terrain overlay available"
-            active={showHazards}
-          >
-            <Icon name="layers" size={20} color={showHazards ? COLORS.onAccent : COLORS.text} />
-          </MapControl>
-          <MapControl
-            onPress={() => setShowTraffic((v) => !v)}
-            label={showTraffic ? 'Hide fleet traffic' : 'Show fleet traffic'}
-            disabled={!trafficKnown}
-            disabledHint="No fleet telemetry on this road yet"
-            active={showTraffic && trafficKnown}
-          >
-            <Icon name="activity" size={20} color={showTraffic && trafficKnown ? COLORS.onAccent : COLORS.text} />
-          </MapControl>
+          {voiceUsable ? (
+            <MapControl onPress={() => setMuted((v) => !v)} label={muted ? 'Unmute voice guidance' : 'Mute voice guidance'}>
+              <AudioIcon color={COLORS.text} size={20} muted={muted} />
+            </MapControl>
+          ) : null}
+          {canFitRoute ? (
+            <MapControl onPress={handleFitRoute} label="Route overview — fit the whole route">
+              <FitRouteIcon color={COLORS.text} size={20} />
+            </MapControl>
+          ) : null}
+          {risk?.terrain?.usable || risk?.landslide_history?.events?.length || HILLSHADE_URL !== null ? (
+            <MapControl
+              onPress={() => setShowHazards((v) => !v)}
+              label={showHazards ? 'Hide terrain and landslide overlays' : 'Show terrain and landslide overlays'}
+              active={showHazards}
+            >
+              <Icon name="layers" size={20} color={showHazards ? COLORS.onAccent : COLORS.text} />
+            </MapControl>
+          ) : null}
+          {trafficKnown ? (
+            <MapControl onPress={() => setShowTraffic((v) => !v)} label={showTraffic ? 'Hide fleet traffic' : 'Show fleet traffic'} active={showTraffic}>
+              <Icon name="activity" size={20} color={showTraffic ? COLORS.onAccent : COLORS.text} />
+            </MapControl>
+          ) : null}
           {hasAlternative ? (
             <MapControl
               onPress={() => setShowAltRoute((v) => !v)}
@@ -1240,7 +1217,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
             <Text style={[styles.gpsText, !isOnline && styles.gpsTextOff, chip.tone === 'coarse' && styles.navChipWarnText]}>{chip.text}</Text>
           </View>
           <View style={[styles.gpsChip, styles.navChip, (nav === 'OFF_ROUTE' || nav === 'REROUTING') && styles.navChipWarn, (nav === 'GPS_STALE' || nav === 'OFFLINE' || nav === 'IDLE') && styles.gpsChipOff]} testID="nav-state">
-            <Text style={[styles.gpsText, (nav === 'OFF_ROUTE' || nav === 'REROUTING') && styles.navChipWarnText, (nav === 'GPS_STALE' || nav === 'OFFLINE' || nav === 'IDLE') && styles.gpsTextOff]}>{nav.replace('_', ' ')}</Text>
+            <Text style={[styles.gpsText, (nav === 'OFF_ROUTE' || nav === 'REROUTING') && styles.navChipWarnText, (nav === 'GPS_STALE' || nav === 'OFFLINE' || nav === 'IDLE') && styles.gpsTextOff]}>{t(NAV_WORDS[nav] ?? nav)}</Text>
           </View>
         </View>
         )}
@@ -1312,21 +1289,21 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
         </Text>
         <View style={styles.aiFacts}>
           {ai.nextTerrain ? (
-            <Text style={styles.aiFact} numberOfLines={1}>Next terrain: <Text style={styles.aiFactStrong}>{ai.nextTerrain}</Text></Text>
+            <Text style={styles.aiFact} numberOfLines={1}>{t('Next terrain')}: <Text style={styles.aiFactStrong}>{ai.nextTerrain}</Text></Text>
           ) : null}
           {ai.landslide ? (
-            <Text style={styles.aiFact} numberOfLines={1}>Landslide exposure: <Text style={styles.aiFactStrong}>{ai.landslide}</Text></Text>
+            <Text style={styles.aiFact} numberOfLines={1}>{t('Landslide exposure')}: <Text style={styles.aiFactStrong}>{ai.landslide}</Text></Text>
           ) : null}
           {ai.weather ? (
-            <Text style={styles.aiFact} numberOfLines={1}>Weather: <Text style={styles.aiFactStrong}>{ai.weather}</Text></Text>
+            <Text style={styles.aiFact} numberOfLines={1}>{t('Weather')}: <Text style={styles.aiFactStrong}>{ai.weather}</Text></Text>
           ) : null}
           {risk?.traffic ? (
-            <Text style={styles.aiFact} numberOfLines={1}>Fleet traffic: <Text style={styles.aiFactStrong}>{trafficLine(risk.traffic)}</Text></Text>
+            <Text style={styles.aiFact} numberOfLines={1}>{t('Fleet traffic')}: <Text style={styles.aiFactStrong}>{trafficLine(risk.traffic)}</Text></Text>
           ) : null}
         </View>
         {holdDecision ? (
           <Pressable onPress={findStop} accessibilityRole="button" accessibilityLabel="Find a place to stop" style={styles.stopLink}>
-            <Text style={styles.stopLinkText}>Find a place to stop →</Text>
+            <Text style={styles.stopLinkText}>{t('Find a place to stop')} →</Text>
           </Pressable>
         ) : null}
         <Text style={styles.aiStamp} numberOfLines={1}>
@@ -1390,7 +1367,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
               A safer road exists: {risk.alternative.band} risk, {risk.alternative.distance_km != null ? `${formatDistanceKm(risk.alternative.distance_km)}` : 'distance unknown'}. Your manager confirms any route change.
             </Text>
           ) : selectedRouteId !== null && !hasAlternative ? (
-            <Text style={styles.detailLine}>No alternate route available for this corridor.</Text>
+            <Text style={styles.detailLine}>{t('No alternate route available for this corridor.')}</Text>
           ) : null}
           {risk ? (
             <Text style={styles.detailStamp}>
@@ -1410,7 +1387,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
                 accessibilityState={{ selected: category === c.id }}
                 style={[styles.chip, category === c.id && styles.chipActive]}
               >
-                <Text style={[styles.chipLabel, category === c.id && styles.chipLabelActive]}>{c.label}</Text>
+                <Text style={[styles.chipLabel, category === c.id && styles.chipLabelActive]}>{t(c.label)}</Text>
               </Pressable>
             ))}
           </ScrollView>
@@ -1431,7 +1408,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
                     style={[styles.modeChip, mode === m.id && styles.chipActive, unavailable && styles.chipOff]}
                   >
                     <Text style={styles.modeLabel}>
-                      {m.label}
+                      {t(m.label)}
                       {m.id === 'NEAR_ME' && marker.position === null ? ' (no GPS)' : ''}
                     </Text>
                   </Pressable>
@@ -1442,7 +1419,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
           {renderResults()}
 
           {trip === null ? null : (<>
-          <Text style={styles.sectionTitle}>Trip</Text>
+          <Text style={styles.sectionTitle}>{t('Trip')}</Text>
           <Text style={styles.tripLine} numberOfLines={2}>
             {geometry.stops[0]?.name ?? geometry.stops[0]?.address ?? 'Origin'} → {geometry.stops.at(-1)?.name ?? geometry.stops.at(-1)?.address ?? 'Destination'}
           </Text>
@@ -1493,7 +1470,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
       >
         <View style={styles.etaCell}>
           <Text style={styles.etaValue} numberOfLines={1}>{eta.duration ?? '—'}</Text>
-          <Text style={styles.etaLabel}>{risk?.traffic && risk.traffic.delay_min > 0 ? `${t('duration')} · +${Math.round(risk.traffic.delay_min)} min traffic` : t('duration')}</Text>
+          <Text style={styles.etaLabel}>{risk?.traffic && risk.traffic.delay_min > 0 ? `${t('duration')} · +${Math.round(risk.traffic.delay_min)} ${t('min traffic')}` : t('duration')}</Text>
         </View>
         <View style={styles.etaCell}>
           <Text style={styles.etaValue} numberOfLines={1}>{eta.distance ?? '—'}</Text>
@@ -1501,7 +1478,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
         </View>
         <View style={styles.etaCell}>
           <Text style={styles.etaValue} numberOfLines={1}>{eta.arrival ?? '—'}</Text>
-          <Text style={styles.etaLabel}>{eta.arrival ? (isStale ? 'arrival · last known' : 'arrival') : selectedRouteId === null ? 'no route' : guidanceHasPosition ? 'on route' : 'no fix'}</Text>
+          <Text style={styles.etaLabel}>{t(eta.arrival ? (isStale ? 'arrival · last known' : 'arrival') : selectedRouteId === null ? 'no route' : guidanceHasPosition ? 'on route' : 'no fix')}</Text>
         </View>
       </Pressable>
       )}
@@ -1576,7 +1553,7 @@ const useStyles = makeStyles((COLORS) => ({
     shadowRadius: 8,
   },
   maneuverMain: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  maneuverIcon: { color: '#FFFFFF', fontSize: 34, fontWeight: '900', width: 40, textAlign: 'center' },
+  maneuverIcon: { width: 40, alignItems: 'center', justifyContent: 'center' },
   maneuverText: { flex: 1, minWidth: 0 },
   maneuverDistance: { color: '#FFFFFF', fontSize: 26, fontWeight: '900', lineHeight: 30 },
   maneuverInstruction: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
@@ -1764,9 +1741,6 @@ const useStyles = makeStyles((COLORS) => ({
     backgroundColor: COLORS.accent,
     borderColor: COLORS.accent,
   },
-  floatingCircleBtnDisabled: {
-    opacity: 0.38,
-  },
   floatingCircleBtnPressed: {
     backgroundColor: COLORS.soft,
     transform: [{ scale: 0.94 }],
@@ -1780,19 +1754,6 @@ const useStyles = makeStyles((COLORS) => ({
   rowLabel: { color: COLORS.muted, fontSize: 13, flexShrink: 0 },
   rowValue: { color: COLORS.text, fontSize: 13, flexShrink: 1, textAlign: 'right' },
   rowUnknown: { color: COLORS.faint, fontStyle: 'italic' },
-  standbyToast: {
-    position: 'absolute',
-    top: 120,
-    alignSelf: 'center',
-    backgroundColor: 'rgba(15, 23, 42, 0.9)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: COLORS.routeOn,
-    zIndex: 5,
-  },
-  standbyToastText: { color: COLORS.routeOn, fontSize: 13, fontWeight: '700' },
   resultsPane: {
     maxHeight: 220,
     paddingHorizontal: 16,

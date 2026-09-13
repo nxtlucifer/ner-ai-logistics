@@ -53,6 +53,7 @@ import AiPanel from '../ai/AiPanel'
 import { useLocalAi } from '../ai/useLocalAi'
 import { TOUCH_TARGET } from '../theme'
 import { Icon } from '../components/icons'
+import { useT } from '../i18n/tx'
 import { makeStyles, useTheme } from '../theme-context'
 
 function Bullets({ items, tone }: { items: string[]; tone?: 'bad' }) {
@@ -79,10 +80,11 @@ function Section({
   tone?: 'bad'
 }) {
   const styles = useStyles()
+  const t = useT()
   if (items.length === 0) return null
   return (
     <View style={styles.section}>
-      <Text style={styles.sectionHeading}>{heading}</Text>
+      <Text style={styles.sectionHeading}>{t(heading)}</Text>
       <Bullets items={items} tone={tone} />
     </View>
   )
@@ -91,6 +93,7 @@ function Section({
 function Detail({ topic, onBack }: { topic: Topic; onBack: () => void }) {
   const styles = useStyles()
   const { colors: COLORS } = useTheme()
+  const t = useT()
   const lang = resolveLanguage()
   const ai = useLocalAi()
 
@@ -103,7 +106,7 @@ function Detail({ topic, onBack }: { topic: Topic; onBack: () => void }) {
         style={({ pressed }) => [styles.back, pressed && styles.pressed]}
       >
         <Icon name="chevron-left" size={20} color={COLORS.muted} />
-        <Text style={styles.backLabel}>All topics</Text>
+        <Text style={styles.backLabel}>{t('All topics')}</Text>
       </Pressable>
 
       <Text style={styles.detailTitle}>{topic.title}</Text>
@@ -124,7 +127,7 @@ function Detail({ topic, onBack }: { topic: Topic; onBack: () => void }) {
 
       {topic.escalate.length > 0 ? (
         <View style={styles.escalate}>
-          <Text style={styles.escalateHeading}>Call 112 now if</Text>
+          <Text style={styles.escalateHeading}>{t('Call 112 now if')}</Text>
           <Bullets items={topic.escalate} />
         </View>
       ) : null}
@@ -140,8 +143,8 @@ function Detail({ topic, onBack }: { topic: Topic; onBack: () => void }) {
       <AiPanel
         ai={ai}
         mode="safety"
-        lead={`Ask about ${topic.title.toLowerCase()}`}
-        placeholder="Ask about this guidance"
+        lead={`${t('Ask about')} ${topic.title.toLowerCase()}`}
+        placeholder={t('Ask about this guidance')}
         askOptions={{ guidance: guidanceText(topic) }}
         fallbackName="guidance above"
       />
@@ -175,6 +178,7 @@ function guidanceText(topic: Topic): string {
 function TopicButton({ topic, onPress }: { topic: Topic; onPress: () => void }) {
   const styles = useStyles()
   const { colors: COLORS } = useTheme()
+  const t = useT()
   return (
     <Pressable
       onPress={onPress}
@@ -193,7 +197,7 @@ function TopicButton({ topic, onPress }: { topic: Topic; onPress: () => void }) 
       <View style={styles.topicText}>
         <Text style={styles.topicTitle}>{topic.title}</Text>
         {/* Text, not only colour: risk must never be conveyed by hue alone. */}
-        {topic.emergency ? <Text style={styles.topicTag}>EMERGENCY</Text> : null}
+        {topic.emergency ? <Text style={styles.topicTag}>{t('EMERGENCY')}</Text> : null}
       </View>
       <Icon name="chevron-right" size={20} color={COLORS.faint} />
     </Pressable>
@@ -230,6 +234,7 @@ const BREAK_HEADLINE: Record<BreakLevel, string> = {
  */
 function BreakCard() {
   const styles = useStyles()
+  const t = useT()
   const { trip } = useTrip()
   const [lastBreakAt, setLastBreakAt] = useState<string | null>(null)
   const [saveFailed, setSaveFailed] = useState(false)
@@ -264,7 +269,7 @@ function BreakCard() {
 
   return (
     <View style={styles.block}>
-      <Text style={styles.eyebrow}>REST</Text>
+      <Text style={styles.eyebrow}>{t('REST')}</Text>
       <View
         style={[
           styles.breakCard,
@@ -327,6 +332,7 @@ function BreakCard() {
 
 export default function SafetyScreen() {
   const styles = useStyles()
+  const t = useT()
   const lang = resolveLanguage()
   const [openId, setOpenId] = useState<string | null>(null)
 
@@ -360,7 +366,7 @@ export default function SafetyScreen() {
         ))}
       </View>
       <Text style={styles.numbersNote}>
-        Tapping opens your dialler. You still press call.
+        {t('Tapping opens your dialler. You still press call.')}
       </Text>
 
       <BreakCard />
@@ -368,8 +374,8 @@ export default function SafetyScreen() {
       <View style={styles.block}>
         <View style={styles.sectionHead}>
           <View>
-            <Text style={styles.eyebrow}>GUIDANCE</Text>
-            <Text style={styles.sectionNote}>Bundled in the app · works offline</Text>
+            <Text style={styles.eyebrow}>{t('GUIDANCE')}</Text>
+            <Text style={styles.sectionNote}>{t('Bundled in the app · works offline')}</Text>
           </View>
         </View>
 

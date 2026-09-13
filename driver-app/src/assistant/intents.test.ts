@@ -16,6 +16,22 @@ describe('classifyIntent', () => {
     expect(classifyIntent('Is this route safe?')).toBe('ROUTE_RISK')
   })
 
+  it('understands health in all five languages, and red flags before anything else', () => {
+    expect(classifyIntent('I am feeling dizziness')).toBe('HEALTH')
+    expect(classifyIntent('mujhe chakkar aa raha hai')).toBe('HEALTH')
+    expect(classifyIntent('मुझे चक्कर आ रहा है')).toBe('HEALTH')
+    expect(classifyIntent('મને ચક્કર આવે છે')).toBe('HEALTH')
+    expect(classifyIntent('মোৰ মূৰ ঘূৰাইছে')).toBe('HEALTH')
+    expect(classifyIntent('আমার মাথা ঘোরাচ্ছে')).toBe('HEALTH')
+    expect(classifyIntent('I have a headache and fever')).toBe('HEALTH')
+    expect(classifyIntent('chest pain, help')).toBe('HEALTH_URGENT')
+    expect(classifyIntent('सीने में दर्द हो रहा है')).toBe('HEALTH_URGENT')
+    expect(classifyIntent("my friend can't breathe")).toBe('HEALTH_URGENT')
+    expect(classifyIntent('where is the nearest doctor')).toBe('HEALTH')
+    // "help" is an emergency word first; the emergency card carries 108 too.
+    expect(classifyIntent('find medical help')).toBe('EMERGENCY')
+  })
+
   it('puts emergency before everything and refuses to guess', () => {
     expect(classifyIntent('truck accident, need help')).toBe('EMERGENCY')
     expect(classifyIntent('restaurant nearby?')).toBe('UNKNOWN')

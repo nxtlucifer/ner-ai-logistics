@@ -26,6 +26,7 @@ import {
 } from 'react-native'
 
 import { TOUCH_TARGET } from '../theme'
+import { useT } from '../i18n/tx'
 import { makeStyles, useTheme } from '../theme-context'
 import type { AiMode, AskOptions, LocalAi } from './useLocalAi'
 
@@ -55,10 +56,11 @@ export default function AiPanel({
   placeholder,
   suggestions = [],
   askOptions,
-  fallbackName,
+  fallbackName: _fallbackName,
 }: AiPanelProps) {
   const styles = useStyles()
   const { colors: COLORS } = useTheme()
+  const t = useT()
   const [draft, setDraft] = useState('')
   const { status, state } = ai
 
@@ -68,7 +70,7 @@ export default function AiPanel({
   if (status === null) {
     return (
       <View style={styles.panel}>
-        <Text style={styles.status}>Checking for the local model…</Text>
+        <Text style={styles.status}>{t('Checking for the online model…')}</Text>
       </View>
     )
   }
@@ -76,12 +78,12 @@ export default function AiPanel({
   if (!status.available) {
     return (
       <View style={styles.panel} testID="ai-unavailable">
-        <Text style={styles.statusTitle}>AI answers are off</Text>
+        <Text style={styles.statusTitle}>{t('Online answers are off')}</Text>
         <Text style={styles.status}>
-          {status.detail ?? 'No local model is available.'}
+          {status.detail ?? t('No model is available.')}
         </Text>
         <Text style={styles.status}>
-          The {fallbackName} still works, with no model and no internet.
+          {t('The saved guidance still works, with no model and no internet.')}
         </Text>
       </View>
     )
@@ -93,7 +95,7 @@ export default function AiPanel({
     <View style={styles.panel} testID="ai-panel">
       <Text style={styles.lead}>{lead}</Text>
       <Text style={styles.model}>
-        AI Logistics Assistant · Grounded on live telemetry & terrain safety rules
+        {t('Online model · may only reword the guidance above')}
       </Text>
 
       {suggestions.length > 0 ? (
@@ -133,7 +135,7 @@ export default function AiPanel({
           ]}
           testID="ai-ask"
         >
-          <Text style={[styles.buttonLabel, { color: COLORS.onAccent }]}>{busy ? 'Answering…' : 'Ask'}</Text>
+          <Text style={[styles.buttonLabel, { color: COLORS.onAccent }]}>{t(busy ? 'Answering…' : 'Ask')}</Text>
         </Pressable>
 
         {/* Cancel exists because a local model on a laptop can take half a
@@ -146,7 +148,7 @@ export default function AiPanel({
             style={[styles.button, styles.buttonQuiet]}
             testID="ai-cancel"
           >
-            <Text style={styles.buttonLabel}>Cancel</Text>
+            <Text style={styles.buttonLabel}>{t('Cancel')}</Text>
           </Pressable>
         ) : null}
       </View>
@@ -161,7 +163,7 @@ export default function AiPanel({
             accessibilityRole="button"
             style={[styles.button, styles.buttonQuiet]}
           >
-            <Text style={styles.buttonLabel}>Try again</Text>
+            <Text style={styles.buttonLabel}>{t('Try again')}</Text>
           </Pressable>
         </View>
       ) : null}
@@ -186,13 +188,13 @@ export default function AiPanel({
               every answer the driver saw. */}
           {state.answer.generated ? (
             <Text style={styles.generatedLabel}>
-              Written by AI — check anything important
+              {t('Written by an online model')} · {t('check anything important')}
             </Text>
           ) : (
             <View style={styles.offlineLabelRow}>
               <View style={styles.offlineDot} />
               <Text style={styles.offlineLabel}>
-                Offline guidance — saved on this phone
+                {t('Offline guidance — saved on this phone')}
               </Text>
             </View>
           )}

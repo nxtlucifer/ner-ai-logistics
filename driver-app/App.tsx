@@ -31,6 +31,7 @@ import { api } from './src/api/client'
 import { AuthProvider, useAuth } from './src/auth/AuthProvider'
 import { Button, Loading } from './src/components/ui'
 import { AppLanguageProvider, useAppLanguage } from './src/i18n/AppLanguageProvider'
+import { useT } from './src/i18n/tx'
 import { type TranslationKey } from './src/i18n/appLanguage'
 import AssistantScreen from './src/screens/AssistantScreen'
 import AssignmentScreen from './src/screens/AssignmentScreen'
@@ -42,6 +43,7 @@ import SafetyScreen from './src/screens/SafetyScreen'
 import TripScreen from './src/screens/TripScreen'
 import { TABS, type Tab } from './src/navigation'
 import { MoreIcon, NavigateIcon, SafetyIcon, TripIcon } from './src/components/icons'
+import { refreshProfilePhoto, useProfilePhotoUrl } from './src/files/profilePhoto'
 import { useAuthImage } from './src/files/useAuthImage'
 import { TripProvider, useTrip } from './src/trip/TripProvider'
 import { TOUCH_TARGET } from './src/theme'
@@ -97,9 +99,10 @@ function SignedShell() {
    * gone stale, or it is live. Stale is not off, and neither is a decision the
    * driver has not made yet: location sharing starts with the trip.
    */
-  const gpsLabel = !tracking?.isTracking ? 'GPS off' : isStale ? 'GPS stale' : 'GPS live'
+  const tr = useT()
+  const gpsLabel = tr(!tracking?.isTracking ? 'GPS off' : isStale ? 'GPS stale' : 'GPS live')
   const hour = new Date().getHours()
-  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
+  const greeting = tr(hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening')
   const initials = (driver?.full_name ?? 'Driver')
     .split(' ')
     .filter(Boolean)
@@ -109,16 +112,10 @@ function SignedShell() {
   const [tab, setTab] = useState<Tab>('trip')
   const [showAssistant, setShowAssistant] = useState(false)
   const [showDetails, setShowDetails] = useState(false)
-  // The profile photo lives on /me/profile (My details owns it); re-read when
-  // that screen closes so a photo taken there shows here at once.
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
-  useEffect(() => {
-    if (showDetails) return
-    let alive = true
-    api.myProfile().then((profile) => { if (alive) setPhotoUrl(profile.photo_url) }).catch(() => {})
-    return () => { alive = false }
-  }, [showDetails])
-  const photo = useAuthImage(photoUrl)
+  // One photo source for every avatar (files/profilePhoto.ts); seeded once
+  // here, updated by My details when a photo is uploaded.
+  useEffect(refreshProfilePhoto, [])
+  const photo = useAuthImage(useProfilePhotoUrl())
   const [showAssignment, setShowAssignment] = useState(false)
 
   return (
@@ -162,7 +159,7 @@ function SignedShell() {
                   mode === 'day' ? 'Switch to night theme' : 'Switch to day theme'
                 }
               >
-                <Text style={styles.langToggleText}>{mode === 'day' ? 'Day' : 'Night'}</Text>
+                <Text style={styles.langToggleText}>{tr(mode === 'day' ? 'Day' : 'Night')}</Text>
               </Pressable>
             </View>
           </View>
@@ -241,23 +238,22 @@ function Gate() {
   const styles = useStyles()
   const { colors: COLORS } = useTheme()
   const { driver, isInitialising } = useAuth()
+  const tr = useT()
 
   if (isInitialising) {
     return (
       <SafeAreaView style={styles.splashRoot}>
         <View style={styles.splashCard}>
-          <View style={styles.splashLogoBadge}>
-            <Text style={styles.splashLogoIcon}>▲▲</Text>
-          </View>
+          <Image source={require('./assets/brand-mark.png')} style={styles.splashLogoBadge} accessibilityLabel="RASTA AI" />
           <Text style={styles.splashBrand}>NER LOGISTICS</Text>
-          <Text style={styles.splashTitle}>DRIVER COMMAND</Text>
-          <Text style={styles.splashSubtitle}>Restoring secure driver session…</Text>
+          <Text style={styles.splashTitle}>RASTA AI</Text>
+          <Text style={styles.splashSubtitle}>{tr('Restoring your session…')}</Text>
           <View style={styles.splashLoadingRow}>
             <ActivityIndicator size="small" color={COLORS.accent} />
-            <Text style={styles.splashLoadingText}>Verifying credentials</Text>
+            <Text style={styles.splashLoadingText}>{tr('Verifying credentials')}</Text>
           </View>
         </View>
-        <Text style={styles.splashMotto}>Safe Routes. Stronger India.</Text>
+        <Text style={styles.splashMotto}>{tr('Safer logistics through difficult corridors.')}</Text>
       </SafeAreaView>
     )
   }
@@ -340,23 +336,7 @@ const useStyles = makeStyles((COLORS) => ({
     shadowRadius: 16,
     elevation: 8,
   },
-  splashLogoBadge: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: COLORS.sunken,
-    borderWidth: 2,
-    borderColor: COLORS.accent,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 14,
-  },
-  splashLogoIcon: {
-    color: COLORS.accent,
-    fontSize: 20,
-    fontWeight: '900',
-    letterSpacing: -2,
-  },
+  splashLogoBadge: { width: 48, height: 48, borderRadius: 14, marginBottom: 14 },
   splashBrand: {
     color: COLORS.text,
     fontSize: 16,

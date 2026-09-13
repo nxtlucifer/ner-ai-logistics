@@ -14,8 +14,14 @@ describe('sceneLayers', () => {
     expect(live.filter((l) => l.k === 'circle')).toHaveLength(1)
     expect(live.at(-1)).toMatchObject({ k: 'arrow', h: 45 })
     const stale = sceneLayers({ ...base, position: [26.15, 91.75], positionKind: 'LAST_KNOWN', accuracyM: 20, headingDeg: 45, positionAgeSeconds: 90 })
-    expect(stale.at(-1)).toMatchObject({ k: 'dot', o: 0, tip: 'Last known position — 90s ago' })
-    expect(stale.some((l) => l.k === 'circle' || l.k === 'arrow')).toBe(false)
+    expect(stale.at(-1)).toMatchObject({ k: 'dot', f: '#6B7280', tip: 'Last known position — 90s ago' })
+    expect(stale.find((l) => l.k === 'circle')).toMatchObject({ d: '6 6', c: '#6B7280' })
+    expect(stale.some((l) => l.k === 'arrow')).toBe(false)
+  })
+  it('draws a network fix as an amber dot with a capped disc, never a chevron', () => {
+    const net = sceneLayers({ ...base, position: [26.15, 91.75], positionKind: 'LIVE', positionSource: 'NETWORK', accuracyM: 900, headingDeg: 45 })
+    expect(net.at(-1)).toMatchObject({ k: 'dot', f: '#B45309', tip: 'Network position, accurate to 900 m' })
+    expect(net.find((l) => l.k === 'circle')).toMatchObject({ r: 150, c: '#B45309' })
   })
   it('paints only KNOWN fleet traffic as a thin stroke inside the route', () => {
     const layers = sceneLayers({ ...base, progressFraction: null, trafficSegments: [
