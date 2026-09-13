@@ -22,7 +22,7 @@
  * implies a speed no truck reaches - a teleport, not a measurement.
  */
 
-import { metresBetween } from './tracker'
+import { distanceMetres } from '../map/geo'
 
 export interface SpeedSample {
   lat: number
@@ -50,6 +50,8 @@ export const SPEED = {
   /** A fix implying more than this is a jump, not a movement. */
   teleportKmh: 200,
 }
+
+const metresBetween = (a: { lat: number; lon: number }, b: { lat: number; lon: number }) => distanceMetres([a.lat, a.lon], [b.lat, b.lon])
 
 export class SpeedFilter {
   private anchor: SpeedSample | null = null

@@ -203,7 +203,8 @@ class Settings(BaseSettings):
 
     # --- Gemini Developer API (Server Proxy) ---
     GEMINI_API_KEY: str | None = None
-    GEMINI_MODEL: str = "gemini-flash-latest"
+    #: The lite model answered in 1-3 s where flash-latest returned 503 "overloaded" from Render's egress (13 Sep).
+    GEMINI_MODEL: str = "gemini-flash-lite-latest"
     GEMINI_TIMEOUT_SECONDS: float = 8.0
     GEMINI_MAX_OUTPUT_TOKENS: int = 512
     GEMINI_RPM_LIMIT: int = 10

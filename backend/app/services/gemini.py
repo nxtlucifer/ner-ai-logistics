@@ -343,6 +343,11 @@ async def generate(
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(url, json=payload)
+            # Google answers 503 "model overloaded" in bursts; one patient
+            # retry clears most of them and is cheaper than a failover.
+            if resp.status_code in (503, 429):
+                await asyncio.sleep(1.5)
+                resp = await client.post(url, json=payload)
 
         if resp.status_code == 429:
             log.warning("Gemini API quota exhausted (HTTP 429). Falling back gracefully.")

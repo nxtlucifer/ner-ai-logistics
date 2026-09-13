@@ -75,12 +75,15 @@ def archive(client: httpx.Client, lat: float, lon: float) -> dict:
     p = CACHE / "archive" / f"{lat:.4f}_{lon:.4f}.json"
     if p.exists():
         return json.loads(p.read_text(encoding="utf-8"))
-    for attempt in range(4):
+    for attempt in range(12):
         r = client.get("https://archive-api.open-meteo.com/v1/archive", params={
             "latitude": lat, "longitude": lon, "start_date": START.isoformat(), "end_date": END.isoformat(),
             "daily": "precipitation_sum", "timezone": "Asia/Kolkata"})
         if r.status_code == 429:
-            time.sleep(10 * (attempt + 1)); continue
+            # An 11-year daily series is a weighted call; the hourly budget of a
+            # free key runs out around 170 sites. Wait it out - never hammer.
+            print(f"  429 at {lat},{lon}; waiting {5 * (attempt + 1)} min", flush=True)
+            time.sleep(300 * (attempt + 1)); continue
         r.raise_for_status()
         body = r.json()
         p.parent.mkdir(parents=True, exist_ok=True)
