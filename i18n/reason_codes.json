@@ -480,6 +480,30 @@
       "hi": "इस मार्ग के लिए नदी जलस्तर का डेटा उपलब्ध नहीं है।",
       "as": "এই পথৰ বাবে নদীৰ পানীৰ স্তৰৰ তথ্য উপলব্ধ নহয়।"
     },
+    "TRAFFIC_CONGESTED_AHEAD": {
+      "speak": false,
+      "en": "Fleet trucks ahead are moving well below the planned pace. Expect delay, not danger.",
+      "hi": "आगे बेड़े के ट्रक नियोजित गति से बहुत धीमे चल रहे हैं। देरी की उम्मीद करें, खतरा नहीं।",
+      "as": "আগত ফ্লীটৰ ট্ৰাকবোৰ পৰিকল্পিত গতিতকৈ বহুত লাহে লাহে গৈ আছে। পলম হ'ব, বিপদ নহয়।"
+    },
+    "TRAFFIC_SLOW_AHEAD": {
+      "speak": false,
+      "en": "Fleet trucks ahead are moving slower than the planned pace.",
+      "hi": "आगे बेड़े के ट्रक नियोजित गति से धीमे चल रहे हैं।",
+      "as": "আগত ফ্লীটৰ ট্ৰাকবোৰ পৰিকল্পিত গতিতকৈ লাহে গৈ আছে।"
+    },
+    "TRAFFIC_NORMAL": {
+      "speak": false,
+      "en": "Fleet trucks on this road are moving at the planned pace.",
+      "hi": "इस सड़क पर बेड़े के ट्रक नियोजित गति से चल रहे हैं।",
+      "as": "এই পথত ফ্লীটৰ ট্ৰাকবোৰ পৰিকল্পিত গতিত গৈ আছে।"
+    },
+    "TRAFFIC_UNKNOWN": {
+      "speak": false,
+      "en": "No fleet truck has driven this road in the last fifteen minutes, so traffic is unknown.",
+      "hi": "पिछले पंद्रह मिनट में बेड़े का कोई ट्रक इस सड़क पर नहीं चला, इसलिए यातायात अज्ञात है।",
+      "as": "যোৱা পোন্ধৰ মিনিটত ফ্লীটৰ কোনো ট্ৰাক এই পথেৰে যোৱা নাই, সেয়ে যান-বাহনৰ অৱস্থা অজ্ঞাত।"
+    },
     "OFFICIAL_WARNING_ON_ROUTE": {
       "speak": true,
       "en": "An official disaster alert names a district on this route.",

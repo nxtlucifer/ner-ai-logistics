@@ -581,6 +581,66 @@ the off-route/reroute steps real; the proposal is a 2,449 km road, and it loads.
 
 ---
 
+## 6i. Map everywhere, location truth, open geocoder, fleet traffic (13 Sep, morning)
+
+- **NAVIGATE opens with no trip.** `MapScreen` no longer returns a placeholder
+  for `trip === null`: the basemap, search, terrain shading toggle, compass,
+  re-centre and SOS all work; the Personal Route AI card, the ETA bar and the
+  maneuver card are ABSENT (`browsing`), not filled with placeholders. Position
+  comes from `src/tracking/useBrowsePosition.ts` - the same adapter, no upload,
+  on exactly when the server does not expect tracking.
+- **Location source, truthfully.** `Accuracy.High` (was Balanced, which rarely
+  lit the GPS). `src/tracking/source.ts`: a fix is `GPS` within 40 m
+  (`GPS_GRADE_ACCURACY_M`, a calibration knob) and `NETWORK` otherwise; the
+  fused provider does not name its source per fix, the accuracy is what it
+  reports honestly, and the metres are always printed beside the word. Chain:
+  GPS-grade -> network-grade -> the platform's last known fix (seeded at start,
+  aged by its own timestamp, never uploaded) -> NO FIX. The chip
+  (`src/map/locationLabel.ts`) reads `GPS ±10 m` / `NETWORK ±180 m` /
+  `LAST KNOWN 3 min` / `NO FIX` / `LOCATION OFF` - "GPS LIVE" is gone.
+  Physical phone: LAST KNOWN 1 min on open, GPS ±10 m once the receiver locked.
+  No custom cell triangulation, no tower database.
+- **Open geocoder.** Google Places stays if a key ever exists; without one the
+  backend answers `/api/geocoding/suggest|details` from Nominatim
+  (`countrycodes=in,np,bt,bd,mm`, cached 500 queries, one request per second
+  behind a lock, 700 ms client pause - not per-keystroke autocomplete).
+  Place ids are `osm:<lat>,<lon>`; attribution `© OpenStreetMap contributors`.
+  A findable location says nothing about a route: the router answers that
+  when asked, and the picker says so ("location valid; route availability is
+  checked when you plan"). Verified remotely: Kathmandu, Thimphu, Dhaka,
+  Mandalay, Siliguri, Kohima.
+- **Pasted Google Maps links** go to `POST /api/geocoding/resolve-link`
+  (`app/services/maplink.py`): Google hosts only, private targets refused,
+  short links expanded by following `Location` headers (max 5 hops, each
+  re-validated, body never read), coordinates from `@lat,lon` / `q=` / `ll=` /
+  `destination=` / `!3d!4d`, place text handed to OUR geocoder. Nothing of
+  Google's page is scraped. The address box itself accepts a pasted link
+  (`MAPS_LINK`). Public-manager test 6/6: full URL, `?q=`, text-only place,
+  a real `maps.app.goo.gl` share link, invalid, non-Google
+  (`.runtime/rehearsal/maplink.mjs`, `.runtime/evidence/maplink/`).
+- **RASTA FLEET TRAFFIC** (`app/domain/traffic.py`, `app/services/traffic.py`).
+  NOT Google traffic. Probes are the fleet's own `gps_points`, map-matched by
+  PostGIS (`ST_DWithin` 60 m + `ST_LineLocatePoint`) onto the route, bucketed
+  into 5 km segments, fresh within 15 min, accuracy <= 100 m, moving
+  (>= 2 km/h), plausible (<= 130 km/h), heading within 100° of the line.
+  Observed = median speed; baseline = the router's own planned pace
+  (distance/duration); ratio >= 0.7 NORMAL, >= 0.4 SLOW, else CONGESTED;
+  fewer than 4 samples from 2 trucks = UNKNOWN. UNKNOWN is the default and is
+  never NORMAL. It rides on `RouteRiskRead.traffic` (one poll, no second
+  poller), is NOT a risk input (`inputs`/`unavailable` untouched, so a road
+  only our trucks drove stays comparable with one they did not), scores zero
+  points, and enters the ranking as TIME (`_sort_key`: duration + delay_min).
+  Driver: thin green/amber/red stroke inside the blue route, rail toggle
+  (disabled with "No fleet telemetry on this road yet"), card line
+  "Fleet traffic: ...", ETA label "+N min traffic". Manager: Fleet traffic
+  block, evidence-coverage line (Weather/Terrain/Warnings/Traffic AVAILABLE
+  or UNKNOWN), traffic overlay on the review map. With one truck in the fleet
+  every live reading is UNKNOWN by design - the thresholds are knobs for a
+  fleet that exists; they have not been calibrated against real congestion.
+- **3D terrain: NO.** Both MapTiler keys still answer 403 on every endpoint
+  (checked again 13 Sep 09:5x); the 2D Leaflet/OSM map with terrain and
+  hazard overlays stays. Add MapLibre terrain only once a key answers 200.
+
 ## 6g. What "AI" means here - verified 12 Sep, do not overclaim
 
 - **Personal Route AI** (`driver-app/src/navigation/routeAi.ts`) is a

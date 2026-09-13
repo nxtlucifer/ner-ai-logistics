@@ -38,6 +38,7 @@ CODE_MODULES = (
     "app.domain.terrain",
     "app.domain.flood",
     "app.domain.warnings",
+    "app.domain.traffic",
     "app.services.offline_package",
     "app.services.navigation",
 )

@@ -481,7 +481,7 @@
       "as": "এই পথৰ বাবে নদীৰ পানীৰ স্তৰৰ তথ্য উপলব্ধ নহয়।"
     },
     "TRAFFIC_CONGESTED_AHEAD": {
-      "speak": true,
+      "speak": false,
       "en": "Fleet trucks ahead are moving well below the planned pace. Expect delay, not danger.",
       "hi": "आगे बेड़े के ट्रक नियोजित गति से बहुत धीमे चल रहे हैं। देरी की उम्मीद करें, खतरा नहीं।",
       "as": "আগত ফ্লীটৰ ট্ৰাকবোৰ পৰিকল্পিত গতিতকৈ বহুত লাহে লাহে গৈ আছে। পলম হ'ব, বিপদ নহয়।"
