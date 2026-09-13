@@ -178,19 +178,16 @@ class TestPrompts:
         recorded here so the next person widening or narrowing this list argues
         about the right thing.
         """
+        # 13 Sep: widened to the 22 scheduled languages of India + English, the
+        # same list the driver app's language sheet offers (APP_LANGUAGES).
+        # Offline phrasebook coverage is still the twelve below; the rest are
+        # online-only for translation and answered in their own script by the
+        # model (ai_prompts._SCRIPT), with the app's honest DRAFT / English
+        # fallback status shown on the sheet.
+        assert {"en", "hi", "gu", "as", "bn", "ta", "te", "ml", "kn", "mr", "pa", "or"} <= set(ai_prompts.DEMO_LANGUAGES)
         assert set(ai_prompts.DEMO_LANGUAGES) == {
-            "en",
-            "hi",
-            "gu",
-            "as",
-            "bn",
-            "ta",
-            "te",
-            "ml",
-            "kn",
-            "mr",
-            "pa",
-            "or",
+            "en", "as", "bn", "brx", "doi", "gu", "hi", "kn", "ks", "kok", "mai", "ml",
+            "mni", "mr", "ne", "or", "pa", "sa", "sat", "sd", "ta", "te", "ur",
         }
 
     def test_edge_function_and_backend_offer_the_same_languages(self) -> None:

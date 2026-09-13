@@ -103,7 +103,7 @@
       "as": "এই পথৰ বাবে বাঁকে-বাঁকে নিৰ্দেশনা নাই"
     },
     "DEMO_SIMULATION_ACTIVE": {
-      "speak": true,
+      "speak": false,
       "en": "DEMO SIMULATION - synthetic evidence injected for a demonstration, not a live report",
       "hi": "डेमो सिमुलेशन - प्रदर्शन के लिए बनाया गया कृत्रिम साक्ष्य, कोई वास्तविक रिपोर्ट नहीं",
       "as": "ডেমো ছিমুলেচন - প্ৰদৰ্শনৰ বাবে সংযোজিত কৃত্ৰিম প্ৰমাণ, প্ৰকৃত প্ৰতিবেদন নহয়"

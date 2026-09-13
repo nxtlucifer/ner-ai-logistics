@@ -25,6 +25,17 @@ export const DEMO_LANGUAGES: Record<string, string> = {
   mr: "Marathi",
   pa: "Punjabi",
   or: "Odia",
+  ur: "Urdu",
+  ne: "Nepali",
+  mai: "Maithili",
+  sa: "Sanskrit",
+  kok: "Konkani",
+  doi: "Dogri",
+  brx: "Bodo",
+  ks: "Kashmiri",
+  mni: "Manipuri (Meitei)",
+  sat: "Santali",
+  sd: "Sindhi",
 }
 
 export type SeverityKind = 'INFO' | 'WARNING' | 'CRITICAL'
