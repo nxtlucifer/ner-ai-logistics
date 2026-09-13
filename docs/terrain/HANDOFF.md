@@ -810,6 +810,22 @@ So: ROUTE_AI_ARCHITECTURE_VERIFIED = YES, and the honest phrase for judges is
 
 ## 8. Gates (all green at handoff)
 
+13 Sep (14:30, POST-FREEZE ADDITIVE - FROZEN AGAIN): Backend **1116 passed /
+5 skipped** (+files, documents, manual verify) · Driver **598/598** + tsc ·
+Manager **167/167** + tsc + remote-demo build · Expo export PASS · Supabase +
+local clone at **0011_files_verification** · driver web audit **40/40 states**
+(320/360/390/412 × day/night incl. My details + add-document form) · public
+manager 9/9 (Drivers/Trucks show the demo portrait + truck reference, the
+Assignments page shows the verification source and the trip photo; "Verify by
+hand" tried live: wrong plate refused, right plate -> MANAGER_MANUAL) · phone:
+login DAY + Hindi before sign-in, My details, gallery photo upload, translator
+recogniser matrix **12/12** locales · **judge phone E2E on the final APK (EAS
+c801687d, installed 13:40): L1 12/12 · L2 12/12 · L3 12/12** - each run makes
+a NEW TRUCK_VERIFICATION photo and a fresh assignment (`judge_e2e_L*.log`,
+`phone-e2e-L*-03b-verified.png`) · `bash .runtime/judge.sh reset` -> READY.
+Remote push: BLOCKED (no push credential). Local background alerts: coded and
+unit-tested; not exercised on the phone (the E2E keeps the app in front).
+
 13 Sep (12:00, JUDGE LOCK - FROZEN): Backend **1108 passed / 5 skipped** ·
 Driver **594/594** + tsc · Manager **167/167** + tsc + remote-demo build · Expo
 export PASS · public API/manager audit (CORS, tokens, bundles, https) clean ·
