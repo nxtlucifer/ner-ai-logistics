@@ -27,7 +27,7 @@ from typing import Final
 from app.core.config import get_settings
 from app.domain.route_risk import RiskComponent, RouteRisk, _band
 
-LABEL_CODE: Final = "DEMO_SIMULATION_ACTIVE"
+REASON_DEMO_SIMULATION_ACTIVE: Final = "DEMO_SIMULATION_ACTIVE"
 
 #: scenario -> (reason codes a real event would carry, points the policy adds)
 SCENARIOS: Final[dict[str, tuple[tuple[str, ...], int]]] = {
@@ -93,7 +93,7 @@ def apply(route_id: uuid.UUID, risk: RouteRisk, now: float | None = None) -> Rou
     if sc is None:
         return risk
     codes, points = SCENARIOS[sc.name]
-    reason_codes = tuple(dict.fromkeys((*risk.reason_codes, *codes, LABEL_CODE)))
+    reason_codes = tuple(dict.fromkeys((*risk.reason_codes, *codes, REASON_DEMO_SIMULATION_ACTIVE)))
     score = max(0, min(100, risk.score + points))
     component = RiskComponent(code="DEMO_SIMULATION", label=f"Demo simulation: {sc.name.replace('_', ' ').lower()}", points=points,
                               detail="Synthetic evidence injected for a demonstration. Not a live report.")
@@ -107,4 +107,4 @@ def apply(route_id: uuid.UUID, risk: RouteRisk, now: float | None = None) -> Rou
 def snapshot() -> list[dict]:
     now = time.time()
     return [{"trip_id": str(s.trip_id), "route_id": str(s.route_id), "scenario": s.name,
-             "remaining_s": int(s.until - now), "label": LABEL_CODE} for s in active(now)]
+             "remaining_s": int(s.until - now), "label": REASON_DEMO_SIMULATION_ACTIVE} for s in active(now)]

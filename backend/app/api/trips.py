@@ -300,7 +300,7 @@ async def start_simulation(
                        reason=f"demo simulation {scenario}", after={"minutes": minutes, "simulated": True})
     await db.commit()
     return SimulationRead(
-        trip_id=sc.trip_id, route_id=sc.route_id, scenario=sc.name, remaining_s=int(sc.until - sc.started_at), label=simulation.LABEL_CODE)
+        trip_id=sc.trip_id, route_id=sc.route_id, scenario=sc.name, remaining_s=int(sc.until - sc.started_at), label=simulation.REASON_DEMO_SIMULATION_ACTIVE)
 
 
 @trips_router.delete("/{trip_id}/simulation", summary="DEMO SIMULATION: clear (recovery)")
