@@ -238,7 +238,7 @@ export default function TrucksPage() {
                   <tr key={truck.id}>
                     <td className="py-3 font-mono font-medium text-ink">
                       <span className="inline-flex items-center gap-2">
-                        <AuthImage src={truck.photo_url} alt={`${truck.registration_number} photo`} fallback="🚚" className="h-9 w-12 rounded-md" label="reference" />
+                        <AuthImage src={truck.photo_url} alt={`${truck.registration_number} photo`} className="h-10 w-14 rounded-md" label="reference" />
                         {truck.registration_number}
                         {can('truck:update') ? (
                           <label className="cursor-pointer text-[11px] font-normal text-route hover:underline">

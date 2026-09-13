@@ -24,6 +24,7 @@ import {
 import { api, type CurrentAssignment } from '../api/client'
 import { pickPhoto, upload } from '../files/pick'
 import { useAuthImage } from '../files/useAuthImage'
+import { Icon } from '../components/icons'
 import { useT } from '../i18n/tx'
 import { Banner, Button, Field, Loading, Row, errorMessage } from '../components/ui'
 import { TOUCH_TARGET } from '../theme'
@@ -196,7 +197,8 @@ export default function AssignmentScreen({ onBack }: { onBack?: () => void } = {
           accessibilityLabel="Back to trip"
           style={styles.backRow}
         >
-          <Text style={styles.backText}>{verified ? '‹ Back to trip — checked' : '‹ Back to trip'}</Text>
+          <Icon name="chevron-left" size={20} color={COLORS.routeOn} />
+          <Text style={styles.backText}>{verified ? 'Back to trip — checked' : 'Back to trip'}</Text>
         </Pressable>
       ) : null}
       <ScrollView
@@ -245,6 +247,26 @@ export default function AssignmentScreen({ onBack }: { onBack?: () => void } = {
               />
             ) : null}
 
+            {/* Four steps, state carried by icon + label + colour. */}
+            <View style={styles.steps} accessibilityRole="progressbar">
+              {([
+                ['Truck', true],
+                ['Photo', Boolean(photo?.uploaded || assignment.verification_photo_url)],
+                ['Plate', verified || registration.trim().length > 0],
+                ['Confirm', verified],
+              ] as Array<[string, boolean]>).map(([label, done], i, all) => {
+                const current = !done && all.slice(0, i).every(([, d]) => d)
+                return (
+                  <View key={label} style={styles.step}>
+                    <View style={[styles.stepDot, done && styles.stepDotDone, current && styles.stepDotNow]}>
+                      {done ? <Icon name="check" size={13} color={COLORS.onAccent} /> : <Text style={[styles.stepNum, current && styles.stepNumNow]}>{i + 1}</Text>}
+                    </View>
+                    <Text style={[styles.stepLabel, (done || current) && styles.stepLabelOn]} numberOfLines={1}>{t(label)}</Text>
+                  </View>
+                )
+              })}
+            </View>
+
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Your truck</Text>
               <Text style={styles.registration}>
@@ -265,14 +287,10 @@ export default function AssignmentScreen({ onBack }: { onBack?: () => void } = {
                 value={`${Number(assignment.truck.max_capacity_kg).toLocaleString()} kg`}
               />
               <Row
-                label="Assigned"
-                value={new Date(assignment.assigned_at).toLocaleString()}
-              />
-              <Row
                 label="Verified"
                 value={
                   verified
-                    ? new Date(assignment.verified_at as string).toLocaleString()
+                    ? new Date(assignment.verified_at as string).toLocaleDateString()
                     : 'Not yet'
                 }
               />
@@ -296,8 +314,8 @@ export default function AssignmentScreen({ onBack }: { onBack?: () => void } = {
                   <Image source={{ uri: serverPhoto }} style={styles.photo} accessibilityLabel="Truck photo" testID="truck-photo" />
                 ) : null}
                 <View style={styles.photoRow}>
-                  <View style={styles.photoCell}><Button label={t('Take photo')} variant="secondary" busy={photoBusy} onPress={() => void takePhoto('camera')} /></View>
-                  <View style={styles.photoCell}><Button label={t('Choose image')} variant="secondary" busy={photoBusy} onPress={() => void takePhoto('library')} /></View>
+                  <View style={styles.photoCell}><Button label={t('Camera')} variant="secondary" busy={photoBusy} onPress={() => void takePhoto('camera')} /></View>
+                  <View style={styles.photoCell}><Button label={t('Gallery')} variant="secondary" busy={photoBusy} onPress={() => void takePhoto('library')} /></View>
                 </View>
                 <Text style={styles.help}>
                   {photo?.uploaded || assignment.verification_photo_url ? t('Photo uploaded') : t('Take a photo of the truck before you verify.')}
@@ -331,7 +349,7 @@ export default function AssignmentScreen({ onBack }: { onBack?: () => void } = {
                   onSubmitEditing={() => void handleVerify()}
                 />
                 <Button
-                  label={isSubmitting ? '…' : 'Confirm this truck'}
+                  label={isSubmitting ? '…' : t('Verify truck')}
                   onPress={handleVerify}
                   busy={isSubmitting}
                   disabled={!(photo?.uploaded || assignment.verification_photo_url) || !registration.trim()}
@@ -353,7 +371,7 @@ export default function AssignmentScreen({ onBack }: { onBack?: () => void } = {
 
 const useStyles = makeStyles((COLORS) => ({
   flex: { flex: 1, backgroundColor: COLORS.bg },
-  backRow: { minHeight: TOUCH_TARGET, justifyContent: 'center', paddingHorizontal: 20 },
+  backRow: { minHeight: TOUCH_TARGET, flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 16 },
   backText: { color: COLORS.routeOn, fontSize: 15, fontWeight: '700' },
   container: { padding: 20, paddingBottom: 48 },
   card: {
@@ -383,6 +401,15 @@ const useStyles = makeStyles((COLORS) => ({
   fieldLabel: { color: COLORS.muted, fontSize: 12, fontWeight: '700', marginTop: 4 },
   photo: { width: '100%', height: 180, borderRadius: 12, backgroundColor: COLORS.dim, marginTop: 8 },
   photoRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  steps: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 16, paddingHorizontal: 4 },
+  step: { flex: 1, alignItems: 'center', gap: 6 },
+  stepDot: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: COLORS.borderStrong, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.card },
+  stepDotDone: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
+  stepDotNow: { borderColor: COLORS.accent },
+  stepNum: { color: COLORS.faint, fontSize: 12, fontWeight: '800' },
+  stepNumNow: { color: COLORS.accent },
+  stepLabel: { color: COLORS.faint, fontSize: 11, fontWeight: '700' },
+  stepLabelOn: { color: COLORS.text },
   photoCell: { flex: 1, minWidth: 0 },
 
   empty: { alignItems: 'center', paddingVertical: 56 },

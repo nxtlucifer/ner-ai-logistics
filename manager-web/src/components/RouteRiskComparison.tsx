@@ -81,7 +81,7 @@ export function RouteRiskComparison({
               }`}
             >
               <div className="text-[11px] font-bold">
-                ✓ Step {step.num}
+                Step {step.num}
               </div>
               <div className="text-[10px] truncate">{step.label}</div>
             </div>

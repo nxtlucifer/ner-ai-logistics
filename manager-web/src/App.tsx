@@ -8,6 +8,7 @@
 
 import type { ReactNode } from 'react'
 import { useEffect, useState } from 'react'
+import { Activity, ClipboardCheck, LayoutDashboard, LogOut, Route as RouteIcon, ShieldCheck, Truck, Users } from 'lucide-react'
 import { BrowserRouter, NavLink, Navigate, Route, Routes } from 'react-router-dom'
 
 import { ageLabel, useConnectivity } from './api/connectivity'
@@ -26,14 +27,16 @@ import ReviewPage from './pages/ReviewPage'
 // Fleet leads: it is the screen a dispatcher keeps open. A nav item whose
 // permission the current role lacks is not rendered at all - never shown
 // disabled, and never shown working and failing on click.
+// One icon family (Lucide, 2px stroke) - the same grammar as the driver app's
+// Feather set, so a truck or a shield reads the same in both products.
 const NAV = [
-  { to: '/fleet', label: 'Fleet', permission: 'fleet:location_read' },
-  { to: '/trips', label: 'Trips', permission: 'trip:read' },
-  { to: '/drivers', label: 'Drivers', permission: 'driver:read' },
-  { to: '/trucks', label: 'Trucks', permission: 'truck:read' },
-  { to: '/assignments', label: 'Assignments', permission: 'assignment:read' },
-  { to: '/review', label: 'Review', permission: 'route:review_authorize' },
-  { to: '/system', label: 'System', permission: null },
+  { to: '/fleet', label: 'Fleet', permission: 'fleet:location_read', icon: LayoutDashboard },
+  { to: '/trips', label: 'Trips', permission: 'trip:read', icon: RouteIcon },
+  { to: '/drivers', label: 'Drivers', permission: 'driver:read', icon: Users },
+  { to: '/trucks', label: 'Trucks', permission: 'truck:read', icon: Truck },
+  { to: '/assignments', label: 'Assignments', permission: 'assignment:read', icon: ClipboardCheck },
+  { to: '/review', label: 'Review', permission: 'route:review_authorize', icon: ShieldCheck },
+  { to: '/system', label: 'System', permission: null, icon: Activity },
 ]
 
 /**
@@ -96,7 +99,8 @@ function Shell() {
       <header className="app-rail">
         <div className="rail-inner">
           <div className="brand">
-            <span className="brand-title">NER Fleet<br />Intelligence</span><span className="brand-caption">TERRAIN COMMAND</span>
+            <img src="/brand-mark.svg" alt="" className="brand-mark" />
+            <span className="brand-title">RASTA AI</span><span className="brand-caption">NER FLEET CONSOLE</span>
             {import.meta.env.DEV ? (
               <span className="ml-2 rounded-full bg-warning-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning">
                 Dev
@@ -118,6 +122,7 @@ function Shell() {
                     }`
                   }
                 >
+                  <item.icon className="nav-icon" aria-hidden="true" />
                   {item.label}
                 </NavLink>
               ),
@@ -132,7 +137,7 @@ function Shell() {
               <div className="account-role">{user?.role}</div>
             </div>
             <Button variant="secondary" onClick={() => void logout()}>
-              Sign out
+              <LogOut className="nav-icon" aria-hidden="true" /> Sign out
             </Button>
           </div>
         </div>

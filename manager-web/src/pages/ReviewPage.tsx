@@ -163,7 +163,7 @@ export default function ReviewPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-lg font-semibold">Route review</h2>
+        <h1>Route review</h1>
         <p className="mt-1 max-w-3xl text-xs leading-relaxed text-muted">
           Authorising a route records that <strong>you accepted incomplete
           hazard evidence</strong> for one dispatch. It does not mark the road

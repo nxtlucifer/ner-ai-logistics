@@ -14,6 +14,7 @@
 import { useState } from 'react'
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 
+import { Icon } from '../components/icons'
 import { useT } from '../i18n/tx'
 import { useAuth } from '../auth/AuthProvider'
 import { useAppLanguage } from '../i18n/AppLanguageProvider'
@@ -41,20 +42,22 @@ export default function MoreScreen({
     <ScrollView contentContainerStyle={styles.content}>
       <Text style={styles.section}>{tx('You').toUpperCase()}</Text>
       <Pressable style={styles.row} onPress={onOpenDetails} accessibilityRole="button" testID="more-my-details">
+        <Icon name="user" color={COLORS.muted} />
         <View style={styles.rowText}>
           <Text style={styles.rowTitle}>{tx('My details')}</Text>
           <Text style={styles.rowSub}>{tx('Profile, documents and insurance')}</Text>
         </View>
-        <Text style={styles.chevron}>›</Text>
+        <Icon name="chevron-right" color={COLORS.faint} size={20} />
       </Pressable>
 
       <Text style={styles.section}>ASSISTANT</Text>
       <Pressable style={styles.row} onPress={onOpenAssistant} accessibilityRole="button">
+        <Icon name="message-circle" color={COLORS.muted} />
         <View style={styles.rowText}>
           <Text style={styles.rowTitle}>Driver Assistant</Text>
           <Text style={styles.rowSub}>Offline guidance and the translator</Text>
         </View>
-        <Text style={styles.chevron}>›</Text>
+        <Icon name="chevron-right" color={COLORS.faint} size={20} />
       </Pressable>
 
       <Text style={styles.section}>{t('common_change_language').toUpperCase()}</Text>
@@ -64,17 +67,19 @@ export default function MoreScreen({
         accessibilityRole="button"
         accessibilityLabel={`Language: ${active?.label ?? 'English'}. Opens language chooser`}
       >
+        <Icon name="globe" color={COLORS.muted} />
         <View style={styles.rowText}>
           <Text style={styles.rowTitle}>{tx('Language')}</Text>
           <Text style={styles.rowSub}>
             {active?.nativeLabel ?? 'English'} · changes the app's own labels
           </Text>
         </View>
-        <Text style={styles.chevron}>›</Text>
+        <Icon name="chevron-right" color={COLORS.faint} size={20} />
       </Pressable>
 
       <Text style={styles.section}>APPEARANCE</Text>
       <Pressable style={styles.row} onPress={toggle} accessibilityRole="button">
+        <Icon name={mode === 'day' ? 'sun' : 'moon'} color={COLORS.muted} />
         <View style={styles.rowText}>
           <Text style={styles.rowTitle}>{tx('Theme')}</Text>
           <Text style={styles.rowSub}>
@@ -89,6 +94,7 @@ export default function MoreScreen({
         onPress={() => void logout()}
         accessibilityRole="button"
       >
+        <Icon name="log-out" color={COLORS.bad} size={20} />
         <Text style={[styles.rowTitle, { color: COLORS.bad }]}>{t('btn_sign_out')}</Text>
       </Pressable>
 
@@ -162,8 +168,7 @@ const useStyles = makeStyles((COLORS) => ({
   rowTitle: { color: COLORS.text, fontSize: 15, fontWeight: '700' },
   rowSub: { color: COLORS.muted, fontSize: 12, marginTop: 2 },
   value: { color: COLORS.muted, fontSize: 13, fontWeight: '700' },
-  chevron: { color: COLORS.faint, fontSize: 20, fontWeight: '700' },
-  signOut: { marginTop: 20, justifyContent: 'center', borderColor: COLORS.badBorder },
+  signOut: { marginTop: 20, justifyContent: 'center', gap: 8, borderColor: COLORS.badBorder },
 
   sheetRoot: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(11,17,22,0.72)' },
   sheet: {

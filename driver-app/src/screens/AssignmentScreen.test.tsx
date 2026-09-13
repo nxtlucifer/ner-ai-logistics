@@ -42,7 +42,7 @@ async function render(assignment: object) {
   await act(async () => { await Promise.resolve() })
 }
 function confirmButton(): HTMLButtonElement {
-  return [...host.querySelectorAll('button')].find((b) => b.textContent === 'Confirm this truck') as HTMLButtonElement
+  return [...host.querySelectorAll('button')].find((b) => b.textContent === 'Verify truck') as HTMLButtonElement
 }
 async function typePlate(v: string) {
   const input = host.querySelector('input[aria-label="Registration on the truck"]') as HTMLInputElement

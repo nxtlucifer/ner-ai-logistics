@@ -19,7 +19,7 @@ const state = vi.hoisted(() => {
 vi.mock('react-native', async () => {
   const { createElement: h } = await import('react')
   const box = ({ children }: { children?: import('react').ReactNode }) => h('div', null, children)
-  return { View: box, SafeAreaView: box, ScrollView: box, Pressable: box, Text: box,
+  return { View: box, SafeAreaView: box, ScrollView: box, Pressable: box, Text: box, useWindowDimensions: () => ({ width: 390, height: 844 }),
     Linking: { openURL: vi.fn() }, BackHandler: { addEventListener: () => ({ remove: vi.fn() }) },
     StyleSheet: { create: (value: unknown) => value, hairlineWidth: 1 },
   }

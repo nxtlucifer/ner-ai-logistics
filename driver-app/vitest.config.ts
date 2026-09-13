@@ -11,6 +11,7 @@ export default defineConfig({
     // resolve screen imports even when a test substitutes the map renderer.
     alias: {
       '../map/DriverRouteMap': fileURLToPath(new URL('./src/map/DriverRouteMap.web.tsx', import.meta.url)),
+      '@expo/vector-icons': fileURLToPath(new URL('./src/test/vectorIconsStub.tsx', import.meta.url)),
     },
   },
 })

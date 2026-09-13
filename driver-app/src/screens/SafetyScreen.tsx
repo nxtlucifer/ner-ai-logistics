@@ -52,7 +52,8 @@ import {
 import AiPanel from '../ai/AiPanel'
 import { useLocalAi } from '../ai/useLocalAi'
 import { TOUCH_TARGET } from '../theme'
-import { makeStyles } from '../theme-context'
+import { Icon } from '../components/icons'
+import { makeStyles, useTheme } from '../theme-context'
 
 function Bullets({ items, tone }: { items: string[]; tone?: 'bad' }) {
   const styles = useStyles()
@@ -89,6 +90,7 @@ function Section({
 
 function Detail({ topic, onBack }: { topic: Topic; onBack: () => void }) {
   const styles = useStyles()
+  const { colors: COLORS } = useTheme()
   const lang = resolveLanguage()
   const ai = useLocalAi()
 
@@ -100,7 +102,8 @@ function Detail({ topic, onBack }: { topic: Topic; onBack: () => void }) {
         accessibilityLabel="Back to safety topics"
         style={({ pressed }) => [styles.back, pressed && styles.pressed]}
       >
-        <Text style={styles.backLabel}>‹ All topics</Text>
+        <Icon name="chevron-left" size={20} color={COLORS.muted} />
+        <Text style={styles.backLabel}>All topics</Text>
       </Pressable>
 
       <Text style={styles.detailTitle}>{topic.title}</Text>
@@ -171,6 +174,7 @@ function guidanceText(topic: Topic): string {
 
 function TopicButton({ topic, onPress }: { topic: Topic; onPress: () => void }) {
   const styles = useStyles()
+  const { colors: COLORS } = useTheme()
   return (
     <Pressable
       onPress={onPress}
@@ -191,7 +195,7 @@ function TopicButton({ topic, onPress }: { topic: Topic; onPress: () => void }) 
         {/* Text, not only colour: risk must never be conveyed by hue alone. */}
         {topic.emergency ? <Text style={styles.topicTag}>EMERGENCY</Text> : null}
       </View>
-      <Text style={styles.chevron}>›</Text>
+      <Icon name="chevron-right" size={20} color={COLORS.faint} />
     </Pressable>
   )
 }
@@ -639,10 +643,9 @@ const useStyles = makeStyles((COLORS) => ({
     letterSpacing: 0.8,
     marginTop: 3,
   },
-  chevron: { color: COLORS.faint, fontSize: 22, fontWeight: '600' },
   pressed: { opacity: 0.75 },
 
-  back: { minHeight: TOUCH_TARGET, justifyContent: 'center' },
+  back: { minHeight: TOUCH_TARGET, flexDirection: 'row', alignItems: 'center', gap: 2 },
   backLabel: { color: COLORS.muted, fontSize: 16, fontWeight: '600' },
   detailTitle: {
     color: COLORS.text,

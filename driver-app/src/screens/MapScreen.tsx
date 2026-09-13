@@ -34,6 +34,7 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from 'react-native'
 
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -65,13 +66,15 @@ import { usePlaces } from '../places/usePlaces'
 import { formatDistanceKm } from './progressFormat'
 import { TOUCH_TARGET } from '../theme'
 import { makeStyles, useTheme } from '../theme-context'
-import { AudioIcon, FitRouteIcon, RecenterIcon } from '../components/icons'
+import { AudioIcon, FitRouteIcon, Icon, RecenterIcon } from '../components/icons'
 import { useTrip } from '../trip/TripProvider'
 import { useAuth } from '../auth/AuthProvider'
 
 /** The fleet-traffic fact on the card: state, share of road, and its age. */
 function trafficLine(t: { status: string; coverage: number; newest_age_seconds: number | null; vehicle_count: number }): string {
-  if (t.status === 'UNKNOWN') return 'unknown · no fleet on this road in the last 15 min'
+  // Short, so the collapsed card stays two lines and the map keeps the screen;
+  // the evidence table's traffic row carries the full reason.
+  if (t.status === 'UNKNOWN') return 'unknown · no fleet data'
   const age = t.newest_age_seconds == null ? '' : ` · updated ${Math.max(1, Math.round(t.newest_age_seconds / 60))} min ago`
   return `${t.status.toLowerCase()} · ${Math.round(t.coverage * 100)}% of road · ${t.vehicle_count} truck${t.vehicle_count === 1 ? '' : 's'}${age}`
 }
@@ -291,6 +294,9 @@ function Row({ label, value }: { label: string; value: string }) {
 export default function MapScreen({ onBack }: { onBack: () => void }) {
   const styles = useStyles()
   const { colors: COLORS } = useTheme()
+  // On a short screen (320x640) the five-button rail climbed into the top
+  // bar. Scaled from its bottom-right corner it clears the SOS button.
+  const shortScreen = useWindowDimensions().height < 700
   const { trip, tracking, loadedAt, isStale } = useTrip()
   const t = useT()
   // NO TRIP IS NOT NO MAP. The tracker uploads position only while the server
@@ -957,7 +963,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
    * FACTOR, not a gate, so a denied permission never hides the assessment.
    */
   const gpsRow: [string, string] = ['Location', chip.text]
-  const trafficRow: [string, string] = ['Fleet traffic', risk?.traffic && risk.traffic.status !== 'UNKNOWN' ? 'Available' : 'Not available']
+  const trafficRow: [string, string] = ['Fleet traffic', risk?.traffic && risk.traffic.status !== 'UNKNOWN' ? 'Available' : 'Not available · no fleet on this road in the last 15 min']
   const factorRows: [string, string][] = risk
     ? [
         gpsRow,
@@ -1051,7 +1057,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
               accessibilityLabel="Back to trip"
               style={styles.roundBtn}
             >
-              <Text style={styles.roundBtnGlyph}>‹</Text>
+              <Icon name="chevron-left" size={26} color={COLORS.text} />
             </Pressable>
 
             {selectedRouteId !== null ? (
@@ -1128,9 +1134,12 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
 
           {shownAlert && !isSheetExpanded ? (
             <View style={[styles.alertCard, shownAlert.level !== 'CAUTION' && styles.alertCardHigh]} testID="danger-alert">
-              <Text style={[styles.alertTitle, shownAlert.level !== 'CAUTION' && styles.alertTitleHigh]} numberOfLines={2}>
-                ⚠ {shownAlert.title} · {shownAlert.level}
-              </Text>
+              <View style={styles.alertTitleRow}>
+                <Icon name="alert-triangle" size={16} color={shownAlert.level !== 'CAUTION' ? COLORS.bad : COLORS.warn} />
+                <Text style={[styles.alertTitle, shownAlert.level !== 'CAUTION' && styles.alertTitleHigh]} numberOfLines={2}>
+                  {shownAlert.title} · {shownAlert.level}
+                </Text>
+              </View>
               <Text style={styles.alertWhere} numberOfLines={2}>{shownAlert.where}</Text>
               <Text style={styles.alertDetail} numberOfLines={2}>{shownAlert.detail}</Text>
               <Text style={styles.alertEvidence} numberOfLines={1}>Evidence · {shownAlert.evidence.join(' · ')}</Text>
@@ -1159,13 +1168,13 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
             Hidden while the details sheet has the map squeezed - a rail
             climbing into the maneuver card is worse than a tap to close. */}
         {isSheetExpanded ? null : (
-        <View style={styles.rightRail} pointerEvents="box-none">
+        <View style={[styles.rightRail, shortScreen && { transform: [{ scale: 0.82 }], transformOrigin: 'right bottom' }]} pointerEvents="box-none">
           <MapControl
             onPress={() => setIsSheetExpanded(true)}
             label="Search roadside services"
             active={isSheetExpanded && category !== null}
           >
-            <Text style={styles.railGlyph}>⌕</Text>
+            <Icon name="search" size={20} color={COLORS.text} />
           </MapControl>
           <MapControl
             onPress={() => setMuted((v) => !v)}
@@ -1190,7 +1199,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
             disabledHint="No terrain overlay available"
             active={showHazards}
           >
-            <Text style={[styles.railGlyph, showHazards && styles.railGlyphOn]}>⚠</Text>
+            <Icon name="layers" size={20} color={showHazards ? COLORS.onAccent : COLORS.text} />
           </MapControl>
           <MapControl
             onPress={() => setShowTraffic((v) => !v)}
@@ -1199,7 +1208,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
             disabledHint="No fleet telemetry on this road yet"
             active={showTraffic && trafficKnown}
           >
-            <Text style={[styles.railGlyph, showTraffic && trafficKnown && styles.railGlyphOn]}>≋</Text>
+            <Icon name="activity" size={20} color={showTraffic && trafficKnown ? COLORS.onAccent : COLORS.text} />
           </MapControl>
           {hasAlternative ? (
             <MapControl
@@ -1207,7 +1216,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
               label={showAltRoute ? 'Hide alternative route' : 'Show alternative route'}
               active={showAltRoute}
             >
-              <Text style={[styles.railGlyph, showAltRoute && styles.railGlyphOn]}>⇄</Text>
+              <Icon name="git-branch" size={20} color={showAltRoute ? COLORS.onAccent : COLORS.text} />
             </MapControl>
           ) : null}
         </View>
@@ -1548,7 +1557,6 @@ const useStyles = makeStyles((COLORS) => ({
     shadowOpacity: 0.3,
     shadowRadius: 6,
   },
-  roundBtnGlyph: { color: COLORS.text, fontSize: 28, fontWeight: '800', marginTop: -4 },
   sosBtn: { backgroundColor: COLORS.badStrong, borderColor: COLORS.badStrong },
   sosGlyph: { color: '#FFFFFF', fontSize: 13, fontWeight: '900', letterSpacing: 0.5 },
   maneuverCard: {
@@ -1576,8 +1584,6 @@ const useStyles = makeStyles((COLORS) => ({
 
   /* --- Rail, gauge, chips over the map -------------------------------- */
   rightRail: { position: 'absolute', right: 10, bottom: 12, gap: 10, zIndex: 10 },
-  railGlyph: { color: COLORS.text, fontSize: 22, fontWeight: '800' },
-  railGlyphOn: { color: COLORS.onAccent },
   bottomLeft: { position: 'absolute', left: 10, bottom: 12, gap: 8, zIndex: 10, alignItems: 'flex-start' },
   speedGauge: {
     width: 58,
@@ -1833,7 +1839,8 @@ const useStyles = makeStyles((COLORS) => ({
     gap: 3,
   },
   alertCardHigh: { backgroundColor: COLORS.badBg, borderColor: COLORS.badBorder },
-  alertTitle: { color: COLORS.warn, fontSize: 13, fontWeight: '900', letterSpacing: 0.6 },
+  alertTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  alertTitle: { color: COLORS.warn, fontSize: 13, fontWeight: '900', letterSpacing: 0.6, flex: 1 },
   alertTitleHigh: { color: COLORS.bad },
   alertWhere: { color: COLORS.text, fontSize: 14, fontWeight: '700' },
   alertDetail: { color: COLORS.muted, fontSize: 12 },

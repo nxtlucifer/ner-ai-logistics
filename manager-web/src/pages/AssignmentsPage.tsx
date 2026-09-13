@@ -193,7 +193,7 @@ export default function AssignmentsPage() {
                               {a.verification_source === 'DRIVER_APP_PHOTO' ? 'driver photo' : a.verification_source === 'MANAGER_MANUAL' ? 'manager by hand (no photo)' : 'driver, plate only'}
                             </div>
                             {a.verification_photo_url ? (
-                              <div className="mt-1"><AuthImage src={a.verification_photo_url} alt="Trip verification photo" fallback="🚚" className="h-12 w-16 rounded-md" label="trip verification photo" /></div>
+                              <div className="mt-1"><AuthImage src={a.verification_photo_url} alt="Trip verification photo" className="h-12 w-16 rounded-md" label="trip verification photo" /></div>
                             ) : null}
                           </div>
                         )

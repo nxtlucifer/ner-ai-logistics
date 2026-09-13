@@ -37,6 +37,7 @@ vi.mock('react-native', async () => {
     })
   return {
     View: box,
+    Image: () => null,
     ScrollView: box,
     KeyboardAvoidingView: box,
     Pressable: box,
@@ -83,6 +84,7 @@ async function render() {
 describe('LoginScreen UI and behavior', () => {
   it('renders branding and driver title', async () => {
     await render()
+    expect(host.textContent).toContain('RASTA AI')
     expect(host.textContent).toContain('NER LOGISTICS')
     expect(host.textContent).toContain('DRIVER')
     // The support line the design brief specifies. It replaced two stacked
@@ -91,7 +93,7 @@ describe('LoginScreen UI and behavior', () => {
     // a 390pt screen. Still asserted, because a login with no explanation of
     // what it gates is the defect this line exists to prevent.
     expect(host.textContent).toContain(
-      'Secure access to your assigned vehicle and trips.',
+      'Safer logistics through difficult corridors.',
     )
     expect(host.textContent).toContain('Mobile number')
     expect(host.textContent).toContain('Password')

@@ -126,7 +126,7 @@ export const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> =
     nav_more: 'More',
 
     login_title: 'Welcome back',
-    login_subtitle: 'Secure access to your assigned vehicle and trips.',
+    login_subtitle: 'Safer logistics through difficult corridors.',
     login_phone_label: 'Mobile number',
     login_phone_placeholder: '10-digit mobile number',
     login_pin_label: 'Password',
@@ -192,7 +192,7 @@ export const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> =
     nav_more: 'अधिक',
 
     login_title: 'वापस स्वागत है',
-    login_subtitle: 'अपने वाहन और ट्रिप तक सुरक्षित पहुँच।',
+    login_subtitle: 'कठिन रास्तों पर सुरक्षित लॉजिस्टिक्स।',
     login_phone_label: 'पंजीकृत मोबाइल नंबर',
     login_phone_placeholder: '10 अंकों का मोबाइल नंबर',
     login_pin_label: 'ड्राइवर पिन / पासवर्ड',
@@ -258,7 +258,7 @@ export const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> =
     nav_more: 'વધુ',
 
     login_title: 'પાછા સ્વાગત છે',
-    login_subtitle: 'તમારા વાહન અને ટ્રિપ સુધી સુરક્ષિત પ્રવેશ.',
+    login_subtitle: 'કઠિન માર્ગો પર સુરક્ષિત લોજિસ્ટિક્સ.',
     login_phone_label: 'નોંધાયેલ મોબાઈલ નંબર',
     login_phone_placeholder: '10 અંકનો મોબાઈલ નંબર',
     login_pin_label: 'ડ્રાઇવર પિન / પાસવર્ડ',
@@ -324,7 +324,7 @@ export const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> =
     nav_more: 'অধিক',
 
     login_title: 'পুনৰ স্বাগতম',
-    login_subtitle: 'আপোনাৰ বাহন আৰু ট্ৰিপলৈ সুৰক্ষিত প্ৰৱেশ।',
+    login_subtitle: 'কঠিন পথত সুৰক্ষিত লজিষ্টিকছ।',
     login_phone_label: 'পঞ্জীয়নভুক্ত মোবাইল নম্বৰ',
     login_phone_placeholder: '১০ টা অংকৰ মোবাইল নম্বৰ',
     login_pin_label: 'চালক পিন / পাছৱৰ্ড',
@@ -390,7 +390,7 @@ export const TRANSLATIONS: Record<AppLanguage, Record<TranslationKey, string>> =
     nav_ai: 'AI সহায়ক',
 
     login_title: 'আবার স্বাগতম',
-    login_subtitle: 'আপনার যানবাহন ও ট্রিপে নিরাপদ প্রবেশ।',
+    login_subtitle: 'কঠিন পথে নিরাপদ লজিস্টিকস।',
     login_phone_label: 'নিবন্ধিত মোবাইল নম্বর',
     login_phone_placeholder: '১০ অঙ্কের মোবাইল নম্বর',
     login_pin_label: 'ড্রাইভার পিন / পাসওয়ার্ড',

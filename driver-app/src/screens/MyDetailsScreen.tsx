@@ -18,6 +18,7 @@ import { api, type DocumentRead, type DriverProfile } from '../api/client'
 import { Banner, Button, Field, Loading, errorMessage } from '../components/ui'
 import { pickDocument, pickPhoto, upload } from '../files/pick'
 import { useAuthImage } from '../files/useAuthImage'
+import { Icon } from '../components/icons'
 import { useT } from '../i18n/tx'
 import { makeStyles, useTheme } from '../theme-context'
 
@@ -78,7 +79,7 @@ export default function MyDetailsScreen({ onBack }: { onBack: () => void }) {
   return (
     <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <View style={styles.headRow}>
-        <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back" style={styles.back}><Text style={styles.backGlyph}>‹</Text></Pressable>
+        <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back" style={styles.back}><Icon name="chevron-left" size={26} color={COLORS.text} /></Pressable>
         <Text style={styles.title}>{t('My details')}</Text>
       </View>
       {error ? <Banner tone="bad" title={error.title} detail={error.detail} /> : null}
@@ -97,8 +98,8 @@ export default function MyDetailsScreen({ onBack }: { onBack: () => void }) {
               </View>
             </View>
             <View style={styles.btnRow}>
-              <View style={styles.btnCell}><Button label={t('Take photo')} variant="secondary" busy={busy === 'photo'} onPress={() => void changePhoto('camera')} /></View>
-              <View style={styles.btnCell}><Button label={t('Choose image')} variant="secondary" busy={busy === 'photo'} onPress={() => void changePhoto('library')} /></View>
+              <View style={styles.btnCell}><Button label={t('Camera')} variant="secondary" busy={busy === 'photo'} onPress={() => void changePhoto('camera')} /></View>
+              <View style={styles.btnCell}><Button label={t('Gallery')} variant="secondary" busy={busy === 'photo'} onPress={() => void changePhoto('library')} /></View>
             </View>
             <Row label={t('Phone')} value={profile.phone} />
             <Row label={t('Truck')} value={profile.truck_registration ? `${profile.truck_registration} · ${profile.truck_verified ? t('verified') : t('not verified')}` : t('No truck assigned')} />
@@ -236,7 +237,6 @@ const useStyles = makeStyles((COLORS) => ({
   content: { padding: 16, paddingBottom: 32, gap: 12, backgroundColor: COLORS.bg },
   headRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   back: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  backGlyph: { color: COLORS.text, fontSize: 28, fontWeight: '700' },
   title: { color: COLORS.text, fontSize: 20, fontWeight: '800' },
   card: { backgroundColor: COLORS.raised, borderRadius: 14, padding: 14, gap: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: COLORS.dim },
   avatarRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },

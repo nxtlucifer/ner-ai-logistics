@@ -15,21 +15,23 @@
  * assistant and must not be described as one.
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native'
 
+import { api } from './src/api/client'
 import { AuthProvider, useAuth } from './src/auth/AuthProvider'
 import { Button, Loading } from './src/components/ui'
 import { AppLanguageProvider, useAppLanguage } from './src/i18n/AppLanguageProvider'
-import { APP_LANGUAGES, type TranslationKey } from './src/i18n/appLanguage'
+import { type TranslationKey } from './src/i18n/appLanguage'
 import AssistantScreen from './src/screens/AssistantScreen'
 import AssignmentScreen from './src/screens/AssignmentScreen'
 import MoreScreen from './src/screens/MoreScreen'
@@ -40,6 +42,7 @@ import SafetyScreen from './src/screens/SafetyScreen'
 import TripScreen from './src/screens/TripScreen'
 import { TABS, type Tab } from './src/navigation'
 import { MoreIcon, NavigateIcon, SafetyIcon, TripIcon } from './src/components/icons'
+import { useAuthImage } from './src/files/useAuthImage'
 import { TripProvider, useTrip } from './src/trip/TripProvider'
 import { TOUCH_TARGET } from './src/theme'
 import { ThemeProvider, makeStyles, useTheme } from './src/theme-context'
@@ -53,7 +56,14 @@ const TAB_TRANSLATIONS: Record<Tab, TranslationKey> = {
 
 /** One tab's glyph. Colour is passed in so the active tab can tint. */
 function TabIcon({ tab, color }: { tab: Tab; color: string }) {
-  if (tab === 'navigate') return <NavigateIcon color={color} size={21} />
+  // The heading arrow sits in a ring, as it does on the map's own controls.
+  if (tab === 'navigate') {
+    return (
+      <View style={{ width: 24, height: 24, borderRadius: 12, borderWidth: 1.5, borderColor: color, alignItems: 'center', justifyContent: 'center' }}>
+        <NavigateIcon color={color} size={13} />
+      </View>
+    )
+  }
   if (tab === 'trip') return <TripIcon color={color} size={21} />
   if (tab === 'safety') return <SafetyIcon color={color} size={21} />
   return <MoreIcon color={color} size={21} />
@@ -73,9 +83,9 @@ function Signed() {
 function SignedShell() {
   const styles = useStyles()
   const { colors: COLORS, mode, toggle } = useTheme()
-  const { driver, logout } = useAuth()
+  const { driver } = useAuth()
   const { tracking, isStale } = useTrip()
-  const { language, setLanguage, t } = useAppLanguage()
+  const { t } = useAppLanguage()
   const isLive = Boolean(tracking?.isTracking) && !isStale
   /**
    * What the dot actually measures.
@@ -97,9 +107,18 @@ function SignedShell() {
     .map((w) => w[0]?.toUpperCase() ?? '')
     .join('')
   const [tab, setTab] = useState<Tab>('trip')
-  const [showLangModal, setShowLangModal] = useState(false)
   const [showAssistant, setShowAssistant] = useState(false)
   const [showDetails, setShowDetails] = useState(false)
+  // The profile photo lives on /me/profile (My details owns it); re-read when
+  // that screen closes so a photo taken there shows here at once.
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (showDetails) return
+    let alive = true
+    api.myProfile().then((profile) => { if (alive) setPhotoUrl(profile.photo_url) }).catch(() => {})
+    return () => { alive = false }
+  }, [showDetails])
+  const photo = useAuthImage(photoUrl)
   const [showAssignment, setShowAssignment] = useState(false)
 
   return (
@@ -107,11 +126,14 @@ function SignedShell() {
         {tab !== 'navigate' ? (
           <View style={styles.header}>
             <View style={styles.identity}>
-              {/* Initials, not a photo: the driver record carries no avatar
-                  URL, and a stock face would be a stranger's picture next to
-                  a real person's name. */}
+              {/* The driver's own photo (My details), else initials - never a
+                  stock face next to a real person's name. */}
               <View style={styles.avatar}>
-                <Text style={styles.avatarText}>{initials}</Text>
+                {photo ? (
+                  <Image source={{ uri: photo }} style={styles.avatarImage} accessibilityLabel="Your photo" />
+                ) : (
+                  <Text style={styles.avatarText}>{initials}</Text>
+                )}
               </View>
               <View style={styles.headerText}>
                 <Text style={styles.greeting} numberOfLines={1}>{greeting},</Text>
@@ -142,71 +164,10 @@ function SignedShell() {
               >
                 <Text style={styles.langToggleText}>{mode === 'day' ? 'Day' : 'Night'}</Text>
               </Pressable>
-              <Pressable
-                onPress={() => setShowLangModal((v) => !v)}
-                style={styles.langToggle}
-                accessibilityRole="button"
-                accessibilityLabel="Switch language"
-              >
-                {/* The native label alone. The globe emoji it carried could
-                    not take the control's colour and rendered at a different
-                    baseline from the script beside it, which on Assamese and
-                    Bengali labels left the row visibly uneven. */}
-                {/* Code, not the native name. "English"/"অসমীয়া" ran to 66pt
-                    and, with the theme and sign-out controls beside it, left
-                    the driver's own name with ~70pt and truncated to "Ritur…". */}
-                <Text style={styles.langToggleText}>
-                  {(language ?? 'en').toUpperCase()}
-                </Text>
-              </Pressable>
-              {/* Was the shared Button at 107pt wide. Compact square with an
-                  accessibility label: the three header controls together were
-                  consuming 220 of 390pt. The glyph is drawn from two Views,
-                  not an emoji, for the reason icons.tsx documents. */}
-              <Pressable
-                onPress={() => void logout()}
-                style={styles.iconBtn}
-                accessibilityRole="button"
-                accessibilityLabel={t('btn_sign_out')}
-              >
-                <View style={styles.exitDoor} />
-                <View style={styles.exitArrow} />
-              </Pressable>
             </View>
           </View>
         ) : null}
 
-        {showLangModal && (
-          <View style={styles.langModalBanner}>
-            <Text style={styles.langModalTitle}>Select App Language</Text>
-            <View style={styles.langModalRow}>
-              {APP_LANGUAGES.map((opt) => (
-                <Pressable
-                  key={opt.code}
-                  onPress={() => {
-                    void setLanguage(opt.code)
-                    setShowLangModal(false)
-                  }}
-                  style={[
-                    styles.langModalChip,
-                    language === opt.code && styles.langModalChipActive,
-                  ]}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: language === opt.code }}
-                >
-                  <Text
-                    style={[
-                      styles.langModalChipText,
-                      language === opt.code && styles.langModalChipTextActive,
-                    ]}
-                  >
-                    {opt.nativeLabel} ({opt.label})
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        )}
 
         <View style={styles.flex}>
           {tab === 'navigate' ? (
@@ -461,6 +422,7 @@ const useStyles = makeStyles((COLORS) => ({
     justifyContent: 'center',
   },
   avatarText: { color: COLORS.text, fontSize: 14, fontWeight: '800' },
+  avatarImage: { width: 40, height: 40, borderRadius: 20 },
   greeting: { color: COLORS.muted, fontSize: 12, fontWeight: '600' },
   identityMeta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
   liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: COLORS.ok },
@@ -498,75 +460,10 @@ const useStyles = makeStyles((COLORS) => ({
     borderColor: COLORS.borderStrong,
     backgroundColor: COLORS.raised,
   },
-  iconBtn: {
-    minHeight: TOUCH_TARGET,
-    minWidth: TOUCH_TARGET,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: COLORS.borderStrong,
-    backgroundColor: COLORS.raised,
-  },
-  exitDoor: {
-    width: 13,
-    height: 17,
-    borderWidth: 2,
-    borderRightWidth: 0,
-    borderColor: COLORS.text,
-    borderTopLeftRadius: 2,
-    borderBottomLeftRadius: 2,
-  },
-  exitArrow: {
-    position: 'absolute',
-    right: 15,
-    width: 9,
-    height: 2,
-    backgroundColor: COLORS.text,
-  },
   langToggleText: {
     color: COLORS.aqua,
     fontSize: 12,
     fontWeight: '700',
-  },
-  langModalBanner: {
-    backgroundColor: COLORS.sunken,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-    padding: 12,
-    gap: 8,
-  },
-  langModalTitle: {
-    color: COLORS.faint,
-    fontSize: 11,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-  },
-  langModalRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  langModalChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.card,
-  },
-  langModalChipActive: {
-    borderColor: COLORS.accent,
-    backgroundColor: COLORS.okBg,
-  },
-  langModalChipText: {
-    color: COLORS.muted,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  langModalChipTextActive: {
-    color: COLORS.aqua,
-    fontWeight: '800',
   },
 
   tabs: {

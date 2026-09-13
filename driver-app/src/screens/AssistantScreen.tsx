@@ -61,6 +61,7 @@ import { factorTitle } from '../safety/riskCards'
 import { readLastBreak, recordBreak } from '../safety/breakStore'
 import { useTrip } from '../trip/TripProvider'
 import { TOUCH_TARGET } from '../theme'
+import { Icon } from '../components/icons'
 import { makeStyles, useTheme } from '../theme-context'
 import PhrasebookScreen from './PhrasebookScreen'
 
@@ -280,7 +281,8 @@ export default function AssistantScreen({
           accessibilityLabel="Back to the assistant"
           style={({ pressed }) => [styles.backRow, pressed && styles.pressed]}
         >
-          <Text style={styles.backLabel}>‹ Assistant</Text>
+          <Icon name="chevron-left" size={20} color={COLORS.muted} />
+          <Text style={styles.backLabel}>Assistant</Text>
         </Pressable>
         <PhrasebookScreen />
       </View>
@@ -301,7 +303,8 @@ export default function AssistantScreen({
             accessibilityLabel="Back to More"
             style={({ pressed }) => [styles.backRow, pressed && styles.pressed]}
           >
-            <Text style={styles.backLabel}>‹ More</Text>
+            <Icon name="chevron-left" size={20} color={COLORS.muted} />
+            <Text style={styles.backLabel}>More</Text>
           </Pressable>
         ) : null}
 
@@ -467,7 +470,7 @@ const useStyles = makeStyles((COLORS) => ({
     alignSelf: 'center',
   },
 
-  backRow: { minHeight: TOUCH_TARGET, justifyContent: 'center', paddingHorizontal: 16 },
+  backRow: { minHeight: TOUCH_TARGET, flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 12 },
   backLabel: { color: COLORS.muted, fontSize: 16, fontWeight: '600' },
   pressed: { opacity: 0.75 },
 

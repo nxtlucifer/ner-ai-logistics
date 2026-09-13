@@ -155,8 +155,12 @@ table th, table td { padding-right: 16px; }
 }
 .rail-inner { position: sticky; top: 0; display: flex; flex-direction: column; min-height: 100dvh; padding: 32px 16px 20px; gap: 32px; }
 .brand { padding: 0 12px; }
-.brand-title { display: block; font-family: var(--font-display); font-size: 21px; font-weight: 700; line-height: 1.2; letter-spacing: -.5px; }
-.brand-caption { display: block; color: var(--color-aqua); font-size: 10px; font-weight: 600; letter-spacing: 1.7px; margin-top: 12px; }
+.brand-mark { display: block; width: 44px; height: 44px; margin-bottom: 12px; border-radius: 10px; }
+.nav-icon { width: 18px; height: 18px; flex-shrink: 0; margin-right: 10px; }
+.rail-account button { display: inline-flex; align-items: center; justify-content: center; }
+.rail-account .nav-icon { width: 16px; height: 16px; margin-right: 8px; }
+.brand-title { display: block; font-family: var(--font-display); font-size: 22px; font-weight: 800; line-height: 1.2; letter-spacing: 1px; }
+.brand-caption { display: block; color: var(--color-aqua); font-size: 10px; font-weight: 600; letter-spacing: 1.7px; margin-top: 6px; }
 .brand > span:last-child { display: inline-block; margin: 12px 0 0; }
 .main-nav { display: flex; flex-direction: column; gap: 4px; }
 
@@ -196,7 +200,8 @@ table th, table td { padding-right: 16px; }
 .rail-account button { color: #F5F8F6; border-color: var(--color-navy-line); background: transparent; }
 .rail-account button:hover { background: var(--color-navy-surface); }
 
-.workspace { min-width: 0; padding: 32px; max-width: 1800px; width: 100%; margin: auto; }
+/* `margin: 0 auto`, never `auto`: in a grid cell `auto` centres VERTICALLY too, floating a short page mid-screen. */
+.workspace { min-width: 0; padding: 32px; max-width: 1800px; width: 100%; margin: 0 auto; }
 .workspace h1 { font-family: var(--font-display); font-size: 28px; font-weight: 700; letter-spacing: -.8px; }
 
 .dispatch-grid { display: grid; grid-template-columns: minmax(320px, .85fr) minmax(0, 1.15fr); gap: 24px; align-items: start; }
@@ -223,7 +228,7 @@ table th, table td { padding-right: 16px; }
  .app-shell { display: block; }
  .app-rail { box-shadow: inset 0 -1px 0 rgb(255 255 255 / 0.06); }
  .rail-inner { position: static; min-height: 0; padding: 16px; gap: 16px; }
- .brand { padding: 0; } .brand-title br { display: none; } .brand-title { font-size: 19px; }
+ .brand { padding: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; } .brand-mark { width: 32px; height: 32px; margin: 0; } .brand-title { font-size: 19px; }
  .brand-caption { display: inline-block; margin-top: 4px; margin-right: 8px; }
  .main-nav { flex-direction: row; flex-wrap: wrap; gap: 4px; }
  .nav-link { min-height: 44px; padding: 8px 12px; }

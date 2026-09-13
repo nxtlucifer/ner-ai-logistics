@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -25,9 +26,10 @@ import { makeStyles, useTheme } from '../theme-context'
 export default function LoginScreen() {
   const styles = useStyles()
   const { colors: COLORS } = useTheme()
+  const tx = useT()
   const { login } = useAuth()
   const { language, setLanguage, t } = useAppLanguage()
-  const tx = useT()
+
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -84,18 +86,14 @@ export default function LoginScreen() {
         </View>
 
         <View style={styles.header}>
+          {/* ONE brand mark for both products: brand/mark.svg rendered to
+              assets (shield + heading arrow), the same file the launcher
+              icon and the console favicon come from. */}
           <View style={styles.brandRow}>
-            <View style={styles.logoBadge}>
-              {/* Drawn, not typed. "▲▲" rendered as an emoji on some Android
-                  builds and as a serif glyph on others, so the brand mark
-                  changed shape by device. Two rotated squares are identical
-                  everywhere and need no font. */}
-              <View style={styles.logoPeakBack} />
-              <View style={styles.logoPeakFront} />
-            </View>
+            <Image source={require('../../assets/brand-mark.png')} style={styles.logoBadge} accessibilityLabel="RASTA AI" />
             <View style={styles.brandTextGroup}>
-              <Text style={styles.orgTag}>NER LOGISTICS</Text>
-              <Text style={styles.motto}>MOVE SAFER · GO FURTHER</Text>
+              <Text style={styles.orgTag}>RASTA AI</Text>
+              <Text style={styles.motto}>NER LOGISTICS</Text>
             </View>
           </View>
 
@@ -357,6 +355,9 @@ const useStyles = makeStyles((COLORS) => ({
     left: 0,
     right: 0,
     height: 250,
+    // Texture, not scenery: at full strength the ridges cut through the
+    // title and the language control on a 360pt screen.
+    opacity: 0.45,
     // No background and no clipping. Painting the hero a different shade drew
     // a hard seam across the login card; clipping rotated squares drew the
     // same seam a second way, as a flat cut through the peaks. Real triangles
@@ -484,38 +485,6 @@ const useStyles = makeStyles((COLORS) => ({
     gap: 10,
     marginBottom: 8,
   },
-  // The brand peaks, drawn as two rotated squares clipped by logoBadge's
-  // overflow:hidden. Brand mint behind, route blue in front - the ridge and the
-  // corridor through it, in the same relationship they have on the manager
-  // sign-in mark. The front peak must NOT be `accent`: that is the Sign In
-  // button's colour eight points below, and a logo in the CTA colour reads as
-  // a second button.
-  logoPeakBack: {
-    position: 'absolute',
-    right: 6,
-    bottom: 9,
-    width: 0,
-    height: 0,
-    borderLeftWidth: 8,
-    borderRightWidth: 8,
-    borderBottomWidth: 13,
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
-    borderBottomColor: COLORS.aqua,
-  },
-  logoPeakFront: {
-    position: 'absolute',
-    left: 5,
-    bottom: 9,
-    width: 0,
-    height: 0,
-    borderLeftWidth: 10,
-    borderRightWidth: 10,
-    borderBottomWidth: 16,
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
-    borderBottomColor: COLORS.route,
-  },
   // Padlock: an arc of border for the shackle, a filled body under it.
   lockShackle: {
     width: 10,
@@ -545,23 +514,13 @@ const useStyles = makeStyles((COLORS) => ({
     backgroundColor: COLORS.ok,
   },
 
-  logoBadge: {
-    width: 40,
-    height: 40,
-    borderRadius: 11,
-    backgroundColor: COLORS.card,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    justifyContent: 'center',
-    alignItems: 'center',
-    overflow: 'hidden',
-  },
+  logoBadge: { width: 44, height: 44, borderRadius: 11 },
   brandTextGroup: {
     flexDirection: 'column',
   },
   orgTag: {
     color: COLORS.text,
-    fontSize: 15,
+    fontSize: 18,
     fontWeight: '900',
     letterSpacing: 1.5,
   },

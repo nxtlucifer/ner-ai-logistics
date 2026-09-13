@@ -64,6 +64,8 @@ import { useRouteRisk } from '../hooks/useRouteRisk'
 import { routeAiCard } from '../navigation/routeAi'
 import { } from '../theme'
 import { makeStyles, useTheme } from '../theme-context'
+import { Icon, STATUS_ICON } from '../components/icons'
+import { TOUCH_TARGET } from '../theme'
 import { useT } from '../i18n/tx'
 import { useTrip, type TripContextValue } from '../trip/TripProvider'
 
@@ -283,7 +285,8 @@ function SentinelCheckInCard({
             style={[styles.checkInBtn, styles.checkInBtnSafe]}
             onPress={() => void onCheckIn('I_AM_SAFE')}
           >
-            <Text style={styles.checkInBtnTextSafe}>✓ I Am Safe / Routine Pause</Text>
+            <Icon name="check-circle" size={18} color="#86efac" />
+            <Text style={styles.checkInBtnTextSafe}>I Am Safe / Routine Pause</Text>
           </Pressable>
           <Pressable
             disabled={busy}
@@ -328,7 +331,8 @@ function SentinelCheckInCard({
             style={[styles.checkInBtn, styles.checkInBtnSos]}
             onPress={() => void onCheckIn('NEED_HELP')}
           >
-            <Text style={styles.checkInBtnTextSos}>⚠ NEED HELP / ESCALATE NOW</Text>
+            <Icon name="alert-triangle" size={18} color="#fca5a5" />
+            <Text style={styles.checkInBtnTextSos}>NEED HELP / ESCALATE NOW</Text>
           </Pressable>
         </View>
       </View>
@@ -346,15 +350,17 @@ function TripMetrics({ trip }: { trip: CurrentTrip }) {
   const km = trip.progress?.remaining_distance_km
   const min = trip.progress?.remaining_at_planned_pace_min
   const cells: Array<[string, string]> = [
-    [t('REMAINING'), km == null ? t('Unavailable') : `${km.toFixed(0)} km`],
-    ['ETA', min == null ? t('Unavailable') : min >= 60 ? `${Math.floor(min / 60)} h ${Math.round(min % 60)} m` : `${Math.round(min)} min`],
+    // An em dash, not a word: "Unavailable" broke mid-word inside a 66pt
+    // column on 360pt screens, which reads as a bug rather than a blank.
+    [t('REMAINING'), km == null ? '—' : `${km.toFixed(0)} km`],
+    ['ETA', min == null ? '—' : min >= 60 ? `${Math.floor(min / 60)} h ${Math.round(min % 60)} m` : `${Math.round(min)} min`],
     [t('Truck').toUpperCase(), trip.truck.registration_number],
   ]
   return (
     <View style={styles.metricRow}>
       {cells.map(([label, value], i) => (
         <View key={label} style={[styles.metricCell, i < 2 && styles.metricDivider, i === 2 && styles.metricCellWide]}>
-          <Text style={styles.metricLabel}>{label}</Text>
+          <Text style={styles.metricLabel} numberOfLines={1}>{label}</Text>
           <Text style={styles.metricValue} numberOfLines={2}>{value}</Text>
         </View>
       ))}
@@ -367,6 +373,7 @@ function TripMetrics({ trip }: { trip: CurrentTrip }) {
  *  deficiency and a sunlit windscreen. */
 function TripStepper({ trip }: { trip: CurrentTrip }) {
   const styles = useStyles()
+  const { colors: COLORS } = useTheme()
   return (
     <View style={styles.stepper}>
       {trip.stops.map((stop, i) => {
@@ -376,7 +383,7 @@ function TripStepper({ trip }: { trip: CurrentTrip }) {
           <View key={stop.id} style={styles.stepCell}>
             <View style={styles.stepLine}>
               <View style={[styles.stepDot, done && styles.stepDotDone, current && styles.stepDotNow]}>
-                {done ? <Text style={styles.stepTick}>✓</Text> : null}
+                {done ? <Icon name="check" size={12} color={COLORS.onAccent} /> : null}
               </View>
               {i < trip.stops.length - 1 ? (
                 <View style={[styles.stepBar, done && styles.stepBarDone]} />
@@ -437,6 +444,7 @@ function CurrentTripCard({ trip }: { trip: CurrentTrip }) {
  *  nothing when the server has no assessment - silence reads as "fine". */
 function RouteSummary({ trip }: { trip: CurrentTrip }) {
   const styles = useStyles()
+  const { colors: COLORS } = useTheme()
   const t = useT()
   const { risk, state } = useRouteRisk(trip.selected_route_id, trip.id)
   if (trip.selected_route_id === null) return null
@@ -451,10 +459,16 @@ function RouteSummary({ trip }: { trip: CurrentTrip }) {
         risk.flood?.level === 'ELEVATED' ? 'river levels elevated' : null,
         risk.traffic && risk.traffic.status !== 'UNKNOWN' && risk.traffic.status !== 'NORMAL' ? `fleet traffic ${risk.traffic.status.toLowerCase()} ahead` : null,
       ].filter(Boolean).join(' · ')
+  // Icon + word + colour for the decision, never colour alone.
+  const decision = risk === null ? 'UNKNOWN' : (ai.decision ?? 'UNKNOWN')
+  const tone = decision === 'CONTINUE' ? COLORS.ok : decision === 'CAUTION' ? COLORS.warn : decision === 'UNKNOWN' ? COLORS.faint : COLORS.bad
   return (
     <View style={styles.routeSummary} testID="trip-route-summary">
       <Text style={styles.metricLabel}>{t('ROUTE')}</Text>
-      <Text style={styles.routeSummaryText} numberOfLines={3}>{text}</Text>
+      <View style={styles.routeSummaryRow}>
+        <Icon name={STATUS_ICON[decision] ?? 'help-circle'} size={20} color={tone} />
+        <Text style={styles.routeSummaryText} numberOfLines={3}>{text}</Text>
+      </View>
     </View>
   )
 }
@@ -478,6 +492,7 @@ function NoTrip({ isStale, loadedAt, onOpenMap, onCheckTruck, onReload }: {
   onReload: () => void
 }) {
   const styles = useStyles()
+  const { colors: COLORS } = useTheme()
   const t = useT()
   const { driver } = useAuth()
   // Ticks every few seconds so "Last sync" AGES between polls - and keeps
@@ -493,6 +508,7 @@ function NoTrip({ isStale, loadedAt, onOpenMap, onCheckTruck, onReload }: {
   return (
     <ScrollView style={styles.sheet} contentContainerStyle={styles.sheetContent}>
       <View style={styles.empty}>
+        <View style={styles.emptyIcon}><Icon name="truck" size={28} color={COLORS.muted} /></View>
         <Text style={styles.emptyTitle}>{t('No active trip')}</Text>
         <Text style={styles.emptyBody}>
           {t('You are available for assignment. Your next assigned trip will appear here automatically.')}
@@ -704,6 +720,43 @@ export default function TripScreen({
     )
   }
 
+  const requestPanel = (
+    <>
+        {!isAccepted ? (
+          <View style={styles.request}>
+            <Text style={styles.requestTitle}>{t('New trip request')}</Text>
+            <Text style={styles.requestBody}>
+              {trip.stops.length > 0
+                ? `${trip.stops[0].name ?? trip.stops[0].kind} → ${
+                    trip.stops[trip.stops.length - 1].name ??
+                    trip.stops[trip.stops.length - 1].kind
+                  }`
+                : 'Trip details below.'}
+            </Text>
+            <Text style={styles.requestNote}>
+              Accepting tells your manager you have the job. It does not start
+              the trip or share your location.
+            </Text>
+            <Button
+              label={isAccepting ? '…' : t('Accept trip')}
+              busy={isAccepting}
+              onPress={() => void onAccept()}
+            />
+          </View>
+        ) : (
+          <View style={styles.request}>
+            <Text style={styles.requestTitle}>{t('Accepted')}</Text>
+            <Text style={styles.requestBody}>
+              {acceptedAt !== null
+                ? `You accepted this trip ${relativeTime(acceptedAt)}.`
+                : 'This trip is already running.'}
+            </Text>
+            <Button label={t('Resume navigation')} onPress={onOpenMap} />
+          </View>
+        )}
+    </>
+  )
+
   return (
     <View style={styles.flex}>
       <ScrollView
@@ -717,6 +770,7 @@ export default function TripScreen({
           />
         }
       >
+        {!isAccepted ? requestPanel : null}
         <CurrentTripCard trip={trip} />
 
         {actionError ? <Banner tone="bad" {...actionError} /> : null}
@@ -762,38 +816,7 @@ export default function TripScreen({
             running trip as accepted - starting is a stronger act than
             acknowledging, and a driver mid-journey must never be asked to
             accept the job they are already driving. */}
-        {!isAccepted ? (
-          <View style={styles.request}>
-            <Text style={styles.requestTitle}>{t('New trip request')}</Text>
-            <Text style={styles.requestBody}>
-              {trip.stops.length > 0
-                ? `${trip.stops[0].name ?? trip.stops[0].kind} → ${
-                    trip.stops[trip.stops.length - 1].name ??
-                    trip.stops[trip.stops.length - 1].kind
-                  }`
-                : 'Trip details below.'}
-            </Text>
-            <Text style={styles.requestNote}>
-              Accepting tells your manager you have the job. It does not start
-              the trip or share your location.
-            </Text>
-            <Button
-              label={isAccepting ? '…' : t('Accept trip')}
-              busy={isAccepting}
-              onPress={() => void onAccept()}
-            />
-          </View>
-        ) : (
-          <View style={styles.request}>
-            <Text style={styles.requestTitle}>{t('Accepted')}</Text>
-            <Text style={styles.requestBody}>
-              {acceptedAt !== null
-                ? `You accepted this trip ${relativeTime(acceptedAt)}.`
-                : 'This trip is already running.'}
-            </Text>
-            <Button label={t('Resume navigation')} onPress={onOpenMap} />
-          </View>
-        )}
+        {isAccepted ? requestPanel : null}
 
         {/* Controls first, details after. Exactly one action is offered at a
             time, because a driver looking at several buttons at 3am will press
@@ -1099,7 +1122,8 @@ const useStyles = makeStyles((COLORS) => ({
   sheet: { flex: 1, backgroundColor: COLORS.bg },
   sheetContent: { padding: 20, paddingBottom: 32, width: '100%', maxWidth: 700, alignSelf: 'center' },
 
-  empty: { alignItems: 'center', paddingVertical: 64 },
+  empty: { alignItems: 'center', paddingVertical: 48 },
+  emptyIcon: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.raised, marginBottom: 16 },
   emptyAction: { marginTop: 16, alignSelf: 'stretch', maxWidth: 320 },
   emptyTitle: { color: COLORS.text, fontSize: 18, fontWeight: '700' },
   emptyBody: {
@@ -1148,9 +1172,11 @@ const useStyles = makeStyles((COLORS) => ({
     borderWidth: 1,
     borderColor: COLORS.border,
     backgroundColor: COLORS.raised,
+    flexDirection: 'row',
+    gap: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 44,
+    minHeight: TOUCH_TARGET,
   },
   checkInBtnText: {
     color: COLORS.text,
@@ -1212,22 +1238,27 @@ const useStyles = makeStyles((COLORS) => ({
 
   metricRow: {
     flexDirection: 'row',
+    // Wraps rather than squeezes: on a 320pt screen the truck cell drops to
+    // its own line instead of breaking a registration mid-word.
+    flexWrap: 'wrap',
+    rowGap: 8,
     borderTopWidth: 1,
     borderBottomWidth: 1,
     borderColor: COLORS.border,
     paddingVertical: 12,
   },
-  metricCell: { flex: 1, minWidth: 0, paddingHorizontal: 10 },
+  metricCell: { flexGrow: 1, flexBasis: 84, minWidth: 0, paddingHorizontal: 10 },
   // A registration is ten characters and must not break mid-word on 360 dp.
-  metricCellWide: { flex: 1.45 },
+  metricCellWide: { flexBasis: 100 },
   metricDivider: { borderRightWidth: 1, borderRightColor: COLORS.border },
-  metricLabel: { color: COLORS.faint, fontSize: 10, fontWeight: '800', letterSpacing: 0.8 },
+  metricLabel: { color: COLORS.faint, fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
   // 13pt, not 16: at three columns on a 390pt screen "Unavailable" was
   // truncating to "Unavaila…", which reads as a broken value rather than a
   // missing one. The label above already carries the emphasis.
   metricValue: { color: COLORS.text, fontSize: 13, fontWeight: '800', marginTop: 3 },
   routeSummary: { marginTop: 10, paddingHorizontal: 10 },
-  routeSummaryText: { color: COLORS.text, fontSize: 13, fontWeight: '600', marginTop: 3, lineHeight: 18 },
+  routeSummaryRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 4 },
+  routeSummaryText: { color: COLORS.text, fontSize: 13, fontWeight: '600', lineHeight: 18, flex: 1 },
 
   stepper: { flexDirection: 'row' },
   stepCell: { flex: 1, minWidth: 0 },
@@ -1243,7 +1274,6 @@ const useStyles = makeStyles((COLORS) => ({
   },
   stepDotDone: { backgroundColor: COLORS.ok, borderColor: COLORS.ok },
   stepDotNow: { borderColor: COLORS.route, borderWidth: 3 },
-  stepTick: { color: COLORS.onAccent, fontSize: 11, fontWeight: '900' },
   stepBar: { flex: 1, height: 2, backgroundColor: COLORS.border },
   stepBarDone: { backgroundColor: COLORS.ok },
   stepLabel: { color: COLORS.muted, fontSize: 12, fontWeight: '700', marginTop: 6 },
