@@ -765,6 +765,18 @@ the off-route/reroute steps real; the proposal is a 2,449 km road, and it loads.
   landslide exposure ahead" never becomes "landslide detected"). Foreground =
   the in-app card. Remote push (Expo push / FCM): BLOCKED - no push credential
   exists and none is pretended.
+  CERTIFIED ON THE PHONE (13 Sep, two-gate patch): the background alert does
+  NOT fire on Android. React Native removes the JS timer frame callback when
+  the activity pauses (`JavaTimerManager.onHostPause`, RN 0.86.3), so the trip
+  poll that would call `notifyInBackground` never runs with the app hidden;
+  ColorOS also froze the process (`cgroup.events: frozen 1`) until "Allow
+  background activity" was set. Three runs (`gate2-phone-notify-run{1,2,3}.log`):
+  foreground in-app handling PASS, no stray notification in the foreground
+  PASS, background notification FAIL every time (permission off / on, freezer
+  on / off). MOBILE_DANGER_NOTIFICATION_READY = PARTIAL: the in-app card and
+  trip page are the alert. A real background alert needs push or a headless
+  task - a feature, not a patch. Phone settings left ON for the demo:
+  notifications allowed, background activity allowed (`phone-notify-00-*.png`).
 - **Battery-aware tracking** (no measured saving is claimed): IDLE (no trip) =
   no GPS unless the map is open (`useBrowsePosition`, upload-free);
   TRIP_ACTIVE / NAV_ACTIVE = one tracker at the server's moving/stationary
@@ -810,6 +822,18 @@ So: ROUTE_AI_ARCHITECTURE_VERIFIED = YES, and the honest phrase for judges is
 ---
 
 ## 8. Gates (all green at handoff)
+
+13 Sep (16:00, TWO-GATE PATCH - FROZEN): Gate 1 server-enforced truck
+verification: driver verify without a photo on the current assignment = 422
+VERIFICATION_PHOTO_REQUIRED, without a plate = 422 REGISTRATION_REQUIRED,
+manager verify-manual stays plate-only (`TestVerificationInvariant`, 6 tests;
+app gate `AssignmentScreen.test.tsx`). Backend **1122 passed / 5 skipped** ·
+Driver **600/600** + tsc · Manager tsc · remote smoke on the hosted API
+(`gate1-remote-smoke.log`): plate-only 422, photo+plate 200 DRIVER_APP_PHOTO,
+dispatch -> accept -> start ACTIVE, reset -> READY. Gate 2 physical Android
+notification: NOT certified - see 6k Alerts (RN pauses JS timers when the
+activity pauses; in-app foreground handling verified on the phone).
+`bash .runtime/judge.sh reset` -> RESULT READY.
 
 13 Sep (14:30, POST-FREEZE ADDITIVE - FROZEN AGAIN): Backend **1116 passed /
 5 skipped** (+files, documents, manual verify) · Driver **598/598** + tsc ·

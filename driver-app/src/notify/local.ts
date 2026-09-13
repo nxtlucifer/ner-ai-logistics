@@ -14,6 +14,13 @@
  *                  honestly ("High historical landslide exposure ahead",
  *                  never "landslide detected")
  *
+ * ANDROID REALITY (certified on the phone, 13 Sep 2026): React Native stops
+ * JS timers while the activity is paused (JavaTimerManager.onHostPause), so
+ * the poll that would call this never runs with the app in the background;
+ * ColorOS additionally freezes the process. The in-app card/trip page IS the
+ * alert. A background alert needs push or a headless task - neither exists.
+ * MOBILE_DANGER_NOTIFICATION_READY = PARTIAL.
+ *
  * Remote push (Expo push / FCM) is NOT wired: no push credential exists in
  * this project and none is pretended. REMOTE_PUSH_NOTIFICATION_READY = BLOCKED.
  */
