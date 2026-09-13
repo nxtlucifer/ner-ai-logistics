@@ -112,6 +112,9 @@ export default function MyDetailsScreen({ onBack }: { onBack: () => void }) {
             addLabel={t('Add document')}
             onAdd={() => setForm({ kind: 'DRIVER_DOCUMENT' })}
           />
+          {form?.kind === 'DRIVER_DOCUMENT' ? (
+            <DocForm kind="DRIVER_DOCUMENT" onDone={() => { setForm(null); void load() }} onCancel={() => setForm(null)} />
+          ) : null}
           <DocList
             title={t('Insurance')}
             empty={t('No insurance on file')}
@@ -119,12 +122,8 @@ export default function MyDetailsScreen({ onBack }: { onBack: () => void }) {
             addLabel={t('Add insurance')}
             onAdd={profile.truck_registration ? () => setForm({ kind: 'TRUCK_DOCUMENT' }) : undefined}
           />
-          {form ? (
-            <DocForm
-              kind={form.kind}
-              onDone={() => { setForm(null); void load() }}
-              onCancel={() => setForm(null)}
-            />
+          {form?.kind === 'TRUCK_DOCUMENT' ? (
+            <DocForm kind="TRUCK_DOCUMENT" onDone={() => { setForm(null); void load() }} onCancel={() => setForm(null)} />
           ) : null}
           <Text style={[styles.sub, styles.foot]} testID="documents-disclaimer">
             Status comes from the expiry date and the attached file. Nothing here is checked with a government or an insurer.
