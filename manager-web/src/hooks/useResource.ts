@@ -89,14 +89,22 @@ export function useResource<T>(
     })
     // Not while offline: the probe in connectivity.ts already asks /health,
     // and a page hammering a dead backend every few seconds gains nothing.
+    // Nor while the tab is hidden: a console left open on another screen
+    // polled the fleet all night for nobody. The visibility change refreshes
+    // once so the operator sees current data the moment they come back.
     const timer = pollMs
       ? setInterval(() => {
-          if (getConnectivity().online) void run()
+          if (getConnectivity().online && document.visibilityState !== 'hidden') void run()
         }, pollMs)
       : undefined
+    const onVisible = () => {
+      if (pollMs && document.visibilityState === 'visible' && getConnectivity().online) void run()
+    }
+    document.addEventListener('visibilitychange', onVisible)
     return () => {
       mounted.current = false
       unsubscribe()
+      document.removeEventListener('visibilitychange', onVisible)
       if (timer) clearInterval(timer)
     }
   }, [run, pollMs])
