@@ -18,6 +18,7 @@ Updated 14 Sep 2026 (morning). Every row names its evidence; nothing here is a c
 | AUTO DATA | NASA Global Landslide Catalog (static inventory 2007–17) | IMPLEMENTED (static) | `services/landslide/history.py`, `backend/data/landslides/PROVENANCE.md` |
 | AUTO DATA | IMD, GSI Bhukosh, USGS, FIRMS, LHASA | NOT_IMPLEMENTED | Bhukosh portal refused connections on 14 Sep and publishes no API; FIRMS/LHASA need Earthdata keys; documented FUTURE/MANUAL |
 | HAZARD MODELS | Landslide-day model (logistic regression, NER slice) | EXPERIMENTAL | `docs/MODEL_REGISTRY.md` v0.2: temporal recall 0.85 @ FPR 0.35, geographic recall 0.95 @ FPR 0.57; not deployed |
+| HAZARD MODELS | V2: season-matched negatives + NASA LHASA susceptibility + SoilGrids texture | EXPERIMENTAL (confound found) | `experiments_v2.py` 14 Sep: with season-matched negatives ROC-AUC falls to ~0.69 (PR 0.49 temporal) — earlier skill was mostly monsoon-vs-dry; susceptibility adds ≈0. Registry v0.3-research |
 | HAZARD MODELS | India-wide dataset (605 GLC events ≤5 km) with the NER as geographic holdout | IN PROGRESS | `overnight.py --expand-only`, ERA5 fetch resumed 14 Sep (401/601 sites at 09:xx IST) |
 | HAZARD MODELS | Weather-hazard model, flood model | BLOCKED (no ground truth) | provider outputs + deterministic components only |
 | HAZARD MODELS | 98% validated prediction | NOT_ACHIEVED | best held-out accuracy 0.72 temporal; recall-first thresholds by design |
