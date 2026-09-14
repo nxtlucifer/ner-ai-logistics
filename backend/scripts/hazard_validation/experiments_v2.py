@@ -31,7 +31,7 @@ import overnight as ov  # noqa: E402
 HAZ = ov.HAZ
 SUSC = json.loads((HAZ / "susceptibility.json").read_text(encoding="utf-8")) if (HAZ / "susceptibility.json").exists() else {}
 SOIL = json.loads((HAZ / "soil.json").read_text(encoding="utf-8")) if (HAZ / "soil.json").exists() else {}
-DATASETS = {"NER": "landslide_dataset.csv", "NER_SM": "landslide_dataset_sm.csv", "INDIA": "landslide_dataset_india.csv"}
+DATASETS = {"NER": "landslide_dataset.csv", "NER_SM": "landslide_dataset_sm.csv", "INDIA": "landslide_dataset_india.csv", "INDIA_SM": "landslide_dataset_india_sm.csv"}
 BASE = ["p1", "p3", "p7", "p15", "p30", "max7", "elevation", "slope"]
 SOIL_F = ["clay", "sand", "silt", "bdod"]
 
@@ -64,7 +64,7 @@ def main() -> int:
         if soil_ok >= 0.9 * len(rows):
             sets["BASE+SUSC+SOIL"] = BASE + ["susc"] + SOIL_F
         ov.log(f"V2 {ds}: rows {len(rows)} susc {sum(1 for r in rows if r.get('susc') is not None)} soil {soil_ok}; sets {list(sets)}")
-        split_of = "NER" if ds.startswith("NER") else "INDIA"
+        split_of = "NER" if ds.startswith("NER") else "INDIA"  # INDIA_SM uses the NER holdout too
         for fs_name, feats in sets.items():
             usable = with_features(rows, feats)
             for model in ("LOGREG", "HGB"):

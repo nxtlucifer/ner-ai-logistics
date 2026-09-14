@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import csv
 import os
+import pathlib
 import json
 import math
 import random
@@ -36,7 +37,7 @@ from pathlib import Path
 import httpx
 
 ROOT = Path(__file__).resolve().parents[3]
-CSV = ROOT / "backend" / "data" / "landslides" / "glc_ner.csv"
+CSV = pathlib.Path(os.environ["LS_CSV"]) if os.environ.get("LS_CSV") else ROOT / "backend" / "data" / "landslides" / "glc_ner.csv"
 CACHE = ROOT / ".runtime" / "data" / "hazard"
 OUT = CACHE / os.environ.get("LS_OUT", "landslide_dataset.csv")
 META = CACHE / os.environ.get("LS_OUT", "landslide_dataset.csv").replace(".csv", ".meta.json")
