@@ -94,3 +94,11 @@ describe('service region and corridor length', () => {
     expect(inServiceRegion({ lat: 23.0687, lon: 72.6735 })).toBe(false) // Ahmedabad
   })
 })
+
+describe('endpoint labels', () => {
+  it('refuses a confirmed point that has no address words (Advanced coordinates without a name)', () => {
+    const out = validatePlan({ ...good, pickup: { ...pin('26.1445', '91.7362', 'MANUAL'), address: '' } })
+    expect(out.pickup.valid).toBe(false)
+    expect(out.blocker).toMatch(/Name the pickup location/)
+  })
+})

@@ -215,6 +215,10 @@ export default function AddressPicker({
   // The last pin the manager dropped, so re-opening the map after an edit
   // starts where they were instead of at the region centre.
   const lastPin = useRef<[number, number] | null>(null)
+  // The value as of the latest render, for an async lookup that must only
+  // write back if nothing changed underneath it.
+  const latest = useRef(value)
+  latest.current = value
   const hasCoordinate =
     value.lat.trim() !== '' && value.lon.trim() !== '' &&
     Number.isFinite(Number(value.lat)) && Number.isFinite(Number(value.lon)) &&
@@ -237,10 +241,11 @@ export default function AddressPicker({
       void handleResolveLink(query)
       return
     }
-    // A confirmed selection is not a search term. Without this, choosing a
-    // suggestion immediately re-searches for its own full address and reopens
-    // the list under the manager's cursor.
-    if (value.source === 'GOOGLE') {
+    // A confirmed location is not a search term - whichever way it was
+    // confirmed. Without this, choosing a suggestion re-searched its own full
+    // address and reopened the list under the cursor; dropping a pin or
+    // resolving a link re-searched the label the same way.
+    if (value.source !== null) {
       setSearch({ kind: 'IDLE' })
       return
     }
@@ -582,18 +587,43 @@ export default function AddressPicker({
       {pickingOnMap ? (
         <MapPointPicker
           title={label}
-          initial={value.source !== null && value.source !== 'GOOGLE' && hasCoordinate ? [Number(value.lon), Number(value.lat)] : lastPin.current}
+          // Opens where the manager already is: the pin, or the point a
+          // search resolved - unless that result came from Google, whose
+          // results may only be shown on a Google map.
+          initial={hasCoordinate && !(value.source === 'GOOGLE' && /google/i.test(value.attribution ?? '')) ? [Number(value.lon), Number(value.lat)] : lastPin.current}
           onCancel={() => setPickingOnMap(false)}
           onConfirm={([lon, lat]) => {
             lastPin.current = [lon, lat]
-            changeEndpoint({
+            // A pin with no words is a location the server refuses (blank
+            // address) and a row nobody can read. The manager's own words win;
+            // otherwise a coordinate label goes in at once and the reverse
+            // lookup replaces it with a place name when it answers.
+            const typed = value.address.trim()
+            const placeholder = `Pinned location ${lat.toFixed(5)}, ${lon.toFixed(5)}`
+            const pinned: EndpointValue = {
               ...value,
+              address: typed || placeholder,
               lat: String(lat),
               lon: String(lon),
               source: 'MAP',
               attribution: '© OpenStreetMap contributors',
-            })
+            }
+            changeEndpoint(pinned)
             setPickingOnMap(false)
+            if (!typed) {
+              api
+                .resolveAddress(`osm:${lat},${lon}`, newSessionToken())
+                .then((named) => {
+                  const now = latest.current
+                  // Only if this pin is still the value and still unlabelled.
+                  if (now.source === 'MAP' && now.lat === pinned.lat && now.lon === pinned.lon && now.address === placeholder && named.address.trim()) {
+                    onChange({ ...now, address: named.address })
+                  }
+                })
+                .catch(() => {
+                  // The coordinate label stays. Honest, and still a valid endpoint.
+                })
+            }
           }}
         />
       ) : null}

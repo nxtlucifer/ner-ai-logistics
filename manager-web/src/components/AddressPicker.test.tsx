@@ -259,6 +259,32 @@ describe('AddressPicker coordinates and map dialog', () => {
     expect(screen.getByTestId('origin-confirmed').textContent).toContain('Pinned on map · 27.00000, 93.00000')
   })
 
+  it('names an unlabelled pin: a coordinate label at once, the reverse lookup when it answers, no re-search', async () => {
+    vi.spyOn(api, 'resolveAddress').mockResolvedValue({ place_id: 'osm:27,93', address: 'Nongpoh, Ri-Bhoi, Meghalaya, India', lat: 27, lon: 93, attribution: '© OpenStreetMap contributors' })
+    const onChange = vi.fn()
+    render(<Harness onChange={onChange} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Choose on map' }))
+    act(() => mapState.maps[0].handlers.click({ lngLat: { lng: 93, lat: 27 } }))
+    fireEvent.click(screen.getByRole('button', { name: 'Use this point' }))
+    // Valid immediately - the server refuses a blank address.
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ address: 'Pinned location 27.00000, 93.00000', lat: '27', lon: '93', source: 'MAP' }))
+    expect(vi.mocked(api.resolveAddress).mock.calls.at(-1)?.[0]).toBe('osm:27,93')
+    await act(() => vi.advanceTimersByTimeAsync(10))
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ address: 'Nongpoh, Ri-Bhoi, Meghalaya, India', lat: '27', lon: '93', source: 'MAP' }))
+    expect(screen.getByTestId('origin-confirmed').textContent).toContain('Nongpoh')
+    // A confirmed pin is not a search term: no suggestion request for its label.
+    await act(() => vi.advanceTimersByTimeAsync(800))
+    expect(api.addressSuggestions).not.toHaveBeenCalled()
+    expect(screen.queryByRole('listbox')).toBeNull()
+  })
+
+  it('opens the map at a resolved OpenStreetMap search result, but never at a Google one', () => {
+    render(<Harness initial={{ address: 'Shillong, Meghalaya', lat: '25.58', lon: '91.88', source: 'GOOGLE', attribution: '© OpenStreetMap contributors' }} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Choose on map' }))
+    expect(mapState.maps[0].options.center).toEqual([91.88, 25.58])
+    expect(mapState.markers[0].setLngLat).toHaveBeenCalledWith([91.88, 25.58])
+  })
+
   it('drops a confirmed pin when the address text is edited, so words and point never diverge', () => {
     const onChange = vi.fn()
     render(<Harness initial={{ address: 'Old gate', lat: '27', lon: '93', source: 'MAP', attribution: '© OpenStreetMap contributors' }} onChange={onChange} />)

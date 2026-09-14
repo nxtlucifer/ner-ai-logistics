@@ -88,6 +88,9 @@ export function endpointPoint(e: EndpointValue): { lat: number; lon: number } | 
 function endpointCheck(e: EndpointValue, label: string): Check {
   if (e.source === null) return fail(`Select a ${label} location — pick a suggestion, drop a pin, or paste a Maps link.`)
   if (endpointPoint(e) === null) return fail(`${label[0].toUpperCase()}${label.slice(1)} coordinates are incomplete or out of range.`)
+  // The server refuses a blank address, and a stop nobody can read is not a
+  // stop. The picker labels a pin itself; this catches Advanced coordinates.
+  if (!e.address.trim()) return fail(`Name the ${label} location — the point has no address label yet.`)
   return ok
 }
 
