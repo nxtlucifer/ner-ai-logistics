@@ -32,7 +32,10 @@ import { clearCache } from '../api/connectivity'
  * says why. Checked on login AND on silent restore, so a driver who signed in
  * elsewhere cannot reload this site into a manager shell.
  */
-export const CONSOLE_ROLES: readonly string[] = ['MANAGER', 'ADMIN']
+// The authorised reviewer is a console user by design (Review screen): they
+// hold trip:read / route:read / route:review_authorize and nothing else, and
+// the nav + Guarded routes already scope them. Drivers stay refused.
+export const CONSOLE_ROLES: readonly string[] = ['MANAGER', 'ADMIN', 'AUTHORISED_REVIEWER']
 export const MANAGER_ACCOUNT_REQUIRED = 'Manager account required.'
 
 export class ManagerAccountRequiredError extends Error {

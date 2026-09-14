@@ -51,6 +51,16 @@ describe('manager console role gate', () => {
     expect(mocked.logout).not.toHaveBeenCalled()
   })
 
+  it('admits the authorised reviewer, who holds only the review permissions', async () => {
+    mocked.refreshSession.mockResolvedValue('t')
+    mocked.me.mockResolvedValue({ user: { id: 'r1', role: 'AUTHORISED_REVIEWER', display_name: 'Reviewer', email: 'r@x', phone: null }, permissions: ['trip:read', 'route:read', 'route:review_authorize'] })
+    render(<AuthProvider><Probe /></AuthProvider>)
+    await waitFor(() => expect(screen.getByText('user:AUTHORISED_REVIEWER')).toBeTruthy())
+    expect(mocked.logout).not.toHaveBeenCalled()
+    expect(ctx!.can('route:review_authorize')).toBe(true)
+    expect(ctx!.can('route:select')).toBe(false)
+  })
+
   it('refuses a driver session on reload: revoked, cleared, explained', async () => {
     mocked.refreshSession.mockResolvedValue('t')
     mocked.me.mockResolvedValue(driver)
