@@ -70,6 +70,13 @@ describe('TripsPage', () => {
   beforeEach(() => {
     vi.spyOn(api, 'listDrivers').mockResolvedValue({ items: [], next_cursor: null })
     vi.spyOn(api, 'listTrucks').mockResolvedValue({ items: [], next_cursor: null })
+    // The live driver-truck pairing the planner shows and dispatch requires.
+    vi.spyOn(api, 'listAssignments').mockResolvedValue([
+      {
+        id: 'a1', driver_id: '22222222-2222-4222-8222-222222222222', truck_id: '33333333-3333-4333-8333-333333333333',
+        status: 'ACTIVE', assigned_at: new Date().toISOString(), verified_at: null, mismatch_flagged: false, ended_at: null,
+      },
+    ])
     vi.stubGlobal('confirm', () => true)
   })
 
@@ -286,20 +293,34 @@ describe('TripsPage', () => {
       screen.getByRole('combobox', { name: /driver/i }),
       '22222222-2222-4222-8222-222222222222',
     )
-    await user.selectOptions(
-      screen.getByRole('combobox', { name: /truck/i }),
-      '33333333-3333-4333-8333-333333333333',
-    )
-    await user.click(screen.getByRole('button', { name: /create draft trip/i }))
+    // Picking the driver filled their paired truck; the truck select agrees.
+    expect((screen.getByRole('combobox', { name: /truck/i }) as HTMLSelectElement).value).toBe('33333333-3333-4333-8333-333333333333')
 
-    expect(await screen.findByText(/pickup has no location yet/i)).toBeTruthy()
+    // Typed text is not a location: the button stays disabled and says why.
+    const create = screen.getByRole('button', { name: /create draft trip/i }) as HTMLButtonElement
+    expect(create.disabled).toBe(true)
+    expect(screen.getByTestId('plan-blocker').textContent).toMatch(/select a pickup location/i)
+    await user.click(create)
     expect(planTrip).not.toHaveBeenCalled()
+  })
+
+  it('will not offer Dispatch for a draft with no selected route', async () => {
+    vi.spyOn(api, 'listTrips').mockResolvedValue({
+      items: [trip({ status: 'DRAFT', selected_route_id: null })],
+      next_cursor: null,
+    })
+    render(<TripsPage />)
+    await screen.findByText('TRP-ALPHA')
+    const dispatch = screen.getByRole('button', { name: /dispatch/i }) as HTMLButtonElement
+    expect(dispatch.disabled).toBe(true)
+    expect(dispatch.title).toMatch(/select a route/i)
+    expect(screen.getByText(/needs a route/i)).toBeDefined()
   })
 
   it('still surfaces a refused Dispatch', async () => {
     const user = userEvent.setup()
     vi.spyOn(api, 'listTrips').mockResolvedValue({
-      items: [trip({ status: 'DRAFT' })],
+      items: [trip({ status: 'DRAFT', selected_route_id: 'r-1' })],
       next_cursor: null,
     })
     vi.spyOn(api, 'dispatchTrip').mockRejectedValue(

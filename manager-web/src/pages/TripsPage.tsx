@@ -1,26 +1,18 @@
 /**
  * Planning and dispatching trips.
  *
- * Dispatch is three deliberate steps, not one button that does everything:
+ * Dispatch is deliberate steps, not one button that does everything:
  *
- *     shipment          what the customer asked to be moved
+ *     shipment + trip (DRAFT)   what moves, who moves it   -> Create draft trip
  *        |
- *        v
- *     trip (DRAFT)      which truck and driver will move it
+ *     route planned, conditions checked, ROUTE SELECTED     -> Trip review panel
  *        |
- *        v
- *     ASSIGNED          the driver may now start it
+ *     ASSIGNED                  the driver may now start it -> Dispatch
  *
- * They are separate because they fail for different reasons and a manager needs
- * to know which one failed. Creating the trip re-checks capacity; dispatching
- * re-checks the licence, the truck's condition, the driver/truck assignment and
- * that the driver's login still works, because all of those can change between
- * planning and dispatch. The last one matters most: a trip dispatched to a
- * driver who cannot sign in can never be started, and holds a truck while it
- * cannot be.
- *
- * The form creates the shipment and the trip together, since a shipment with no
- * trip is not useful here, but each call's error is surfaced on its own.
+ * "Create draft trip" is disabled until every local prerequisite holds, with
+ * ONE stated reason (see planValidation.ts); the server re-checks all of it.
+ * Dispatch is disabled until a route is selected for the trip: a draft is not
+ * dispatchable merely because it exists.
  */
 
 import { useRef, useState } from 'react'
@@ -37,48 +29,39 @@ import {
   StatusPill,
 } from '../components/ui'
 import { useMutation, useResource } from '../hooks/useResource'
-
-/** A driver accepting, starting or delivering must show here without a
- *  reload. Five seconds is the bounded-polling fallback the sync rule allows. */
-const TRIPS_POLL_MS = 5_000
 import TripRouteReview from '../components/TripRouteReview'
 import AddressPicker, {
   EMPTY_ENDPOINT,
   type EndpointValue,
 } from '../components/AddressPicker'
+import { endpointPoint, pairedTruckId, validatePlan } from './planValidation'
 
-/** Guwahati. A sensible starting point for a region the operators work in. */
-/**
- * Parse a confirmed endpoint.
- *
- * THERE ARE NO DEFAULT COORDINATES ANY MORE. A depot's latitude pre-filled into
- * every trip is right once and silently wrong afterwards, and this form's whole
- * failure mode was a manager changing the address and shipping the default. An
- * endpoint with no `source` has not been located, and that is refused here
- * rather than substituted.
- *
- * The range check stays for the Advanced path, which is now the only way a
- * coordinate can be typed. It catches a transposed lat/lon rather than folding
- * an out-of-range latitude over the pole into a plausible-looking point.
- */
-function parseEndpoint(
-  input: EndpointValue,
-  label: string,
-): { value?: { lat: number; lon: number }; error?: string } {
-  if (input.source === null) {
-    return {
-      error: `${label} has no location yet. Pick a suggestion, or choose the point on the map.`,
-    }
+/** A driver accepting, starting or delivering must show here without a
+ *  reload. Five seconds is the bounded-polling fallback the sync rule allows. */
+const TRIPS_POLL_MS = 5_000
+
+const NO_ROUTE_REASON = 'Select a route in the trip review first — a draft is not dispatchable without one.'
+
+/** What a manager should look at for a trip in this state, in one phrase. */
+function attention(trip: Trip): { text: string; tone: string } {
+  switch (trip.status) {
+    case 'DRAFT':
+      return trip.selected_route_id
+        ? { text: 'Ready to dispatch', tone: 'text-ok' }
+        : { text: 'Needs a route', tone: 'text-warning' }
+    case 'ASSIGNED':
+      return { text: 'Awaiting driver', tone: 'text-muted' }
+    case 'VERIFICATION_PENDING':
+      return { text: 'Truck check pending', tone: 'text-warning' }
+    case 'ACTIVE':
+      return { text: 'On the road', tone: 'text-route' }
+    case 'DELAYED':
+      return { text: 'Delayed', tone: 'text-warning' }
+    case 'DELIVERED':
+      return { text: 'Close to release the truck', tone: 'text-muted' }
+    default:
+      return { text: '—', tone: 'text-muted' }
   }
-  const lat = Number(input.lat)
-  const lon = Number(input.lon)
-  if (input.lat.trim() === '' || !Number.isFinite(lat) || lat < -90 || lat > 90) {
-    return { error: `${label} latitude must be between -90 and 90.` }
-  }
-  if (input.lon.trim() === '' || !Number.isFinite(lon) || lon < -180 || lon > 180) {
-    return { error: `${label} longitude must be between -180 and 180.` }
-  }
-  return { value: { lat, lon } }
 }
 
 export default function TripsPage() {
@@ -87,6 +70,7 @@ export default function TripsPage() {
   const trips = useResource(() => api.listTrips({ limit: 50 }), [], 'trips:50', TRIPS_POLL_MS)
   const drivers = useResource(() => api.listDrivers({ limit: 100 }), [], 'drivers:100')
   const trucks = useResource(() => api.listTrucks({ limit: 100 }), [], 'trucks:100')
+  const assignments = useResource(() => api.listAssignments({ activeOnly: true }), [], 'assignments:active')
 
   const [reviewTrip, setReviewTrip] = useState<Trip | null>(null)
   const draftAttempt = useRef<{ intent: string; stamp: string } | null>(null)
@@ -96,7 +80,6 @@ export default function TripsPage() {
   const [destination, setDestination] = useState<EndpointValue>(EMPTY_ENDPOINT)
   const [driverId, setDriverId] = useState('')
   const [truckId, setTruckId] = useState('')
-  const [formError, setFormError] = useState<string | null>(null)
   // Which trip an action is running against. Without this, every row's
   // button shows a spinner while one row acts, because the mutation hook's
   // `isSubmitting` is per-hook and the hooks are shared across the table.
@@ -105,29 +88,14 @@ export default function TripsPage() {
   const dispatchTrip = useMutation((id: string) => api.dispatchTrip(id))
   const cancelTrip = useMutation((id: string) => api.cancelTrip(id))
   const closeTrip = useMutation((id: string) => api.closeTrip(id))
-  // Guarded state transitions with no hosted implementation yet. Disabled with
-  // the reason rather than throwing on click - and deliberately NOT wired as an
-  // ad-hoc `trips.status` write, which would bypass the transition guards.
   const cancelBlocked = unavailableReason('cancelTrip')
   const closeBlocked = unavailableReason('closeTrip')
 
   const create = useMutation(async () => {
-    const pickupPoint = parseEndpoint(pickup, 'Pickup')
-    if (pickupPoint.error) throw new Error(pickupPoint.error)
-    const destinationPoint = parseEndpoint(destination, 'Destination')
-    if (destinationPoint.error) throw new Error(destinationPoint.error)
-
-    // ONE request, because this is ONE transaction.
-    //
-    // This was two calls - create the shipment, then the trip referencing it.
-    // Those cannot be atomic across a network: the shipment committed, the
-    // capacity gate then refused the trip, and a cargo record nothing pointed
-    // at was stranded in the database. Worse on retry, because the stamp below
-    // is regenerated per attempt, so every correction left another one behind -
-    // and an overloaded truck is the failure this very form advertises, so
-    // managers hit it routinely rather than exceptionally.
-    // Retry the same intent with the same server idempotency identifiers.
-    // A lost response may already have committed the draft.
+    // ONE request, because this is ONE transaction: the server creates the
+    // shipment and the trip together or neither. Retry the same intent with
+    // the same idempotency identifiers - a lost response may already have
+    // committed the draft.
     const intent = JSON.stringify([client.trim(), pickup, destination, weight.trim(), truckId, driverId])
     if (draftAttempt.current?.intent !== intent) draftAttempt.current = { intent, stamp: crypto.randomUUID().slice(0, 18).toUpperCase() }
     const stamp = draftAttempt.current.stamp
@@ -136,9 +104,9 @@ export default function TripsPage() {
         reference_code: `SHP-${stamp}`,
         client_name: client.trim(),
         pickup_address: pickup.address.trim(),
-        pickup: pickupPoint.value!,
+        pickup: endpointPoint(pickup)!,
         destination_address: destination.address.trim(),
-        destination: destinationPoint.value!,
+        destination: endpointPoint(destination)!,
         cargo_items: [
           {
             cargo_type: 'GENERAL',
@@ -162,15 +130,20 @@ export default function TripsPage() {
     trucks.data?.items.find((t) => t.id === id)?.registration_number ??
     id.slice(0, 8)
 
+  const referencesReady =
+    drivers.status === 'success' && trucks.status === 'success' && assignments.status === 'success'
+  const validation = validatePlan({
+    client, weight, pickup, destination, driverId, truckId,
+    drivers: drivers.data?.items ?? [],
+    trucks: trucks.data?.items ?? [],
+    assignments: assignments.data ?? [],
+    referencesReady,
+    submitting: create.isSubmitting,
+  })
+
   async function handleCreate() {
-    setFormError(null)
+    if (validation.blocker) return
     const result = await create.submit()
-    if (result.error) {
-      if (result.error instanceof Error && !('status' in result.error)) {
-        setFormError(result.error.message)
-      }
-      return
-    }
     if (!result.data) return
     setReviewTrip(result.data)
     draftAttempt.current = null
@@ -193,30 +166,23 @@ export default function TripsPage() {
   }
 
   const canCreate = can('trip:create')
-  // Only one row action runs at a time (`actingOn` enforces it), so the three
-  // mutations cannot hold errors simultaneously in practice; the ordering here
-  // simply picks whichever one most recently refused.
   const actionError = dispatchTrip.error ?? cancelTrip.error ?? closeTrip.error
-  const referencesReady =
-    drivers.status === 'success' && trucks.status === 'success'
-  const formComplete =
-    client.trim() && pickup.address.trim() && destination.address.trim() &&
-    weight.trim() && driverId && truckId
+  const pairedFor = (id: string) => pairedTruckId(assignments.data ?? [], id)
 
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-xl font-bold text-ink">Dispatch workspace</h1>
         <p className="text-xs text-muted">
-          Plan the load, review the road, then dispatch. Your driver receives the trip after dispatch.
+          Plan the load, review the road, select the route, then dispatch. Your driver receives the trip after dispatch.
         </p>
       </div>
 
       <div className="dispatch-grid">
       {canCreate ? (
         <Card title="Plan a trip">
-          {drivers.status === 'error' || trucks.status === 'error' ? (
-            <ErrorState error={drivers.error ?? trucks.error} onRetry={() => { drivers.reload(); trucks.reload() }} />
+          {drivers.status === 'error' || trucks.status === 'error' || assignments.status === 'error' ? (
+            <ErrorState error={drivers.error ?? trucks.error ?? assignments.error} onRetry={() => { drivers.reload(); trucks.reload(); assignments.reload() }} />
           ) : !referencesReady ? (
             <LoadingState label="Loading drivers and trucks…" />
           ) : (
@@ -229,6 +195,7 @@ export default function TripsPage() {
                   onChange={setClient}
                   required
                   placeholder="Brahmaputra Traders"
+                  error={client && !validation.client.valid ? validation.client.reason ?? undefined : undefined}
                 />
                 <Field
                   label="Cargo weight (kg)"
@@ -237,6 +204,7 @@ export default function TripsPage() {
                   onChange={setWeight}
                   required
                   hint="Checked against the truck's capacity — an overloaded truck is refused."
+                  error={!validation.cargo.valid ? validation.cargo.reason ?? undefined : !validation.capacity.valid ? validation.capacity.reason ?? undefined : undefined}
                 />
                 {/* Pickup and destination span both columns: an address
                     with a suggestion list under it does not belong in a
@@ -251,9 +219,7 @@ export default function TripsPage() {
                   />
                   <div className="flex justify-center">
                     {/* Swaps the WHOLE endpoint - address, coordinate and the
-                        provenance of that coordinate. Swapping only the text
-                        would leave each address pointing at the other's pin,
-                        which is the exact class of bug this form had. */}
+                        provenance of that coordinate. */}
                     <button
                       type="button"
                       onClick={() => {
@@ -273,6 +239,9 @@ export default function TripsPage() {
                     onChange={setDestination}
                     placeholder="Yard, Jorhat"
                   />
+                  {pickup.source !== null && destination.source !== null && !validation.destination.valid ? (
+                    <p className="text-xs text-danger">{validation.destination.reason}</p>
+                  ) : null}
                 </div>
 
                 <label className="block">
@@ -281,29 +250,39 @@ export default function TripsPage() {
                   </span>
                   <select
                     value={driverId}
-                    onChange={(e) => setDriverId(e.target.value)}
+                    onChange={(e) => {
+                      // Picking a driver picks their truck: dispatch needs the
+                      // live driver-truck assignment, so the pair is shown here,
+                      // not discovered at dispatch.
+                      const id = e.target.value
+                      setDriverId(id)
+                      setTruckId(id ? pairedFor(id) ?? '' : '')
+                    }}
                     className="mt-1 w-full rounded-[var(--radius-control)] border border-outline bg-surface px-3 py-2 text-sm text-ink focus:border-route focus:ring-1 focus:ring-route"
                   >
                     <option value="">Select a driver…</option>
-                    {/*
-                      Disabled rather than hidden, and labelled with the reason.
-                      A driver who silently vanished from this list would send a
-                      manager to look for a record that still exists; the point
-                      is to say why they cannot be picked. This is convenience
-                      only - the server re-checks and returns
-                      DRIVER_LOGIN_INACTIVE, which is what actually enforces it.
-                    */}
-                    {drivers.data?.items.map((d) => (
-                      <option
-                        key={d.id}
-                        value={d.id}
-                        disabled={!d.login_is_active}
-                      >
-                        {d.full_name} — {d.licence_number}
-                        {d.login_is_active ? '' : ' (login inactive)'}
-                      </option>
-                    ))}
+                    {/* Disabled rather than hidden, and labelled with the reason.
+                        Convenience only - the server re-checks and returns
+                        DRIVER_LOGIN_INACTIVE, which is what actually enforces it. */}
+                    {drivers.data?.items.map((d) => {
+                      const paired = pairedFor(d.id)
+                      return (
+                        <option
+                          key={d.id}
+                          value={d.id}
+                          disabled={!d.login_is_active}
+                        >
+                          {d.full_name} — {paired ? `truck ${truckReg(paired)}` : 'no truck assigned'}
+                          {d.login_is_active ? '' : ' (login inactive)'}
+                        </option>
+                      )
+                    })}
                   </select>
+                  {driverId && !validation.driver.valid ? (
+                    <span className="mt-1 block text-xs text-danger">{validation.driver.reason}</span>
+                  ) : driverId && !validation.assignment.valid ? (
+                    <span className="mt-1 block text-xs text-warning">{validation.assignment.reason}</span>
+                  ) : null}
                 </label>
 
                 <label className="block">
@@ -316,41 +295,52 @@ export default function TripsPage() {
                     className="mt-1 w-full rounded-[var(--radius-control)] border border-outline bg-surface px-3 py-2 text-sm text-ink focus:border-route focus:ring-1 focus:ring-route"
                   >
                     <option value="">Select a truck…</option>
-                    {trucks.data?.items.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.registration_number} —{' '}
-                        {Number(t.max_capacity_kg).toLocaleString()} kg
-                      </option>
-                    ))}
+                    {trucks.data?.items.map((t) => {
+                      const pairedTruck = driverId ? pairedFor(driverId) : null
+                      const unpaired = pairedTruck !== null && pairedTruck !== t.id
+                      return (
+                        <option key={t.id} value={t.id} disabled={unpaired || t.status !== 'AVAILABLE'}>
+                          {t.registration_number} — {Number(t.max_capacity_kg).toLocaleString()} kg
+                          {t.status !== 'AVAILABLE' ? ` (${t.status.toLowerCase().replaceAll('_', ' ')})` : unpaired ? ' (not this driver’s truck)' : ''}
+                        </option>
+                      )
+                    })}
                   </select>
+                  {truckId && !validation.truck.valid ? (
+                    <span className="mt-1 block text-xs text-danger">{validation.truck.reason}</span>
+                  ) : (
+                    <span className="mt-1 block text-xs text-muted">Filled from the live pairing.</span>
+                  )}
                 </label>
               </div>
 
-              {formError ? (
-                <div className="mt-3 rounded-lg border border-danger/30 bg-danger-soft/50 px-4 py-3 text-xs text-danger">
-                  {formError}
-                </div>
-              ) : create.error ? (
+              {create.error ? (
                 <div className="mt-3">
                   <ErrorState error={create.error} />
                 </div>
               ) : null}
 
-              <div className="mt-4">
+              <div className="mt-4 flex flex-wrap items-center gap-3">
                 <Button
                   onClick={handleCreate}
                   busy={create.isSubmitting}
-                  disabled={!formComplete}
+                  disabled={validation.blocker !== null}
+                  title={validation.blocker ?? undefined}
                 >
                   {create.isSubmitting ? 'Creating…' : 'Create draft trip'}
                 </Button>
+                {validation.blocker && !create.isSubmitting ? (
+                  <p className="text-xs text-muted" data-testid="plan-blocker" role="status">
+                    {validation.blocker}
+                  </p>
+                ) : null}
               </div>
             </>
           )}
         </Card>
       ) : null}
 
-      <div className="dispatch-review">{reviewTrip ? <TripRouteReview key={reviewTrip.id} trip={reviewTrip} onChanged={trips.reload} /> : <Card title="Trip review"><EmptyState title="Every journey starts with a plan" description="Create a draft on the left, or choose Review route from the trips below. Review the actual route and its conditions here before dispatch." /></Card>}</div>
+      <div className="dispatch-review">{reviewTrip ? <TripRouteReview key={reviewTrip.id} trip={reviewTrip} onChanged={trips.reload} /> : <Card title="Trip review"><EmptyState title="Every journey starts with a plan" description="Create a draft on the left, or choose Review route from the trips below. Plan the road, check its conditions and select the route here before dispatch." /></Card>}</div>
       </div>
       <Card title="Trips">
         {trips.status === 'loading' ? (
@@ -366,10 +356,7 @@ export default function TripsPage() {
           <div className="overflow-x-auto">
             {/* Every row action can be legitimately refused - a trip someone
                 else already closed, a driver whose assignment was ended, a
-                transition the lifecycle forbids. All three must surface. Only
-                dispatch did, so a refused Cancel or Close stopped its spinner,
-                changed nothing, and told the manager nothing - which during a
-                demo is indistinguishable from a dead button. */}
+                transition the lifecycle forbids. All must surface. */}
             {actionError ? (
               <div className="mb-3">
                 <ErrorState error={actionError} />
@@ -381,12 +368,18 @@ export default function TripsPage() {
                   <th className="pb-2 font-medium">Trip</th>
                   <th className="pb-2 font-medium">Driver</th>
                   <th className="pb-2 font-medium">Truck</th>
+                  <th className="pb-2 font-medium">Route</th>
                   <th className="pb-2 font-medium">Status</th>
+                  <th className="pb-2 font-medium">Attention</th>
                   <th className="pb-2" />
                 </tr>
               </thead>
               <tbody>
-                {trips.data?.items.map((trip) => (
+                {trips.data?.items.map((trip) => {
+                  const note = attention(trip)
+                  const open = trip.status === 'DRAFT' ? 'Review route' : ['ASSIGNED', 'VERIFICATION_PENDING', 'ACTIVE', 'DELAYED'].includes(trip.status) ? 'Open' : 'View'
+                  const busyElsewhere = actingOn !== null && actingOn !== trip.id
+                  return (
                   <tr key={trip.id} className="border-t border-line">
                     <td className="py-3 font-medium text-ink">
                       {trip.trip_code}
@@ -397,22 +390,23 @@ export default function TripsPage() {
                     <td className="py-3 text-ink">
                       {truckReg(trip.truck_id)}
                     </td>
+                    <td className="py-3 text-xs">
+                      {trip.selected_route_id ? <span className="text-ok">Selected</span> : <span className="text-warning">Not selected</span>}
+                    </td>
                     <td className="py-3">
                       <StatusPill status={trip.status} />
                     </td>
+                    <td className={`py-3 text-xs ${note.tone}`}>{note.text}</td>
                     <td className="py-3 text-right">
-                      {/* Only actions legal from the current state are shown.
-                          A control that is present is one the server will
-                          accept. */}
+                      {/* One dominant action per state. A control that is
+                          present and enabled is one the server will accept. */}
                       <div className="flex flex-wrap justify-end gap-2">
-                        {can('route:read') ? <Button variant="secondary" onClick={() => { setReviewTrip(trip); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>Review route</Button> : null}
+                        {can('route:read') ? <Button variant="secondary" onClick={() => { setReviewTrip(trip); window.scrollTo({ top: 0, behavior: 'smooth' }) }}>{open}</Button> : null}
                         {trip.status === 'DRAFT' && can('trip:dispatch') ? (
                           <Button
-                            variant="secondary"
-                            busy={
-                              actingOn === trip.id && dispatchTrip.isSubmitting
-                            }
-                            disabled={actingOn !== null && actingOn !== trip.id}
+                            busy={actingOn === trip.id && dispatchTrip.isSubmitting}
+                            disabled={busyElsewhere || !trip.selected_route_id}
+                            title={trip.selected_route_id ? undefined : NO_ROUTE_REASON}
                             onClick={() =>
                               void run(trip.id, () => dispatchTrip.submit(trip.id))
                             }
@@ -422,12 +416,8 @@ export default function TripsPage() {
                         ) : null}
                         {trip.status === 'DELIVERED' && can('trip:close') ? (
                           <Button
-                            variant="secondary"
                             busy={actingOn === trip.id && closeTrip.isSubmitting}
-                            disabled={
-                              closeBlocked !== null ||
-                              (actingOn !== null && actingOn !== trip.id)
-                            }
+                            disabled={closeBlocked !== null || busyElsewhere}
                             title={closeBlocked ?? undefined}
                             onClick={() =>
                               void run(trip.id, () => closeTrip.submit(trip.id))
@@ -441,11 +431,9 @@ export default function TripsPage() {
                         ) && can('trip:cancel') ? (
                           <Button
                             variant="danger"
+                            className="min-h-9 px-2 py-1 text-xs"
                             busy={actingOn === trip.id && cancelTrip.isSubmitting}
-                            disabled={
-                              cancelBlocked !== null ||
-                              (actingOn !== null && actingOn !== trip.id)
-                            }
+                            disabled={cancelBlocked !== null || busyElsewhere}
                             title={cancelBlocked ?? undefined}
                             onClick={() => {
                               if (!window.confirm(`Cancel ${trip.trip_code}?`)) return
@@ -458,7 +446,8 @@ export default function TripsPage() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>

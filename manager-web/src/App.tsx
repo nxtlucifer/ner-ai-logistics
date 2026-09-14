@@ -8,7 +8,7 @@
 
 import type { ReactNode } from 'react'
 import { useEffect, useState } from 'react'
-import { Activity, ClipboardCheck, LayoutDashboard, LogOut, Route as RouteIcon, ShieldCheck, Truck, Users } from 'lucide-react'
+import { Activity, LayoutDashboard, LogOut, Route as RouteIcon, ShieldCheck, Truck, Users } from 'lucide-react'
 import { BrowserRouter, NavLink, Navigate, Route, Routes } from 'react-router-dom'
 
 import { ageLabel, useConnectivity } from './api/connectivity'
@@ -29,14 +29,16 @@ import ReviewPage from './pages/ReviewPage'
 // disabled, and never shown working and failing on click.
 // One icon family (Lucide, 2px stroke) - the same grammar as the driver app's
 // Feather set, so a truck or a shield reads the same in both products.
+// Five operational screens. Driver-truck assignments live in the driver
+// profile (and /assignments stays reachable as a record, linked from Trucks);
+// Diagnostics is a secondary utility, rendered apart from the workflow.
 const NAV = [
-  { to: '/fleet', label: 'Fleet', permission: 'fleet:location_read', icon: LayoutDashboard },
-  { to: '/trips', label: 'Trips', permission: 'trip:read', icon: RouteIcon },
-  { to: '/drivers', label: 'Drivers', permission: 'driver:read', icon: Users },
-  { to: '/trucks', label: 'Trucks', permission: 'truck:read', icon: Truck },
-  { to: '/assignments', label: 'Assignments', permission: 'assignment:read', icon: ClipboardCheck },
-  { to: '/review', label: 'Review', permission: 'route:review_authorize', icon: ShieldCheck },
-  { to: '/system', label: 'System', permission: null, icon: Activity },
+  { to: '/fleet', label: 'Fleet', permission: 'fleet:location_read', icon: LayoutDashboard, secondary: false },
+  { to: '/trips', label: 'Trips', permission: 'trip:read', icon: RouteIcon, secondary: false },
+  { to: '/drivers', label: 'Drivers', permission: 'driver:read', icon: Users, secondary: false },
+  { to: '/trucks', label: 'Trucks', permission: 'truck:read', icon: Truck, secondary: false },
+  { to: '/review', label: 'Review', permission: 'route:review_authorize', icon: ShieldCheck, secondary: false },
+  { to: '/system', label: 'Diagnostics', permission: null, icon: Activity, secondary: true },
 ]
 
 /**
@@ -109,7 +111,7 @@ function Shell() {
           </div>
 
           <nav aria-label="Main navigation" className="main-nav">
-            {NAV.filter((item) => !item.permission || can(item.permission)).map(
+            {NAV.filter((item) => !item.secondary && (!item.permission || can(item.permission))).map(
               (item) => (
                 <NavLink
                   key={item.to}
@@ -127,6 +129,14 @@ function Shell() {
                 </NavLink>
               ),
             )}
+          </nav>
+          <nav aria-label="Utilities" className="main-nav mt-auto text-xs">
+            {NAV.filter((item) => item.secondary && (!item.permission || can(item.permission))).map((item) => (
+              <NavLink key={item.to} to={item.to} className={({ isActive }) => `nav-link ${isActive ? 'nav-active' : 'nav-idle'}`}>
+                <item.icon className="nav-icon" aria-hidden="true" />
+                {item.label}
+              </NavLink>
+            ))}
           </nav>
 
           <div className="rail-account">

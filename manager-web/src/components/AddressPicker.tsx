@@ -19,12 +19,12 @@
  * and `null` - no coordinate established - is a state the planner refuses to
  * submit rather than filling in.
  *
- * WHY EDITING THE TEXT CAN CLEAR THE COORDINATE
+ * WHY EDITING THE TEXT CLEARS THE COORDINATE
  *
- * Only for a GOOGLE selection, and that is the point. Those coordinates were
- * derived FROM the address, so once the address is edited they describe
- * something the manager is no longer asking for. A pin the manager dropped is
- * not derived from anything they typed, so relabelling it leaves it alone.
+ * For every source. The address text and the routed point must never diverge
+ * silently: once a location is confirmed, editing the words drops the
+ * coordinate and the manager reconfirms it (a suggestion, the pin, a link).
+ * The last dropped pin is remembered so "Choose on map" reopens where it was.
  *
  * GOOGLE'S RESULTS ARE NOT PUT ON THIS MAP
  *
@@ -203,8 +203,9 @@ export default function AddressPicker({
   )
 
   const query = value.address.trim()
-  // Only a GOOGLE coordinate is invalidated by editing. See the header.
-  const derivedFromText = value.source === 'GOOGLE'
+  // The last pin the manager dropped, so re-opening the map after an edit
+  // starts where they were instead of at the region centre.
+  const lastPin = useRef<[number, number] | null>(null)
   const hasCoordinate =
     value.lat.trim() !== '' && value.lon.trim() !== '' &&
     Number.isFinite(Number(value.lat)) && Number.isFinite(Number(value.lon)) &&
@@ -330,10 +331,12 @@ export default function AddressPicker({
           aria-autocomplete="list"
           aria-activedescendant={highlighted >= 0 ? `${listId}-${highlighted}` : undefined}
           onChange={(e) =>
+            // Editing the text after ANY confirmed location invalidates the
+            // coordinate: the words and the point must never diverge silently.
+            // The manager reconfirms (suggestion, pin, link) to make it valid again.
             changeEndpoint(
-              derivedFromText
-                ? // The coordinate went with the address it came from.
-                  { ...EMPTY_ENDPOINT, address: e.target.value }
+              value.source !== null
+                ? { ...EMPTY_ENDPOINT, address: e.target.value }
                 : { ...value, address: e.target.value },
             )
           }
@@ -503,12 +506,11 @@ export default function AddressPicker({
           looking like a default somebody meant. */}
       {value.source !== null && hasCoordinate ? (
         <p className="text-xs text-ok" data-testid={`${name}-confirmed`}>
-          {SOURCE_LABEL[value.source]} · {Number(value.lat).toFixed(5)},{' '}
-          {Number(value.lon).toFixed(5)}
-          {value.attribution ? (
-            <span className="ml-1 text-muted">({value.attribution})</span>
-          ) : null}
-          <span className="ml-1 text-muted">· location valid; route availability is checked when you plan</span>
+          <span className="font-semibold">✓ {value.address.trim() || 'Location set'}</span>
+          <span className="ml-1 text-muted">
+            · {SOURCE_LABEL[value.source]} · {Number(value.lat).toFixed(5)}, {Number(value.lon).toFixed(5)}
+            {value.attribution ? ` (${value.attribution})` : ''}
+          </span>
         </p>
       ) : value.source !== null ? (
         <p className="text-xs text-warning">
@@ -569,9 +571,10 @@ export default function AddressPicker({
       {pickingOnMap ? (
         <MapPointPicker
           title={label}
-          initial={value.source !== null && value.source !== 'GOOGLE' && hasCoordinate ? [Number(value.lon), Number(value.lat)] : null}
+          initial={value.source !== null && value.source !== 'GOOGLE' && hasCoordinate ? [Number(value.lon), Number(value.lat)] : lastPin.current}
           onCancel={() => setPickingOnMap(false)}
           onConfirm={([lon, lat]) => {
+            lastPin.current = [lon, lat]
             changeEndpoint({
               ...value,
               lat: String(lat),

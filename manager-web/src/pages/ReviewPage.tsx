@@ -67,7 +67,10 @@ export default function ReviewPage() {
   useEffect(() => {
     void (async () => {
       try {
-        setTrips((await api.listTrips({ limit: 50 })).items)
+        // Only trips whose route can still be chosen or changed. A delivered or
+        // cancelled trip has nothing left to review, so it is not offered.
+        const items = (await api.listTrips({ limit: 50 })).items
+        setTrips(items.filter((t) => ['DRAFT', 'ASSIGNED', 'VERIFICATION_PENDING', 'ACTIVE', 'DELAYED'].includes(t.status)))
       } catch (error) {
         setLoadError(error)
       }
@@ -181,7 +184,7 @@ export default function ReviewPage() {
             value={tripId ?? ''}
             onChange={(e) => void loadTrip(e.target.value)}
           >
-            <option value="">Select a trip…</option>
+            <option value="">{trips.length === 0 ? 'Nothing awaiting review' : 'Select an open trip…'}</option>
             {trips.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.trip_code} — {t.status}

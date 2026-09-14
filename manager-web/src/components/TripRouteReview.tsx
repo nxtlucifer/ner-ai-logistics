@@ -219,7 +219,8 @@ export default function TripRouteReview({ trip, onChanged }: { trip: Trip; onCha
     setAuthorizations(Object.fromEntries(pairs))
   }
 
-  return <Card title={`Trip review · ${trip.trip_code}`} action={<StatusPill status={detail?.status ?? trip.status} />}>
+  const selectedRoute = detail?.selected_route_id ?? trip.selected_route_id
+  return <Card title={`Trip review · ${trip.trip_code}`} action={<span className="flex items-center gap-2"><StatusPill status={selectedRoute ? 'ROUTE_SELECTED' : 'NO_ROUTE_SELECTED'} /><StatusPill status={detail?.status ?? trip.status} /></span>}>
     {error ? <ErrorState error={error} onRetry={() => void run('load', read)} /> : null}
     {busy === 'load' && !detail ? <LoadingState label="Loading trip review…" /> : <>
       <ol className="space-y-4 mb-5 border-l-2 border-line pl-4">

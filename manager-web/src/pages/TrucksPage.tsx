@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 
 import { ApiError, api, type Truck, unavailableReason } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
@@ -35,6 +36,17 @@ export default function TrucksPage() {
     [search],
     search ? undefined : 'trucks:all',
   )
+  // Who holds each truck and whether it is on a trip: read-only context here;
+  // the pairing itself is changed from the driver's profile.
+  const assignments = useResource(() => api.listAssignments({ activeOnly: true }), [], 'assignments:active')
+  const drivers = useResource(() => api.listDrivers({ limit: 100 }), [], 'drivers:100')
+  const trips = useResource(() => api.listTrips({ limit: 50 }), [], 'trips:50')
+  const driverFor = (truckId: string) => {
+    const live = assignments.data?.find((a) => a.truck_id === truckId && (a.status === 'ACTIVE' || a.status === 'PENDING_VERIFICATION'))
+    if (!live) return null
+    return { name: drivers.data?.items.find((d) => d.id === live.driver_id)?.full_name ?? live.driver_id.slice(0, 8), verified: live.verified_at !== null, mismatch: live.mismatch_flagged }
+  }
+  const tripFor = (truckId: string) => trips.data?.items.find((t) => t.truck_id === truckId && ['ASSIGNED', 'VERIFICATION_PENDING', 'ACTIVE', 'DELAYED'].includes(t.status)) ?? null
 
   const create = useMutation(async (payload: typeof BLANK) => {
     const body: Record<string, unknown> = {
@@ -102,7 +114,8 @@ export default function TrucksPage() {
         <div>
           <h1 className="text-xl font-bold text-ink">Trucks</h1>
           <p className="text-xs text-muted">
-            Capacity is a safety limit enforced by the database.
+            Capacity is a safety limit enforced by the database. Pair a truck with a driver from the driver's profile;{' '}
+            <Link to="/assignments" className="text-route hover:underline">assignment records</Link> keep the history.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -228,13 +241,17 @@ export default function TrucksPage() {
                   <th className="pb-2 font-medium">Registration</th>
                   <th className="pb-2 font-medium">Type</th>
                   <th className="pb-2 font-medium">Capacity</th>
-                  <th className="pb-2 font-medium">Load</th>
                   <th className="pb-2 font-medium">Status</th>
+                  <th className="pb-2 font-medium">Assigned driver</th>
+                  <th className="pb-2 font-medium">Current trip</th>
                   <th className="pb-2" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
-                {trucks.data?.items.map((truck) => (
+                {trucks.data?.items.map((truck) => {
+                  const holder = driverFor(truck.id)
+                  const open = tripFor(truck.id)
+                  return (
                   <tr key={truck.id}>
                     <td className="py-3 font-mono font-medium text-ink">
                       <span className="inline-flex items-center gap-2">
@@ -257,27 +274,41 @@ export default function TrucksPage() {
                     <td className="py-3 tabular-nums text-muted">
                       {Number(truck.max_capacity_kg).toLocaleString()} kg
                     </td>
-                    <td className="py-3 tabular-nums text-muted">
-                      {Number(truck.current_load_kg).toLocaleString()} kg
-                    </td>
                     <td className="py-3">
                       <StatusPill status={truck.status} />
+                    </td>
+                    <td className="py-3 text-xs">
+                      {assignments.status === 'success' ? (
+                        holder ? (
+                          <span className="text-ink">
+                            {holder.name}
+                            <span className={`block text-[11px] ${holder.mismatch ? 'text-warning' : holder.verified ? 'text-ok' : 'text-muted'}`}>
+                              {holder.mismatch ? 'plate mismatch — needs review' : holder.verified ? 'truck verified by driver' : 'awaiting driver check'}
+                            </span>
+                          </span>
+                        ) : <span className="text-muted">none</span>
+                      ) : <span className="text-muted">—</span>}
+                    </td>
+                    <td className="py-3 text-xs">
+                      {trips.status === 'success' ? (open ? <span className="text-ink">{open.trip_code} <span className="text-muted">· {open.status.replaceAll('_', ' ').toLowerCase()}</span></span> : <span className="text-muted">none</span>) : <span className="text-muted">—</span>}
                     </td>
                     <td className="py-3 text-right">
                       {can('truck:retire') ? (
                         <Button
                           variant="danger"
+                          className="min-h-9 px-2 py-1 text-xs"
                           onClick={() => handleRetire(truck)}
                           busy={retire.isSubmitting}
-                          disabled={retireBlocked !== null}
-                          title={retireBlocked ?? undefined}
+                          disabled={retireBlocked !== null || truck.status === 'ON_TRIP' || open !== null}
+                          title={retireBlocked ?? (open ? `On ${open.trip_code} — finish or cancel it first` : 'Removes the truck from the active fleet. Trip history is kept.')}
                         >
                           Retire
                         </Button>
                       ) : null}
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>

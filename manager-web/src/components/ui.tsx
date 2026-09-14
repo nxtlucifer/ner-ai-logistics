@@ -161,6 +161,8 @@ const STATUS_TONE: Record<string, string> = {
   SUSPENDED: 'bg-danger-soft text-danger border-danger/30',
   RETIRED: 'bg-soft text-muted border-line',
   REJECTED: 'bg-danger-soft text-danger border-danger/30',
+  ROUTE_SELECTED: 'bg-ok-soft text-ok border-ok/30',
+  NO_ROUTE_SELECTED: 'bg-warning-soft text-warning border-warning/30',
 }
 
 export function StatusPill({ status }: { status: string }) {

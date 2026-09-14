@@ -1,8 +1,9 @@
 import { useState } from 'react'
 
-import { ApiError, DRIVER_WEB_URL, api, type Driver, unavailableReason } from '../api/client'
+import { ApiError, api, type Driver, unavailableReason } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
 import AuthImage, { initials } from '../components/AuthImage'
+import DriverProfileDrawer, { licenceHealth } from '../components/DriverProfileDrawer'
 import {
   Button,
   Card,
@@ -23,18 +24,26 @@ const BLANK = {
   initial_password: '',
 }
 
+const OPEN_TRIP = new Set(['DRAFT', 'ASSIGNED', 'VERIFICATION_PENDING', 'ACTIVE', 'DELAYED'])
+
 export default function DriversPage() {
   const { can } = useAuth()
   const [search, setSearch] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState(BLANK)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+  const [profileId, setProfileId] = useState<string | null>(null)
 
   const drivers = useResource(
     () => api.listDrivers({ search: search || undefined }),
     [search],
     search ? undefined : 'drivers:all',
   )
+  // Secondary context for each row - the live truck pairing and the open trip.
+  // A failure here degrades the row to "—", it never hides the driver.
+  const assignments = useResource(() => api.listAssignments({ activeOnly: true }), [], 'assignments:active')
+  const trucks = useResource(() => api.listTrucks({ limit: 100 }), [], 'trucks:100')
+  const trips = useResource(() => api.listTrips({ limit: 50 }), [], 'trips:50')
 
   const create = useMutation(async (payload: typeof BLANK) => {
     const body: Record<string, unknown> = {
@@ -48,21 +57,9 @@ export default function DriversPage() {
     return api.createDriver(body)
   })
 
-  const deactivate = useMutation((id: string) => api.deactivateDriver(id))
-  const support = useMutation((id: string) => api.supportSession(id))
-  const supportBlocked = unavailableReason('supportSession')
-
-  async function handleViewAsDriver(driver: Driver) {
-    // The token goes in the URL FRAGMENT: browsers never send fragments to a
-    // server, so no host log ever sees it. 15 minutes, GET-only, audited.
-    const { data } = await support.submit(driver.id)
-    if (data) window.open(`${DRIVER_WEB_URL}/#support=${encodeURIComponent(data.token)}`, '_blank', 'noopener')
-  }
-
-  // See UNAVAILABLE_OPERATIONS: these have no hosted implementation, so the
-  // controls say so rather than throwing when pressed.
+  // See UNAVAILABLE_OPERATIONS: no hosted implementation, so the control says
+  // so rather than throwing when pressed.
   const addBlocked = unavailableReason('createDriver')
-  const deactivateBlocked = unavailableReason('deactivateDriver')
 
   async function handleCreate() {
     setFieldErrors({})
@@ -73,10 +70,8 @@ export default function DriversPage() {
       drivers.reload()
       return
     }
-    // Surface 422 details against the fields that caused them.
-    // Read the error from the return value, not from state: setState is
-    // asynchronous, so create.error would still hold the previous value here
-    // and this mapping would silently never run.
+    // Surface 422 details against the fields that caused them. Read the error
+    // from the return value, not from state: setState is asynchronous.
     if (error instanceof ApiError && error.code === 'VALIDATION_ERROR') {
       const errors: Record<string, string> = {}
       const details = error.details as {
@@ -90,18 +85,18 @@ export default function DriversPage() {
     }
   }
 
-  async function handleDeactivate(driver: Driver) {
-    if (
-      !window.confirm(
-        `Deactivate ${driver.full_name}? Their login is disabled and they are hidden from the fleet. Trip history is kept.`,
-      )
-    ) {
-      return
-    }
-    if ((await deactivate.submit(driver.id)).data) drivers.reload()
-  }
-
   const canCreate = can('driver:create')
+  const truckFor = (driverId: string) => {
+    const live = assignments.data?.find((a) => a.driver_id === driverId && (a.status === 'ACTIVE' || a.status === 'PENDING_VERIFICATION'))
+    if (!live) return null
+    return trucks.data?.items.find((t) => t.id === live.truck_id)?.registration_number ?? live.truck_id.slice(0, 8)
+  }
+  const tripFor = (driverId: string) => trips.data?.items.find((t) => t.driver_id === driverId && OPEN_TRIP.has(t.status)) ?? null
+  const profile: Driver | null = profileId ? drivers.data?.items.find((d) => d.id === profileId) ?? null : null
+
+  function reloadContext() {
+    drivers.reload(); assignments.reload(); trucks.reload(); trips.reload()
+  }
 
   return (
     <div className="space-y-4">
@@ -109,7 +104,7 @@ export default function DriversPage() {
         <div>
           <h1 className="text-xl font-bold text-ink">Drivers</h1>
           <p className="text-xs text-muted">
-            Creating a driver also creates their login.
+            Who can drive, which truck they hold, and whether they are on the road. Open a profile for details and actions.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -117,6 +112,7 @@ export default function DriversPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search name or licence"
+            aria-label="Search drivers by name or licence"
             className="w-56 rounded-[var(--radius-control)] border border-outline bg-surface px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-route focus:ring-1 focus:ring-route"
           />
           {/* Rendered only when permitted - but the server enforces it too. */}
@@ -237,46 +233,36 @@ export default function DriversPage() {
             <table className="w-full text-left text-sm">
               <thead className="text-xs uppercase tracking-wide text-muted">
                 <tr>
-                  <th className="pb-2 font-medium">Name</th>
-                  <th className="pb-2 font-medium">Phone</th>
+                  <th className="pb-2 font-medium">Driver</th>
+                  <th className="pb-2 font-medium">Availability</th>
+                  <th className="pb-2 font-medium">Assigned truck</th>
+                  <th className="pb-2 font-medium">Current trip</th>
                   <th className="pb-2 font-medium">Licence</th>
-                  <th className="pb-2 font-medium">Expiry</th>
-                  <th className="pb-2 font-medium">Status</th>
                   <th className="pb-2" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
                 {drivers.data?.items.map((driver) => {
-                  const expired = new Date(driver.licence_expiry) < new Date()
+                  const health = licenceHealth(driver.licence_expiry)
+                  const reg = truckFor(driver.id)
+                  const open = tripFor(driver.id)
                   return (
                     <tr key={driver.id}>
                       <td className="py-3 font-medium text-ink">
                         <span className="inline-flex items-center gap-2">
                           <AuthImage src={driver.photo_url} alt={`${driver.full_name} photo`} fallback={initials(driver.full_name)} />
-                          {driver.full_name}
+                          <span>
+                            {driver.full_name}
+                            <span className="block text-xs font-normal text-muted">{driver.phone}</span>
+                          </span>
                         </span>
-                      </td>
-                      <td className="py-3 text-muted">{driver.phone}</td>
-                      <td className="py-3 font-mono text-xs text-muted">
-                        {driver.licence_number}
-                      </td>
-                      <td
-                        className={`py-3 text-xs ${expired ? 'font-semibold text-danger' : 'text-muted'}`}
-                      >
-                        {driver.licence_expiry}
-                        {expired ? ' (expired)' : ''}
                       </td>
                       <td className="py-3">
                         <div className="flex flex-col items-start gap-1">
                           <StatusPill status={driver.status} />
-                          {/*
-                            drivers.status describes the person; it says nothing
-                            about whether the account behind them can sign in.
-                            Showing only the pill above would present a driver
-                            the backend will refuse at dispatch as ready to go,
-                            so the login state is stated in words rather than
-                            left to be inferred - and never by colour alone.
-                          */}
+                          {/* The login state is stated in words, never by colour
+                              alone: a driver the backend will refuse at dispatch
+                              must not look ready to go. */}
                           {!driver.login_is_active ? (
                             <>
                               <span className="inline-block rounded-full border border-warning/30 bg-warning-soft px-2 py-0.5 text-[11px] font-semibold tracking-wide text-warning">
@@ -289,29 +275,19 @@ export default function DriversPage() {
                           ) : null}
                         </div>
                       </td>
+                      <td className="py-3 font-mono text-xs text-ink">
+                        {assignments.status === 'success' ? (reg ?? <span className="font-sans text-warning">none</span>) : <span className="font-sans text-muted">—</span>}
+                      </td>
+                      <td className="py-3 text-xs">
+                        {trips.status === 'success' ? (open ? <span className="text-ink">{open.trip_code} <span className="text-muted">· {open.status.replaceAll('_', ' ').toLowerCase()}</span></span> : <span className="text-muted">none</span>) : <span className="text-muted">—</span>}
+                      </td>
+                      <td className={`py-3 text-xs ${health.tone === 'danger' ? 'font-semibold text-danger' : health.tone === 'warning' ? 'text-warning' : 'text-muted'}`}>
+                        {health.label}
+                      </td>
                       <td className="py-3 text-right">
-                        {can('driver:support_view') && driver.login_is_active ? (
-                          <Button
-                            variant="secondary"
-                            onClick={() => handleViewAsDriver(driver)}
-                            busy={support.isSubmitting}
-                            disabled={supportBlocked !== null}
-                            title={supportBlocked ?? "Open this driver's app read-only for 15 minutes. No password is shared."}
-                          >
-                            View as driver
-                          </Button>
-                        ) : null}{' '}
-                        {can('driver:deactivate') ? (
-                          <Button
-                            variant="danger"
-                            onClick={() => handleDeactivate(driver)}
-                            busy={deactivate.isSubmitting}
-                            disabled={deactivateBlocked !== null}
-                            title={deactivateBlocked ?? undefined}
-                          >
-                            Deactivate
-                          </Button>
-                        ) : null}
+                        <Button variant="secondary" onClick={() => setProfileId(driver.id)}>
+                          View profile
+                        </Button>
                       </td>
                     </tr>
                   )
@@ -320,13 +296,18 @@ export default function DriversPage() {
             </table>
           </div>
         )}
-
-        {deactivate.error ? (
-          <div className="mt-3">
-            <ErrorState error={deactivate.error} />
-          </div>
-        ) : null}
       </Card>
+
+      {profile ? (
+        <DriverProfileDrawer
+          driver={profile}
+          trucks={trucks.data?.items ?? []}
+          assignments={assignments.data ?? []}
+          trips={trips.data?.items ?? []}
+          onClose={() => setProfileId(null)}
+          onChanged={reloadContext}
+        />
+      ) : null}
     </div>
   )
 }

@@ -258,6 +258,16 @@ describe('AddressPicker coordinates and map dialog', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(screen.getByTestId('origin-confirmed').textContent).toContain('Pinned on map · 27.00000, 93.00000')
   })
+
+  it('drops a confirmed pin when the address text is edited, so words and point never diverge', () => {
+    const onChange = vi.fn()
+    render(<Harness initial={{ address: 'Old gate', lat: '27', lon: '93', source: 'MAP', attribution: '© OpenStreetMap contributors' }} onChange={onChange} />)
+    expect(screen.getByTestId('origin-confirmed').textContent).toContain('Old gate')
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'Guwahati' } })
+    expect(onChange).toHaveBeenLastCalledWith({ ...EMPTY_ENDPOINT, address: 'Guwahati' })
+    expect(screen.queryByTestId('origin-confirmed')).toBeNull()
+    expect(screen.getByText(/No location set yet/)).toBeDefined()
+  })
 })
 
 describe('AddressPicker Google Maps link resolution', () => {
