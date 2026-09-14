@@ -6,7 +6,7 @@
 | --- | --- |
 | Manager | https://ner-manager.onrender.com |
 | API | https://ner-intelligence.onrender.com (open `/health` five minutes before the slot: the free dyno sleeps) |
-| Driver | the installed `remote-demo` APK on the phone (EAS build, package `...driver.preview`) |
+| Driver | `release/RASTA-AI-1.0.18.apk` installed on the phone (package `com.nxtlucifer.nerlogistics.driver.preview`, see `release/README.md`) |
 
 ONE reset, ONE check, both remote:
 

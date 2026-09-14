@@ -1246,3 +1246,49 @@ and the three `BREAK_*` codes from `src/safety/breaks.ts` are absent from
 `i18n/reason_codes.json`, so the assistant prints `BREAK_TRIP_NOT_STARTED`
 raw. That is the catalogue's documented fallback rather than a crash, and
 closing it needs real Hindi and Assamese copy — not invented copy.
+
+## 9. Submission demo lock (14 Sep 2026, evening) - FROZEN
+
+One canonical judge scenario, Guwahati depot -> Shillong, on the hosted stack.
+Reset and verify: `bash .runtime/judge.sh reset` then `bash .runtime/judge.sh check`
+-> `RESULT READY` (one JUDGE-xxxxxx trip at DRAFT with the route selected,
+driver and truck AVAILABLE, providers FRESH, route risk answering).
+
+Final physical runs on APK 1.0.18 (single-owner runner, lock file honoured):
+
+- Role certification: 9/9 - driver login -> driver shell -> sign out ->
+  manager login -> manager shell without driver identity -> Trips / Map /
+  Fleet / More -> trip detail with the risk decision -> sign out -> driver
+  again with no manager UI (`.runtime/evidence/final-demo-run-attempt2.log`,
+  `phone-certify.json`, `phone-certify-*.png`).
+- Judge flow: 12/12 - dispatch, received on the phone, accept, truck photo
+  verify, start with GPS live, navigate `GPS · ±22 m`, real off-route -> real
+  OSRM alternative awaiting the manager, reviewer authorisation + manager
+  accept, phone follows the new road (backend-selected route = accepted one,
+  new remaining distance on screen), pickup stop (backend 1/2 COMPLETED),
+  deliver, manager final: driver and truck AVAILABLE
+  (`.runtime/evidence/phone-e2e-final-b.log`, `phone-e2e-1-*.png`).
+
+Two failures on the way, neither in the product: an incoming call left a
+Truecaller after-call popup over the login (ENVIRONMENT - now classified as
+INCOMING_CALL and cleared with BACK), and `adb shell input text` outran the
+React Native password input after a manager session (19 of 24 characters -
+AUTOMATION - the script now types four characters at a time and reads the
+masked length back). Step 08 ("Following") was hidden behind a real NDMA
+heavy-rain card on the new road (AUTOMATION - the check is now semantic: the
+trip's selected route is the accepted alternative and the phone shows the new
+road's remaining distance); step 09 checks the backend stop state instead of
+the localised "1 / 2" copy. No application code changed after commit
+`0b89ddf`, so the certified suites (backend 1138 / driver 621 / manager 170,
+tsc, builds) were not rerun.
+
+Submission package: `release/RASTA-AI-1.0.18.apk` (+ `.sha256`,
+`release/README.md`), `SUBMISSION_README.md`, `docs/PPT_SOURCE_OF_TRUTH.md`,
+`docs/submission/screenshots/`. Public URLs: manager
+https://ner-manager.onrender.com, API health
+https://ner-intelligence.onrender.com/health (and `/ready`), driver web QA
+https://ner-driver-web.onrender.com, repository
+https://github.com/nxtlucifer/ner-ai-logistics. Blocked and left blocked:
+OpenRouter (no hosted key), background push (no Firebase config). The
+landslide model stays EXPERIMENTAL. Phone automation is stopped; the next work
+is the PPT, the five-minute speech, the demo choreography and judge Q&A.
