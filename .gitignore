@@ -146,3 +146,6 @@ full_user_request*.txt
 latest_user_prompt*.txt
 mission_prompt*.txt
 scratch_user_prompt*.txt
+
+# variant deck build caches
+docs/submission/variants/__pycache__/
