@@ -33,3 +33,22 @@ Threshold chosen on TRAIN out-of-fold for recall >= 0.90; every number below is 
 
 98% target: NOT reached on any held-out split (see accuracy column; recall-first thresholds trade accuracy for recall by design).
 Status: EXPERIMENTAL. See `docs/MODEL_REGISTRY.md`. Raw checkpoints: `.runtime/data/hazard/experiments/`.
+
+## V2 experiments (2026-09-14T04:26:33.814368Z)
+
+Season-matched negatives (NER_SM), NASA LHASA susceptibility (+SUSC), SoilGrids texture (+SOIL) where fetched. Threshold on TRAIN out-of-fold; board = min recall >= 0.80 then mean PR-AUC.
+
+| dataset | run | mean PR-AUC | min recall | max FPR | mean Brier | per split (recall / FPR / acc / precision) |
+|---|---|---|---|---|---|---|
+| NER | V2/LOGREG/BASE+SUSC/s0 | 0.635 | 0.85 | 0.75 | 0.168 | TEMPORAL: 0.85 / 0.36 / 0.71 / 0.56; GEOGRAPHIC: 0.97 / 0.75 / 0.40 / 0.25 |
+| NER | V2/LOGREG/BASE/s0 | 0.635 | 0.85 | 0.77 | 0.168 | TEMPORAL: 0.85 / 0.35 / 0.72 / 0.56; GEOGRAPHIC: 0.97 / 0.77 / 0.38 / 0.24 |
+| NER_SM | V2/LOGREG/BASE/s0 | 0.406 | 0.86 | 0.79 | 0.200 | TEMPORAL: 0.86 / 0.73 / 0.42 / 0.30; GEOGRAPHIC: 0.91 / 0.79 / 0.31 / 0.16 |
+| NER_SM | V2/LOGREG/BASE+SUSC/s0 | 0.402 | 0.87 | 0.78 | 0.201 | TEMPORAL: 0.87 / 0.78 / 0.39 / 0.28; GEOGRAPHIC: 0.91 / 0.78 / 0.32 / 0.16 |
+| NER | V2/HGB/BASE+SUSC/s0 | 0.444 | 0.51 | 0.45 | 0.238 | TEMPORAL: 0.51 / 0.28 / 0.65 / 0.50; GEOGRAPHIC: 0.88 / 0.45 / 0.62 / 0.33 |
+| NER | V2/HGB/BASE+SUSC/s1 | 0.444 | 0.51 | 0.45 | 0.238 | TEMPORAL: 0.51 / 0.28 / 0.65 / 0.50; GEOGRAPHIC: 0.88 / 0.45 / 0.62 / 0.33 |
+| NER | V2/HGB/BASE/s0 | 0.443 | 0.49 | 0.46 | 0.238 | TEMPORAL: 0.49 / 0.28 / 0.64 / 0.49; GEOGRAPHIC: 0.90 / 0.46 / 0.61 / 0.33 |
+| NER | V2/HGB/BASE/s1 | 0.443 | 0.49 | 0.46 | 0.238 | TEMPORAL: 0.49 / 0.28 / 0.64 / 0.49; GEOGRAPHIC: 0.90 / 0.46 / 0.61 / 0.33 |
+| NER_SM | V2/HGB/BASE/s0 | 0.263 | 0.40 | 0.62 | 0.193 | TEMPORAL: 0.40 / 0.30 / 0.62 / 0.32; GEOGRAPHIC: 0.74 / 0.62 / 0.43 / 0.17 |
+| NER_SM | V2/HGB/BASE/s1 | 0.263 | 0.40 | 0.62 | 0.193 | TEMPORAL: 0.40 / 0.30 / 0.62 / 0.32; GEOGRAPHIC: 0.74 / 0.62 / 0.43 / 0.17 |
+| NER_SM | V2/HGB/BASE+SUSC/s0 | 0.261 | 0.41 | 0.65 | 0.193 | TEMPORAL: 0.41 / 0.33 / 0.60 / 0.31; GEOGRAPHIC: 0.83 / 0.65 / 0.42 / 0.18 |
+| NER_SM | V2/HGB/BASE+SUSC/s1 | 0.261 | 0.41 | 0.65 | 0.193 | TEMPORAL: 0.41 / 0.33 / 0.60 / 0.31; GEOGRAPHIC: 0.83 / 0.65 / 0.42 / 0.18 |

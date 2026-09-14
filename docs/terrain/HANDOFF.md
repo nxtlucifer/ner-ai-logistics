@@ -1024,6 +1024,38 @@ code changed (`git diff 96fb47c..HEAD -- backend` is the two-gate patch only).
   official NDMA CAP feed is the confirmed-evidence input. Flagged UNVERIFIED
   sources are not admitted (see the source admission gate in 6m).
 
+## 6o. 14 Sep (morning) - one login, the server's role; research V2
+
+- **Manager console is manager-only**: `manager-web/src/auth/AuthProvider.tsx`
+  checks `/api/auth/me` on login AND on silent restore; a DRIVER role is
+  signed out server-side (refresh cookie revoked), cleared locally, cache
+  dropped, and the login page says "Manager account required." ADMIN keeps
+  its existing access. Tests: `src/auth/AuthProvider.test.tsx`; runtime:
+  `.runtime/rehearsal/role_probe.mjs` 13/13 locally AND on the hosted stack.
+- **One APK, no role selector**: `driver-app/src/auth/AuthProvider.tsx` resolves
+  `GET /api/auth/me` (already existed; reused) - DRIVER loads the driver profile
+  and renders the driver shell; MANAGER/ADMIN renders `src/manager/ManagerRoot.tsx`
+  (Overview / Trips / Map / Fleet / More over the same API contracts,
+  `src/api/manager.ts`). Logout clears identity + permissions; switching
+  driver -> manager -> driver carries nothing over (unit test + probe). Login
+  accepts an e-mail identifier (`auth/phone.ts` guard; +91 badge hides).
+  Restore-on-reload is a PHONE property (SecureStore; the web build keeps no
+  refresh token by design) - phone certification pending; APK 1.0.17 built
+  and armed via `phone-after-unlock.sh 1.0.17`.
+- **Existing policy, unchanged**: drivers hold `driver:read` (directory of
+  drivers, non-sensitive fields) by design (docs/SECURITY.md); manager APIs
+  (`/api/trips`, `/api/fleet/active`) answer 403 to a driver token (checked).
+- **Research V2** (`scripts/hazard_validation/experiments_v2.py`): season-matched
+  negatives (`LS_NEG_MODE=season`, k=6) drop held-out ROC-AUC from ~0.82 to
+  ~0.69 - most of the earlier apparent skill was the monsoon/dry-season
+  contrast, not rain-day discrimination. NASA LHASA susceptibility (1 km,
+  official GeoTIFF, `fetch_susceptibility.py`) adds ~0 on the NER slice;
+  SoilGrids texture fetch (`fetch_soil.py`) is slow and optional. India-wide
+  dataset (605 events) still fetching ERA5 rain with 30-min backoff. Model
+  stays EXPERIMENTAL; nothing deployed. GSI Bhukosh: portal only, refused
+  connections on 14 Sep - MANUAL_SOURCE. Bright Data research CLI is not
+  installed/authenticated in this environment; web research used WebSearch.
+
 ## 8. Gates (all green at handoff)
 
 13 Sep (22:00, FINAL QUALITY + INTELLIGENCE): Backend **1127 passed / 5
