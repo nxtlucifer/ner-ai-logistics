@@ -1,9 +1,11 @@
+// @vitest-environment jsdom
 /**
  * ONE login, the server's role. Restore and login both resolve identity from
  * /api/auth/me; a DRIVER additionally loads the driver profile; a MANAGER
  * never does; logout clears every bit of identity before the next sign-in.
  */
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, createElement } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocked = vi.hoisted(() => ({
@@ -33,7 +35,15 @@ const profile = { id: 'drv', full_name: 'RASTA Demo Driver', phone: '9', licence
 let ctx: ReturnType<typeof useAuth> | null = null
 function Probe() {
   ctx = useAuth()
-  return <div>{ctx.isInitialising ? 'init' : ctx.driver ? 'DRIVER_SHELL' : ctx.user ? `${ctx.user.role}_SHELL` : 'LOGIN'}</div>
+  return createElement('div', { id: 'shell' }, ctx.isInitialising ? 'init' : ctx.driver ? 'DRIVER_SHELL' : ctx.user ? `${ctx.user.role}_SHELL` : 'LOGIN')
+}
+
+let host: HTMLDivElement
+let root: Root
+const shell = () => host.querySelector('#shell')?.textContent
+async function mount() {
+  await act(async () => root.render(createElement(AuthProvider, null, createElement(Probe))))
+  await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
 }
 
 beforeEach(() => {
@@ -41,15 +51,21 @@ beforeEach(() => {
   mocked.logout.mockResolvedValue(undefined)
   mocked.login.mockResolvedValue({ access_token: 't' })
   mocked.me.mockResolvedValue(profile)
+  host = document.createElement('div')
+  document.body.appendChild(host)
+  root = createRoot(host)
 })
-afterEach(cleanup)
+afterEach(async () => {
+  await act(async () => root.unmount())
+  host.remove()
+})
 
 describe('role-aware session', () => {
   it('restores a cached MANAGER token into the manager shell without touching the driver profile', async () => {
     mocked.refreshSession.mockResolvedValue('t')
     mocked.authMe.mockResolvedValue(manager)
-    render(<AuthProvider><Probe /></AuthProvider>)
-    await waitFor(() => expect(screen.getByText('MANAGER_SHELL')).toBeTruthy())
+    await mount()
+    expect(shell()).toBe('MANAGER_SHELL')
     expect(mocked.me).not.toHaveBeenCalled()
     expect(ctx!.can('trip:dispatch')).toBe(true)
   })
@@ -57,41 +73,40 @@ describe('role-aware session', () => {
   it('restores a cached DRIVER token into the driver shell', async () => {
     mocked.refreshSession.mockResolvedValue('t')
     mocked.authMe.mockResolvedValue(driver)
-    render(<AuthProvider><Probe /></AuthProvider>)
-    await waitFor(() => expect(screen.getByText('DRIVER_SHELL')).toBeTruthy())
+    await mount()
+    expect(shell()).toBe('DRIVER_SHELL')
     expect(ctx!.driver?.full_name).toBe('RASTA Demo Driver')
   })
 
   it('switches driver -> manager -> driver with nothing carried over', async () => {
     mocked.refreshSession.mockResolvedValue(null)
-    render(<AuthProvider><Probe /></AuthProvider>)
-    await waitFor(() => expect(screen.getByText('LOGIN')).toBeTruthy())
+    await mount()
+    expect(shell()).toBe('LOGIN')
     mocked.authMe.mockResolvedValue(driver)
     await act(async () => { await ctx!.login('9', 'pw') })
-    expect(screen.getByText('DRIVER_SHELL')).toBeTruthy()
+    expect(shell()).toBe('DRIVER_SHELL')
     await act(async () => { await ctx!.logout() })
-    expect(screen.getByText('LOGIN')).toBeTruthy()
+    expect(shell()).toBe('LOGIN')
     expect(ctx!.permissions).toEqual([])
     mocked.authMe.mockResolvedValue(manager)
     await act(async () => { await ctx!.login('d@x', 'pw') })
-    expect(screen.getByText('MANAGER_SHELL')).toBeTruthy()
+    expect(shell()).toBe('MANAGER_SHELL')
     expect(ctx!.driver).toBeNull()
     expect(ctx!.can('trip:execute_own')).toBe(false)
     await act(async () => { await ctx!.logout() })
     mocked.authMe.mockResolvedValue(driver)
     await act(async () => { await ctx!.login('9', 'pw') })
-    expect(screen.getByText('DRIVER_SHELL')).toBeTruthy()
+    expect(shell()).toBe('DRIVER_SHELL')
     expect(ctx!.can('trip:dispatch')).toBe(false)
   })
 
   it('a login whose identity cannot be used hands the token back', async () => {
     mocked.refreshSession.mockResolvedValue(null)
-    render(<AuthProvider><Probe /></AuthProvider>)
-    await waitFor(() => expect(screen.getByText('LOGIN')).toBeTruthy())
+    await mount()
     mocked.authMe.mockResolvedValue(driver)
     mocked.me.mockRejectedValue(new Error('suspended'))
     await act(async () => { await expect(ctx!.login('9', 'pw')).rejects.toThrow('suspended') })
     expect(mocked.logout).toHaveBeenCalledTimes(1)
-    expect(screen.getByText('LOGIN')).toBeTruthy()
+    expect(shell()).toBe('LOGIN')
   })
 })
