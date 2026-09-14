@@ -1056,6 +1056,47 @@ code changed (`git diff 96fb47c..HEAD -- backend` is the two-gate patch only).
   connections on 14 Sep - MANUAL_SOURCE. Bright Data research CLI is not
   installed/authenticated in this environment; web research used WebSearch.
 
+## 6p. 14 Sep (afternoon) - physical gates on 1.0.18, India-wide model result
+
+- **APK 1.0.18** = 1.0.17 + one fix the phone found: the login identifier
+  field had `maxLength={16}`, so a manager e-mail was silently cut to 16
+  characters and every manager sign-in "failed" (`LoginScreen.tsx`, regression
+  test in `LoginScreen.test.tsx`). Web probes never saw it (they set the value
+  programmatically) - the physical gate earned its place.
+- **Physical role certification** (`.runtime/rehearsal/phone_role.py`, log
+  `.runtime/evidence/phone-role.log`, shots `phone-phone-role-*.png`): on
+  1.0.18 the DRIVER path passes every step (login -> driver shell, Trip /
+  Navigate / Safety / More, sign out, driver again after a manager session with
+  no manager UI); the MANAGER path passed in full in the 15:3x run (manager
+  shell, Overview counts, Trips, Map with truck + evidence, Fleet, More,
+  trip detail with Decision + Band, Fleet shows the live driver) - see §8 for
+  the final single-run status. Runs were repeatedly disturbed by things that
+  are not the product: two overlapping script runs (a Bash call that hit its
+  600 s limit kept driving the phone), an incoming phone call, Google's
+  "Save password?" sheet, the cold Render instance ("No connection" on the
+  first request after a reboot), and the OPPO installer wedge (`adb reboot` +
+  unlock is the only cure seen). Every one is now handled in the scripts
+  (single-run guard, warm-up + retry, sheet dismissal, keyboard dismissal,
+  '%' in passwords via `input keycombination 59 12`, scroll to Sign Out).
+- **Judge flow on 1.0.18 against the hosted API** (`phone-e2e-role.log`,
+  16:43): 01 dispatch, 02 received, 03 accept, 03b truck photo verify, 04
+  start (GPS live), 06 off-route -> reroute proposed, 07 reviewer authorises +
+  manager accepts, 10 deliver, 11 final = PASS (9/12). 05 / 08 / 09 failed on
+  screen-text assertions only: the landslide-exposure danger card overlays the
+  location chip and the nav word (`phone-e2e-1-05-navigate.png` shows live
+  turn-by-turn, the card, Route AI CAUTION, 96.1 km remaining); the script
+  now acknowledges the card first ("OK, SEEN") - re-run pending.
+- **India-wide landslide model** (registry v0.4-research): trained outside the
+  NER, held out on the NER (n=770, 154 events): calibrated logreg recall 0.95,
+  FPR 0.50, precision 0.32, PR-AUC 0.55, ROC-AUC 0.83, Brier 0.12 - it
+  generalizes geographically, but the FPR fails the gate (season-matched
+  negatives: FPR 0.72). REJECTED for production; EXPERIMENTAL; nothing
+  deployed. Inventory now separates TRUE_LOCAL_ML_PRODUCTION = 0 from
+  TRUE_LOCAL_ML_EXPERIMENTAL = 1.
+- **Judge day**: warm the API first (`bash .runtime/judge.sh check` does), keep
+  the phone free of calls during the demo, and expect Google's save-password
+  sheet after the first sign-in on a fresh install.
+
 ## 8. Gates (all green at handoff)
 
 13 Sep (22:00, FINAL QUALITY + INTELLIGENCE): Backend **1127 passed / 5
