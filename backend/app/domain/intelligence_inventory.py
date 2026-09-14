@@ -24,6 +24,7 @@ from typing import Final
 
 INVENTORY: Final[list[tuple[str, str, str]]] = [
     # (category, module, what it is)
+    ("TRUE_LOCAL_ML_EXPERIMENTAL", "backend/scripts/hazard_validation/experiments_v2.py", "landslide-day logistic regression (NER slice; season-matched negatives expose a seasonality confound) - EXPERIMENTAL, not deployed"),
     ("DETERMINISTIC_INTELLIGENCE", "backend/app/domain/route_risk.py", "11-factor route risk: points, bands, reason codes; UNKNOWN is not safe"),
     ("DETERMINISTIC_INTELLIGENCE", "backend/app/domain/route_eligibility.py", "landslide-inventory refusal rule"),
     ("DETERMINISTIC_INTELLIGENCE", "backend/app/domain/route_recommendation.py", "compare route options by evidence"),
@@ -64,6 +65,9 @@ INVENTORY: Final[list[tuple[str, str, str]]] = [
 
 CATEGORIES: Final[tuple[str, ...]] = (
     "TRUE_LOCAL_ML",
+    #: trained, held-out tested, registered EXPERIMENTAL - executes in research
+    #: scripts only, never in a route decision (docs/MODEL_REGISTRY.md)
+    "TRUE_LOCAL_ML_EXPERIMENTAL",
     "LOCAL_LLM",
     "DETERMINISTIC_INTELLIGENCE",
     "GEOMETRIC_ALGORITHM",
@@ -85,5 +89,7 @@ def totals() -> dict[str, int]:
     c = counts()
     return {
         "TOTAL_TRUE_LOCAL_AI": c["TRUE_LOCAL_ML"] + c["LOCAL_LLM"] + c["STATISTICAL_MODEL"],
+        "TRUE_LOCAL_ML_PRODUCTION": c["TRUE_LOCAL_ML"],
+        "TRUE_LOCAL_ML_EXPERIMENTAL": c["TRUE_LOCAL_ML_EXPERIMENTAL"],
         "TOTAL_LOCAL_INTELLIGENCE": c["DETERMINISTIC_INTELLIGENCE"] + c["GEOMETRIC_ALGORITHM"] + c["OFFLINE_KNOWLEDGE_SYSTEM"],
     }

@@ -5,6 +5,7 @@ Source of truth: `backend/app/domain/intelligence_inventory.py`, served on `GET 
 ```
 TRUE_LOCAL_ML               = 0
 LOCAL_LLM                   = 0
+TRUE_LOCAL_ML_EXPERIMENTAL  = 1    (landslide-day logistic regression; research scripts only, never a route decision)
 DETERMINISTIC_INTELLIGENCE  = 20
 GEOMETRIC_ALGORITHM         = 5
 STATISTICAL_MODEL           = 0
