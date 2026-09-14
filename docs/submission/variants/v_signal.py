@@ -195,9 +195,7 @@ def s5(s, t, S):
     w2, _ = picture(s, S["mobile"], 9.5 + w1 + 0.16, 1.54, h=2.5, frame=t.line)
     text(s, 9.5, 4.12, w1, 0.26, [[("Driver · 23 languages", {"size": 9, "color": t.grey})]], t=t, align=PP_ALIGN.CENTER)
     text(s, 9.5 + w1 + 0.16, 4.12, w2, 0.26, [[("Manager · mobile", {"size": 9, "color": t.grey})]], t=t, align=PP_ALIGN.CENTER)
-    text(s, 9.5, 4.5, 3.35, 2.0, [[("Real screens, APK 1.0.18. One login, server-decided role: a manager gets a mobile "
-                                    "fleet view, a driver gets navigation. Each language shows its status — Verified, "
-                                    "Draft or English fallback — so nobody is misled.", {"size": 10, "color": t.grey})]],
+    text(s, 9.5, 4.5, 3.35, 2.0, [[(F["screens_note"], {"size": 10, "color": t.grey})]],
          t=t, spacing=1.05)
 
 

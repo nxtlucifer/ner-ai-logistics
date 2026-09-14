@@ -4,10 +4,13 @@ Ten complete decks. Same problem statement, same six required categories, same
 six slides, same official `template.pptx`, same verified facts. Only the design
 changes — pick one, or take a slide from one into another.
 
-Every fact on every deck comes from `docs/PPT_SOURCE_OF_TRUTH.md`. Every picture
-is a real screen from `docs/submission/screenshots/`. No variant may invent a
-number: the content lives in `FACTS` in `deckkit.py`, and the variants only lay
-it out.
+Every fact comes from `docs/PPT_SOURCE_OF_TRUTH.md`; every picture is a real
+screen from `docs/submission/screenshots/`. The content lives in `FACTS` in
+`deckkit.py` and the variants only lay it out, so no variant can invent a
+number — and tightening the copy once tightens all ten.
+
+Copy is written as key points, not prose: roughly 900–1,000 words across six
+slides per deck, most of it labels and figures rather than sentences.
 
 | # | Deck | The idea behind it |
 | --- | --- | --- |

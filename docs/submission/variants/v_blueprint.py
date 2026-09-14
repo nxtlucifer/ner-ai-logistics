@@ -112,7 +112,7 @@ def s2(s, t, S):
     text(s, 0.62, y - 0.02, 2.5, 0.42, [[("UNKNOWN ≠ SAFE", {"bold": True, "size": 17, "color": t.danger})]], t=t)
     text(s, 3.24, y, 5.9, 0.6, [[(F["unknown_rule"], {"size": 10.5})]], t=t, spacing=1.05)
     y = block(s, t, 0.45, 5.82, 8.87, 1.1, "FIG.4  PROBLEM CONTEXT")
-    text(s, 0.62, y - 0.02, 8.5, 0.6, [[(F["problem"], {"size": 10, "color": t.grey})]], t=t, spacing=1.05)
+    text(s, 0.62, y - 0.02, 8.5, 0.6, [[(F["problem"] + "  ", {"size": 10, "color": t.grey}), (F["problem_kick"], {"size": 10, "bold": True, "color": t.danger})]], t=t, spacing=1.05)
     block(s, t, 9.5, 1.2, 3.38, 5.72, "FIG.5  MANAGER · CHECK CONDITIONS")
     picture(s, S["evid"], 9.66, 1.66, h=4.62, frame=t.line)
     note(s, t, 9.66, 6.42, 3.06, "EVIDENCE / FRESHNESS / UNKNOWN")
@@ -153,8 +153,7 @@ def s3(s, t, S):
         [("EVIDENCE  ", {"font": t.mono, "bold": True, "size": 8, "color": t.muted}),
          ("Open-Meteo / MET Norway · NDMA SACHET · GloFAS · NASA historical landslides · OpenTopoData / Copernicus DEM",
           {"size": 10})],
-        [("Re-scored every 60 s along the road ahead; a reroute is proposed to the manager, never applied silently.",
-          {"size": 9.5, "color": t.grey})],
+        [(F["loop_note"], {"size": 9.5, "color": t.grey})],
     ], t=t, spacing=1.15, space_after=3)
     y = block(s, t, 9.5, 1.2, 3.38, 5.72, "FIG.4  DECISION AUTHORITY")
     for lab, sub, kind in F["deciders"]:
@@ -187,8 +186,7 @@ def s4(s, t, S):
         note(s, t, px, top + hh + 0.06, pw, lab, size=7)
     y = block(s, t, 7.06, 2.54, 5.82, 3.88, "FIG.3  EVIDENCE OF EXECUTION")
     cx, cw = 7.24, 5.46
-    text(s, cx, y - 0.02, cw, 0.6, [[("The whole lifecycle above was run end to end on a physical Android phone against "
-                                     "the hosted backend, on the real road.", {"size": 11})]], t=t, spacing=1.05)
+    text(s, cx, y - 0.02, cw, 0.6, [[(F["run_line"], {"size": 11})]], t=t, spacing=1.05)
     yy = y + 0.66
     for n, lab in F["proof"]:
         stat(s, cx, yy, cw, n, lab, t, num_size=17, lab_size=11, gap=1.0)
@@ -235,9 +233,7 @@ def s5(s, t, S):
     w2, _ = picture(s, S["mobile"], 9.66 + w1 + 0.14, 1.66, h=2.44, frame=t.line)
     note(s, t, 9.66, 4.18, w1, "23 LANGUAGES", size=7)
     note(s, t, 9.66 + w1 + 0.14, 4.18, w2, "MANAGER / MOBILE", size=7)
-    text(s, 9.66, 4.5, 3.06, 2.0, [[("Real screens, APK 1.0.18. One login, server-decided role: a manager gets a mobile "
-                                     "fleet view, a driver gets navigation. Each language shows its status — Verified, "
-                                     "Draft or English fallback — so nobody is misled.", {"size": 9.5, "color": t.grey})]],
+    text(s, 9.66, 4.5, 3.06, 2.0, [[(F["screens_note"], {"size": 9.5, "color": t.grey})]],
          t=t, spacing=1.05)
 
 

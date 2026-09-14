@@ -303,7 +303,7 @@ def slide2(s, evid, evid_size):
     label(s, 0.5, 1.2, 4, "PROPOSED SOLUTION")
     text(s, 0.5, 1.40, 8.7, 1.0, [[("NOT THE SHORTEST ROAD. ", {"bold": True, "size": 24, "color": INK}),
                                    ("THE ROAD THAT IS OPERATIONALLY USABLE NOW.", {"bold": True, "size": 24, "color": BLUE})]], spacing=1.0)
-    text(s, 0.5, 2.28, 8.82, 0.55, [[("NER corridors: mountain terrain · monsoon · landslides · floods · weak signal · stale evidence. ", {"size": 11.5, "color": GREY}),
+    text(s, 0.5, 2.28, 8.82, 0.55, [[("Monsoon · landslides · floods · official warnings · single-lane hill roads · no signal.  ", {"size": 11.5, "color": GREY}),
                                     ("A shortest-path router still sends the truck.", {"size": 11.5, "color": DANGER, "bold": True})]], spacing=1.0)
     # a normal router vs RASTA — each side framed and named, SIH house convention
     panel(s, 0.45, 2.88, 2.62, 3.4, "A NORMAL ROUTER", line=MUTED, title_color=GREY)
@@ -335,7 +335,7 @@ def slide2(s, evid, evid_size):
     panel(s, 0.45, 6.36, 8.87, 0.6, line=DANGER)
     pill(s, 0.6, 6.46, 2.3, 0.4, "UNKNOWN  ≠  SAFE", fill=DANGER, size=12.5)
     text(s, 3.02, 6.43, 6.18, 0.48, [[("The system refuses to fabricate certainty: ", {"size": 10.5, "color": INK, "bold": True}),
-                                    ("missing or stale evidence is marked UNKNOWN, never counted as safe, and the route goes to an authorised reviewer.", {"size": 10.5, "color": INK})]], spacing=1.0)
+                                    ("missing or stale evidence is marked UNKNOWN — never safe — and goes to an authorised reviewer.", {"size": 10.5, "color": INK})]], spacing=1.0)
     panel(s, 9.42, 1.2, 3.46, 5.74, "MANAGER · CHECK CONDITIONS", title_size=10.5)
     p, w, h = picture(s, evid, 9.64, 1.66, h=4.62, size=evid_size)
     caption(s, 9.57, 6.48, "Real screen · evidence · freshness · UNKNOWN", w=3.16)
@@ -378,10 +378,10 @@ def slide3(s):
     arrow(s, x - 0.11 + 0.02, ly + 0.18, rx, ly + 0.18, color=BLUE, head=False)
     arrow(s, rx, ly + 0.18, rx, 3.4, color=BLUE, head=False)
     arrow(s, rx, 3.4, 0.45 + total + 0.02, 3.4, color=BLUE)
-    text(s, 0.45, 5.06, total, 0.36, [[("Decision loop: conditions are re-scored every 60 s along the road ahead; a material change goes back through the policy, and a reroute is proposed to the manager — never applied silently.", {"size": 9.5, "color": GREY})]])
+    text(s, 0.45, 5.06, total, 0.36, [[("Re-scored every 60 s on the road ahead. A reroute is proposed to the manager, never applied silently.", {"size": 9.5, "color": GREY})]])
     panel(s, 0.38, 5.46, 8.88, 1.38, "BUILT WITH")
     text(s, 0.54, 5.88, total - 0.2, 0.92, [
-        [("CLIENTS  ", {"bold": True, "size": 10, "color": GREY}), ("Manager console — React + TypeScript, manager accounts only · Driver app — React Native / Expo, Android; one login, server-decided role, offline trip package", {"size": 10.5, "color": INK})],
+        [("CLIENTS  ", {"bold": True, "size": 10, "color": GREY}), ("Manager console (React + TS) · Driver app (React Native / Expo, Android) · one login, server-decided role, offline package", {"size": 10.5, "color": INK})],
         [("STACK  ", {"bold": True, "size": 10, "color": GREY}), ("FastAPI · PostgreSQL / PostGIS (Supabase) · React · React Native / Expo · OSRM · OpenStreetMap · Gemini", {"size": 10.5, "color": INK})],
         [("EVIDENCE  ", {"bold": True, "size": 10, "color": GREY}), ("Open-Meteo / MET Norway · NDMA SACHET · GloFAS · NASA historical landslides · OpenTopoData / Copernicus DEM", {"size": 10.5, "color": INK})],
     ], spacing=1.1, space_after=3)
@@ -432,7 +432,7 @@ def slide4(s, mgr, mgr_size, truck, truck_size, nav, nav_size):
     # proof column — deliberately quieter than the screens on its left
     panel(s, 6.75, 2.12, 6.13, 4.3, "PROOF", sub="physical Android phone · hosted backend · real road", title_size=11)
     cx, cw = 6.91, 5.81
-    text(s, cx, 2.62, cw, 0.62, [[("The whole lifecycle above was run end to end on a physical Android phone against the hosted backend, on the real Guwahati → Shillong road.", {"size": 11.5, "color": INK})]], spacing=1.05)
+    text(s, cx, 2.62, cw, 0.62, [[("Run end to end on a physical Android phone, hosted backend, real road.", {"size": 11.5, "color": INK})]], spacing=1.05)
     y = 3.32
     for n, t in [("12/12", "physical judge-flow steps"), ("9/9", "physical role-flow steps")]:
         text(s, cx, y, 0.95, 0.34, [[(n, {"bold": True, "size": 15, "color": BLUE})]], anchor=MSO_ANCHOR.MIDDLE)
@@ -444,11 +444,11 @@ def slide4(s, mgr, mgr_size, truck, truck_size, nav, nav_size):
     y += 0.52
     pill(s, cx, y, cw, 0.38, "PHYSICAL ANDROID · CERTIFIED", fill=GREEN, size=11.5)
     text(s, cx, y + 0.48, cw, 0.36, [[("Canonical demo  ", {"bold": True, "size": 10.5, "color": GREY}), ("Guwahati → Shillong · ≈ 98.8 km real route", {"bold": True, "size": 11, "color": INK})]], spacing=1.0)
-    text(s, cx, y + 0.86, cw, 0.4, [[("Every reroute on that run was approved by a manager before the phone followed it.", {"size": 10, "color": GREY})]], spacing=1.05)
+    text(s, cx, y + 0.86, cw, 0.4, [[("Every reroute approved by a manager before the phone followed it.", {"size": 10, "color": GREY})]], spacing=1.05)
     ly = 6.55
     hline(s, 0.5, ly - 0.05, 12.35)
     text(s, 0.5, ly, 12.35, 0.55, [[("KNOWN LIMITS → MITIGATION   ", {"bold": True, "size": 10, "color": GREY}),
-                                   ("Render cold start → warm /health before the demo  ·  provider rate limits → cached evidence + explicit UNKNOWN  ·  background push needs Firebase config → in-app alerts already work  ·  experimental ML → outside routing until the gate passes", {"size": 10, "color": INK})]], spacing=1.05)
+                                   ("Cold start → warm /health first  ·  rate limits → cached evidence + explicit UNKNOWN  ·  push needs Firebase → in-app alerts work  ·  experimental ML → outside routing", {"size": 10, "color": INK})]], spacing=1.05)
     notes(s, "Judge answer on ML: We trained and evaluated a landslide-hazard model, but deliberately keep it outside production routing because its geographic false-positive rate is still too high (recall 0.95 at FPR 0.50 on the NER holdout). This prevents unreliable ML from making safety-critical decisions. Tests: backend 1138 passed / 5 skipped, driver 621, manager 170 (14 Sep 2026, commit 0b89ddf). Physical certification: docs/terrain/HANDOFF.md section 9; judge flow 12/12, role flow 9/9 on APK 1.0.18.")
 
 
@@ -458,10 +458,10 @@ def slide5(s, lang, lang_size, mobile, mobile_size):
                                    ("  It asks ", {"size": 19, "color": GREY}), ("“Can this truck reliably use this corridor now?”", {"size": 19, "color": BLUE, "bold": True})]], spacing=1.05, anchor=MSO_ANCHOR.MIDDLE)
     text(s, 0.5, 2.02, 8.7, 0.34, [[("FOOD  ·  MEDICINE  ·  FUEL  ·  RELIEF SUPPLIES", {"bold": True, "size": 12.5, "color": GREEN}), ("   — essential logistics for hill communities, decided on evidence", {"size": 11.5, "color": GREY})]])
     panel(s, 0.42, 2.36, 8.95, 1.64, "WHO BENEFITS", title_size=11)
-    who = [("FLEET MANAGERS", "Route usability and uncertainty visible before dispatch; auditable decisions."),
-           ("DRIVERS", "Safer navigation, danger context, emergency support, 23 languages."),
-           ("REMOTE COMMUNITIES", "More resilient access to food, medicine, fuel and relief supplies."),
-           ("GOVERNMENT / OPERATIONS", "Auditable route evidence and disruption visibility per corridor.")]
+    who = [("FLEET MANAGERS", "Usability and uncertainty visible before dispatch. Auditable."),
+           ("DRIVERS", "Danger context, emergency support, 23 languages."),
+           ("REMOTE COMMUNITIES", "Resilient access to food, medicine, fuel, relief."),
+           ("GOVERNMENT / OPS", "Auditable evidence and disruption per corridor.")]
     cw = 2.04
     for i, (h, b) in enumerate(who):
         x = 0.58 + i * (cw + 0.16)
@@ -490,7 +490,7 @@ def slide5(s, lang, lang_size, mobile, mobile_size):
     caption(s, px, 1.68 + h + 0.08, "Driver · 23 languages", w=w)
     p2, w2, h2 = picture(s, mobile, px + w + 0.16, 1.68, h=2.5, size=mobile_size)
     caption(s, px + w + 0.16, 1.68 + h2 + 0.08, "Manager · mobile", w=w2)
-    text(s, px, 1.68 + h + 0.5, 3.11, 2.2, [[("Real screens, APK 1.0.18. One login, server-decided role: a manager gets a mobile fleet view, a driver gets navigation. Each language shows its status — Verified, Draft or English fallback — so nobody is misled.", {"size": 10, "color": GREY})]], spacing=1.05)
+    text(s, px, 1.68 + h + 0.5, 3.11, 2.2, [[("APK 1.0.18. One login, server-decided role. Every language shows its status — Verified, Draft or English fallback.", {"size": 10, "color": GREY})]], spacing=1.05)
 
 
 def slide6(s):
@@ -498,17 +498,17 @@ def slide6(s):
     # ---- two thirds of the slide: the sources the route decision actually rests on
     panel(s, 0.42, 1.12, 7.4, 4.9, "RESEARCH / EVIDENCE SOURCES BEHIND THE ROUTE DECISION", title_size=10.5)
     groups = [("ROUTING / PLACES", "OSRM · OpenStreetMap · Nominatim",
-               "real road geometry, alternatives and turn steps; place search on the corridor"),
+               "Road geometry, alternatives, turn steps."),
               ("WEATHER / TERRAIN", "Open-Meteo · MET Norway · Copernicus DEM · OpenTopoData",
-               "forecast sampled along the road; climb, gradient and steep segments (GLO-90)"),
+               "Forecast along the road; climb, gradient, steep segments."),
               ("OFFICIAL / FLOOD", "NDMA SACHET (CAP) · Copernicus GloFAS",
-               "official warnings polled with freshness; river discharge against its 30-day mean"),
+               "Official warnings with freshness; discharge vs 30-day mean."),
               ("LANDSLIDE HISTORY", "NASA Global Landslide Catalog",
-               "historical exposure; inventory 2007–2017, ≤5 km location-accuracy filter"),
+               "Historical exposure, 2007–2017, ≤5 km accuracy."),
               ("AI ASSISTANCE", "Google Gemini",
-               "explains the decision in the driver's language — never safety authority"),
+               "Explains in the driver's language. Never safety authority."),
               ("PROBLEM STATEMENT", "MDoNER · SIH26002",
-               "AI-based smart logistics and accessibility intelligence for the NER")]
+               "Smart logistics and accessibility intelligence for the NER.")]
     gw = 3.4
     for i, (lab, names, what) in enumerate(groups):
         col, row = i % 2, i // 2
@@ -527,7 +527,7 @@ def slide6(s):
     text(s, mx, 1.52, 1.85, 0.95, [[("95 %", {"bold": True, "size": 44, "color": INK})]], anchor=MSO_ANCHOR.MIDDLE)
     text(s, mx + 1.85, 1.56, mw - 1.85, 0.88,
          [[("RECALL", {"bold": True, "size": 12, "color": INK})],
-          [("on the NER geographic holdout — 154 catalogued events, no NER row used in training", {"size": 9.5, "color": GREY})]],
+          [("NER geographic holdout · 154 events · no NER row in training", {"size": 9.5, "color": GREY})]],
          anchor=MSO_ANCHOR.MIDDLE, spacing=1.05)
     # 2. the decision that matters — dominant
     g = rect(s, mx, 2.62, mw, 0.82, fill=INK, rounded=True)
@@ -551,8 +551,8 @@ def slide6(s):
             x += w + 0.085
         fy += 0.4
     text(s, mx, 4.76, mw, 0.7, [[("VALIDATION BEFORE AUTOMATION. ", {"bold": True, "size": 11.5, "color": BLUE}),
-                                 ("Strong recall was not enough. Held-out testing exposed the false-positive rate, so the gate keeps the model out of routing.", {"size": 10.5, "color": INK})]], spacing=1.05)
-    text(s, mx, 5.46, mw, 0.5, [[("Precision 0.32 · F1 0.48 · PR-AUC 0.55 · ROC-AUC 0.83 · Brier 0.12 · calibrated logistic regression on NASA GLC + ERA5-Land rain + DEM slope · docs/HAZARD_ERROR_ANALYSIS.md", {"size": 8, "color": GREY})]], spacing=1.05)
+                                 ("Recall was not enough. Held-out testing exposed the false-positive rate. The gate keeps it out of routing.", {"size": 10.5, "color": INK})]], spacing=1.05)
+    text(s, mx, 5.46, mw, 0.5, [[("Precision 0.32 · F1 0.48 · PR-AUC 0.55 · ROC-AUC 0.83 · Brier 0.12  —  calibrated logistic regression, NASA GLC + ERA5-Land rain + DEM slope", {"size": 8, "color": GREY})]], spacing=1.05)
     hline(s, 0.5, 6.16, 12.35)
     label(s, 0.5, 6.22, 3, "REFERENCES")
     refs = ["gpm.nasa.gov/landslides (NASA GLC)", "sachet.ndma.gov.in", "global-flood.emergency.copernicus.eu (GloFAS)", "open-meteo.com · api.met.no",

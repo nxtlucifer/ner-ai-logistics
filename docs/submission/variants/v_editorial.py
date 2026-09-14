@@ -50,7 +50,7 @@ def s2(s, t, S):
     text(s, 0.5, 1.46, 8.7, 0.95, [[("Not the shortest road. ", {"bold": True, "size": 25}),
                                     ("The road that is operationally usable now.",
                                      {"bold": True, "size": 25, "color": t.accent})]], t=t, spacing=1.0)
-    text(s, 0.5, 2.4, 8.7, 0.4, [[(F["problem"], {"size": 11, "color": t.grey})]], t=t, spacing=1.05)
+    text(s, 0.5, 2.4, 8.7, 0.4, [[(F["problem"] + "  ", {"size": 11, "color": t.grey}), (F["problem_kick"], {"size": 11, "bold": True, "color": t.danger})]], t=t, spacing=1.05)
     hline(s, 0.5, 2.9, 8.82, t.ink, 1.2)
     text(s, 0.5, 2.98, 2.4, 0.28, [[("A NORMAL ROUTER", {"bold": True, "size": 10, "color": t.muted})]], t=t)
     chain_v(s, 0.5, 2.3, 3.3, [(x, None, t.grey, t.line) for x in F["normal_router"]], t, h=0.3, gap=0.24, size=10.5)
@@ -120,9 +120,7 @@ def s3(s, t, S):
             ("CONDITIONS CHANGE?", 1.6), ("REASSESS / REROUTE", 1.56)]
     chain_h(s, 0.5, y, loop, t, h=0.34, gap=0.1, size=9,
             fills={0: t.ink}, colors={0: t.on_dark}, lines={i: t.ink for i in range(5)})
-    text(s, 0.5, y + 0.44, 8.82, 0.36, [[("Conditions are re-scored every 60 s along the road ahead; a material change "
-                                          "goes back through the policy and a reroute is proposed to the manager — never applied silently.",
-                                          {"size": 9.5, "color": t.grey})]], t=t, spacing=1.05)
+    text(s, 0.5, y + 0.44, 8.82, 0.36, [[(F["loop_note"], {"size": 9.5, "color": t.grey})]], t=t, spacing=1.05)
     hline(s, 0.5, y + 0.86, 8.82, t.line)
     text(s, 0.5, y + 0.92, 8.82, 0.9, [
         [("CLIENTS  ", {"bold": True, "size": 9.5, "color": t.muted}), (F["clients"], {"size": 10.5})],
@@ -165,8 +163,7 @@ def s4(s, t, S):
     pw = 12.85 - px
     text(s, px, 2.3, pw, 0.28, [[("PROOF", {"bold": True, "size": 10, "color": t.muted})]], t=t)
     hline(s, px, 2.6, pw, t.ink, 1.2)
-    text(s, px, 2.7, pw, 0.62, [[("The whole lifecycle above was run end to end on a physical Android phone "
-                                  "against the hosted backend, on the real road.", {"size": 11.5})]], t=t, spacing=1.05)
+    text(s, px, 2.7, pw, 0.62, [[(F["run_line"], {"size": 11.5})]], t=t, spacing=1.05)
     y = 3.42
     for n, lab in F["proof"]:
         stat(s, px, y, pw, n, lab, t, num_size=17, lab_size=11, gap=1.02)
@@ -218,10 +215,7 @@ def s5(s, t, S):
     w2, _ = picture(s, S["mobile"], 9.5 + w1 + 0.16, 1.64, h=2.5, frame=t.line)
     text(s, 9.5, 4.24, w1, 0.26, [[("Driver · 23 languages", {"size": 9, "color": t.grey})]], t=t, align=PP_ALIGN.CENTER)
     text(s, 9.5 + w1 + 0.16, 4.24, w2, 0.26, [[("Manager · mobile", {"size": 9, "color": t.grey})]], t=t, align=PP_ALIGN.CENTER)
-    text(s, 9.5, 4.62, 3.35, 2.0, [[("Real screens, APK 1.0.18. One login, server-decided role: a manager gets a "
-                                     "mobile fleet view, a driver gets navigation. Each language shows its status — "
-                                     "Verified, Draft or English fallback — so nobody is misled.",
-                                     {"size": 10, "color": t.grey})]], t=t, spacing=1.05)
+    text(s, 9.5, 4.62, 3.35, 2.0, [[(F["screens_note"], {"size": 10, "color": t.grey})]], t=t, spacing=1.05)
 
 
 def s6(s, t, S):

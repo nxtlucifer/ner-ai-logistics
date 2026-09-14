@@ -57,7 +57,7 @@ def s2(s, t, S):
     rect(s, 0.5, 1.22, 1.4, 0.06, fill=t.accent)
     say(s, t, 0.5, 1.4, 8.82, [("A road can be the shortest and still be ", {"size": 28}),
                                ("unusable.", {"bold": True, "size": 28, "color": t.accent})], size=28)
-    text(s, 0.5, 2.6, 8.82, 0.42, [[(F["problem"], {"size": 11, "color": t.grey})]], t=t, spacing=1.05)
+    text(s, 0.5, 2.6, 8.82, 0.42, [[(F["problem"] + "  ", {"size": 11, "color": t.grey}), (F["problem_kick"], {"size": 11, "bold": True, "color": t.danger})]], t=t, spacing=1.05)
     hline(s, 0.5, 3.16, 8.82, t.ink, 1.5)
     text(s, 0.5, 3.26, 2.5, 0.28, [[("A NORMAL ROUTER", {"bold": True, "size": 8.5, "color": t.muted})]], t=t)
     text(s, 0.5, 3.54, 2.6, 0.8, [[("  →  ".join(F["normal_router"]), {"size": 11, "color": t.grey})],
@@ -139,8 +139,7 @@ def s4(s, t, S):
     rect(s, 0.5, 1.2, 1.4, 0.06, fill=t.accent)
     say(s, t, 0.5, 1.36, 6.0, [("It already runs ", {"size": 27}),
                                ("on a real phone, on a real road.", {"bold": True, "size": 27})], size=27)
-    text(s, 0.5, 2.92, 6.0, 0.6, [[("The whole lifecycle below was run end to end on a physical Android phone against "
-                                    "the hosted backend.", {"size": 11.5, "color": t.grey})]], t=t, spacing=1.05)
+    text(s, 0.5, 2.92, 6.0, 0.6, [[(F["run_line"], {"size": 11.5, "color": t.grey})]], t=t, spacing=1.05)
     y = 3.6
     for n, lab in F["proof"]:
         stat(s, 0.5, y, 6.0, n, lab, t, num_size=24, lab_size=12, gap=1.4)
@@ -200,9 +199,7 @@ def s5(s, t, S):
     w2, _ = picture(s, S["mobile"], 9.5 + w1 + 0.16, 1.56, h=2.6, frame=t.line)
     text(s, 9.5, 4.24, w1, 0.26, [[("Driver · 23 languages", {"size": 9, "color": t.grey})]], t=t, align=PP_ALIGN.CENTER)
     text(s, 9.5 + w1 + 0.16, 4.24, w2, 0.26, [[("Manager · mobile", {"size": 9, "color": t.grey})]], t=t, align=PP_ALIGN.CENTER)
-    text(s, 9.5, 4.62, 3.35, 2.0, [[("Real screens, APK 1.0.18. One login, server-decided role: a manager gets a mobile "
-                                     "fleet view, a driver gets navigation. Each language shows its status — Verified, "
-                                     "Draft or English fallback — so nobody is misled.", {"size": 10, "color": t.grey})]],
+    text(s, 9.5, 4.62, 3.35, 2.0, [[(F["screens_note"], {"size": 10, "color": t.grey})]],
          t=t, spacing=1.05)
 
 

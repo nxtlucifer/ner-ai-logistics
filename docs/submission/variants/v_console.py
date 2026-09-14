@@ -78,7 +78,7 @@ def s2(s, t, S):
     text(s, 0.5, 1.52, 8.7, 0.92, [[("NOT THE SHORTEST ROAD. ", {"bold": True, "size": 24, "color": t.ink}),
                                     ("THE ROAD THAT IS USABLE NOW.", {"bold": True, "size": 24, "color": t.accent})]],
          t=t, spacing=1.0)
-    text(s, 0.5, 2.42, 8.82, 0.4, [[(F["problem"], {"size": 11, "color": t.grey})]], t=t, spacing=1.05)
+    text(s, 0.5, 2.42, 8.82, 0.4, [[(F["problem"] + "  ", {"size": 11, "color": t.grey}), (F["problem_kick"], {"size": 11, "bold": True, "color": t.danger})]], t=t, spacing=1.05)
     card(s, 0.45, 2.92, 2.62, 3.32, t, "A NORMAL ROUTER", accent=t.muted)
     chain_v(s, 0.62, 2.28, 3.4, [(x, None, t.grey, t.line) for x in F["normal_router"]], t, h=0.3, gap=0.24, size=10.5)
     text(s, 0.62, 5.06, 2.28, 1.1, [[(x, {"size": 10, "color": t.muted})] for x in F["normal_gap"]],
@@ -141,9 +141,7 @@ def s3(s, t, S):
     chain_h(s, 0.55, 4.2, loop, t, h=0.34, gap=0.1, size=9,
             fills={0: t.accent}, colors={0: rgb("06121F"), 1: t.ink, 2: t.ink, 3: t.ink, 4: t.ink},
             lines={i: t.muted for i in range(1, 5)})
-    text(s, 0.55, 4.64, 8.6, 0.36, [[("Re-scored every 60 s along the road ahead; a material change goes back through the "
-                                      "policy and a reroute is proposed to the manager — never applied silently.",
-                                      {"size": 9, "color": t.muted})]], t=t, spacing=1.05)
+    text(s, 0.55, 4.64, 8.6, 0.36, [[(F["loop_note"], {"size": 9, "color": t.muted})]], t=t, spacing=1.05)
     card(s, 0.4, 5.24, 8.9, 1.64, t, "BUILT WITH")
     text(s, 0.58, 5.66, 8.54, 1.1, [
         [("CLIENTS  ", {"bold": True, "size": 9, "color": t.muted}), (F["clients"], {"size": 10, "color": t.ink})],
@@ -182,8 +180,7 @@ def s4(s, t, S):
         text(s, cx, top + hh + 0.06, cw, 0.26, [[(lab, {"size": 9, "color": t.muted})]], t=t, align=PP_ALIGN.CENTER)
     card(s, 6.75, 2.22, 6.13, 4.2, t, "PROOF", sub="physical Android phone · hosted backend · real road")
     cx, cw = 6.93, 5.77
-    text(s, cx, 2.72, cw, 0.6, [[("The whole lifecycle above was run end to end on a physical Android phone against "
-                                 "the hosted backend, on the real road.", {"size": 11.5, "color": t.ink})]], t=t, spacing=1.05)
+    text(s, cx, 2.72, cw, 0.6, [[(F["run_line"], {"size": 11.5, "color": t.ink})]], t=t, spacing=1.05)
     y = 3.42
     for n, lab in F["proof"]:
         stat(s, cx, y, cw, n, lab, t, num_size=17, lab_size=11, num_color=t.accent, lab_color=t.ink, gap=1.02)
@@ -232,9 +229,7 @@ def s5(s, t, S):
     w2, _ = picture(s, S["mobile"], 9.62 + w1 + 0.16, 1.72, h=2.5, frame=t.line)
     text(s, 9.62, 4.3, w1, 0.26, [[("Driver · 23 languages", {"size": 9, "color": t.muted})]], t=t, align=PP_ALIGN.CENTER)
     text(s, 9.62 + w1 + 0.16, 4.3, w2, 0.26, [[("Manager · mobile", {"size": 9, "color": t.muted})]], t=t, align=PP_ALIGN.CENTER)
-    text(s, 9.62, 4.66, 3.1, 2.0, [[("Real screens, APK 1.0.18. One login, server-decided role: a manager gets a mobile "
-                                     "fleet view, a driver gets navigation. Each language shows its status — Verified, "
-                                     "Draft or English fallback — so nobody is misled.", {"size": 10, "color": t.grey})]],
+    text(s, 9.62, 4.66, 3.1, 2.0, [[(F["screens_note"], {"size": 10, "color": t.grey})]],
          t=t, spacing=1.05)
 
 

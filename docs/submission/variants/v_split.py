@@ -57,7 +57,7 @@ def s2(s, t, S):
     L(s, t, 0.55, 1.58, 5.6, 1.2, [[("Not the shortest road. ", {"bold": True, "size": 23, "color": rgb("FFFFFF")}),
                                     ("The road that is usable now.", {"bold": True, "size": 23, "color": t.accent})]],
       spacing=1.0)
-    L(s, t, 0.55, 2.82, 5.6, 0.44, [[(F["problem"], {"size": 10.5, "color": t.grey})]], spacing=1.05)
+    L(s, t, 0.55, 2.82, 5.6, 0.44, [[(F["problem"] + "  ", {"size": 10.5, "color": t.grey}), (F["problem_kick"], {"size": 10.5, "bold": True, "color": t.danger})]], spacing=1.05)
     L(s, t, 0.55, 3.36, 5.6, 0.26, [[("A NORMAL ROUTER", {"bold": True, "size": 9, "color": t.muted})]])
     L(s, t, 0.55, 3.6, 5.6, 0.3, [[("  →  ".join(F["normal_router"]), {"size": 11, "color": t.grey})]])
     L(s, t, 0.55, 3.9, 5.6, 0.36, [[(F["normal_gap"][1], {"size": 10, "color": t.muted})]])
@@ -117,8 +117,7 @@ def s3(s, t, S):
             colors={0: DARK, 1: rgb("E8ECF4"), 2: rgb("E8ECF4"), 3: rgb("E8ECF4")},
             lines={i: t.muted for i in range(1, 4)})
     y += 0.42
-    L(s, t, 0.55, y, 5.6, 0.32, [[("Re-scored every 60 s along the road ahead; a reroute is proposed to the manager, never applied silently.",
-                                   {"size": 9, "color": t.muted})]], spacing=1.05)
+    L(s, t, 0.55, y, 5.6, 0.32, [[(F["loop_note"], {"size": 9, "color": t.muted})]], spacing=1.05)
     y += 0.4
     for lab, sub, kind in F["deciders"]:
         rect(s, 0.55, y + 0.02, 0.05, 0.5, fill=t.c(kind))

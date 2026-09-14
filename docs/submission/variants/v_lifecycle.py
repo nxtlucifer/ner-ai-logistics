@@ -121,8 +121,7 @@ def s3(s, t, S):
         [("STACK  ", {"bold": True, "size": 9, "color": t.muted}), (F["stack"], {"size": 10})],
         [("EVIDENCE  ", {"bold": True, "size": 9, "color": t.muted}),
          ("Open-Meteo / MET Norway · NDMA SACHET · GloFAS · NASA historical landslides · OpenTopoData / Copernicus DEM", {"size": 10})],
-        [("Re-scored every 60 s along the road ahead; a reroute is proposed to the manager, never applied silently.",
-          {"size": 9.5, "color": t.grey})],
+        [(F["loop_note"], {"size": 9.5, "color": t.grey})],
     ], t=t, spacing=1.15, space_after=3)
     text(s, 9.5, 1.2, 3.35, 0.28, [[("WHO DECIDES", {"bold": True, "size": 9.5, "color": t.muted})]], t=t)
     hline(s, 9.5, 1.48, 3.35, t.ink, 1.5)
@@ -155,8 +154,7 @@ def s4(s, t, S):
         text(s, px, top + hh + 0.06, pw, 0.26, [[(lab, {"size": 9, "color": t.grey})]], t=t, align=PP_ALIGN.CENTER)
     sx = cx + w1 + w2 + w3 + 0.66
     sw = 12.72 - sx
-    text(s, sx, 2.66, sw, 0.6, [[("The whole lifecycle above was run end to end on a physical Android phone against "
-                                 "the hosted backend, on the real road.", {"size": 11})]], t=t, spacing=1.05)
+    text(s, sx, 2.66, sw, 0.6, [[(F["run_line"], {"size": 11})]], t=t, spacing=1.05)
     y = 3.36
     for n, lab in F["proof"]:
         stat(s, sx, y, sw, n, lab, t, num_size=16, lab_size=10.5, gap=0.96)
@@ -204,9 +202,7 @@ def s5(s, t, S):
     w2, _ = picture(s, S["mobile"], 9.5 + w1 + 0.16, 1.54, h=2.5, frame=t.line)
     text(s, 9.5, 4.12, w1, 0.26, [[("Driver · 23 languages", {"size": 9, "color": t.grey})]], t=t, align=PP_ALIGN.CENTER)
     text(s, 9.5 + w1 + 0.16, 4.12, w2, 0.26, [[("Manager · mobile", {"size": 9, "color": t.grey})]], t=t, align=PP_ALIGN.CENTER)
-    text(s, 9.5, 4.5, 3.35, 2.0, [[("Real screens, APK 1.0.18. One login, server-decided role: a manager gets a mobile "
-                                    "fleet view, a driver gets navigation. Each language shows its status — Verified, "
-                                    "Draft or English fallback — so nobody is misled.", {"size": 10, "color": t.grey})]],
+    text(s, 9.5, 4.5, 3.35, 2.0, [[(F["screens_note"], {"size": 10, "color": t.grey})]],
          t=t, spacing=1.05)
 
 

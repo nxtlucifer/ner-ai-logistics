@@ -66,7 +66,7 @@ def s2(s, t, S):
                                    ("The road that is operationally usable now.",
                                     {"bold": True, "size": 24, "color": t.accent})]], t=t, spacing=1.0)
     hline(s, 0.5, 2.36, 8.82, t.ink, 1.5)
-    row(s, 0.5, 2.44, 8.82, "PROBLEM", [(F["problem"], {"size": 10.5, "color": t.grey})], t)
+    row(s, 0.5, 2.44, 8.82, "PROBLEM", [(F["problem"] + "  ", {"size": 10.5, "color": t.grey}), (F["problem_kick"], {"size": 10.5, "bold": True, "color": t.danger})], t)
     y = 2.88
     rect(s, 0.5, y, 0.05, 1.34, fill=t.muted)
     key(s, 0.68, y, 2.3, "BASELINE / NORMAL ROUTER", t)
@@ -180,8 +180,7 @@ def s4(s, t, S):
     px = 0.5 + w1 + w2 + w3 + 0.74
     pw = 12.85 - px
     key(s, px, 2.44, pw, "EVIDENCE OF EXECUTION", t, size=9, color=t.accent)
-    text(s, px, 2.7, pw, 0.6, [[("The whole lifecycle above was run end to end on a physical Android phone against "
-                                "the hosted backend, on the real road.", {"size": 11.5})]], t=t, spacing=1.05)
+    text(s, px, 2.7, pw, 0.6, [[(F["run_line"], {"size": 11.5})]], t=t, spacing=1.05)
     y = 3.4
     for n, lab in F["proof"]:
         hline(s, px, y - 0.04, pw, t.line)
@@ -237,10 +236,7 @@ def s5(s, t, S):
     w2, _ = picture(s, S["mobile"], 9.5 + w1 + 0.16, 1.54, h=2.5, frame=t.line)
     key(s, 9.5, 4.14, w1, "DRIVER / 23 LANGUAGES", t)
     key(s, 9.5 + w1 + 0.16, 4.14, w2, "MANAGER / MOBILE", t)
-    text(s, 9.5, 4.46, 3.35, 2.0, [[("Real screens, APK 1.0.18. One login, server-decided role: a manager gets a "
-                                     "mobile fleet view, a driver gets navigation. Each language shows its status — "
-                                     "Verified, Draft or English fallback — so nobody is misled.",
-                                     {"size": 10, "color": t.grey})]], t=t, spacing=1.05)
+    text(s, 9.5, 4.46, 3.35, 2.0, [[(F["screens_note"], {"size": 10, "color": t.grey})]], t=t, spacing=1.05)
 
 
 def s6(s, t, S):

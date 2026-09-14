@@ -74,7 +74,7 @@ def s2(s, t, S):
     text(s, 0.5, 1.46, 8.8, 0.92, [[("Not the shortest road. ", {"bold": True, "size": 24}),
                                     ("The road that is usable now.", {"bold": True, "size": 24, "color": t.accent})]],
          t=t, spacing=1.0)
-    text(s, 0.5, 2.38, 8.82, 0.38, [[(F["problem"], {"size": 10.5, "color": t.grey})]], t=t, spacing=1.05)
+    text(s, 0.5, 2.38, 8.82, 0.38, [[(F["problem"] + "  ", {"size": 10.5, "color": t.grey}), (F["problem_kick"], {"size": 10.5, "bold": True, "color": t.danger})]], t=t, spacing=1.05)
     y = band(s, t, 0.45, 2.84, 8.87, 0.92, "A NORMAL ROUTER", accent=t.muted)
     chain_h(s, 0.62, y - 0.04, [(F["normal_router"][0], 1.3), (F["normal_router"][1], 2.4), (F["normal_router"][2], 1.3)],
             t, h=0.3, gap=0.16, size=10, lines={i: t.muted for i in range(3)}, colors={i: t.grey for i in range(3)})
@@ -164,8 +164,7 @@ def s4(s, t, S):
         text(s, cx, top + hh + 0.14, cw, 0.28, [[(lab, {"size": 9, "color": t.grey})]], t=t, align=PP_ALIGN.CENTER)
     y = band(s, t, 6.95, 2.2, 5.93, 4.2, "PROOF", accent=t.accent)
     cx, cw = 7.13, 5.57
-    text(s, cx, y + 0.06, cw, 0.6, [[("The whole lifecycle above was run end to end on a physical Android phone against "
-                                     "the hosted backend, on the real road.", {"size": 11.5})]], t=t, spacing=1.05)
+    text(s, cx, y + 0.06, cw, 0.6, [[(F["run_line"], {"size": 11.5})]], t=t, spacing=1.05)
     yy = y + 0.76
     for n, lab in F["proof"]:
         stat(s, cx, yy, cw, n, lab, t, num_size=17, lab_size=11, gap=1.02)
@@ -209,10 +208,7 @@ def s5(s, t, S):
     w2, _ = picture(s, S["mobile"], 9.6 + w1 + 0.16, y + 0.06, h=2.5, frame=t.line)
     text(s, 9.6, y + 2.62, w1, 0.26, [[("Driver · 23 languages", {"size": 9, "color": t.grey})]], t=t, align=PP_ALIGN.CENTER)
     text(s, 9.6 + w1 + 0.16, y + 2.62, w2, 0.26, [[("Manager · mobile", {"size": 9, "color": t.grey})]], t=t, align=PP_ALIGN.CENTER)
-    text(s, 9.6, y + 2.98, 3.1, 1.9, [[("Real screens, APK 1.0.18. One login, server-decided role: a manager gets a "
-                                        "mobile fleet view, a driver gets navigation. Each language shows its status — "
-                                        "Verified, Draft or English fallback — so nobody is misled.",
-                                        {"size": 10, "color": t.grey})]], t=t, spacing=1.05)
+    text(s, 9.6, y + 2.98, 3.1, 1.9, [[(F["screens_note"], {"size": 10, "color": t.grey})]], t=t, spacing=1.05)
 
 
 def s6(s, t, S):
