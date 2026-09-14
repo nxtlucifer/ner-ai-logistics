@@ -23,9 +23,10 @@ BASE="RASTA_AI_SIH26002_TEAM17_FINAL"
 
 fc-match Calibri 2>/dev/null | grep -qi carlito || echo "WARNING: Carlito missing — text will overflow (apt-get install fonts-crosextra-carlito)"
 
-# 06-truck-verification.png is the 824x1830 driver web build, not a 1264x2780
-# phone capture, so it must not be phone-cropped.
-TEMP="$WORK" TRUCK_WEB=1 python3 "$HERE/build_final_deck.py"
+# The submission deck is the MASTER design (docs/submission/variants/v_master.py).
+# TRUCK_WEB tells the older house build that 06-truck-verification.png is the
+# 824x1830 driver web build, not a 1264x2780 phone capture.
+TEMP="$WORK" TRUCK_WEB=1 python3 "$HERE/build_submission.py"
 
 soffice -env:UserInstallation="file://$WORK/lo" --headless --norestore \
         --convert-to pdf --outdir "$HERE" "$HERE/$BASE.pptx" >/dev/null

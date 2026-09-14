@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import deckkit as K  # noqa: E402
 
 MODULES = [
-    "v_editorial", "v_console", "v_ledger", "v_corridor", "v_signal",
+    "v_master", "v_editorial", "v_console", "v_ledger", "v_corridor", "v_signal",
     "v_split", "v_lifecycle", "v_blueprint", "v_statement",
 ]
 HOUSE = K.ROOT / "docs" / "submission" / "RASTA_AI_SIH26002_TEAM17_FINAL.pptx"

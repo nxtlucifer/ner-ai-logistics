@@ -128,6 +128,32 @@ FACTS = dict(
     refs=("gpm.nasa.gov/landslides  \u00b7  sachet.ndma.gov.in  \u00b7  global-flood.emergency.copernicus.eu  \u00b7  "
           "open-meteo.com  \u00b7  api.met.no  \u00b7  opentopodata.org  \u00b7  project-osrm.org  \u00b7  openstreetmap.org  \u00b7  "
           "github.com/nxtlucifer/ner-ai-logistics"),
+    # --- what makes it different (SIH judges ask for USP explicitly)
+    usp=[("CORRIDOR USABILITY, NOT SHORTEST PATH",
+          "11 factors scored on the selected road before dispatch"),
+         ("UNKNOWN IS NEVER SAFE",
+          "missing or stale evidence blocks selection until a reviewer authorises"),
+         ("HUMAN-GOVERNED REROUTE",
+          "a real off-route triggers a real alternative; a manager accepts before the phone follows"),
+         ("ONE APK, 23 LANGUAGES, OFFLINE",
+          "server-decided role; whole-trip package cached on the phone")],
+    # --- the four things the feasibility slide must answer
+    feasibility=[("TECHNOLOGY",
+                  "FastAPI + PostGIS, two clients on one REST API. Every part is built and running."),
+                 ("IMPLEMENTATION",
+                  "Hosted backend, manager console, Android APK 1.0.18. Certified on a physical phone."),
+                 ("COST",
+                  "No licensed map, traffic or weather feed \u2014 every source is public or open."),
+                 ("SCALABILITY",
+                  "A new source is a new provider adapter behind the same policy. Fleet traffic improves per truck.")],
+    risks=[("Provider rate limit or outage", "Cached evidence; the factor shows UNKNOWN, never assumed safe"),
+           ("Cold start on free hosting", "Warm /health before the slot; state is server-side"),
+           ("No phone signal on the corridor", "Whole-trip offline package; navigation continues, labelled OFFLINE"),
+           ("Experimental model unreliable", "Safety gate holds it outside routing until it passes")],
+    evidence_facts=[("98.8 km", "real road on the demo corridor"),
+                    ("22", "landslides within 5 km"),
+                    ("1975 m", "climb, steepest 10.3 %"),
+                    ("154", "NER events, NASA GLC")],
     titles=["", "RASTA AI \u2014 ROUTE INTELLIGENCE", "TECHNICAL APPROACH",
             "FEASIBILITY AND VIABILITY", "IMPACT AND BENEFITS", "RESEARCH  AND REFERENCES"],
 )

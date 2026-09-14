@@ -6,7 +6,8 @@
 | `RASTA_AI_SIH26002_TEAM17_FINAL.pptx` | The editable deck, built on the official template |
 | `RASTA_AI_SIH26002_TEAM17_PREVIEW.png` | All six slides on one sheet, for a glance check |
 | `slides/Slide1..6.PNG` | Each page at 150 dpi, for inspecting a slide at projector size |
-| `build_final_deck.py` | Builds the pptx from the template + the screenshot package |
+| `build_submission.py` | Builds the submission pptx (the MASTER design in `variants/v_master.py`) |
+| `build_final_deck.py` | Builds the earlier "house" design, kept as `variants/…_V01_HOUSE.pptx` |
 | `render_final_deck.sh` | Build + render on Linux (LibreOffice). The path used to produce the files above |
 | `render_final_deck.ps1` | Build + render on Windows (PowerPoint COM). Kept for machines that have it |
 | `template.pptx` | The supplied SIH2026 format, unmodified |
@@ -18,6 +19,23 @@ Both outputs are rebuilt from `template.pptx` by the scripts, so the deck is
 reproducible rather than hand-patched. Every fact on a slide comes from
 `docs/PPT_SOURCE_OF_TRUTH.md`; every picture is a real screen from
 `screenshots/`.
+
+## Built against the twelve mistakes judges call out
+
+| # | Mistake | Where it is answered |
+| --- | --- | --- |
+| 1 | Too much text | Key points and figures, ~1,100 words across six slides |
+| 2 | Unclear problem | Slide 2 opens with the corridor and four hard numbers |
+| 3 | Generic solution | Slide 2 carries an explicit USP block, four falsifiable claims |
+| 4 | No workflow | Slide 3 is one INPUT → PROCESS → OUTPUT flow |
+| 5 | Ignoring feasibility | Slide 4 answers technology, implementation, **cost** and scalability, plus risks → mitigations |
+| 6 | Weak USP | Same block as 3, labelled USP |
+| 7 | No evidence | Real figures on every slide; real screens throughout |
+| 8 | Too many technologies | Seven named. No logo wall |
+| 9 | Poor visual design | One palette (navy / amber / green), one type scale, one panel style |
+| 10 | Not following template | The supplied template, six slides, the six required categories |
+| 11 | Missing PS number | `SIH26002` set large on slide 1, repeated on slide 6 |
+| 12 | No clear impact | Slide 5 names who gains what, with figures |
 
 ## The six slides
 
