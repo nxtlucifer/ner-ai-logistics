@@ -26,8 +26,10 @@ from tests.conftest import auth_headers
 
 pytestmark = [pytest.mark.requires_db, pytest.mark.usefixtures("clear_hazard_evidence")]
 
-PLANNED = [(26.1445, 91.7362), (26.0, 91.9), (25.5788, 91.8933)]
-OFF_ROAD = (25.9, 92.1)
+# Guwahati -> Jorhat, the corridor the factory trip's stops actually span:
+# the validated planner refuses a line that does not reach the destination.
+PLANNED = [(26.1445, 91.7362), (26.4, 92.9), (26.7509, 94.2037)]
+OFF_ROAD = (26.1, 92.6)
 
 
 class _Recording:
@@ -43,14 +45,15 @@ class _Recording:
         if self.fail:
             raise RoutingUnavailable("stub down")
         self.origins.append((origin.lat, origin.lon))
-        geometry = [(origin.lat, origin.lon), PLANNED[-1]] if self.origins[1:] else PLANNED
+        rerouting = bool(self.origins[1:])
+        geometry = [(origin.lat, origin.lon), PLANNED[-1]] if rerouting else PLANNED
         return ChainOptions(
             candidates=(
                 RouteCandidate(
                     kind=kind,
                     provider="stub",
                     geometry=geometry,
-                    distance_m=61_000.0,
+                    distance_m=190_000.0 if rerouting else 305_000.0,
                     duration_s=90 * 60.0,
                 ),
             ),
@@ -118,7 +121,7 @@ async def test_plans_from_the_reported_position_and_leaves_the_trip_on_its_road(
     body = res.json()
     assert chain.origins[-1] == OFF_ROAD
     assert body["kind"] == "EMERGENCY_BACKUP"
-    assert body["distance_km"] == 61.0
+    assert body["distance_km"] == 190.0
     assert body["estimated_duration_min"] == 90
 
     session.expire_all()
