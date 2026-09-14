@@ -42,6 +42,10 @@ const TRIPS_POLL_MS = 5_000
 
 const NO_ROUTE_REASON = 'Select a route in the trip review first — a draft is not dispatchable without one.'
 
+/** Open work first, history after: a dispatcher scans for what needs a hand. */
+const STATUS_RANK: Record<string, number> = { DRAFT: 0, ASSIGNED: 1, VERIFICATION_PENDING: 1, ACTIVE: 2, DELAYED: 2, DELIVERED: 3, CLOSED: 4, CANCELLED: 5 }
+const openFirst = (a: Trip, b: Trip) => (STATUS_RANK[a.status] ?? 9) - (STATUS_RANK[b.status] ?? 9)
+
 /** What a manager should look at for a trip in this state, in one phrase. */
 function attention(trip: Trip): { text: string; tone: string } {
   switch (trip.status) {
@@ -344,7 +348,7 @@ export default function TripsPage() {
 
       <div className="dispatch-review">{reviewTrip ? <TripRouteReview key={reviewTrip.id} trip={reviewTrip} onChanged={trips.reload} /> : <Card title="Trip review"><EmptyState title="Every journey starts with a plan" description="Create a draft on the left, or choose Review route from the trips below. Plan the road, check its conditions and select the route here before dispatch." /></Card>}</div>
       </div>
-      <Card title="Trips">
+      <Card title="Trips" action={<span className="text-xs text-muted">Open trips first, then history</span>}>
         {trips.status === 'loading' ? (
           <LoadingState label="Loading trips…" />
         ) : trips.status === 'error' ? (
@@ -377,7 +381,7 @@ export default function TripsPage() {
                 </tr>
               </thead>
               <tbody>
-                {trips.data?.items.map((trip) => {
+                {[...(trips.data?.items ?? [])].sort(openFirst).map((trip) => {
                   const note = attention(trip)
                   const open = trip.status === 'DRAFT' ? 'Review route' : ['ASSIGNED', 'VERIFICATION_PENDING', 'ACTIVE', 'DELAYED'].includes(trip.status) ? 'Open' : 'View'
                   const busyElsewhere = actingOn !== null && actingOn !== trip.id
