@@ -16,7 +16,7 @@ Real current screens, captured 14 Sep 2026 (evening re-capture) on the hosted st
 | `07b-offline-navigation.png` | Driver, navigation continuing offline from the cached whole-trip package |
 | `08-route-ai.png` | Driver, PERSONAL ROUTE AI panel: CAUTION with reasons (steep gradients, recorded landslides) and evidence coverage |
 | `09-reroute.png` | Driver, real off-route: 'Off the planned road - new road 74.2 km awaits manager' (human-governed reroute) |
-| `09b-reroute-manager-review.png` | Manager web, ALTERNATIVE ROUTES review of the driver's reroute proposal (74.17 km, needs review) |
+| `09b-reroute-manager-review.png` | Manager web, Fleet route tab after the driver's off-route: PLANNED ROUTE OPTIONS as cards - CURRENT 98.82 km (SELECTED, Following this route) and the 74.17 km EMERGENCY BACKUP (NOT CHECKED until conditions are checked, then REVIEW REQUIRED / SELECTABLE) |
 | `10-manager-mobile.png` | Manager account on the phone APK 1.0.18: mobile manager shell Overview (no driver identity), provider health shown honestly |
 | `11-language-selector.png` | Driver phone 1.0.18, language sheet with search: 23 languages, status per language (Verified / Draft / English fallback) |
 | `12-delivery.png` | Driver after Complete trip: No active trip, available for assignment |

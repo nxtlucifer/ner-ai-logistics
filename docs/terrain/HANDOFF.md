@@ -1380,3 +1380,105 @@ disabled button titled, no horizontal overflow at 768/1024/1366/1920, driver
 credentials refused on the manager web. Provider note: Nominatim answered
 slowly (rate limited) - handled as a slow-search hint plus map/link fallbacks,
 never as an outage.
+
+
+## 12. Final delta repair (15 Sep 2026, small hours) - the 2,908 km route and what it exposed
+
+Commits f0740dd, b8a06fb. Evidence in `.runtime/evidence/delta/` (targeted
+hosted checks) and `.runtime/evidence/human-cert/` (guidance/reroute run).
+Nothing certified in §11 was redone; the targeted checks below cover only what
+changed.
+
+**The route was right; the journey was not.** TRP-08726C5F ("abc traders",
+14 Sep 21:03 IST, the old console) stored a pickup at a Nagaland village
+("Tokiye, Aghunato, Zunheboto") and a delivery at an Ahmedabad locality - both
+picked from the address search (Nominatim, India-wide), both stored with
+consistent lon/lat in stops, shipment and every route's geometry ends (within
+40 m). Straight-line 2,237 km, OSRM road 2,908 km / 34h 50m, ratio 1.30; the
+backup 3,037 km. All three plans (15:33, 15:42, 18:51 UTC) ran from the pickup
+stop - the audit says "route planned via osrm", never "from reported position".
+Ruled out: stale coordinates, label/pin divergence, swapped lat/lon, wrong
+search result, Maps-link parse, driver GPS as origin, reroute origin, wrong
+trip, reused route, bad version, serialisation. The trip was also dispatched
+(21:16 IST) with NO selected route - before the hardened console's dispatch
+gate deployed (22:03 IST); the backend still permits a routeless dispatch
+(P3, left alone: 51 test files dispatch without one).
+
+**What changed.**
+- Backend: `endpoint_mismatch` in `app/domain/routing.py` - a provider line
+  that starts/ends more than 10 km from the requested stops, is shorter than
+  the straight line, or longer than 3x straight line + 20 km is refused with
+  422 `ROUTE_VALIDATION_FAILED` and nothing is stored. Planning asks OSRM for
+  three options (`MAX_ROUTE_OPTIONS`); every distinct extra becomes an
+  EMERGENCY_BACKUP row, duplicates are dropped, nothing is padded; the
+  recommendation cap follows (3). Measured live: Guwahati-Shillong 1 road,
+  Guwahati-Jorhat 1, Guwahati-Itanagar 2. Tests: 8 pure, 2 API, driver reroute
+  fixtures aligned to the factory stops. Full suite 1148 passed, 5 skipped.
+- Planner: a confirmed point outside the North-East bounding box (21.5-29.5 N,
+  88-97.5 E) blocks "Create draft trip" with "Location confirmation required -
+  the destination "..." is outside the North-East service region"; the
+  straight-line corridor length is shown under the endpoints. Server-side
+  region validation is NOT added (P3).
+- Fleet route tab: `RouteRiskComparison` deleted (it rendered a "physics
+  fuel model", "ALL 5 STAGES VERIFIED" and a hard-coded NH27/Kaziranga
+  paragraph for every trip). `RouteCandidateCards`: vertical stack, one state
+  per card - SELECTED / SELECTABLE / REVIEW REQUIRED / BLOCKED / NOT CHECKED /
+  STALE - with the exact sentences ("Safety review required...", "Route
+  evidence is incomplete...", "Selected route is no longer current...", "1
+  distinct road route available"), labels from figures (CURRENT, RECOMMENDED,
+  FASTEST, SHORTEST, EMERGENCY BACKUP), the action disabled with the sentence
+  as its title. Three rows above it: Trip status / Driver location (freshness +
+  age) / Route evidence (check time); the floating "STALE (10m)" badge is gone.
+  A moving trip with no current route selects plainly instead of refusing.
+  Inspector ~40% of the row (`.fleet-layout` 3fr/2fr), nested scroll box
+  removed. Manager tests 206 passed.
+- Driver app: `sceneLayers` tags live layers; the web map draws static and
+  live layers in separate effects (live pane above); the pin holds while the
+  speed filter says stationary (`settledPosition`); the last-known age is
+  quantised to 30 s. 624 tests passed. APK 1.0.18 is NOT rebuilt; the change
+  ships in the driver web now and in the next EAS build.
+
+**Targeted hosted checks (delta_check.mjs, real Chromium, 29/34).** Planner
+refuses Guwahati -> Nava Naroda with the location named and 1,958 km shown;
+Guwahati -> Shillong accepted at 68 km; draft planned through the UI (97.21
+km, no validation failure); Fleet route tab shows the three fact rows, "No
+route selected - this trip is under way without one", 2 distinct road routes
+at 2,908 km on cards 384 px wide, one scroll box, no narrow wrapping, no
+overflow at 1024/1366/1920, action disabled with "Route evidence is
+incomplete". The five failures were automation: two regexes ("Shillong,
+Mylliem" is two spans; "97.21 km" has two decimals), a click that did not
+register, and the row-cancel finder - which clicked the LAST "Cancel" on the
+Trips page and cancelled TRP-08726C5F itself (audit 20:32 UTC, "cancelled by
+manager"). That trip is therefore CANCELLED now; the script is row-scoped
+since. The same "Check route conditions" step re-run on TRP-A7678F:
+Checking... -> Check again in 15 s, REVIEW REQUIRED, "checked 2:09:51 AM",
+"Reroute onto this" disabled with "Safety review required...".
+
+**Choose on map (e186f8b, from the user's screenshot).** A pin dropped with
+nothing typed left the address blank - a "Location set" strip over an empty
+box and a draft the server would refuse (`pickup_address` min_length=1). The
+pin now gets a coordinate label at once ("Pinned location 26.60206,
+91.61924") and the reverse lookup (`/api/geocoding/details?place_id=osm:lat,lon`)
+replaces it with the place name ("Tamulpur, Assam, 781367, India" in the hosted
+check); typed words win when there are any. The map opens at a resolved
+OpenStreetMap result (never at a Google one), a confirmed location no longer
+triggers a suggestion search for its own label, and Advanced coordinates
+without a name are refused with "Name the pickup location...". Hosted check
+`map_pick_check.mjs`: 11/12 - the one failure was the correct "RASTA Demo
+Driver is already on a trip" gate while the JUDGE trip was active.
+
+**Hosted human reroute workflow (manager_human_cert_guidance.mjs, 19/22, JUDGE-017417).**
+Console replan (98.82 km), reviewer authorises, ROUTE SELECTED, dispatch, driver
+accepts, verifies the truck, starts, turn-by-turn on the manager-planned route
+("7.1 km Turn right", 4,341 pts), real off-route -> "awaits manager", the Fleet
+route tab shows PLANNED ROUTE OPTIONS with the CURRENT card and the 74.17 km
+EMERGENCY BACKUP, reviewer authorises the backup, "Reroute onto this" enabled,
+driver follows the backup with guidance ("750 m Turn left", 3,529 pts),
+delivery, DELIVERED. The three misses are script expectations: a selection
+survives a replan by design (LS-10), and two reads taken while the inspector
+was reloading. Two earlier runs of the same script stalled at the driver's
+Start because the truck screen's button reads "Back to trip - checked" after
+verification; exact-text match, fixed in the scripts (prefix match).
+Hosted probe (manager_probe.mjs, MANAGER_URL set): 34/34. Buttons audit: Add
+driver / Add truck / assignment records all work. judge.sh reset + check:
+READY.
