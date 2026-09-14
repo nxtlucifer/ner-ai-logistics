@@ -112,6 +112,15 @@ export default function AddressPicker({
   const listId = useId()
   const [search, setSearch] = useState<SearchState>({ kind: 'IDLE' })
   const [highlighted, setHighlighted] = useState(-1)
+  // A geocoder that hangs must not leave the manager staring at "Searching…":
+  // after eight seconds the copy points at the paths that do not need it.
+  const [slowSearch, setSlowSearch] = useState(false)
+  useEffect(() => {
+    setSlowSearch(false)
+    if (search.kind !== 'LOADING') return
+    const t = setTimeout(() => setSlowSearch(true), 8_000)
+    return () => clearTimeout(t)
+  }, [search.kind])
   const [pickingOnMap, setPickingOnMap] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
 
@@ -365,7 +374,9 @@ export default function AddressPicker({
       </label>
 
       {search.kind === 'LOADING' ? (
-        <p className="text-xs text-muted">Searching…</p>
+        <p className="text-xs text-muted">
+          {slowSearch ? 'Address search is taking longer than usual — Choose on map or paste a Maps link works too.' : 'Searching…'}
+        </p>
       ) : null}
 
       {suggestions.length > 0 ? (
@@ -732,6 +743,7 @@ function MapPointPicker({
             <button
               type="button"
               disabled={point === null}
+              title={point === null ? 'Click the map to place the pin first' : 'Use this pin as the location'}
               onClick={() => point && onConfirm(point)}
               className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
             >

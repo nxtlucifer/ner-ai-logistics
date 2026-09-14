@@ -17,7 +17,7 @@
 
 import { useRef, useState } from 'react'
 
-import { api, type Trip, unavailableReason } from '../api/client'
+import { api, type Assignment, type Driver, type Trip, type Truck, unavailableReason } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
 import {
   Button,
@@ -68,9 +68,11 @@ export default function TripsPage() {
   const { can } = useAuth()
 
   const trips = useResource(() => api.listTrips({ limit: 50 }), [], 'trips:50', TRIPS_POLL_MS)
-  const drivers = useResource(() => api.listDrivers({ limit: 100 }), [], 'drivers:100')
-  const trucks = useResource(() => api.listTrucks({ limit: 100 }), [], 'trucks:100')
-  const assignments = useResource(() => api.listAssignments({ activeOnly: true }), [], 'assignments:active')
+  // A reviewer holds trip:read only: the planner's reference lists are not
+  // requested for them (a 403 is not an error a reviewer should ever see).
+  const drivers = useResource(() => (can('driver:read') ? api.listDrivers({ limit: 100 }) : Promise.resolve({ items: [] as Driver[], next_cursor: null })), [], can('driver:read') ? 'drivers:100' : undefined)
+  const trucks = useResource(() => (can('truck:read') ? api.listTrucks({ limit: 100 }) : Promise.resolve({ items: [] as Truck[], next_cursor: null })), [], can('truck:read') ? 'trucks:100' : undefined)
+  const assignments = useResource(() => (can('assignment:read') ? api.listAssignments({ activeOnly: true }) : Promise.resolve([] as Assignment[])), [], can('assignment:read') ? 'assignments:active' : undefined)
 
   const [reviewTrip, setReviewTrip] = useState<Trip | null>(null)
   const draftAttempt = useRef<{ intent: string; stamp: string } | null>(null)

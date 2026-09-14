@@ -627,6 +627,7 @@ export default function FleetMap({
       <button
         type="button"
         disabled={!selectedTripId}
+        title={selectedTripId ? 'Frame the whole planned route and observed track' : 'Select a trip first to frame its route'}
         onClick={() => {
           const instance = map.current
           if (!instance) return
