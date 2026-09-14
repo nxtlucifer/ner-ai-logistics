@@ -1331,3 +1331,52 @@ screenshots in `.runtime/evidence/manager-probe/`; canonical browser flow on the
 new console 25/25 steps (dispatch through the gated row button, reroute review,
 delivery); RBAC probe: manager-web 5/5, driver web role gates pass. Judge state
 after: `judge.sh check` READY.
+
+## 11. True-human manager certification (15 Sep 2026, small hours) - hosted site
+
+Method: real Chromium sessions driven only through the CDP Input domain (mouse
+clicks at element positions, keystrokes, wheel scrolling, native file chooser)
+with JS used solely to read the page - `.runtime/rehearsal/human.mjs`,
+`manager_human_cert.mjs` (full walk), `_resume.mjs`, `_guidance.mjs`,
+`_buttons.mjs`. Manager, reviewer and driver each in their own browser; no API
+call for any of their actions (the only direct commands: judge.sh reset/check
+and the driver's own trip package read to steer the simulated GPS).
+
+Found and fixed (real defects):
+- P1 APP_DEFECT: the console planned routes without `detailed=true`, so a
+  manager-planned route stored a 40-point overview and no turn steps - the
+  driver saw "Guidance unavailable" on it (judge tooling always used
+  detailed=true, which hid it). `client.ts planRoute` now requests
+  `?detailed=true`; regression test in `client.test.ts`. Re-verified by hand:
+  replanned from the console -> reviewer authorised -> selected -> dispatched
+  -> driver got "7.1 km Turn right" guidance, went off-route, backup road
+  74.17 km with 3,529 points followed with guidance, delivered.
+- P1 for the human flow: the authorised reviewer role was refused by the
+  console ("Manager account required."), so nobody could authorise a route
+  with UNKNOWN hazard data through the UI. `CONSOLE_ROLES` admits
+  AUTHORISED_REVIEWER; least privilege verified in the browser (nav shows only
+  Trips/Review/Diagnostics; /fleet, /drivers, /trucks, /assignments carry no
+  mutation controls; drivers still refused).
+- P3: a driver's "current trip" no longer counts a DRAFT; slow-search hint
+  after 8 s; disabled "Fit trip" / "Use this point" say why; reviewer's Trips
+  page no longer requests lists it may not read; Trips list shows open work
+  first.
+
+Certified by hand (attempt 4 + resume + guidance runs, 45 + 14 + 10
+screenshots in `.runtime/evidence/human-cert/`): login (wrong password clean
+error), Fleet first impression, chips, truck drawer, driver profile (confirm
+dialog cancelled), trucks, planner invalid states, address search slow ->
+map pin -> edit invalidates the pin -> Maps place links, destination=pickup
+blocked, driver pick fills the paired truck, other trucks disabled with reason,
+cargo 0 / -5 / abc / 16001 refused, one draft created (double click ignored),
+NO ROUTE SELECTED gate, real OSRM route, evidence with UNKNOWN factors and no
+SAFE, reviewer authorisation with rationale, ROUTE SELECTED, dispatch,
+reload durability, driver receipt, truck check with gallery photo + plate in
+the app, start, guidance, off-route, reroute proposal, manager review,
+reviewer authorises the backup, manager approves, driver follows the new road,
+stops 1/2, delivery, driver + truck AVAILABLE, review queue open-only,
+Diagnostics fallback semantics, honest ML copy, every button labelled, every
+disabled button titled, no horizontal overflow at 768/1024/1366/1920, driver
+credentials refused on the manager web. Provider note: Nominatim answered
+slowly (rate limited) - handled as a slow-search hint plus map/link fallbacks,
+never as an outage.
