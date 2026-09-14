@@ -53,6 +53,7 @@ from app.domain.routing import (
     RoutingError,
     RoutingRejected,
     RoutingUnavailable,
+    endpoint_mismatch,
     is_distinct_corridor,
     parse_wkt_point,
 )
@@ -69,6 +70,12 @@ AUDITED_FIELDS = (
     "id", "trip_id", "kind", "state", "distance_km", "estimated_duration_min",
     "routing_provider",
 )
+
+#: How many options a PRIMARY plan asks the provider for. A request, not a
+#: promise: measured against the live OSRM service, Guwahati-Shillong and
+#: Guwahati-Jorhat return one road, Guwahati-Itanagar two. Every distinct
+#: extra is stored as an EMERGENCY_BACKUP; nothing is padded to make three.
+MAX_ROUTE_OPTIONS = 3
 
 
 @dataclass(frozen=True)
@@ -248,7 +255,7 @@ async def plan(
             origin,
             destination,
             kind=kind,
-            limit=2 if kind is RouteKind.PRIMARY else 1,
+            limit=MAX_ROUTE_OPTIONS if kind is RouteKind.PRIMARY else 1,
             detailed=detailed,
         )
     except RoutingRejected as exc:
@@ -274,17 +281,33 @@ async def plan(
 
     candidate = result.candidates[0]
 
-    # A second option is persisted as EMERGENCY_BACKUP only when it is a
-    # genuinely different corridor. Providers routinely return an "alternative"
-    # that leaves the highway for a few hundred metres and rejoins it; storing
-    # that as a backup would put a choice in front of a dispatcher that is not
-    # a choice. On most NER corridors there is one sensible road and no
-    # alternative comes back at all - which is the honest answer, not a gap.
-    backup: RouteCandidate | None = None
+    # THE ANSWER MUST DESCRIBE THE QUESTION. A provider's route is checked
+    # against the endpoints it was asked for before anything is stored: a line
+    # that starts or ends away from the stops, or whose length no road between
+    # them can have, is refused outright rather than drawn on a dispatcher's
+    # map with confident figures. 422, not 503 - the provider answered.
+    mismatch = endpoint_mismatch(candidate, origin, destination)
+    if mismatch is not None:
+        logger.warning("route validation failed for trip %s: %s", trip_id, mismatch)
+        raise BusinessRuleError(
+            "The routing provider returned a route that does not connect this "
+            f"trip's stops ({mismatch}). Nothing was stored.",
+            code="ROUTE_VALIDATION_FAILED",
+        )
+
+    # Extra options are persisted as EMERGENCY_BACKUP only when each is a
+    # genuinely different corridor from the primary AND from every backup
+    # already kept. Providers routinely return an "alternative" that leaves the
+    # highway for a few hundred metres and rejoins it; storing that as a backup
+    # would put a choice in front of a dispatcher that is not a choice. On most
+    # NER corridors there is one sensible road and no alternative comes back at
+    # all - which is the honest answer, not a gap.
+    backups: list[RouteCandidate] = []
     for other in result.candidates[1:] if kind is RouteKind.PRIMARY else []:
-        if is_distinct_corridor(candidate, other):
-            backup = other
-            break
+        if endpoint_mismatch(other, origin, destination) is not None:
+            continue
+        if all(is_distinct_corridor(kept, other) for kept in (candidate, *backups)):
+            backups.append(other)
 
     # Lock the trip row before touching routes, and only NOW - every other
     # mutating trip path takes this lock, and without it two managers pressing
@@ -350,7 +373,7 @@ async def plan(
     db.add(route)
     await db.flush()
 
-    if backup is not None:
+    for backup in backups:
         db.add(
             TripRoute(
                 trip_id=trip_id,
@@ -364,6 +387,7 @@ async def plan(
                 maneuvers=_maneuvers_json(backup),
             )
         )
+    if backups:
         await db.flush()
 
     for old in superseded:
@@ -399,7 +423,7 @@ async def plan(
         provider=candidate.provider,
         used_fallback=result.used_fallback,
         attempted=tuple(a.provider for a in result.attempts),
-        backup_planned=backup is not None,
+        backup_planned=bool(backups),
     )
 
 

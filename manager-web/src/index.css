@@ -210,7 +210,9 @@ table th, table td { padding-right: 16px; }
 /* Map-first. 2.4fr : 1fr puts the GIS canvas at ~70% of the workspace, inside
    the 65-75% the design calls for, with the inspector never below 320px where
    its two-column rows start wrapping. */
-.fleet-layout { display: grid; grid-template-columns: minmax(0, 2.4fr) minmax(320px, 1fr); gap: 20px; align-items: start; }
+/* Map about 60%, inspector about 40%. The inspector was a third of the row,
+   and the route cards inside it wrapped word by word. */
+.fleet-layout { display: grid; grid-template-columns: minmax(0, 3fr) minmax(380px, 2fr); gap: 20px; align-items: start; }
 .fleet-main { min-width: 0; display: grid; gap: 20px; }
 /* Matches the map clamp so the two panes read as one instrument rather than a
    tall map beside a short card. The inspector scrolls internally when a

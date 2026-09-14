@@ -163,6 +163,13 @@ const STATUS_TONE: Record<string, string> = {
   REJECTED: 'bg-danger-soft text-danger border-danger/30',
   ROUTE_SELECTED: 'bg-ok-soft text-ok border-ok/30',
   NO_ROUTE_SELECTED: 'bg-warning-soft text-warning border-warning/30',
+  // Route option states (RouteCandidateCards). One per card, in words.
+  SELECTED: 'bg-route-soft text-route border-route/30',
+  SELECTABLE: 'bg-ok-soft text-ok border-ok/30',
+  REVIEW_REQUIRED: 'bg-warning-soft text-warning border-warning/30',
+  BLOCKED: 'bg-danger-soft text-danger border-danger/30',
+  NOT_CHECKED: 'bg-soft text-muted border-line',
+  STALE: 'bg-warning-soft text-warning border-warning/30',
 }
 
 export function StatusPill({ status }: { status: string }) {

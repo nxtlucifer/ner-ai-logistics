@@ -32,6 +32,7 @@ import {
   type FleetSnapshot,
   type FleetTrip,
   type Freshness,
+  type RouteRecommendation,
   type TripRoute,
 } from '../api/client'
 
@@ -985,22 +986,107 @@ describe('FleetPage', () => {
       return user
     }
 
-    it('offers a way to select a planned route', async () => {
-      await openWith([PROPOSED])
-      expect(
-        screen.getByRole('button', { name: /use this route/i }),
-      ).toBeDefined()
+    // The server's answer to "may this road be used": scored, ELIGIBLE, one
+    // road only. Selection is gated on it - a control that would be refused
+    // by the server is disabled with the reason, never "use it, then error".
+    const ELIGIBLE: RouteRecommendation = {
+      recommended_route_id: 'r1',
+      baseline_route_id: 'r1',
+      comparable: false,
+      reason_codes: ['ONLY_ONE_ROUTE_AVAILABLE'],
+      tradeoff: null,
+      candidates: [
+        {
+          route_id: 'r1',
+          kind: 'PRIMARY' as const,
+          distance_km: 308,
+          estimated_duration_min: 360,
+          eligibility: 'ELIGIBLE' as const,
+          risk: { score: 12, band: 'LOW' as const, unavailable: [], reason_codes: [] },
+        },
+      ],
+      unavailable_inputs: [],
+      margin_points: 10,
+      version: 'explainable-route-recommendation-v1',
+    }
+    const QUIET = {
+      outcome: 'NO_ACTION' as const,
+      selected_route_id: null,
+      selected_risk_score: null,
+      selected_risk_band: null,
+      proposed_route_id: null,
+      reason_codes: ['NO_SELECTED_ROUTE'],
+      comparison: null,
+      unavailable_inputs: [],
+      floor_points: 60,
+      severe_conditions_points: 35,
+      margin_points: 10,
+      version: 'reroute-assessment-v1',
+    }
+    async function checkConditions(
+      user: ReturnType<typeof userEvent.setup>,
+      recommendation: RouteRecommendation = ELIGIBLE,
+    ) {
+      vi.spyOn(api, 'rerouteAssessment').mockResolvedValue(QUIET)
+      vi.spyOn(api, 'routeRecommendation').mockResolvedValue(recommendation)
+      await user.click(screen.getByRole('button', { name: /check route conditions/i }))
+    }
+
+    it('offers a way to select a planned route, disabled with the reason until conditions are checked', async () => {
+      const user = await openWith([PROPOSED])
+      const button = screen.getByRole('button', { name: /use this route/i })
+      expect(button.hasAttribute('disabled')).toBe(true)
+      expect(button.title).toMatch(/route evidence is incomplete/i)
+      expect(screen.getByText('NOT CHECKED')).toBeDefined()
+      expect(screen.getByText(/1 distinct road route available/i)).toBeDefined()
+
+      await checkConditions(user)
+
+      await screen.findByText('SELECTABLE')
+      expect(screen.getByRole('button', { name: /use this route/i }).hasAttribute('disabled')).toBe(false)
+      expect(screen.getByText(/eligible under the checks that ran/i)).toBeDefined()
     })
 
     it('sets the trip route through the server', async () => {
       const select = vi.spyOn(api, 'selectRoute').mockResolvedValue(SELECTED)
       const user = await openWith([PROPOSED])
+      await checkConditions(user)
+      await screen.findByText('SELECTABLE')
 
       await user.click(screen.getByRole('button', { name: /use this route/i }))
 
       await waitFor(() => {
-        expect(select).toHaveBeenCalledWith(LIVE.trip_id, 'r1')
+        expect(select).toHaveBeenCalledWith(LIVE.trip_id, 'r1', undefined)
       })
+    })
+
+    it('names a review requirement in words and keeps the button shut, without any fabricated pipeline', async () => {
+      const user = await openWith([PROPOSED])
+      vi.spyOn(api, 'reviewAuthorization').mockRejectedValue(new Error('none held'))
+      await checkConditions(user, {
+        ...ELIGIBLE,
+        candidates: [{ ...ELIGIBLE.candidates[0], eligibility: 'REQUIRES_REVIEW' as const, risk: { score: null, band: 'UNASSESSED' as const, unavailable: ['landslide'], reason_codes: ['LANDSLIDE_DATA_UNAVAILABLE'] } }],
+      })
+
+      await screen.findByText('REVIEW REQUIRED')
+      expect(screen.getByText(/safety review required/i)).toBeDefined()
+      const button = screen.getByRole('button', { name: /use this route/i })
+      expect(button.hasAttribute('disabled')).toBe(true)
+      expect(button.title).toMatch(/safety review required/i)
+      // Nothing measured, nothing said: no fuel model, no verified pipeline,
+      // no paragraph about a road this trip is not on.
+      expect(screen.queryByText(/physics|CMEM|stages verified|kaziranga|dual-ai/i)).toBeNull()
+    })
+
+    it('separates trip status, driver location and route evidence instead of one STALE badge', async () => {
+      await openWith([SELECTED])
+      const facts = screen.getByTestId('route-facts')
+      expect(within(facts).getByText(/driver location/i)).toBeDefined()
+      expect(within(facts).getByText(/LIVE · reported 12s ago/)).toBeDefined()
+      expect(within(facts).getByText(/route evidence/i)).toBeDefined()
+      expect(within(facts).getByText(/not checked yet/i)).toBeDefined()
+      expect(screen.queryByText(/STALE \(10m\)/)).toBeNull()
+      expect(screen.getByText('CURRENT')).toBeDefined()
     })
 
     it('says which route the trip is following once one is chosen', async () => {
@@ -1030,6 +1116,8 @@ describe('FleetPage', () => {
         ),
       )
       const user = await openWith([PROPOSED])
+      await checkConditions(user)
+      await screen.findByText('SELECTABLE')
       await user.click(screen.getByRole('button', { name: /use this route/i }))
 
       expect(await screen.findByText(/superseded/i)).toBeDefined()

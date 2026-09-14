@@ -56,6 +56,7 @@ import { useBrowsePosition } from '../tracking/useBrowsePosition'
 import { locationChip } from '../map/locationLabel'
 import type { LocationSource } from '../tracking/source'
 import { HILLSHADE_URL } from '../map/scene'
+import { settledPosition } from '../tracking/speed'
 import { dangerAlert } from '../navigation/alerts'
 import { notifyInBackground } from '../notify/local'
 import { useT } from '../i18n/tx'
@@ -541,6 +542,17 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
   const canFitRoute = geometry.points.length > 1
   const hasAlternative = geometry.backupPoints.length > 1
 
+  // The pin holds still while the receiver says the truck is stationary: an
+  // indoor fix wanders a few metres per report, and each wander redrew the
+  // whole scene. `settledPosition` applies the SpeedFilter's verdict to the
+  // coordinate; it is not a second filter. The array is memoised on the
+  // numbers so an unchanged pin is the same object and the map does not redraw.
+  const settled = useRef<LatLon | null>(null)
+  settled.current = settledPosition(settled.current, fix)
+  const pinLat = settled.current?.[0] ?? null
+  const pinLon = settled.current?.[1] ?? null
+  const pin = useMemo((): LatLon | null => (pinLat === null || pinLon === null ? null : [pinLat, pinLon]), [pinLat, pinLon])
+
   const marker = useMemo((): {
     position: LatLon | null
     kind: PositionKind | null
@@ -551,7 +563,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
     if (!fix || locPermission !== 'granted' || clock.platformPermission === 'denied') return { position: null, kind: null, source: null, accuracyM: null, headingDeg: null }
     const freshMs = (trip?.tracking.fresh_seconds ?? 60) * 1000
     return {
-      position: [fix.lat, fix.lon],
+      position: pin,
       kind: locWatching && clock.now - fix.at >= 0 && clock.now - fix.at <= freshMs ? 'LIVE' : 'LAST_KNOWN',
       source: fix.source ?? null,
       accuracyM: fix.accuracyM,
@@ -559,7 +571,10 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
       // phone's compass pointed the marker wherever the driver held it.
       headingDeg: fix.headingDeg ?? null,
     }
-  }, [fix, trip?.tracking.fresh_seconds, clock.now, clock.platformPermission, locPermission, locWatching])
+  }, [fix, pin, trip?.tracking.fresh_seconds, clock.now, clock.platformPermission, locPermission, locWatching])
+  // The age the map draws is only for the LAST KNOWN tooltip and is coarse on
+  // purpose: a value that ticked every five seconds redrew the scene with it.
+  const ageForScene = marker.kind === 'LAST_KNOWN' && fix ? Math.max(0, Math.round((clock.now - fix.at) / 30_000) * 30) : null
 
   /**
    * Open the platform dialler. It does NOT place the call.
@@ -759,7 +774,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
           <DriverRouteMap
             routeId={selectedRouteId}
             progressFraction={null}
-            positionAgeSeconds={fix ? Math.max(0, (clock.now - fix.at) / 1000) : null}
+            positionAgeSeconds={ageForScene}
             points={[]}
             backupPoints={[]}
             showBackup={false}
@@ -786,7 +801,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
       <DriverRouteMap
         routeId={selectedRouteId}
         progressFraction={guidanceHasPosition && geometry.distanceKm && travelledM !== null ? travelledM / (geometry.distanceKm * 1000) : null}
-        positionAgeSeconds={fix ? Math.max(0, (clock.now - fix.at) / 1000) : null}
+        positionAgeSeconds={ageForScene}
         points={geometry.points}
         backupPoints={geometry.backupPoints}
         showBackup={showAltRoute}

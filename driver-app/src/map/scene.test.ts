@@ -37,3 +37,25 @@ describe('sceneLayers', () => {
     expect(layers).toEqual([expect.objectContaining({ k: 'dot', id: 'osm:1', tip: 'Lay-by - rest' })])
   })
 })
+
+describe('static and live layers', () => {
+  it('flags the truck, its disc and the driven stretch as live; the road, stops and places are static', () => {
+    const layers = sceneLayers({
+      ...base,
+      progressFraction: 0.5,
+      stops: [{ sequence: 0, name: 'Depot', lat: 26.1, lon: 91.7 } as never],
+      position: [26.2, 91.8],
+      positionKind: 'LIVE',
+      accuracyM: 20,
+      headingDeg: 45,
+      places: [{ provider_id: 'osm:1', name: 'Lay-by', category: 'REST', lat: 26, lon: 91 } as never],
+    })
+    const live = layers.filter((l) => l.live)
+    const still = layers.filter((l) => !l.live)
+    expect(live.map((l) => l.k)).toEqual(['line', 'circle', 'arrow'])
+    // Both road lines carry the whole route: progress paints over them, it
+    // never trims them, so a fix does not rebuild the road.
+    expect(still.filter((l) => l.k === 'line').every((l) => l.p.length === base.points.length)).toBe(true)
+    expect(still.filter((l) => l.k === 'dot')).toHaveLength(2)
+  })
+})

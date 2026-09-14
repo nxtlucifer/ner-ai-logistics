@@ -36,6 +36,8 @@ export interface PlanValidation {
   cargo: Check
   pickup: Check
   destination: Check
+  /** Both confirmed points inside the service region. */
+  region: Check
   driver: Check
   truck: Check
   assignment: Check
@@ -48,6 +50,30 @@ const ok: Check = { valid: true, reason: null }
 const fail = (reason: string): Check => ({ valid: false, reason })
 
 const SOURCES = new Set(['GOOGLE', 'MAP', 'GOOGLE_MAPS_LINK', 'MANUAL'])
+
+/**
+ * The North-East service region: the eight states plus the Siliguri corridor.
+ * A confirmed point outside it is refused here, before a route is requested.
+ * TRP-08726C5F was planned from a Nagaland village to an Ahmedabad locality -
+ * both real, both search results, 2,240 km apart - and nothing said so until
+ * a 2,908 km route came back looking like a routing fault.
+ */
+export const SERVICE_REGION = { south: 21.5, north: 29.5, west: 88.0, east: 97.5 }
+export const SERVICE_REGION_NAME =
+  'the North-East service region (Assam, Arunachal Pradesh, Manipur, Meghalaya, Mizoram, Nagaland, Sikkim, Tripura)'
+
+export function inServiceRegion(p: { lat: number; lon: number }): boolean {
+  return p.lat >= SERVICE_REGION.south && p.lat <= SERVICE_REGION.north && p.lon >= SERVICE_REGION.west && p.lon <= SERVICE_REGION.east
+}
+
+/** Great-circle distance, km. The corridor a route has to be judged against. */
+export function straightLineKm(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
+  const rad = Math.PI / 180
+  const dLat = (b.lat - a.lat) * rad
+  const dLon = (b.lon - a.lon) * rad
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLon / 2) ** 2
+  return 2 * 6371 * Math.asin(Math.sqrt(h))
+}
 
 export function endpointPoint(e: EndpointValue): { lat: number; lon: number } | null {
   if (e.source === null || !SOURCES.has(e.source)) return null
@@ -94,6 +120,17 @@ export function validatePlan(input: PlanInput): PlanValidation {
   if (pickup.valid && destination.valid && p && d && Math.abs(p.lat - d.lat) < 1e-4 && Math.abs(p.lon - d.lon) < 1e-4) {
     destination = fail('Pickup and destination are the same point.')
   }
+  const outside = (
+    [
+      ['pickup', p, input.pickup.address],
+      ['destination', d, input.destination.address],
+    ] as const
+  ).find(([, point]) => point !== null && !inServiceRegion(point))
+  const region = outside
+    ? fail(
+        `Location confirmation required — the ${outside[0]} "${outside[2].trim() || `${outside[1]!.lat.toFixed(4)}, ${outside[1]!.lon.toFixed(4)}`}" is outside ${SERVICE_REGION_NAME}. Pick a point inside it.`,
+      )
+    : ok
 
   const driverRow = input.drivers.find((x) => x.id === input.driverId) ?? null
   const driver = !input.driverId
@@ -137,7 +174,7 @@ export function validatePlan(input: PlanInput): PlanValidation {
       ? fail(`Cargo exceeds ${truckRow.registration_number}'s capacity of ${Number(truckRow.max_capacity_kg).toLocaleString()} kg.`)
       : ok
 
-  const ordered = [readiness, client, cargo, pickup, destination, driver, truck, assignment, capacity]
+  const ordered = [readiness, client, cargo, pickup, destination, region, driver, truck, assignment, capacity]
   const blocker = ordered.find((c) => !c.valid)?.reason ?? null
-  return { readiness, client, cargo, pickup, destination, driver, truck, assignment, capacity, blocker }
+  return { readiness, client, cargo, pickup, destination, region, driver, truck, assignment, capacity, blocker }
 }

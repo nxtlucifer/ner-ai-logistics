@@ -65,12 +65,12 @@ LIVE_ROUTE_STATES: Final[tuple[RouteState, ...]] = (
 
 #: Hard ceiling on how many routes one call will score.
 #:
-#: Planning stores at most a PRIMARY and one EMERGENCY_BACKUP today, so this is
-#: headroom rather than a limit that bites. It exists because the cost of this
-#: endpoint is `candidates x ROUTE_SAMPLES` requests to a free provider, and a
-#: bound that lives in code is the only kind that survives someone later
-#: persisting a third alternative.
-MAX_CANDIDATE_ROUTES: Final[int] = 2
+#: Planning stores a PRIMARY and every distinct extra the provider offered as
+#: EMERGENCY_BACKUP - at most `routes.MAX_ROUTE_OPTIONS` rows per plan - so
+#: this matches that. It exists because the cost of this endpoint is
+#: `candidates x ROUTE_SAMPLES` requests to a free provider, and a bound that
+#: lives in code is the only kind that survives someone later persisting more.
+MAX_CANDIDATE_ROUTES: Final[int] = 3
 
 
 async def _live_route_facts(

@@ -31,9 +31,12 @@ pytestmark = [pytest.mark.requires_db, pytest.mark.usefixtures("clear_hazard_evi
 GEOMETRY = [(26.1445, 91.7362), (26.4, 92.9), (26.7509, 94.2037)]
 
 
-#: A genuinely separate corridor - half a degree away, not a detour around a
-#: roundabout. Used to prove a real alternative IS stored as a backup.
-FAR_GEOMETRY = [(lat + 0.5, lon + 0.5) for lat, lon in GEOMETRY]
+#: A genuinely separate corridor - half a degree away through the middle, not a
+#: detour around a roundabout - that still connects the same two stops, as a
+#: real alternative does. Used to prove a real alternative IS stored as a backup.
+FAR_GEOMETRY = [GEOMETRY[0], (26.9, 92.9), GEOMETRY[2]]
+#: A third corridor, distinct from both of the above.
+THIRD_GEOMETRY = [GEOMETRY[0], (25.9, 92.9), GEOMETRY[2]]
 #: A few hundred metres off the same road. Must NOT be stored as a backup.
 NUDGED_GEOMETRY = [(lat + 0.003, lon) for lat, lon in GEOMETRY]
 
@@ -47,10 +50,13 @@ class _StubChain:
         raises=None,
         provider="stub",
         extra_geometry: list[tuple[float, float]] | None = None,
+        extras: list[list[tuple[float, float]]] | None = None,
+        primary_geometry: list[tuple[float, float]] | None = None,
     ) -> None:
         self._raises = raises
         self._provider = provider
-        self._extra = extra_geometry
+        self._extras = ([extra_geometry] if extra_geometry is not None else []) + (extras or [])
+        self._primary = primary_geometry or GEOMETRY
         self.calls = 0
 
     def _make(self, kind, geometry, distance=308_000.0):  # noqa: ANN001
@@ -70,9 +76,12 @@ class _StubChain:
             raise self._raises
         from app.services.routing.base import ChainAttempt, ChainOptions
 
-        candidates = [self._make(kind, GEOMETRY)]
-        if self._extra is not None and limit > 1:
-            candidates.append(self._make(kind, self._extra, distance=330_000.0))
+        candidates = [self._make(kind, self._primary)]
+        # Everything configured, regardless of `limit`: a provider may answer
+        # with more than it was asked for, and the service must cope.
+        if limit > 1:
+            for extra in self._extras:
+                candidates.append(self._make(kind, extra, distance=330_000.0))
         return ChainOptions(
             candidates=tuple(candidates),
             attempts=(ChainAttempt(self._provider, ok=True),),
@@ -440,6 +449,50 @@ class TestBackupRoute:
         )
         assert r.status_code == 201
         assert r.json()["backup_planned"] is False
+
+    async def test_every_distinct_alternative_is_stored_and_a_duplicate_is_not(
+        self, api: AsyncClient, session: AsyncSession, manager_headers: dict, stub_chain
+    ) -> None:
+        """Three options asked for; the two distinct extras kept, the repeat dropped."""
+        chain = stub_chain(extras=[FAR_GEOMETRY, FAR_GEOMETRY, THIRD_GEOMETRY])
+        trip = await _trip(session)
+
+        r = await api.post(
+            f"/api/trips/{trip.id}/routes/recalculate", headers=manager_headers
+        )
+        assert r.status_code == 201, r.text
+        assert r.json()["backup_planned"] is True
+        assert chain.calls == 1
+
+        rows = (
+            await session.execute(
+                select(TripRoute).where(TripRoute.trip_id == trip.id)
+            )
+        ).scalars().all()
+        # Two distinct extras kept; the repeat of FAR_GEOMETRY never became a row.
+        assert sorted(row.kind.value for row in rows) == [
+            "EMERGENCY_BACKUP", "EMERGENCY_BACKUP", "PRIMARY",
+        ]
+
+    async def test_a_route_that_does_not_connect_the_stops_is_refused(
+        self, api: AsyncClient, session: AsyncSession, manager_headers: dict, stub_chain
+    ) -> None:
+        """ROUTE_VALIDATION_FAILED, and nothing stored: a wrong road is not a road."""
+        # Starts at Jorhat and ends at Guwahati - the stops swapped.
+        stub_chain(primary_geometry=list(reversed(GEOMETRY)))
+        trip = await _trip(session)
+
+        r = await api.post(
+            f"/api/trips/{trip.id}/routes/recalculate", headers=manager_headers
+        )
+        assert r.status_code == 422, r.text
+        assert r.json()["error"]["code"] == "ROUTE_VALIDATION_FAILED"
+        rows = (
+            await session.execute(
+                select(TripRoute).where(TripRoute.trip_id == trip.id)
+            )
+        ).scalars().all()
+        assert rows == []
 
     async def test_no_fuel_efficient_route_is_ever_invented(
         self, api: AsyncClient, session: AsyncSession, manager_headers: dict, stub_chain

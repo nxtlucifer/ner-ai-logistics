@@ -45,7 +45,7 @@ import 'leaflet/dist/leaflet.css'
 
 import { boundsOf } from './geo'
 import { routeCameraKey } from './routeDisplay'
-import { ARROW_STYLE, HILLSHADE_ATTRIBUTION, HILLSHADE_URL, sceneLayers } from './scene'
+import { ARROW_STYLE, HILLSHADE_ATTRIBUTION, HILLSHADE_URL, sceneLayers, type SceneLayer } from './scene'
 import type { DriverRouteMapProps } from './types'
 
 /** Assam, so a map with no route still opens somewhere meaningful. */
@@ -182,48 +182,47 @@ export default function DriverRouteMap({
     }
   }, [])
 
-  // Route, backup, stops and the position marker. Redrawn together because
-  // they are few, and a diff would be more code than it saves.
+  // Two draw passes. STATIC: the road, backup, terrain, traffic, hazards,
+  // stops and places - they change when a plan changes. LIVE: the truck, its
+  // accuracy disc and the driven stretch - they change with every fix. One
+  // effect for both meant every five-second fix tore down and rebuilt a
+  // 4,000-point polyline; measured on the phone as a visible hitch. The live
+  // layers sit in their own pane above the static one, so a redraw of either
+  // never leaves the truck under the road.
+  const drawnLive = useRef<L.Layer[]>([])
+  function redraw(instance: L.Map, layers: SceneLayer[], into: L.Layer[], pane?: string) {
+    for (const layer of into) layer.remove()
+    into.length = 0
+    const safeLabel = (text: string) => { const el = document.createElement('span'); el.textContent = text; return el }
+    for (const s of layers) {
+      let layer: L.Layer
+      if (s.k === 'line') layer = L.polyline(s.p, { pane, color: s.c, weight: s.w, dashArray: s.d, lineJoin: 'round', lineCap: 'round' })
+      else if (s.k === 'circle') layer = L.circle(s.p, { pane, radius: s.r, color: s.c, weight: 1, dashArray: s.d, fillColor: s.c, fillOpacity: 0.15 })
+      else if (s.k === 'dot') layer = L.circleMarker(s.p, { pane, radius: s.r, color: s.c, weight: s.w, fillColor: s.f, fillOpacity: s.o })
+      else layer = L.marker(s.p, { pane, icon: L.divIcon({ className: '', html: `<div style="${ARROW_STYLE}transform:rotate(${s.h}deg)"></div>`, iconSize: [22, 22], iconAnchor: [11, 11] }) })
+      if (s.tip) layer.bindTooltip(safeLabel(s.tip))
+      if (s.k === 'dot' && s.id && onSelectPlace) { const id = s.id; layer.on('click', () => { const place = places.find((x) => x.provider_id === id); if (place) onSelectPlace(place) }) }
+      layer.addTo(instance)
+      into.push(layer)
+    }
+  }
+
   useEffect(() => {
     const instance = map.current
     if (instance === null) return
+    const scene = sceneLayers({ points, progressFraction: null, backupPoints, showBackup, terrainSegments, hazards, stops, position: null, positionKind: null, positionSource: null, accuracyM: null, positionAgeSeconds: null, headingDeg: null, places, selectedPlaceId, trafficSegments })
+    redraw(instance, scene.filter((l) => !l.live), drawn.current)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [points, backupPoints, showBackup, stops, places, selectedPlaceId, onSelectPlace, terrainSegments, hazards, trafficSegments])
 
-    for (const layer of drawn.current) layer.remove()
-    drawn.current = []
-
-    function keep(layer: L.Layer) {
-      layer.addTo(instance!)
-      drawn.current.push(layer)
-    }
-    const safeLabel = (text: string) => { const el = document.createElement('span'); el.textContent = text; return el }
-    for (const s of sceneLayers({ points, progressFraction, backupPoints, showBackup, terrainSegments, hazards, stops, position, positionKind, positionSource, accuracyM, positionAgeSeconds, headingDeg, places, selectedPlaceId, trafficSegments })) {
-      let layer: L.Layer
-      if (s.k === 'line') layer = L.polyline(s.p, { color: s.c, weight: s.w, dashArray: s.d, lineJoin: 'round', lineCap: 'round' })
-      else if (s.k === 'circle') layer = L.circle(s.p, { radius: s.r, color: s.c, weight: 1, dashArray: s.d, fillColor: s.c, fillOpacity: 0.15 })
-      else if (s.k === 'dot') layer = L.circleMarker(s.p, { radius: s.r, color: s.c, weight: s.w, fillColor: s.f, fillOpacity: s.o })
-      else layer = L.marker(s.p, { icon: L.divIcon({ className: '', html: `<div style="${ARROW_STYLE}transform:rotate(${s.h}deg)"></div>`, iconSize: [22, 22], iconAnchor: [11, 11] }) })
-      if (s.tip) layer.bindTooltip(safeLabel(s.tip))
-      if (s.k === 'dot' && s.id && onSelectPlace) { const id = s.id; layer.on('click', () => { const place = places.find((x) => x.provider_id === id); if (place) onSelectPlace(place) }) }
-      keep(layer)
-    }
-  }, [
-    points,
-    backupPoints,
-    showBackup,
-    stops,
-    position,
-    positionKind,
-    positionSource,
-    accuracyM,
-    progressFraction,
-    positionAgeSeconds,
-    headingDeg,
-    places,
-    selectedPlaceId,
-    onSelectPlace,
-    terrainSegments,
-    hazards,
-  ])
+  useEffect(() => {
+    const instance = map.current
+    if (instance === null) return
+    if (!instance.getPane('live')) instance.createPane('live').style.zIndex = '450'
+    const scene = sceneLayers({ points, progressFraction, backupPoints: [], showBackup: false, stops: [], position, positionKind, positionSource, accuracyM, positionAgeSeconds, headingDeg, places: [], selectedPlaceId: null })
+    redraw(instance, scene.filter((l) => l.live), drawnLive.current, 'live')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [points, progressFraction, position, positionKind, positionSource, accuracyM, positionAgeSeconds, headingDeg])
 
   // Fit the route ONCE per route, not on every poll. Re-framing the camera
   // every ten seconds is the behaviour `FleetMap` calls out as unreadable.

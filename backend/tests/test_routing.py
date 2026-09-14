@@ -12,6 +12,7 @@ is exactly the kind of thing that gets believed.
 import httpx
 import pytest
 
+from app.domain import routing
 from app.domain.routing import (
     Coordinate,
     RouteCandidate,
@@ -532,3 +533,57 @@ class TestWeatherSamplingIsSpreadByDistance:
         assert sample_positions([(26.0, 91.0)], 5) == [(26.0, 91.0)]
         assert sample_positions(self.HILLY, 0) == []
         assert sample_positions(self.HILLY, 1) == [self.HILLY[0]]
+
+
+class TestEndpointValidation:
+    """A provider answer is checked against the endpoints it was asked for.
+
+    The route on TRP-08726C5F (2,908 km) passes: it really connects its two
+    stops. What is refused is the shape of a WRONG route - one from a previous
+    request, a swapped pair, a reroute origin used by mistake, a truncated
+    polyline - which is the class of fault this exists to catch.
+    """
+
+    ORIGIN = Coordinate(lat=26.1445, lon=91.7362)  # Guwahati
+    DESTINATION = Coordinate(lat=25.5788, lon=91.8933)  # Shillong
+
+    def _candidate(self, geometry, distance_m):  # noqa: ANN001
+        return RouteCandidate(
+            kind=RouteKind.PRIMARY, provider="t", geometry=geometry,
+            distance_m=distance_m, duration_s=4_620.0,
+        )
+
+    def test_a_route_that_connects_the_stops_passes(self) -> None:
+        c = self._candidate([(26.1445, 91.7362), (25.9, 91.8), (25.5788, 91.8933)], 98_800.0)
+        assert routing.endpoint_mismatch(c, self.ORIGIN, self.DESTINATION) is None
+
+    def test_the_real_2908_km_answer_passes_because_it_did_connect_its_stops(self) -> None:
+        nagaland = Coordinate(lat=25.9623701, lon=94.5856111)
+        ahmedabad = Coordinate(lat=23.0687402, lon=72.6734956)
+        c = self._candidate([(25.962233, 94.585478), (24.5, 85.0), (23.069084, 72.67363)], 2_908_160.0)
+        assert routing.endpoint_mismatch(c, nagaland, ahmedabad) is None
+
+    def test_a_route_starting_elsewhere_is_named(self) -> None:
+        c = self._candidate([(26.7509, 94.2037), (26.0, 92.0), (25.5788, 91.8933)], 400_000.0)
+        assert routing.endpoint_mismatch(c, self.ORIGIN, self.DESTINATION) == routing.REASON_STARTS_AWAY_FROM_ORIGIN
+
+    def test_a_route_ending_elsewhere_is_named(self) -> None:
+        c = self._candidate([(26.1445, 91.7362), (26.4, 92.9), (26.7509, 94.2037)], 305_000.0)
+        assert routing.endpoint_mismatch(c, self.ORIGIN, self.DESTINATION) == routing.REASON_ENDS_AWAY_FROM_DESTINATION
+
+    def test_a_swapped_pair_is_refused(self) -> None:
+        c = self._candidate([(25.5788, 91.8933), (25.9, 91.8), (26.1445, 91.7362)], 98_800.0)
+        assert routing.endpoint_mismatch(c, self.ORIGIN, self.DESTINATION) == routing.REASON_STARTS_AWAY_FROM_ORIGIN
+
+    def test_a_truncated_line_shorter_than_the_straight_line_is_refused(self) -> None:
+        c = self._candidate([(26.1445, 91.7362), (25.9, 91.8), (25.5788, 91.8933)], 30_000.0)
+        assert routing.endpoint_mismatch(c, self.ORIGIN, self.DESTINATION) == routing.REASON_SHORTER_THAN_STRAIGHT_LINE
+
+    def test_a_distance_no_road_between_these_points_can_have_is_refused(self) -> None:
+        c = self._candidate([(26.1445, 91.7362), (25.9, 91.8), (25.5788, 91.8933)], 900_000.0)
+        assert routing.endpoint_mismatch(c, self.ORIGIN, self.DESTINATION) == routing.REASON_IMPLAUSIBLY_LONG
+
+    def test_snapping_within_tolerance_is_not_a_mismatch(self) -> None:
+        # OSRM snaps a pin in a field to the nearest road, a few km at most.
+        c = self._candidate([(26.17, 91.76), (25.9, 91.8), (25.60, 91.90)], 98_000.0)
+        assert routing.endpoint_mismatch(c, self.ORIGIN, self.DESTINATION) is None

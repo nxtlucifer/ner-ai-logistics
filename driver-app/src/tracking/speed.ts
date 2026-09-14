@@ -117,3 +117,21 @@ export class SpeedFilter {
     return Math.round(this.ema * 3.6)
   }
 }
+
+/**
+ * Where the map pins the truck, given the newest fix.
+ *
+ * While the filter says STATIONARY the previous pin is kept: a still receiver
+ * reports coordinates that wander a few metres per fix, and a pin that follows
+ * the wander redraws the whole scene for a truck that has not moved. The same
+ * coordinates come back as the SAME array, so a renderer keyed on identity
+ * sees no change either.
+ */
+export function settledPosition(
+  prev: readonly [number, number] | null,
+  fix: { lat: number; lon: number; speedKmh?: number | null } | null,
+): readonly [number, number] | null {
+  if (!fix) return null
+  if (prev && (fix.speedKmh === 0 || (prev[0] === fix.lat && prev[1] === fix.lon))) return prev
+  return [fix.lat, fix.lon]
+}

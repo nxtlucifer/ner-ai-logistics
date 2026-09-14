@@ -49,7 +49,7 @@ import {
 } from '../api/client'
 const FleetMap = lazy(() => import('../components/FleetMap'))
 import { FleetKpiBar } from '../components/FleetKpiBar'
-import { RouteRiskComparison, type RouteOption } from '../components/RouteRiskComparison'
+import { RouteCandidateCards, type Candidate } from '../components/RouteCandidateCards'
 import { TruckContextDrawer } from '../components/TruckContextDrawer'
 import {
   Button,
@@ -322,18 +322,9 @@ export default function FleetPage() {
     error: unknown
   } | null>(null)
   const [isAssessing, setIsAssessing] = useState(false)
-  // Selecting a route is a separate action from planning one, and carries its
-  // trip for the same reason planning does: a slow answer must not be applied
-  // to whatever truck is on screen when it arrives.
-  const [selected, setSelected] = useState<{
-    tripId: string
-    route: TripRoute
-  } | null>(null)
-  const [selectError, setSelectError] = useState<{
-    tripId: string
-    error: unknown
-  } | null>(null)
-  const [isSelecting, setIsSelecting] = useState(false)
+  // Which option the map is drawing. Null: the current route, or the newest
+  // candidate when there is none.
+  const [previewId, setPreviewId] = useState<string | null>(null)
   const [isAccepting, setIsAccepting] = useState(false)
   const [acceptError, setAcceptError] = useState<{
     tripId: string
@@ -353,6 +344,8 @@ export default function FleetPage() {
   const [comparison, setComparison] = useState<{
     tripId: string
     result: RouteRecommendation
+    /** When the evidence was checked. Shown, because it ages. */
+    at: number
   } | null>(null)
   const [chooseError, setChooseError] = useState<{
     tripId: string
@@ -406,10 +399,6 @@ export default function FleetPage() {
     planned && planned.tripId === selectedTripId ? planned.route : null
   const planErrorHere =
     planError && planError.tripId === selectedTripId ? planError.error : null
-  const selectedHere =
-    selected && selected.tripId === selectedTripId ? selected.route : null
-  const selectErrorHere =
-    selectError && selectError.tripId === selectedTripId ? selectError.error : null
   const advisoryHere =
     advisory && advisory.tripId === selectedTripId ? advisory.result : null
   const advisoryErrorHere =
@@ -422,6 +411,8 @@ export default function FleetPage() {
     chooseError && chooseError.tripId === selectedTripId ? chooseError.error : null
   const comparisonHere =
     comparison && comparison.tripId === selectedTripId ? comparison.result : null
+  const comparisonAt =
+    comparison && comparison.tripId === selectedTripId ? comparison.at : null
 
   // THE ROUTE THE TRUCK IS ON, from the server (LS-10).
   //
@@ -478,97 +469,33 @@ export default function FleetPage() {
   //
   // The fallbacks are for a trip that has no assignment yet: there the newest
   // candidate IS the thing to show, and choosing it is the next action.
-  const activeRoute =
-    currentRoute ?? selectedHere ?? plannedHere ?? candidates[0] ?? null
-  const isFollowing = activeRoute !== null && activeRoute.id === currentRoute?.id
+  const activeRoute = currentRoute ?? plannedHere ?? candidates[0] ?? null
 
-  const [aiExplanation, setAiExplanation] = useState<{
-    tripId: string
-    text: string
-    model: string | null
-    loading: boolean
-  } | null>(null)
-
-  const fetchAiExplanation = useCallback(async (tripId: string) => {
-    setAiExplanation({ tripId, text: '', model: null, loading: true })
-    try {
-      const res = await api.aiAsk({
-        mode: 'assistant',
-        question:
-          'Explain the multi-factor route risk assessment, considering monitored monsoon weather corridors, historical landslide exposure, and physics-based truck fuel consumption.',
-      })
-      setAiExplanation({
-        tripId,
-        text: res.answer,
-        // Kept on the object for the type, never rendered - RouteRiskComparison
-                    // deliberately ignores it. The old default hardcoded two vendor
-                    // model names, one of which was wrong after the backup engine
-                    // changed.
-                    model: res.model ?? null,
-        loading: false,
-      })
-    } catch {
-      setAiExplanation({
-        tripId,
-        text: 'The primary corridor is recommended as the safest route: it prioritizes monitored multi-lane sections and avoids high landslide exposure slopes. Fuel consumption is estimated using a deterministic physics model responding to vehicle payload and road grade.',
-        model: 'Deterministic Safety Rule',
-        loading: false,
-      })
-    }
-  }, [])
-
-  const routeOptions: RouteOption[] = useMemo(() => {
-    // Unique list of routes for this trip (only real routes from trip_routes, no fake padding)
-    const rawList = candidates.length > 0 ? candidates : (activeRoute ? [activeRoute] : [])
-    const seen = new Set<string>()
-    const routeList = rawList.filter((r) => {
-      if (seen.has(r.id)) return false
-      seen.add(r.id)
-      return true
-    })
-
-    return routeList.map((r, idx) => {
-      const elig = eligibilityByRoute.get(r.id)
-      const dist = r.distance_km ? Number(r.distance_km) : 0
-      const dur = r.estimated_duration_min ?? 0
-      const fuelVal = r.estimated_fuel_litres ? Number(r.estimated_fuel_litres) : null
-      const riskScore = elig?.risk?.score != null ? Math.round(elig.risk.score) : null
-      const riskBand: 'LOW' | 'MODERATE' | 'HIGH' | 'UNASSESSED' =
-        elig?.risk?.band ??
-        (elig?.eligibility === 'ELIGIBLE'
-          ? 'LOW'
-          : elig?.eligibility === 'REQUIRES_REVIEW'
-            ? 'MODERATE'
-            : elig?.eligibility === 'REJECTED'
-              ? 'HIGH'
-              : 'UNASSESSED')
-
-      const kindTitle =
-        r.kind === 'PRIMARY'
-          ? 'Primary Corridor'
-          : r.kind === 'FUEL_EFFICIENT'
-            ? 'Fuel-Optimized Corridor'
-            : 'Emergency Alternative'
-
-      return {
-        id: r.id,
-        kind: (r.kind as any) ?? 'PRIMARY',
-        title: `Route ${idx + 1}: ${kindTitle}`,
-        corridor: r.routing_provider ? `${r.routing_provider.toUpperCase()} Corridor (${dist.toFixed(1)} km)` : `Corridor ${idx + 1}`,
-        distanceKm: Number(dist.toFixed(1)),
-        durationMin: dur,
-        riskScore,
-        riskBand,
-        weatherText: elig ? 'Monitored multi-point corridor weather' : 'Weather: Sampled along corridor',
-        landslideText: elig?.risk?.unavailable?.includes('landslide')
-          ? 'Landslide: no current-incident feed connected (historical exposure only)'
-          : 'Landslide: Historical exposure reference',
-        fuelL: fuelVal,
-        fuelDeltaL: undefined,
-        isCurrent: r.id === currentRoute?.id,
-      }
-    })
-  }, [activeRoute, candidates, currentRoute, eligibilityByRoute])
+  // Every option a dispatcher may still act on, plus the current route even
+  // when an old plan retired it (shown STALE). Current first, then the rule's
+  // recommendation, then newest. Nothing is padded: one road is one card.
+  const liveAuthorization = (held: ReviewAuthorization | null | undefined) =>
+    held && held.consumed_at === null && held.revoked_at === null && new Date(held.expires_at) > new Date()
+      ? held
+      : null
+  const recommendedId = comparisonHere?.recommended_route_id ?? null
+  // A route just planned is a card at once, before the re-read that will
+  // also list it lands - the answer belongs on screen the moment it exists.
+  const knownRoutes = new Set(detail.routes.map((r) => r.id))
+  const cards: Candidate[] = (plannedHere && !knownRoutes.has(plannedHere.id) ? [plannedHere, ...detail.routes] : detail.routes)
+    .filter((r) => r.is_current || r.state !== 'SUPERSEDED')
+    .map((r) => ({
+      route: r,
+      assessed: eligibilityByRoute.get(r.id) ?? null,
+      authorization: liveAuthorization(reviewAuths[r.id]),
+    }))
+    .sort(
+      (a, b) =>
+        Number(b.route.is_current) - Number(a.route.is_current) ||
+        Number(b.route.id === recommendedId) - Number(a.route.id === recommendedId) ||
+        b.route.created_at.localeCompare(a.route.created_at),
+    )
+  const previewRoute = previewId ? detail.routes.find((r) => r.id === previewId) ?? null : null
 
   async function planRoute() {
     if (!selectedTripId || isPlanning) return
@@ -589,30 +516,11 @@ export default function FleetPage() {
       setAdvisory(null)
       setComparison(null)
       setReviewAuths({})
+      setPreviewId(null)
     } catch (error) {
       setPlanError({ tripId, error })
     } finally {
       setIsPlanning(false)
-    }
-  }
-
-  // NOT named `useThisRoute`: React's rules-of-hooks lint treats any `use`
-  // prefix as a Hook, and a plain async handler called from onClick is not one.
-  async function followThisRoute() {
-    if (!selectedTripId || !activeRoute || isSelecting) return
-    const tripId = selectedTripId
-    const routeId = activeRoute.id
-    setIsSelecting(true)
-    setSelectError(null)
-    try {
-      setSelected({ tripId, route: await api.selectRoute(tripId, routeId) })
-      // Any advisory on screen was computed against a different selected
-      // route - or against none - so it now describes the wrong comparison.
-      setAdvisory(null)
-    } catch (error) {
-      setSelectError({ tripId, error })
-    } finally {
-      setIsSelecting(false)
     }
   }
 
@@ -634,18 +542,12 @@ export default function FleetPage() {
     setChoosingId(routeId)
     setChooseError(null)
     try {
-      if (inTransit) {
-        if (!currentRoute) {
-          // A moving trip with no current route cannot be rerouted FROM
-          // anything. Refuse here rather than sending a request the server
-          // must reject.
-          throw new Error(
-            'This trip is under way but has no current route, so there is ' +
-              'nothing to reroute from. Plan and select a route first.',
-          )
-        }
+      if (inTransit && currentRoute) {
         await api.acceptReroute(tripId, currentRoute.id, routeId, authorizationId)
       } else {
+        // A draft - or a moving trip that has no current route, a data gap
+        // from before the dispatch gate. A plain selection: there is nothing
+        // to reroute FROM, and refusing would leave the phone without guidance.
         await api.selectRoute(tripId, routeId, authorizationId)
       }
       // Re-read rather than patching local state: the server decides which row
@@ -658,6 +560,7 @@ export default function FleetPage() {
       setAdvisory(null)
       setComparison(null)
       setReviewAuths({})
+      setPreviewId(null)
     } catch (error) {
       setChooseError({ tripId, error })
     } finally {
@@ -693,7 +596,7 @@ export default function FleetPage() {
       setAdvisory({ tripId, result: assessment.value })
       setComparison(
         compared.status === 'fulfilled'
-          ? { tripId, result: compared.value }
+          ? { tripId, result: compared.value, at: Date.now() }
           : null,
       )
 
@@ -947,7 +850,7 @@ export default function FleetPage() {
               selectedTripId={selectedTripId}
               onSelect={select}
               track={detail.track}
-              plannedRoute={activeRoute?.geometry}
+              plannedRoute={previewRoute?.geometry ?? activeRoute?.geometry}
             />
           </Suspense>
 
@@ -1068,8 +971,7 @@ export default function FleetPage() {
                       needs while reading anything below, and they were the part
                       pushed off screen by the panel's own length. */}
                   <div>
-                    <FreshnessPill freshness={selectedRow.freshness} />
-                    <div className="mt-3">
+                    <div className="mt-1">
                       <Detail
                         label="Trip status"
                         value={<StatusPill status={selectedRow.trip_status} />}
@@ -1112,11 +1014,10 @@ export default function FleetPage() {
                     ))}
                   </div>
 
-                  {/* BOUNDED TO THE VIEWPORT, not to the content. This is the
-                      line that stops the page growing without limit: the
-                      details scroll inside their own box, the page does not
-                      scroll to reach them, and nobody has to zoom out. */}
-                  <div className="max-h-[calc(100vh-22rem)] min-h-[12rem] space-y-4 overflow-y-auto pr-1">
+                  {/* ONE scroll container: the sticky inspector (.fleet-detail)
+                      bounds itself to the viewport. A second scrolling box
+                      nested inside it gave the route tab three scrollbars. */}
+                  <div className="space-y-4">
                   {tab === 'overview' ? (
                   <>
                   <div>
@@ -1253,105 +1154,74 @@ export default function FleetPage() {
                   ) : null}
                   {tab === 'route' ? (
                   <>
+                  {/* THREE FACTS ON THREE ROWS. The trip's lifecycle, the age
+                      of the driver's last fix, and when the hazard evidence
+                      was last checked are different things. They used to be
+                      read off one badge, and a STALE pill beside an ACTIVE
+                      trip looked like a contradiction. */}
+                  <div data-testid="route-facts">
+                    <Detail
+                      label="Trip status"
+                      value={<StatusPill status={selectedRow.trip_status} />}
+                    />
+                    <Detail
+                      label="Driver location"
+                      value={
+                        selectedRow.position
+                          ? `${selectedRow.freshness.replaceAll('_', ' ')} · reported ${age(selectedRow.position.age_seconds)}`
+                          : 'none reported yet'
+                      }
+                    />
+                    <Detail
+                      label="Route evidence"
+                      value={
+                        comparisonAt !== null
+                          ? `checked ${new Date(comparisonAt).toLocaleTimeString()} — conditions change, check again before deciding`
+                          : 'not checked yet'
+                      }
+                    />
+                  </div>
 
-                  {/* PLANNED route, immediately above the OBSERVED track so
-                      the distinction is visible in the panel and not only in
-                      the map legend. One is where a provider says the truck
-                      should go; the other is where it has actually been. */}
+                  {/* THE ROAD THE TRUCK IS ON, from the server (LS-10). Its
+                      figures live on the card marked CURRENT below; this block
+                      only says whether there is one, and what to do if not. */}
                   <div>
                     <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-primary">
-                      Planned route
+                      Current route
                     </h3>
-                    {activeRoute ? (
-                      <>
-                        <Detail
-                          label="Distance"
-                          value={
-                            activeRoute.distance_km
-                              ? `${Number(activeRoute.distance_km).toLocaleString()} km`
-                              : 'unavailable'
-                          }
-                        />
-                        <Detail
-                          label="Free-flow travel time"
-                          value={
-                            activeRoute.estimated_duration_min === null
-                              ? 'unavailable'
-                              : `${Math.floor(activeRoute.estimated_duration_min / 60)}h ${
-                                  activeRoute.estimated_duration_min % 60
-                                }m`
-                          }
-                        />
-                        <Detail
-                          label="Provider"
-                          value={activeRoute.routing_provider ?? 'unknown'}
-                        />
-                        {/* Said plainly, because a duration beside a live map
-                            reads as an arrival time unless it is denied. */}
-                        <p className="mt-2 text-[11px] leading-relaxed text-muted">
-                          Travel time is the routing provider's free-flow
-                          estimate. It is <strong>not an ETA</strong> — it
-                          accounts for no departure time, no traffic and no time
-                          spent at stops. No fuel estimate is shown because no
-                          fuel model exists yet.
-                        </p>
-                      </>
-                    ) : planErrorHere ? (
-                      <ErrorState error={planErrorHere} onRetry={() => void planRoute()} />
+                    {currentRoute ? (
+                      <p className="text-xs font-semibold text-ok">
+                        {inTransit
+                          ? 'The truck is on the route marked CURRENT below.'
+                          : 'Dispatch will use the route marked CURRENT below.'}
+                      </p>
                     ) : (
-                      <p className="text-xs text-muted">
-                        No route planned for this trip yet.
+                      <p className="text-xs text-warning">
+                        No route selected
+                        {inTransit
+                          ? ' — this trip is under way without one, so the phone has no guidance. Choose an option below to set one.'
+                          : detail.routes.length > 0
+                            ? ' — choose one of the options below.'
+                            : '.'}
                       </p>
                     )}
-                    {/* A planned route is not the route the trip is
-                        FOLLOWING. `trips.selected_route_id` is what the
-                        driver's progress is measured against, what an
-                        alternative has to beat, and what the offline package
-                        downloads - so which one it is has to be visible, and
-                        settable, rather than implied by the list order. */}
-                    {activeRoute ? (
-                      isFollowing ? (
-                        <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-ok">
-                          Following this route
-                        </p>
-                      ) : (
-                        <div className="mt-3">
-                          <Button
-                            busy={isSelecting}
-                            disabled={isSelecting}
-                            onClick={() => void followThisRoute()}
-                          >
-                            {isSelecting ? 'Setting…' : 'Use this route'}
-                          </Button>
-                        </div>
-                      )
-                    ) : null}
-
-                    {selectErrorHere ? (
-                      <div className="mt-2">
-                        <ErrorState
-                          error={selectErrorHere}
-                          onRetry={() => void followThisRoute()}
-                        />
-                      </div>
-                    ) : null}
-
                     {/* A current route whose lifecycle was retired by an old
-                        planning request. Said plainly: the driver IS on it, so
-                        hiding it would be worse than explaining it. Deliberately
-                        worded so it cannot be read as a hazard finding - it is a
-                        record-keeping problem, not a statement about the road. */}
+                        planning request. Said plainly: the driver IS on it.
+                        Worded so it cannot be read as a hazard finding. */}
                     {currentIsRetired ? (
-                      <p className="mt-3 rounded border border-warning/40 bg-warning-strong/10 p-2 text-[11px] leading-relaxed text-warning">
-                        This route was retired by an earlier re-plan while the
-                        trip was still following it. The driver is on it and it
-                        is shown above. It cannot be re-selected — choose one of
-                        the alternatives below to change road. This is a
-                        record-keeping fault, not a hazard assessment.
+                      <p className="mt-2 rounded border border-warning/40 bg-warning-strong/10 p-2 text-[11px] leading-relaxed text-warning">
+                        Selected route is no longer current — an earlier re-plan
+                        retired it while the trip was still following it. The
+                        driver is on it; choose another route to change road.
+                        A record-keeping fault, not a hazard assessment.
                       </p>
                     ) : null}
-
-                    <div className="mt-3">
+                    {planErrorHere ? (
+                      <div className="mt-2">
+                        <ErrorState error={planErrorHere} onRetry={() => void planRoute()} />
+                      </div>
+                    ) : null}
+                    <div className="mt-3 flex flex-wrap gap-2">
                       <Button
                         variant="secondary"
                         busy={isPlanning}
@@ -1360,193 +1230,50 @@ export default function FleetPage() {
                       >
                         {isPlanning
                           ? 'Planning…'
-                          : activeRoute
+                          : detail.routes.length > 0
                             ? 'Re-plan route'
                             : 'Plan route'}
                       </Button>
-                      {currentRoute ? (
-                        <p className="mt-2 text-[11px] leading-relaxed text-muted">
-                          Re-planning asks the provider for fresh options. It
-                          does not change the road the driver is on — choose an
-                          alternative below to do that.
-                        </p>
-                      ) : null}
+                      <Button
+                        variant="secondary"
+                        busy={isAssessing}
+                        disabled={isAssessing || cards.length === 0}
+                        onClick={() => void assessReroute()}
+                      >
+                        {isAssessing
+                          ? 'Checking…'
+                          : comparisonHere || advisoryHere
+                            ? 'Check again'
+                            : 'Check route conditions'}
+                      </Button>
                     </div>
+                    {detail.routes.length === 0 && !planErrorHere ? (
+                      <p className="mt-2 text-xs text-muted">
+                        No route planned for this trip yet.
+                      </p>
+                    ) : null}
+                    <p className="mt-2 text-[11px] leading-relaxed text-muted">
+                      {currentRoute
+                        ? 'Re-planning asks the provider for fresh options; it does not change the road the driver is on — choosing an option below does. '
+                        : ''}
+                      Checking conditions costs several weather requests, so it runs when you ask.
+                    </p>
                   </div>
 
-                  {/* ALTERNATIVES. Planning produces options; this is where one
-                      becomes the truck's road. The two are kept visibly
-                      separate because they are different decisions.
-
-                      Eligibility shown here is the SERVER's, from the last
-                      assessment actually run. It is not fetched on render:
-                      each assessment costs a weather fan-out per route and the
-                      recommendation endpoint's own contract says a client must
-                      not poll it. Unassessed says so rather than guessing. */}
-                  {candidates.length > 0 ? (
-                    <div className="space-y-4">
-                      {candidates.length >= 2 ? (
-                        <RouteRiskComparison
-                          options={routeOptions}
-                          selectedId={activeRoute?.id ?? null}
-                          onSelect={(id) => void chooseRoute(id)}
-                          aiExplanation={aiExplanation?.text}
-                          aiModel={aiExplanation?.model ?? undefined}
-                          isAiLoading={aiExplanation?.loading}
-                          onRefreshAi={() => selectedTripId && void fetchAiExplanation(selectedTripId)}
-                        />
-                      ) : null}
-                      <div>
-                        <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-primary">
-                          Alternative routes
-                        </h3>
-                        <ul className="space-y-2">
-                        {candidates.map((candidate) => {
-                          const assessed = eligibilityByRoute.get(candidate.id)
-                          const eligibility = assessed?.eligibility ?? null
-                          // A reviewer's single-use authorisation, if one is
-                          // held and still in date. It relaxes REQUIRES_REVIEW
-                          // and NOTHING else - a rejected road stays rejected
-                          // no matter what is held against it.
-                          const held = reviewAuths[candidate.id] ?? null
-                          const authorization =
-                            held !== null &&
-                            held.consumed_at === null &&
-                            held.revoked_at === null &&
-                            new Date(held.expires_at) > new Date()
-                              ? held
-                              : null
-                          const blocked =
-                            eligibility === 'REJECTED' ||
-                            eligibility === 'NOT_ASSESSED' ||
-                            (eligibility === 'REQUIRES_REVIEW' &&
-                              authorization === null)
-                          const busyHere = choosingId === candidate.id
-                          return (
-                            <li
-                              key={candidate.id}
-                              className="rounded border border-line bg-surface/40 p-2"
-                            >
-                              <div className="flex items-baseline justify-between gap-2">
-                                <span className="text-xs font-semibold text-ink">
-                                  {candidate.kind.replace(/_/g, ' ')}
-                                  {/* When it was planned. Two plans of the same
-                                      corridor produce rows with an identical
-                                      kind and identical figures - a route
-                                      demoted from SELECTED stays choosable on
-                                      purpose - so without this a dispatcher is
-                                      picking between two rows they cannot tell
-                                      apart. */}
-                                  <span className="ml-2 font-normal text-muted">
-                                    planned{' '}
-                                    {new Date(
-                                      candidate.created_at,
-                                    ).toLocaleTimeString()}
-                                  </span>
-                                </span>
-                                <span className="text-[11px] text-muted">
-                                  {candidate.distance_km
-                                    ? `${Number(candidate.distance_km).toLocaleString()} km`
-                                    : 'distance unavailable'}
-                                  {candidate.estimated_duration_min !== null
-                                    ? ` · ${Math.floor(candidate.estimated_duration_min / 60)}h ${candidate.estimated_duration_min % 60}m free-flow`
-                                    : ''}
-                                </span>
-                              </div>
-
-                              {/* Never colour alone, and never a bare score:
-                                  the words say what may happen to this route. */}
-                              <p className="mt-1 text-[11px] text-muted">
-                                {eligibility === null
-                                  ? 'Conditions not checked for this route yet, so it may not be chosen.'
-                                  : eligibility === 'ELIGIBLE'
-                                    ? 'Eligible under the checks that ran. Not a safety guarantee.'
-                                    : eligibility === 'REJECTED'
-                                      ? 'Blocked by an active hazard. It cannot be used.'
-                                      : eligibility === 'REQUIRES_REVIEW'
-                                        ? authorization !== null
-                                          ? 'Hazard data incomplete — authorized for this selection.'
-                                          : 'Needs review: required safety evidence is missing or elevated. An authorised reviewer must accept it before this can be used.'
-                                        : 'Could not be assessed, so it cannot be used.'}
-                              </p>
-
-                              {/* Never "safe" and never "verified". The record
-                                  says a named person accepted incomplete
-                                  evidence, and the evidence line above still
-                                  reports it as incomplete. */}
-                              {authorization !== null ? (
-                                <p className="mt-1 text-[11px] text-warning">
-                                  Authorised for one selection, expires{' '}
-                                  {new Date(
-                                    authorization.expires_at,
-                                  ).toLocaleTimeString()}
-                                  . The hazard evidence is still missing — this
-                                  records who accepted that, not that the road
-                                  was checked.
-                                </p>
-                              ) : null}
-
-                              {assessed ? (
-                                <p className="mt-1 text-[11px] text-muted">
-                                  {translateReasonCodes(
-                                    assessed.risk.reason_codes,
-                                    'en',
-                                  ).join(' · ')}
-                                </p>
-                              ) : null}
-
-                              <div className="mt-2">
-                                <Button
-                                  variant="secondary"
-                                  busy={busyHere}
-                                  disabled={
-                                    choosingId !== null ||
-                                    blocked ||
-                                    eligibility === null
-                                  }
-                                  onClick={() =>
-                                    void chooseRoute(
-                                      candidate.id,
-                                      authorization?.id,
-                                    )
-                                  }
-                                >
-                                  {busyHere
-                                    ? 'Applying…'
-                                    : inTransit
-                                      ? 'Reroute onto this'
-                                      : 'Use this route'}
-                                </Button>
-                                {/* Why a disabled button is disabled. A control
-                                    that simply does nothing teaches an operator
-                                    that the system is broken. */}
-                                {eligibility === null ? (
-                                  <p className="mt-1 text-[11px] text-muted">
-                                    Check route conditions first — a route is
-                                    not changed on unassessed evidence.
-                                  </p>
-                                ) : blocked ? (
-                                  <p className="mt-1 text-[11px] text-muted">
-                                    {eligibility === 'REQUIRES_REVIEW'
-                                      ? 'Unavailable until an authorised reviewer accepts the incomplete evidence. The server refuses it too.'
-                                      : `Unavailable while this route is ${eligibility
-                                          .toLowerCase()
-                                          .replace(/_/g, ' ')}. The server refuses it too.`}
-                                  </p>
-                                ) : null}
-                              </div>
-                            </li>
-                          )
-                        })}
-                      </ul>
-
-                      {chooseErrorHere ? (
-                        <div className="mt-2">
-                          <ErrorState error={chooseErrorHere} />
-                        </div>
-                      ) : null}
-                      </div>
-                    </div>
+                  {cards.length > 0 ? (
+                    <RouteCandidateCards
+                      candidates={cards}
+                      recommendedRouteId={recommendedId}
+                      inTransit={inTransit}
+                      rerouting={inTransit && currentRoute !== null}
+                      choosingId={choosingId}
+                      previewId={previewId}
+                      onPreview={setPreviewId}
+                      onChoose={(id, authorizationId) => void chooseRoute(id, authorizationId)}
+                    />
+                  ) : null}
+                  {chooseErrorHere ? (
+                    <ErrorState error={chooseErrorHere} />
                   ) : null}
 
                   {/* ROUTE ADVISORY. Below the planned route because it is a
@@ -1734,20 +1461,6 @@ export default function FleetPage() {
                       </div>
                     ) : null}
 
-                    <div className="mt-3">
-                      <Button
-                        variant="secondary"
-                        busy={isAssessing}
-                        disabled={isAssessing || !activeRoute}
-                        onClick={() => void assessReroute()}
-                      >
-                        {isAssessing
-                          ? 'Checking…'
-                          : advisoryHere
-                            ? 'Check again'
-                            : 'Check route conditions'}
-                      </Button>
-                    </div>
                   </div>
                   </>
                   ) : null}

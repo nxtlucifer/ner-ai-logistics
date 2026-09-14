@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { SpeedFilter, type SpeedSample } from './speed'
+import { SpeedFilter, settledPosition, type SpeedSample } from './speed'
 
 const LAT = 24.03, LON = 73.05
 const M_LAT = 1 / 111_320 // degrees per metre
@@ -77,5 +77,21 @@ describe('untrustworthy', () => {
   it('negative and NaN platform speeds are treated as no reading', () => {
     expect(new Set(run(stream(10, { platform: -1, jitterM: 4 })))).toEqual(new Set([0]))
     expect(new Set(run(stream(10, { platform: NaN, jitterM: 4 })))).toEqual(new Set([0]))
+  })
+})
+
+describe('settledPosition', () => {
+  it('holds the pin while stationary, follows while moving, and reuses the array when nothing changed', () => {
+    const rest = settledPosition(null, { lat: 26.1, lon: 91.7, speedKmh: 0 })
+    expect(rest).toEqual([26.1, 91.7])
+    // Stationary wander of a few metres: the same pin, the same object.
+    expect(settledPosition(rest, { lat: 26.10003, lon: 91.70002, speedKmh: 0 })).toBe(rest)
+    // Identical coordinates while moving: still the same object.
+    expect(settledPosition(rest, { lat: 26.1, lon: 91.7, speedKmh: 40 })).toBe(rest)
+    // Real movement: a new pin.
+    expect(settledPosition(rest, { lat: 26.2, lon: 91.8, speedKmh: 40 })).toEqual([26.2, 91.8])
+    // A speed the filter could not judge (null) follows the fix rather than freezing it.
+    expect(settledPosition(rest, { lat: 26.3, lon: 91.9, speedKmh: null })).toEqual([26.3, 91.9])
+    expect(settledPosition(rest, null)).toBeNull()
   })
 })

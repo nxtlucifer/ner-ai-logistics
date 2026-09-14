@@ -34,7 +34,7 @@ import AddressPicker, {
   EMPTY_ENDPOINT,
   type EndpointValue,
 } from '../components/AddressPicker'
-import { endpointPoint, pairedTruckId, validatePlan } from './planValidation'
+import { endpointPoint, pairedTruckId, straightLineKm, validatePlan } from './planValidation'
 
 /** A driver accepting, starting or delivering must show here without a
  *  reload. Five seconds is the bounded-polling fallback the sync rule allows. */
@@ -138,6 +138,12 @@ export default function TripsPage() {
 
   const referencesReady =
     drivers.status === 'success' && trucks.status === 'success' && assignments.status === 'success'
+  // The corridor the route will be judged against, from the two confirmed
+  // points. Shown while planning so a 2,000 km journey is visible before a
+  // route is ever requested.
+  const pickupPoint = endpointPoint(pickup)
+  const destinationPoint = endpointPoint(destination)
+  const corridorKm = pickupPoint && destinationPoint ? straightLineKm(pickupPoint, destinationPoint) : null
   const validation = validatePlan({
     client, weight, pickup, destination, driverId, truckId,
     drivers: drivers.data?.items ?? [],
@@ -247,6 +253,14 @@ export default function TripsPage() {
                   />
                   {pickup.source !== null && destination.source !== null && !validation.destination.valid ? (
                     <p className="text-xs text-danger">{validation.destination.reason}</p>
+                  ) : null}
+                  {corridorKm !== null ? (
+                    <p className="tnum text-xs text-muted" data-testid="corridor-hint">
+                      Straight-line distance between the confirmed points: {Math.round(corridorKm).toLocaleString()} km.
+                    </p>
+                  ) : null}
+                  {!validation.region.valid ? (
+                    <p className="text-xs text-danger" data-testid="region-blocker">{validation.region.reason}</p>
                   ) : null}
                 </div>
 

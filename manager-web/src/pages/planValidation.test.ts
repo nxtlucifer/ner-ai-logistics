@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { Assignment, Driver, Truck } from '../api/client'
 import { EMPTY_ENDPOINT, type EndpointValue } from '../components/AddressPicker'
-import { pairedTruckId, validatePlan, type PlanInput } from './planValidation'
+import { inServiceRegion, pairedTruckId, straightLineKm, validatePlan, type PlanInput } from './planValidation'
 
 const driver: Driver = {
   id: 'd1', user_id: 'u1', full_name: 'Demo Driver', phone: '9000000000', photo_url: null,
@@ -68,5 +68,29 @@ describe('validatePlan', () => {
     expect(result.cargo.valid).toBe(false)
     expect(result.driver.valid).toBe(false)
     expect(result.blocker).toMatch(/client name/)
+  })
+})
+
+describe('service region and corridor length', () => {
+  it('refuses a confirmed point outside the North-East, naming which one', () => {
+    // The TRP-08726C5F shape: a real Nagaland search result to a real
+    // Ahmedabad search result, 2,240 km apart. Both were valid endpoints;
+    // nothing said the journey left the region.
+    const out = validatePlan({
+      ...good,
+      pickup: { ...pin('25.9623701', '94.5856111', 'GOOGLE'), address: 'Tokiye, Aghunato, Zunheboto, Nagaland, India' },
+      destination: { ...pin('23.0687402', '72.6734956', 'GOOGLE'), address: 'Nava Naroda, Ahmedabad, Gujarat, India' },
+    })
+    expect(out.region.valid).toBe(false)
+    expect(out.blocker).toMatch(/Location confirmation required — the destination "Nava Naroda/)
+    expect(out.blocker).toMatch(/outside the North-East service region/)
+  })
+
+  it('accepts the canonical corridor and measures it', () => {
+    expect(validatePlan(good).region.valid).toBe(true)
+    expect(Math.round(straightLineKm({ lat: 26.1445, lon: 91.7362 }, { lat: 25.5788, lon: 91.8933 }))).toBe(65)
+    expect(Math.round(straightLineKm({ lat: 25.9623701, lon: 94.5856111 }, { lat: 23.0687402, lon: 72.6734956 }))).toBe(2237)
+    expect(inServiceRegion({ lat: 27.0844, lon: 93.6053 })).toBe(true) // Itanagar
+    expect(inServiceRegion({ lat: 23.0687, lon: 72.6735 })).toBe(false) // Ahmedabad
   })
 })

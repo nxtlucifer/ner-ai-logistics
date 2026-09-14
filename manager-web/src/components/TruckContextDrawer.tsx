@@ -12,10 +12,17 @@ export interface TruckContextDrawerProps {
 }
 
 const FRESHNESS_BADGE: Record<Freshness, { label: string; className: string }> = {
-  LIVE: { label: '● LIVE GPS', className: 'border-ok/30 bg-ok-soft text-ok' },
-  STALE: { label: '● STALE (10m)', className: 'border-warning/30 bg-warning-soft text-warning' },
-  NO_CONTACT: { label: '● NO CONTACT', className: 'border-danger/30 bg-danger-soft text-danger' },
-  NO_LOCATION: { label: '● NO LOCATION', className: 'border-line bg-soft text-muted' },
+  LIVE: { label: 'Driver location: LIVE', className: 'text-ok' },
+  STALE: { label: 'Driver location: STALE', className: 'text-warning' },
+  NO_CONTACT: { label: 'Driver location: NO CONTACT', className: 'text-danger' },
+  NO_LOCATION: { label: 'Driver location: NONE REPORTED', className: 'text-muted' },
+}
+
+/** "12 s ago" / "5 min ago" / "3 h ago" - the age the server measured. */
+function ageWords(seconds: number): string {
+  if (seconds < 60) return `${Math.round(seconds)} s ago`
+  if (seconds < 3600) return `${Math.round(seconds / 60)} min ago`
+  return `${Math.round(seconds / 3600)} h ago`
 }
 
 export function TruckContextDrawer({
@@ -70,11 +77,13 @@ export function TruckContextDrawer({
               <AuthImage src={driver?.photo_url} alt={`${trip.driver_name} photo`} fallback={initials(trip.driver_name)} className="h-8 w-8 rounded-full" />
               <AuthImage src={truck?.photo_url} alt={`${trip.registration_number} photo`} className="h-8 w-10 rounded-md" label="reference" />
               <h2 className="text-sm font-bold text-ink">{trip.driver_name}</h2>
-              <span
-                className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${freshnessStyle.className}`}
-              >
-                {freshnessStyle.label}
-              </span>
+            </div>
+            {/* Location freshness in words, with its age - never a bare
+                STALE pill beside an ACTIVE trip, which read as a
+                contradiction. Trip status has its own row in the panel. */}
+            <div className={`mt-0.5 text-[11px] font-semibold ${freshnessStyle.className}`} data-testid="driver-location">
+              {freshnessStyle.label}
+              {trip.position ? ` · reported ${ageWords(trip.position.age_seconds)}` : ''}
             </div>
             <div className="text-xs text-muted">
               {trip.registration_number} · Trip {trip.trip_code}
@@ -168,7 +177,7 @@ export function TruckContextDrawer({
             onClick={onSelectRouteTab}
             className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-hover"
           >
-            <span>🛣️</span> 3-Route Risk Analysis
+            <span>🛣️</span> Route options
           </button>
         ) : null}
       </div>

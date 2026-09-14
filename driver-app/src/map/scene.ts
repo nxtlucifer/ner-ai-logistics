@@ -61,7 +61,7 @@ export const CATEGORY_COLOUR: Record<string, string> = {
 }
 
 type Pt = [number, number]
-export type SceneLayer =
+export type SceneLayer = (
   | { k: 'line'; p: Pt[]; c: string; w: number; d?: string; tip?: string }
   /** Accuracy disc, radius in metres. */
   | { k: 'circle'; p: Pt; r: number; c: string; d?: string; tip?: undefined }
@@ -69,6 +69,16 @@ export type SceneLayer =
   | { k: 'dot'; p: Pt; r: number; c: string; w: number; f: string; o: number; tip?: string; id?: string }
   /** The truck with a known heading, degrees clockwise from north. */
   | { k: 'arrow'; p: Pt; h: number; c: string; tip?: string }
+) & {
+  /**
+   * Changes with every fix: the truck, its accuracy disc, the driven part of
+   * the road. Everything else - the route, backup, terrain, traffic, hazards,
+   * stops, places - is static between plans. A renderer redraws the two sets
+   * separately, so a 4,000-point polyline is not torn down and rebuilt each
+   * time the phone reports where it is.
+   */
+  live?: true
+}
 
 export type SceneProps = Pick<
   DriverRouteMapProps,
@@ -79,14 +89,16 @@ export type SceneProps = Pick<
 export function sceneLayers(p: SceneProps): SceneLayer[] {
   const out: SceneLayer[] = []
   const points = p.points as Pt[]
-  const { completed, remaining } = splitRoute(points, p.progressFraction)
+  const { completed } = splitRoute(points, p.progressFraction)
   if (points.length > 1) {
     // Casing first so the route draws on top of it; a bare 6px blue line
-    // disappears over water and motorway fills on this style.
+    // disappears over water and motorway fills on this style. The whole road
+    // is drawn in route blue and the driven part is painted over it as a
+    // live layer, so progress never redraws the road itself.
     out.push({ k: 'line', p: points, c: ROUTE_CASING, w: 10 })
-    out.push({ k: 'line', p: remaining as Pt[], c: ROUTE, w: 6 })
+    out.push({ k: 'line', p: points, c: ROUTE, w: 6 })
   }
-  if (completed.length > 1) out.push({ k: 'line', p: completed as Pt[], c: COMPLETED, w: 6 })
+  if (completed.length > 1) out.push({ k: 'line', p: completed as Pt[], c: COMPLETED, w: 6, live: true })
   if (p.showBackup && p.backupPoints.length > 1) {
     out.push({ k: 'line', p: p.backupPoints as Pt[], c: ROUTE_CASING, w: 8 })
     out.push({ k: 'line', p: p.backupPoints as Pt[], c: BACKUP, w: 4, d: '10 8' })
@@ -123,10 +135,10 @@ export function sceneLayers(p: SceneProps): SceneLayer[] {
       : `Last known position — ${p.positionAgeSeconds == null ? 'age unavailable' : `${Math.round(p.positionAgeSeconds)}s ago`}`
     // The accuracy disc only when the platform reported one: an invented
     // radius is an invented claim about certainty.
-    if (p.accuracyM !== null) out.push({ k: 'circle', p: p.position as Pt, r: Math.min(p.accuracyM, ACCURACY_DISC_MAX_M), c: colour, d: live ? undefined : '6 6' })
+    if (p.accuracyM !== null) out.push({ k: 'circle', p: p.position as Pt, r: Math.min(p.accuracyM, ACCURACY_DISC_MAX_M), c: colour, d: live ? undefined : '6 6', live: true })
     const heading = p.headingDeg
-    if (live && !coarse && heading != null && Number.isFinite(heading) && heading >= 0) out.push({ k: 'arrow', p: p.position as Pt, h: heading, c: LIVE, tip })
-    else out.push({ k: 'dot', p: p.position as Pt, r: coarse ? 10 : 9, c: '#FFFFFF', w: 3, f: colour, o: 1, tip })
+    if (live && !coarse && heading != null && Number.isFinite(heading) && heading >= 0) out.push({ k: 'arrow', p: p.position as Pt, h: heading, c: LIVE, tip, live: true })
+    else out.push({ k: 'dot', p: p.position as Pt, r: coarse ? 10 : 9, c: '#FFFFFF', w: 3, f: colour, o: 1, tip, live: true })
   }
   // Roadside services LAST so a pin is never hidden under the route casing.
   // The category is in the tooltip as WORDS, not only in the colour.

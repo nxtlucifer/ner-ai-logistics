@@ -228,6 +228,51 @@ def is_distinct_corridor(
     )
 
 
+#: How far a provider's route may start or end from the point it was asked
+#: for. OSRM snaps to the nearest routable way, and a depot behind a gate is a
+#: few hundred metres from it - never tens of kilometres.
+ENDPOINT_TOLERANCE_M: Final[float] = 10_000.0
+#: A road is longer than the straight line between its ends, in hills much
+#: longer, but not without bound. Ratio plus an additive slack, so a 2 km hop
+#: whose bridge is 8 km upstream is not refused on ratio alone.
+MAX_DETOUR_RATIO: Final[float] = 3.0
+DETOUR_SLACK_M: Final[float] = 20_000.0
+
+REASON_STARTS_AWAY_FROM_ORIGIN: Final[str] = "ROUTE_STARTS_AWAY_FROM_ORIGIN"
+REASON_ENDS_AWAY_FROM_DESTINATION: Final[str] = "ROUTE_ENDS_AWAY_FROM_DESTINATION"
+REASON_SHORTER_THAN_STRAIGHT_LINE: Final[str] = "ROUTE_SHORTER_THAN_STRAIGHT_LINE"
+REASON_IMPLAUSIBLY_LONG: Final[str] = "ROUTE_IMPLAUSIBLY_LONG"
+
+
+def endpoint_mismatch(
+    candidate: "RouteCandidate", origin: "Coordinate", destination: "Coordinate"
+) -> str | None:
+    """Why a provider's answer does not describe the journey asked for, or None.
+
+    Guards the shapes a wrong route takes: a polyline that starts or ends away
+    from the stops (a swapped pair, a reroute origin used by mistake, a route
+    from the previous request), a truncated line shorter than the straight
+    line, or a distance no road between these two points can have.
+
+    It deliberately does NOT judge whether the journey itself is sensible. The
+    2,908 km route on TRP-08726C5F passed every one of these checks because it
+    really did connect its two stops; that trip's problem was the stops, and
+    the planner refuses those before a route is ever requested.
+    """
+    first, last = candidate.geometry[0], candidate.geometry[-1]
+    if haversine_m(first[0], first[1], origin.lat, origin.lon) > ENDPOINT_TOLERANCE_M:
+        return REASON_STARTS_AWAY_FROM_ORIGIN
+    if haversine_m(last[0], last[1], destination.lat, destination.lon) > ENDPOINT_TOLERANCE_M:
+        return REASON_ENDS_AWAY_FROM_DESTINATION
+    straight = haversine_m(origin.lat, origin.lon, destination.lat, destination.lon)
+    # Both ends may snap up to the tolerance towards each other.
+    if candidate.distance_m < straight - 2 * ENDPOINT_TOLERANCE_M:
+        return REASON_SHORTER_THAN_STRAIGHT_LINE
+    if candidate.distance_m > straight * MAX_DETOUR_RATIO + DETOUR_SLACK_M:
+        return REASON_IMPLAUSIBLY_LONG
+    return None
+
+
 class RoutingError(Exception):
     """Base for every routing failure, so callers catch one thing."""
 
