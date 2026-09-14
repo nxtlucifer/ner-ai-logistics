@@ -172,7 +172,7 @@ export default function LoginScreen() {
                 keyboardType="email-address"
                 autoComplete="tel"
                 editable={!isSubmitting}
-                maxLength={16}
+                maxLength={phone.includes('@') ? 120 : 16}
               />
             </View>
             {phone.length > 0 && !phoneValidation.isValid ? (

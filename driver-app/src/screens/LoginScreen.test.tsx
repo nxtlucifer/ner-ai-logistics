@@ -29,10 +29,11 @@ vi.mock('react-native', async () => {
     style?: unknown
     [k: string]: unknown
   }) => h('div', rest, children)
-  const input = (props: { value?: string; onChangeText?: (t: string) => void; placeholder?: string }) =>
+  const input = (props: { value?: string; onChangeText?: (t: string) => void; placeholder?: string; maxLength?: number }) =>
     h('input', {
       value: props.value,
       placeholder: props.placeholder,
+      maxLength: props.maxLength,
       onChange: (e: { target: { value: string } }) => props.onChangeText?.(e.target.value),
     })
   return {
@@ -82,6 +83,19 @@ async function render() {
 }
 
 describe('LoginScreen UI and behavior', () => {
+  it('lets a manager type a full e-mail: the 16-char phone cap lifts on "@"', async () => {
+    // Found on the phone (14 Sep): maxLength={16} silently truncated the
+    // manager e-mail to 16 characters and every manager login "failed".
+    await render()
+    const field = host.querySelector('input') as HTMLInputElement
+    expect(field.maxLength).toBe(16)
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, 'dispatch.manager@fleet.example')
+      field.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect((host.querySelector('input') as HTMLInputElement).maxLength).toBe(120)
+  })
+
   it('renders branding and driver title', async () => {
     await render()
     expect(host.textContent).toContain('RASTA AI')
