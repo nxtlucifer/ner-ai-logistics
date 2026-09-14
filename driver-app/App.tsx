@@ -45,6 +45,7 @@ import * as Notifications from 'expo-notifications'
 
 import { TABS, type Tab } from './src/navigation'
 import { registerPush, screenFromResponse } from './src/notify/push'
+import ManagerRoot from './src/manager/ManagerRoot'
 import { Icon, MoreIcon, NavigateIcon, SafetyIcon, TripIcon } from './src/components/icons'
 import { refreshProfilePhoto, useProfilePhotoUrl } from './src/files/profilePhoto'
 import { useAuthImage } from './src/files/useAuthImage'
@@ -261,7 +262,7 @@ function SignedShell() {
 function Gate() {
   const styles = useStyles()
   const { colors: COLORS } = useTheme()
-  const { driver, isInitialising } = useAuth()
+  const { driver, user, isInitialising } = useAuth()
   const tr = useT()
 
   if (isInitialising) {
@@ -282,9 +283,13 @@ function Gate() {
     )
   }
 
-  return driver ? (
-    <Signed />
-  ) : (
+  // The SERVER's role picks the shell: a driver profile -> the driver app; a
+  // manager/admin identity -> the manager shell. Never a selector, never a
+  // cached screen. A signed-in user with neither (a suspended driver) is
+  // shown the login again rather than a half-shell.
+  if (driver) return <Signed />
+  if (user && user.role !== 'DRIVER') return <ManagerRoot />
+  return (
     // LOGIN IS ALWAYS DAY. Pinned here, not in the screen, so every styled
     // child (inputs, banners, the language chooser) follows without knowing.
     <ThemeProvider fixed="day">

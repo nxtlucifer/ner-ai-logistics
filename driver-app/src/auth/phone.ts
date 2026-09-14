@@ -23,6 +23,11 @@ export function normalizeAndValidatePhone(input: string): PhoneValidationResult 
   if (!trimmed) {
     return { isValid: false, normalized: '', error: 'Mobile number is required' }
   }
+  // ONE login for every role: managers sign in with an e-mail. The server
+  // resolves the identifier; this only has to let it through untouched.
+  if (trimmed.includes('@')) {
+    return { isValid: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed), normalized: trimmed.toLowerCase(), error: 'Enter a valid e-mail address' }
+  }
 
   // Disallow alphabetic characters
   if (/[a-zA-Z]/.test(trimmed)) {

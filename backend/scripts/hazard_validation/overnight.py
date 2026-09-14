@@ -247,18 +247,22 @@ def write_md(board_all: dict, expanded: bool) -> None:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(); ap.add_argument("--hours", type=float, default=6.0); ap.add_argument("--expand", action="store_true")
+    ap = argparse.ArgumentParser(); ap.add_argument("--hours", type=float, default=6.0); ap.add_argument("--expand", action="store_true"); ap.add_argument("--expand-only", action="store_true", help="skip the NER grid (already checkpointed)")
     a = ap.parse_args()
     deadline = time.time() + a.hours * 3600
     log(f"overnight start: budget {a.hours} h, expand={a.expand}")
     results: list[dict] = []
     rows = load_rows(HAZ / "landslide_dataset.csv")
     log(f"NER dataset rows {len(rows)}")
-    results += grid(rows, "NER", deadline)
-    board = leaderboard(results); LEADER.write_text(json.dumps(board, indent=1), encoding="utf-8")
-    results += calibrate_best(rows, "NER", board, deadline)
+    if a.expand_only:
+        results += [json.loads(p.read_text(encoding="utf-8")) for p in EXP.glob("NER_*.json")]
+        log(f"reloaded {len(results)} NER checkpoints")
+    else:
+        results += grid(rows, "NER", deadline)
+        board = leaderboard(results); LEADER.write_text(json.dumps(board, indent=1), encoding="utf-8")
+        results += calibrate_best(rows, "NER", board, deadline)
     expanded = False
-    if a.expand and time.time() < deadline:
+    if (a.expand or a.expand_only) and time.time() < deadline:
         try:
             path = expand_dataset()
             if path:

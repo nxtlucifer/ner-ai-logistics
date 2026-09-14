@@ -152,10 +152,14 @@ export default function LoginScreen() {
               {/* No flag emoji. Android renders 🇮🇳 as the letters "IN" in a box
                   on most builds anyway, which is what this now says on purpose
                   and identically on every device. */}
-              <View style={styles.countryCodeBadge}>
-                <Text style={styles.countryCodeText}>+91</Text>
-                <View style={styles.badgeDivider} />
-              </View>
+              {/* ONE login for every role: a manager types an e-mail, so the
+                  +91 badge belongs only to a phone-shaped identifier. */}
+              {phone.includes('@') ? null : (
+                <View style={styles.countryCodeBadge}>
+                  <Text style={styles.countryCodeText}>+91</Text>
+                  <View style={styles.badgeDivider} />
+                </View>
+              )}
               <TextInput
                 style={styles.phoneInput}
                 value={phone}
@@ -165,7 +169,7 @@ export default function LoginScreen() {
                 }}
                 placeholder="94300 00777"
                 placeholderTextColor={COLORS.faint}
-                keyboardType="phone-pad"
+                keyboardType="email-address"
                 autoComplete="tel"
                 editable={!isSubmitting}
                 maxLength={16}

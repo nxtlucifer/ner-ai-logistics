@@ -1,9 +1,16 @@
 /**
- * Driver session state.
+ * ONE login, the SERVER's role. Drivers and managers type the same credentials
+ * into the same screen; `GET /api/auth/me` says who they are and the shell
+ * (App.tsx Gate) renders the driver app or the manager app from that answer.
+ * Nothing on the device chooses a role - no selector, no cached screen state.
  *
- * The driver's identity is never taken from the device. `api.me()` resolves it
- * server-side from the access token, so a tampered local store cannot make the
- * app act as a different driver - it can only fail to authenticate.
+ * DRIVER  -> `driver` is the profile from /api/driver/me (unchanged contract)
+ * MANAGER / ADMIN -> `user` + `permissions`; `driver` stays null
+ *
+ * Restore on launch goes through the same path, so a cached manager session
+ * opens the manager shell and a cached driver session the driver shell.
+ * Logout clears everything (token, identity, permissions) before the next
+ * sign-in: no role UI survives a switch.
  */
 
 import {
@@ -22,29 +29,48 @@ import {
   refreshSession,
   setAccessToken,
   setUnauthenticatedHandler,
+  type AuthenticatedUser,
   type DriverMe,
 } from '../api/client'
 import { clearRefreshToken } from './tokenStore'
 
 interface AuthState {
+  /** Server identity for any role; null when signed out. */
+  user: AuthenticatedUser | null
+  permissions: string[]
+  /** Driver profile - only when `user.role === 'DRIVER'`. */
   driver: DriverMe | null
   isInitialising: boolean
   /** A manager is looking at this driver's app through a read-only token. */
   supportView: boolean
   login: (identifier: string, password: string) => Promise<void>
   logout: () => Promise<void>
+  can: (permission: string) => boolean
 }
 
 const AuthContext = createContext<AuthState | null>(null)
 
+interface Identity {
+  user: AuthenticatedUser
+  permissions: string[]
+  driver: DriverMe | null
+}
+
+/** Who the current token is, from the server only. */
+async function identify(): Promise<Identity> {
+  const me = await api.authMe()
+  const driver = me.user.role === 'DRIVER' ? await api.me() : null
+  return { user: me.user, permissions: me.permissions, driver }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [driver, setDriver] = useState<DriverMe | null>(null)
+  const [identity, setIdentity] = useState<Identity | null>(null)
   const [isInitialising, setIsInitialising] = useState(true)
   const [supportView, setSupportView] = useState(false)
 
   const clear = useCallback(() => {
     setAccessToken(null)
-    setDriver(null)
+    setIdentity(null)
   }, [])
 
   // Restore the session on launch. A driver starting a shift should not have to
@@ -68,16 +94,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         if (cancelled) return
         if (token) {
-          const me = await api.me()
-          if (!cancelled) setDriver(me)
+          const who = await identify()
+          if (!cancelled) setIdentity(who)
         }
       } catch (error) {
         // No usable session - the normal state on first launch.
         if (!cancelled) clear()
-        // A stored token that authenticates but is not a driver will fail this
-        // way on every launch. Discard it, but ONLY when the server actually
-        // said so: on a NetworkError the token may be perfectly good and the
-        // driver has no signal to sign in again with.
+        // A stored token the server actually refuses is discarded. On a
+        // NetworkError the token may be perfectly good and the driver has no
+        // signal to sign in again with - keep it.
         if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
           await clearRefreshToken().catch(() => undefined)
         }
@@ -96,13 +121,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await api.login(identifier, password)
     try {
       // Identity comes from the server, not from the login response body.
-      setDriver(await api.me())
+      setIdentity(await identify())
     } catch (error) {
-      // The credentials were valid but this is not a driver - a manager typing
-      // their own login into the driver app is the realistic case. api.login()
-      // has already written a refresh token to the keystore, so leaving it
-      // there would persist a MANAGER session on a driver's phone that silently
-      // reappears on every launch and fails the same way. Give the token back.
+      // Valid credentials but no usable identity (a suspended driver profile,
+      // for instance). api.login() has already written a refresh token to the
+      // keystore; leaving it there would resurrect the session on every
+      // launch and fail the same way. Give the token back.
       await api.logout().catch(() => undefined)
       clear()
       throw error
@@ -117,9 +141,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [clear])
 
+  const can = useCallback(
+    (permission: string) => identity?.permissions.includes(permission) ?? false,
+    [identity],
+  )
+
   const value = useMemo(
-    () => ({ driver, isInitialising, login, logout, supportView }),
-    [driver, isInitialising, login, logout, supportView],
+    () => ({
+      user: identity?.user ?? null,
+      permissions: identity?.permissions ?? [],
+      driver: identity?.driver ?? null,
+      isInitialising,
+      supportView,
+      login,
+      logout,
+      can,
+    }),
+    [identity, isInitialising, supportView, login, logout, can],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

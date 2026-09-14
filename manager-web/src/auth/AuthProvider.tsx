@@ -25,11 +25,40 @@ import {
 } from '../api/client'
 import { clearCache } from '../api/connectivity'
 
+/**
+ * THIS SITE IS THE MANAGER CONSOLE. A driver's credentials authenticate - the
+ * backend is one identity service - but a driver gets no console: the session
+ * is revoked server-side (refresh cookie), cleared here, and the login page
+ * says why. Checked on login AND on silent restore, so a driver who signed in
+ * elsewhere cannot reload this site into a manager shell.
+ */
+export const CONSOLE_ROLES: readonly string[] = ['MANAGER', 'ADMIN']
+export const MANAGER_ACCOUNT_REQUIRED = 'Manager account required.'
+
+export class ManagerAccountRequiredError extends Error {
+  constructor() {
+    super(MANAGER_ACCOUNT_REQUIRED)
+    this.name = 'ManagerAccountRequiredError'
+  }
+}
+
+/** Identity from the server; a non-console role is signed out before it lands. */
+async function consoleIdentity() {
+  const me = await api.me()
+  if (!CONSOLE_ROLES.includes(me.user.role)) {
+    await api.logout().catch(() => undefined)
+    throw new ManagerAccountRequiredError()
+  }
+  return me
+}
+
 interface AuthState {
   user: AuthenticatedUser | null
   permissions: string[]
   /** True until the initial silent-refresh attempt resolves. */
   isInitialising: boolean
+  /** Why the last restore/login was refused by this console (role), if it was. */
+  deniedReason: string | null
   login: (identifier: string, password: string) => Promise<void>
   logout: () => Promise<void>
   can: (permission: string) => boolean
@@ -41,6 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthenticatedUser | null>(null)
   const [permissions, setPermissions] = useState<string[]>([])
   const [isInitialising, setIsInitialising] = useState(true)
+  const [deniedReason, setDeniedReason] = useState<string | null>(null)
 
   const clear = useCallback(() => {
     setAccessToken(null)
@@ -64,15 +94,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const token = await refreshSession()
         if (cancelled) return
         if (token) {
-          const me = await api.me()
+          const me = await consoleIdentity()
           if (cancelled) return
           setUser(me.user)
           setPermissions(me.permissions)
         }
-      } catch {
+      } catch (error) {
         // No usable session. Not an error worth showing - it is the normal
-        // state for a first visit.
-        if (!cancelled) clear()
+        // state for a first visit. A driver's session IS worth a sentence.
+        if (!cancelled) {
+          clear()
+          if (error instanceof ManagerAccountRequiredError) {
+            clearCache()
+            setDeniedReason(error.message)
+          }
+        }
       } finally {
         if (!cancelled) setIsInitialising(false)
       }
@@ -87,10 +123,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (identifier: string, password: string) => {
     const result = await api.login(identifier, password)
     setAccessToken(result.access_token)
-    const me = await api.me()
-    setUser(me.user)
-    setPermissions(me.permissions)
-  }, [])
+    try {
+      const me = await consoleIdentity()
+      setDeniedReason(null)
+      setUser(me.user)
+      setPermissions(me.permissions)
+    } catch (error) {
+      clear()
+      clearCache()
+      if (error instanceof ManagerAccountRequiredError) setDeniedReason(error.message)
+      throw error
+    }
+  }, [clear])
 
   const logout = useCallback(async () => {
     try {
@@ -110,8 +154,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   const value = useMemo(
-    () => ({ user, permissions, isInitialising, login, logout, can }),
-    [user, permissions, isInitialising, login, logout, can],
+    () => ({ user, permissions, isInitialising, deniedReason, login, logout, can }),
+    [user, permissions, isInitialising, deniedReason, login, logout, can],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

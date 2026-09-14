@@ -315,6 +315,22 @@ export interface TokenResponse {
   user: AuthenticatedUser
 }
 
+export type UserRole = 'ADMIN' | 'MANAGER' | 'DRIVER'
+
+/** The server's answer to "who is this token" - role comes ONLY from here. */
+export interface AuthenticatedUser {
+  id: string
+  role: UserRole
+  display_name: string
+  email: string | null
+  phone: string | null
+}
+
+export interface AuthMe {
+  user: AuthenticatedUser
+  permissions: string[]
+}
+
 export interface DriverMe {
   id: string
   full_name: string
@@ -1095,6 +1111,8 @@ const restApi = {
     }
   },
 
+  /** Generic identity + permissions for any role (drivers and managers share one login). */
+  authMe: () => request<AuthMe>('/api/auth/me'),
   me: () => request<DriverMe>('/api/driver/me'),
   myAssignment: () => request<CurrentAssignment | null>('/api/driver/me/assignment'),
 

@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 
 import { ApiError, NetworkError } from '../api/client'
-import { useAuth } from '../auth/AuthProvider'
+import { ManagerAccountRequiredError, useAuth } from '../auth/AuthProvider'
 import { Button, Field } from '../components/ui'
 
 /**
@@ -17,11 +17,12 @@ import { Button, Field } from '../components/ui'
  * panel is decoration - the form is the screen.
  */
 export default function LoginPage() {
-  const { login } = useAuth()
+  const { login, deniedReason } = useAuth()
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  // A driver's session restored on reload is refused by the provider; say so.
+  const [error, setError] = useState<string | null>(deniedReason)
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -38,7 +39,7 @@ export default function LoginPage() {
         // build that talks to hosted Supabase, so it was both a leak of
         // infrastructure detail and, in production, simply untrue.
         setError('Cannot reach the service. Check your connection and try again.')
-      } else if (err instanceof ApiError) {
+      } else if (err instanceof ManagerAccountRequiredError || err instanceof ApiError) {
         setError(err.message)
       } else {
         setError('Sign in failed. Please try again.')
