@@ -15,7 +15,8 @@ import AuthImage, { initials } from './AuthImage'
 import { Button, ErrorState, LoadingState, StatusPill } from './ui'
 import { useMutation, useResource } from '../hooks/useResource'
 
-const OPEN_TRIP = new Set(['DRAFT', 'ASSIGNED', 'VERIFICATION_PENDING', 'ACTIVE', 'DELAYED'])
+// A draft is the manager's, not the driver's: only a dispatched trip is "current".
+const OPEN_TRIP = new Set(['ASSIGNED', 'VERIFICATION_PENDING', 'ACTIVE', 'DELAYED'])
 
 export function licenceHealth(expiry: string, today = new Date()): { label: string; tone: 'ok' | 'warning' | 'danger' } {
   const days = Math.floor((new Date(expiry).getTime() - new Date(today.toDateString()).getTime()) / 86_400_000)

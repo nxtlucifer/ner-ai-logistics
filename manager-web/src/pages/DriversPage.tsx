@@ -24,7 +24,8 @@ const BLANK = {
   initial_password: '',
 }
 
-const OPEN_TRIP = new Set(['DRAFT', 'ASSIGNED', 'VERIFICATION_PENDING', 'ACTIVE', 'DELAYED'])
+// A draft is the manager's, not the driver's: only a dispatched trip is "current".
+const OPEN_TRIP = new Set(['ASSIGNED', 'VERIFICATION_PENDING', 'ACTIVE', 'DELAYED'])
 
 export default function DriversPage() {
   const { can } = useAuth()
