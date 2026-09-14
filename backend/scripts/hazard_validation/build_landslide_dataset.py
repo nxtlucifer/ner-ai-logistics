@@ -24,6 +24,7 @@ repeatable and the providers are asked once.
 from __future__ import annotations
 
 import csv
+import os
 import json
 import math
 import random
@@ -37,11 +38,14 @@ import httpx
 ROOT = Path(__file__).resolve().parents[3]
 CSV = ROOT / "backend" / "data" / "landslides" / "glc_ner.csv"
 CACHE = ROOT / ".runtime" / "data" / "hazard"
-OUT = CACHE / "landslide_dataset.csv"
-META = CACHE / "landslide_dataset.meta.json"
+OUT = CACHE / os.environ.get("LS_OUT", "landslide_dataset.csv")
+META = CACHE / os.environ.get("LS_OUT", "landslide_dataset.csv").replace(".csv", ".meta.json")
+#: random | season - season-matched negatives (same +-45 days of year, another
+#: year) so the model cannot pass by learning "monsoon" alone.
+NEG_MODE = os.environ.get("LS_NEG_MODE", "random")
 START, END = date(2007, 1, 1), date(2017, 12, 31)
 GOOD_ACCURACY = {"exact", "1km", "5km"}
-EXCLUDE_KM, EXCLUDE_DAYS, K_NEG = 25.0, 10, 4
+EXCLUDE_KM, EXCLUDE_DAYS, K_NEG = 25.0, 10, int(os.environ.get("LS_K_NEG", "4"))
 UA = "RASTA-AI hazard validation (research; contact: team NER-AI LOGISTICS)"
 random.seed(26002)
 
@@ -175,7 +179,13 @@ def main() -> None:
         tries = 0
         while picked < K_NEG and tries < 200:
             tries += 1
-            q = START + timedelta(days=random.randint(30, (END - START).days))
+            if NEG_MODE == "season":
+                year = random.randint(START.year, END.year)
+                q = e["date"].replace(year=year) + timedelta(days=random.randint(-45, 45))
+                if not (START + timedelta(days=30) <= q <= END):
+                    continue
+            else:
+                q = START + timedelta(days=random.randint(30, (END - START).days))
             if any(abs((q - dd).days) <= EXCLUDE_DAYS and km(site, (la, lo)) <= EXCLUDE_KM for la, lo, dd in all_pts):
                 continue
             fq = features(series[site], q)
@@ -192,7 +202,7 @@ def main() -> None:
     meta = {"events_in_slice": len(events), "usable_events": len(good), "sites": len(sites), "positives": pos, "negatives": len(rows) - pos,
             "features": ["p1", "p3", "p7", "p15", "p30", "max7", "p3_lead1", "elevation", "slope", "month", "lat", "lon"],
             "rain_source": "ERA5-Land via Open-Meteo historical archive, daily precipitation_sum, Asia/Kolkata days",
-            "dem_source": "Open-Meteo elevation (Copernicus DEM GLO-90)", "exclusion_km": EXCLUDE_KM, "exclusion_days": EXCLUDE_DAYS,
+            "dem_source": "Open-Meteo elevation (Copernicus DEM GLO-90)", "exclusion_km": EXCLUDE_KM, "exclusion_days": EXCLUDE_DAYS, "negative_mode": NEG_MODE, "k_neg": K_NEG,
             "built_at": datetime.utcnow().isoformat() + "Z"}
     META.write_text(json.dumps(meta, indent=2), encoding="utf-8")
     print(json.dumps(meta, indent=2))
