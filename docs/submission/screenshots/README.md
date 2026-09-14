@@ -22,5 +22,8 @@ Real current screens, captured 14 Sep 2026 (evening re-capture) on the hosted st
 | `12-delivery.png` | Driver after Complete trip: No active trip, available for assignment |
 | `12a-stops.png` | Driver, STOPS 1 / 2 with route progress before delivery |
 | `12b-manager-final.png` | Manager web after delivery: driver and truck AVAILABLE again |
+| `02b-trip-planner-gate.png` | Manager web, planner gate: typed addresses are not locations — Create draft trip disabled with the one reason; driver pick fills the paired truck |
+| `10b-driver-profile.png` | Manager web, Driver profile drawer: facts, licence status, assigned truck + verification, current trip, masked documents, support/danger zone collapsed |
+| `13-diagnostics.png` | Manager web, Diagnostics: capability states (Weather and Terrain "Available via fallback" while Open-Meteo is rate limited), honest ML inventory |
 
 Provider states in the captures are what the system showed at that moment (official alerts checked: NONE ON CORRIDOR from the NDMA SACHET feed; fleet traffic UNKNOWN until two trucks share a road); UNKNOWN states are honest, not defects. Re-capture with `node .runtime/rehearsal/evidence.mjs` against the hosted URLs after `bash .runtime/judge.sh reset`.

@@ -1292,3 +1292,42 @@ https://github.com/nxtlucifer/ner-ai-logistics. Blocked and left blocked:
 OpenRouter (no hosted key), background push (no Firebase config). The
 landslide model stays EXPERIMENTAL. Phone automation is stopped; the next work
 is the PPT, the five-minute speech, the demo choreography and judge Q&A.
+
+## 10. Manager console hardening (14 Sep 2026, night) - certified on the hosted site
+
+One coherent fleet-operations console; no backend or routing change.
+
+- Trip planner: text in an address box is not a location. `planValidation.ts`
+  derives client / cargo / pickup / destination / driver / truck / assignment /
+  capacity / readiness checks; "Create draft trip" stays disabled with ONE
+  reason until all hold (24-case matrix test). Picking a driver fills their live
+  truck pairing, so NO_ACTIVE_ASSIGNMENT is never first met at dispatch.
+- Editing an address after ANY confirmed location drops the coordinate and the
+  strip reads "checkmark address · source · lat, lon"; the last pin is remembered
+  for the map picker.
+- Dispatch is disabled until the trip has a selected route (title says so);
+  trip rows show Route + Attention and one dominant action per state; the review
+  panel carries a ROUTE SELECTED / NO ROUTE SELECTED pill.
+- Drivers: "View profile" drawer (photo, phone, licence health, login, assigned
+  truck + verification, verify by hand, current trip, masked documents) replaces
+  View-as-driver and the per-row Deactivate; both live in a collapsed
+  "Support & danger zone" behind their permissions.
+- Assignments left the main nav (pairing is managed in the driver profile;
+  /assignments remains the record, linked from Trucks). Trucks show the
+  assigned driver, its verification state and the current trip; Retire is
+  gated while a trip is open.
+- Diagnostics (secondary nav): capability rows folded from providers with
+  HEALTHY / DEGRADED / FALLBACK ACTIVE / UNKNOWN / UNAVAILABLE - Open-Meteo 429
+  with MET Norway healthy reads "Available via fallback"; provider details
+  expandable; ML inventory reads production 0 / experimental 1, not deployed.
+- Review offers only open trips.
+
+Evidence: manager suite 200 passed (was 170), tsc clean, remote-demo build;
+hosted probe `.runtime/rehearsal/manager_probe.mjs` 34/34 (planner gate, pairing,
+dispatch gate, ROUTE SELECTED, profile-not-app, trucks columns, review filter,
+diagnostics semantics, /assignments record, unknown path, every button labelled,
+every disabled button titled, no horizontal overflow at 768/1024/1920) with
+screenshots in `.runtime/evidence/manager-probe/`; canonical browser flow on the
+new console 25/25 steps (dispatch through the gated row button, reroute review,
+delivery); RBAC probe: manager-web 5/5, driver web role gates pass. Judge state
+after: `judge.sh check` READY.
