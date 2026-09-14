@@ -24,6 +24,9 @@ Real current screens, captured 14 Sep 2026 (evening re-capture) on the hosted st
 | `12b-manager-final.png` | Manager web after delivery: driver and truck AVAILABLE again |
 | `02b-trip-planner-gate.png` | Manager web, planner gate: typed addresses are not locations — Create draft trip disabled with the one reason; driver pick fills the paired truck |
 | `10b-driver-profile.png` | Manager web, Driver profile drawer: facts, licence status, assigned truck + verification, current trip, masked documents, support/danger zone collapsed |
+| `06d-navigation-no-gps-fix.png` | Driver, navigation with no GPS fix: 'Guidance paused - Waiting for a GPS fix', route still drawn, CAUTION context still shown (honest degraded state) |
 | `13-diagnostics.png` | Manager web, Diagnostics: capability states (Weather and Terrain "Available via fallback" while Open-Meteo is rate limited), honest ML inventory |
 
 Provider states in the captures are what the system showed at that moment (official alerts checked: NONE ON CORRIDOR from the NDMA SACHET feed; fleet traffic UNKNOWN until two trucks share a road); UNKNOWN states are honest, not defects. Re-capture with `node .runtime/rehearsal/evidence.mjs` against the hosted URLs after `bash .runtime/judge.sh reset`.
+
+The 14 Sep evening re-capture wrote a navigation screen over `06-truck-verification.png`; the file did not match its row above. The truck-check capture from the same package was restored under that name and the navigation screen kept as `06d-navigation-no-gps-fix.png`, so every file now matches its description. The driver app has not changed since either capture (`0b49c84` and `5302d3e` touch `manager-web/` only), so both still show the current UI.

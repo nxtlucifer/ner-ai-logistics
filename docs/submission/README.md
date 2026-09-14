@@ -1,79 +1,83 @@
-# SIH 2026 submission package
-
-**PPT submission 10 September** (earlier date of the 10–11 window). **Package
-freeze target 9 September.** All dates Asia/Kolkata.
+# SIH 2026 submission package — RASTA AI (SIH26002, Team 17)
 
 | Path | What it is |
 | --- | --- |
-| `NER_AI_Logistics_SIH2026.pptx` | The editable deck. Submit-ready except the one field below |
-| `NER_AI_Logistics_SIH2026.pdf` | 6 pages. **The portal accepts PDF only** |
-| `slides/Slide1..6.PNG` | Every page rendered, for inspection |
-| `evidence/` | Screenshots from the browser capture, with `README.md` indexing which scenario each one establishes |
+| `RASTA_AI_SIH26002_TEAM17_FINAL.pdf` | **The submission file.** 6 pages. The portal accepts PDF only |
+| `RASTA_AI_SIH26002_TEAM17_FINAL.pptx` | The editable deck, built on the official template |
+| `RASTA_AI_SIH26002_TEAM17_PREVIEW.png` | All six slides on one sheet, for a glance check |
+| `slides/Slide1..6.PNG` | Each page at 150 dpi, for inspecting a slide at projector size |
+| `build_final_deck.py` | Builds the pptx from the template + the screenshot package |
+| `render_final_deck.sh` | Build + render on Linux (LibreOffice). The path used to produce the files above |
+| `render_final_deck.ps1` | Build + render on Windows (PowerPoint COM). Kept for machines that have it |
 | `template.pptx` | The supplied SIH2026 format, unmodified |
-| `existing.pptx` | The previous deck this was derived from, kept so the edits stay reviewable |
+| `screenshots/` | The real screens the deck embeds, with `README.md` indexing each one |
+| `evidence/` | Browser-capture evidence for the demo scenarios |
+| `existing.pptx`, `NER_AI_Logistics_SIH2026.*` | Superseded earlier decks, kept so the edits stay reviewable |
 
-Both outputs are rebuilt from `existing.pptx` by the scripts below, so the deck
-is reproducible rather than hand-patched.
+Both outputs are rebuilt from `template.pptx` by the scripts, so the deck is
+reproducible rather than hand-patched. Every fact on a slide comes from
+`docs/PPT_SOURCE_OF_TRUTH.md`; every picture is a real screen from
+`screenshots/`.
 
-## Before submitting — one field only
+## The six slides
 
-**`Team ID -` on slide 1 still reads `[REGISTERED TEAM ID]`.** It is the team's
-portal registration ID; it is not derivable from anything in this repository and
-must not be substituted with the problem-statement ID. Nothing else is a
-placeholder — checked programmatically across all six slides.
+The template's own instruction slide requires **six slides including the title**
+and **PDF upload**. Both hold. The required categories are kept in order:
 
-Confirm against the current college/SPOC notice before upload:
+1. **Title page** — RASTA AI, SIH26002, theme, category, team, and the line the
+   slide exists to leave behind: *shortest is not always usable.*
+2. **Idea / proposed solution** — a normal router beside RASTA, and `UNKNOWN ≠ SAFE`.
+3. **Technical approach** — the operating loop, not a logo wall; who decides, and
+   that neither the LLM nor the experimental model decides.
+4. **Feasibility and viability** — three real screens and the physical lifecycle.
+5. **Impact and benefits** — who gains what, stated without invented percentages.
+6. **Research and references** — sources in about two thirds, the experimental
+   model in the remaining third.
 
-- PS **SIH26002**, title *AI-Based Smart Logistics and Accessibility Intelligence
-  Platform for North Eastern Region (NER)*, theme **Smart Automation**, category
-  **Software**. Carried over from the previous deck; not re-verified against the
-  portal in this session.
-- The template's own instruction slide requires **six slides maximum including
-  the title** and **PDF upload**. Both hold: 6 slides, 6 PDF pages.
-
-## What changed
-
-Content:
-
-- **Turn-by-turn navigation** and **reviewer-authorised selection** added to the
-  capability chips. Both work and neither appeared on the deck.
-- OSRM box now reads "Routes, alternatives + turn steps" — the steps are what the
-  navigation package is built from.
-- Persistence stated precisely: *PostgreSQL + PostGIS (Supabase target; demo on
-  isolated local cluster)*. Supabase is the intended production database; every
-  demonstration runs on the isolated cluster, and a judge asking what it runs on
-  should not be told otherwise.
-
-Rendered defects, all found by exporting the slides and looking at them:
-
-- The logo oval was too narrow for its own word on every slide — "NER-AI
-  LOGISTI / CS".
-- Card headings printed **on top of** their icons on slides 2 and 4; the title
-  card's text ran under the three circular icons on slide 1.
-- The capability chip row ended at x=962 on a 960-wide slide, clipping the last
-  chip.
-- "Routing + Recommendatio / n" wrapped inside an 86px box.
-- "ENVIRONMENTA / L" wrapped in its badge on slide 5.
+Slide 6 states the experimental landslide model the way the repository does:
+**95 % recall** on the NER geographic holdout, **not deployed**, because the
+**50 % false-positive rate** is too high for production. Recall is the large
+number, the safety gate is the dominant block, and the false-positive rate is
+smaller but plainly visible and unaltered — a judge should read a team that
+validated a model and refused to ship it, not a project that is 50 % accurate.
 
 ## Rebuilding
 
-PowerPoint COM does the work. LibreOffice is not installed here and the pptx
-skill's `soffice` wrapper assumes a Unix socket, so it cannot run on this
-machine; `SaveAs(..., 32)` exports PDF and `SaveAs(..., 18)` exports slide PNGs.
+```bash
+bash docs/submission/render_final_deck.sh
+```
 
-Scripts are in the session scratchpad: `fix_deck.ps1`, then `fix_deck2.ps1`,
-then the targeted slide-4 and slide-5 passes. **Run them in order from the
-pristine `existing.pptx`** — they are not idempotent. A general
-overlap-detection pass was tried and abandoned because re-running it
-double-shifted slide 6's reference list.
+Needs `libreoffice-impress`, `poppler-utils`, `python-pptx`, `Pillow`, and
+**`fonts-crosextra-carlito`**. Carlito supplies Calibri's metrics; without it
+every text box renders about 8 % wide and the slides overflow. The script warns
+if it is missing.
+
+On Windows with PowerPoint, `render_final_deck.ps1` does the same job through
+COM (`SaveAs(..., 32)` for PDF, `SaveAs(..., 18)` for slide PNGs).
+
+`build_final_deck.py` finds the template at `SIH_TEMPLATE`, else
+`D:\SIH2026 PPT Format.pptx`, else the `template.pptx` beside it.
+`TRUCK_WEB=1` tells it `06-truck-verification.png` is the 824×1830 driver web
+build rather than a 1264×2780 phone capture, so it is not phone-cropped —
+`render_final_deck.sh` sets it.
+
+## Before submitting
+
+`Team ID` prints **17 (internal group no.)**. If the portal issues a separate
+registered team ID, that is the value the portal expects there; it is not
+derivable from this repository and must not be substituted with the
+problem-statement ID. Nothing else is a placeholder — checked programmatically
+across all six slides.
+
+Confirm against the current college/SPOC notice before upload: PS **SIH26002**,
+title *AI-Based Smart Logistics and Accessibility Intelligence Platform for
+North Eastern Region (NER)*, theme **Smart Automation**, category **Software**.
 
 ## Demo evidence
 
-`evidence/README.md` indexes the capture. Positions are **simulated GPS through
-a dedicated Chrome test context** with geolocation granted normally to the
-driver-app origin — the app's own watcher, uploader, backend ingestion and trip
-poll all ran unmodified. It is not a physical device and no native claim rests
-on it.
-
-Still outstanding: the ~3-minute backup recording. The screenshots cover all
-nine required scenarios; the recording is a separate capture pass.
+`evidence/README.md` indexes the browser capture. Positions there are
+**simulated GPS through a dedicated Chrome test context** with geolocation
+granted normally to the driver-app origin — the app's own watcher, uploader,
+backend ingestion and trip poll all ran unmodified. It is not a physical device
+and no native claim rests on it. The physical-phone claims on slide 4 rest on
+the APK 1.0.18 certification runs recorded in `docs/terrain/HANDOFF.md`.
