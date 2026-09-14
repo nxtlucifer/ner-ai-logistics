@@ -7,7 +7,7 @@ Every fact on the slides comes from docs/PPT_SOURCE_OF_TRUTH.md; every picture
 is a real screen from docs/submission/screenshots/. The template's own pointers
 (title fields, section titles, team oval, SIH logo, footer) are kept; only its
 instruction text boxes and the decorative brain picture are replaced.
-Rendering (PDF, PNG) is done afterwards with PowerPoint (see render_final_deck.ps1).
+Rendering (PDF, PNG) is done afterwards with PowerPoint (render_final_deck.ps1).
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ from pptx.util import Inches, Pt
 ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = Path(os.environ.get("SIH_TEMPLATE", r"D:\SIH2026 PPT Format.pptx"))
 SHOTS = ROOT / "docs" / "submission" / "screenshots"
-OUT = ROOT / "docs" / "submission" / "RASTA_AI_SIH26002_TEAM17_FINAL.pptx"
+OUT = Path(os.environ.get("SIH_OUT", ROOT / "docs" / "submission" / "RASTA_AI_SIH26002_TEAM17_FINAL.pptx"))
 CROPS = Path(os.environ.get("TEMP", ".")) / "sih" / "crops"
 CROPS.mkdir(parents=True, exist_ok=True)
 
@@ -77,7 +77,7 @@ def rect(slide, x, y, w, h, fill=None, line=None, rounded=False, line_w=0.75):
 def text(slide, x, y, w, h, paras, size=14, color=INK, bold=False, align=PP_ALIGN.LEFT,
          anchor=MSO_ANCHOR.TOP, spacing=1.05, space_after=0, margin=0.02):
     """paras: list of paragraphs; a paragraph is a str or a list of (text, opts) runs.
-    opts: bold, color, size, font."""
+    opts: bold, color, size, font, italic."""
     tb = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
     tf = tb.text_frame
     tf.word_wrap = True
@@ -121,7 +121,7 @@ def pill(slide, x, y, w, h, t, fill=INK, color=WHITE, size=10.5, line=None, bold
 
 
 def box(slide, x, y, w, h, title, sub=None, fill=WHITE, line=LINE, title_color=INK,
-        sub_color=GREY, title_size=11, sub_size=9, accent=None):
+        sub_color=GREY, title_size=11, sub_size=9, accent=None, align=PP_ALIGN.LEFT):
     s = rect(slide, x, y, w, h, fill=fill, line=line, rounded=True)
     if accent is not None:
         rect(slide, x, y + 0.08, 0.06, h - 0.16, fill=accent)
@@ -129,15 +129,16 @@ def box(slide, x, y, w, h, title, sub=None, fill=WHITE, line=LINE, title_color=I
     if sub:
         paras.append([(sub, {"color": sub_color, "size": sub_size})])
     text(slide, x + (0.14 if accent is not None else 0.1), y + 0.05, w - 0.2, h - 0.1, paras,
-         anchor=MSO_ANCHOR.MIDDLE, spacing=1.0)
+         anchor=MSO_ANCHOR.MIDDLE, spacing=1.0, align=align)
     return s
 
 
-def arrow(slide, x1, y1, x2, y2, color=MUTED, width=1.25):
+def arrow(slide, x1, y1, x2, y2, color=MUTED, width=1.25, head=True):
     c = slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Inches(x1), Inches(y1), Inches(x2), Inches(y2))
     c.line.color.rgb = color; c.line.width = Pt(width)
-    ln = c.line._get_or_add_ln()
-    tail = etree.SubElement(ln, qn("a:tailEnd")); tail.set("type", "triangle"); tail.set("w", "med"); tail.set("len", "med")
+    if head:
+        ln = c.line._get_or_add_ln()
+        tail = etree.SubElement(ln, qn("a:tailEnd")); tail.set("type", "triangle"); tail.set("w", "med"); tail.set("len", "med")
     return c
 
 
@@ -172,6 +173,16 @@ def caption(slide, x, y, t, w=3.2):
     return pill(slide, x, y, w, 0.28, t, fill=INK, color=WHITE, size=9)
 
 
+def vchain(slide, x, w, y, items, gap=0.13, h=0.3, size=10.5):
+    """Vertical chain of pills; items: (text, fill, color, line). Returns the y after the last."""
+    for i, (t, fill, color, line) in enumerate(items):
+        pill(slide, x, y, w, h, t, fill=fill, color=color, line=line, size=size)
+        if i < len(items) - 1:
+            arrow(slide, x + w / 2, y + h + 0.01, x + w / 2, y + h + gap - 0.01, color=INK)
+        y += h + gap
+    return y
+
+
 def team_oval(slide):
     for sh in slide.shapes:
         if sh.name.startswith("Oval"):
@@ -184,9 +195,8 @@ def team_oval(slide):
             p = tf.paragraphs[0]; p.alignment = PP_ALIGN.CENTER
             for r in list(p.runs):
                 r._r.getparent().remove(r._r)
-            r = p.add_run(); r.text = "NER-AI\nLOGISTICS"
+            r = p.add_run(); r.text = "NER-AI LOGISTICS"
             r.font.name = FONT; r.font.size = Pt(10); r.font.bold = True; r.font.color.rgb = INK
-            r.text = "NER-AI LOGISTICS"
             return sh
 
 
@@ -207,8 +217,6 @@ def set_title(slide, t, size=None):
                 p.runs[0].text = t
                 if size:
                     p.runs[0].font.size = Pt(size)
-                    # the end-of-paragraph mark keeps the template's 44 pt and
-                    # inflates the line height; size it like the run
                     p._p.get_or_add_endParaRPr().set("sz", str(int(size * 100)))
             else:
                 tf.text = t
@@ -224,16 +232,13 @@ def slide1(s, nav, nav_size, mgr, mgr_size):
     for sh in list(s.shapes):
         if sh.name in ("Freeform: Shape 26", "Picture 4", "Subtitle 3", "TextBox 9"):
             remove(sh)
-    # brand
     logo = ROOT / "driver-app" / "assets" / "brand-mark.png"
     s.shapes.add_picture(str(logo), Inches(0.55), Inches(1.32), Inches(0.95), Inches(0.95))
     text(s, 1.6, 1.28, 6.0, 0.7, [[("RASTA AI", {"bold": True, "size": 40, "color": INK})]], anchor=MSO_ANCHOR.MIDDLE)
     text(s, 1.62, 1.92, 6.4, 0.5, [[("Route Intelligence for Essential-Supply Logistics in North Eastern India", {"size": 15, "color": GREY})]])
-    # PS id, prominent
     pill(s, 0.55, 2.7, 2.35, 0.7, "SIH26002", fill=BLUE, size=26)
     text(s, 3.05, 2.72, 4.0, 0.66, [[("Problem Statement ID", {"bold": True, "size": 11, "color": GREY})],
                                      [("MDoNER · Smart Automation · Software", {"size": 12, "color": INK})]], anchor=MSO_ANCHOR.MIDDLE)
-    # template pointers, in the template's order
     rows = [
         ("Problem Statement ID", "SIH26002"),
         ("Problem Statement Title", "AI-Based Smart Logistics and Accessibility Intelligence Platform for North Eastern Region (NER)"),
@@ -250,7 +255,6 @@ def slide1(s, nav, nav_size, mgr, mgr_size):
         hline(s, 0.55, y + tall + 0.02, 6.6)
         y += tall + 0.08
     text(s, 0.55, 6.5, 6.7, 0.35, [[("End-to-end working prototype · physical-phone validated · live demo corridor Guwahati → Shillong", {"size": 11.5, "color": GREEN, "bold": True})]])
-    # real screens as the visual anchor
     picture(s, mgr, 7.35, 2.75, h=3.7, size=mgr_size)
     p, w, h = picture(s, nav, 10.2, 1.3, h=5.5, size=nav_size)
     caption(s, 7.35, 6.68, "Manager route review · Driver navigation — real screens", w=5.4)
@@ -261,105 +265,94 @@ def slide2(s, evid, evid_size):
     t = set_title(s, "RASTA AI — ROUTE INTELLIGENCE", size=28)
     t.left = Inches(2.1); t.width = Inches(8.5)
     label(s, 0.5, 1.2, 4, "PROPOSED SOLUTION")
-    text(s, 0.5, 1.45, 8.6, 1.0, [[("NOT THE SHORTEST ROAD. ", {"bold": True, "size": 24, "color": INK}),
+    text(s, 0.5, 1.45, 8.7, 1.0, [[("NOT THE SHORTEST ROAD. ", {"bold": True, "size": 24, "color": INK}),
                                    ("THE ROAD THAT IS OPERATIONALLY USABLE NOW.", {"bold": True, "size": 24, "color": BLUE})]], spacing=1.0)
-    # problem
-    label(s, 0.5, 2.5, 4, "THE PROBLEM ON NER CORRIDORS")
-    probs = ["Mountain terrain", "Monsoon weather", "Landslides", "Flood context", "Road disruptions", "Weak connectivity", "Missing or stale evidence"]
-    for i, t in enumerate(probs):
-        col, row = divmod(i, 4)
-        cx = 0.5 + col * 2.05; cy = 2.8 + row * 0.3
-        rect(s, cx, cy + 0.1, 0.1, 0.1, fill=DANGER, rounded=False)
-        text(s, cx + 0.18, cy, 1.9, 0.3, [t], size=12.5)
-    text(s, 0.5, 4.05, 4.0, 0.35, [[("A shortest-path router still sends the truck.", {"size": 12.5, "color": DANGER, "bold": True})]])
-    # what is different
-    label(s, 4.75, 2.5, 4, "WHAT IS DIFFERENT")
-    usps = [("Evidence-aware routing", " — terrain, weather, warnings, flood, landslide history, traffic, freshness; not shortest-path only"),
-            ("Unknown or stale data is exposed", " — never treated as safe"),
-            ("Human-governed rerouting", " — a manager approves every safety-critical route change"),
-            ("23 languages + offline operation", " — built for drivers on NER corridors")]
-    y = 2.78
-    for a, b in usps:
-        text(s, 4.75, y, 4.35, 0.48, [[(a, {"bold": True, "size": 11.5, "color": INK}), (b, {"size": 11.5, "color": GREY})]], spacing=1.0)
-        y += 0.5
-    # flow
-    label(s, 0.5, 4.86, 4, "THE RASTA FLOW")
-    row1 = ["MANAGER TRIP", "REAL ROUTE", "TERRAIN + WEATHER", "LANDSLIDE · FLOOD · WARNINGS", "TRAFFIC + FRESHNESS"]
-    row2 = ["ROUTE DECISION", "DRIVER NAVIGATION", "CONTINUOUS MONITORING", "REROUTE / DELIVERY"]
-    x = 0.5; y = 5.14; wds = [1.35, 1.2, 1.6, 2.3, 1.75]
-    for i, (t, w) in enumerate(zip(row1, wds)):
-        pill(s, x, y, w, 0.4, t, fill=WHITE, color=INK, line=INK, size=9.5)
-        if i < len(row1) - 1:
-            arrow(s, x + w + 0.02, y + 0.2, x + w + 0.13, y + 0.2, color=INK)
-        x += w + 0.15
-    # row 2 snakes back right-to-left, so the flow reads as one line
-    x_end = 0.5 + sum(wds) + 4 * 0.15
-    y = 5.68; wds2 = [1.55, 1.75, 2.15, 1.85]
-    fills = [BLUE, WHITE, WHITE, WHITE]
-    x = x_end
-    for i, (t, w) in enumerate(zip(row2, wds2)):
-        x -= w
-        pill(s, x, y, w, 0.4, t, fill=fills[i], color=WHITE if fills[i] == BLUE else INK, line=None if fills[i] == BLUE else INK, size=9.5)
-        if i < len(row2) - 1:
-            arrow(s, x - 0.02, y + 0.2, x - 0.13, y + 0.2, color=INK)
-        x -= 0.15
-    arrow(s, x_end - wds[-1] / 2, 5.55, x_end - wds[-1] / 2, 5.67, color=INK)
-    # unknown != safe
-    pill(s, 0.5, 6.25, 2.2, 0.42, "UNKNOWN  ≠  SAFE", fill=DANGER, size=12)
-    text(s, 2.85, 6.22, 6.3, 0.5, [[("Missing or stale evidence is shown as UNKNOWN and never counted as safe. ", {"size": 11.5, "color": INK}),
-                                    ("Routes with unknown hazard data need an authorised reviewer before selection.", {"size": 11.5, "color": GREY})]], spacing=1.0)
-    # evidence screen
+    text(s, 0.5, 2.36, 8.7, 0.45, [[("NER corridors: mountain terrain · monsoon · landslides · floods · road disruption · weak connectivity · stale evidence. ", {"size": 11.5, "color": GREY}),
+                                    ("A shortest-path router still sends the truck.", {"size": 11.5, "color": DANGER, "bold": True})]], spacing=1.0)
+    # a normal router vs RASTA
+    label(s, 0.5, 2.85, 2.6, "A NORMAL ROUTER")
+    y = vchain(s, 0.5, 2.4, 3.15, [("Origin", WHITE, INK, MUTED), ("Shortest / fastest road", WHITE, INK, MUTED), ("Truck", WHITE, INK, MUTED)], gap=0.3, h=0.32)
+    text(s, 0.5, y + 0.05, 2.5, 1.2, [[("No terrain, weather, hazard or freshness check.", {"size": 10.5, "color": GREY})],
+                                      [("No governance. No answer when data is missing.", {"size": 10.5, "color": GREY})]], spacing=1.05, space_after=3)
+    label(s, 3.4, 2.85, 3, "RASTA AI", color=BLUE)
+    x, w = 3.4, 5.75
+    y = vchain(s, x, w, 3.15, [("Origin", WHITE, INK, INK), ("Real route  ·  OSRM road, alternatives, turn steps", WHITE, INK, INK)], gap=0.13, h=0.3)
+    # evidence block
+    bh = 0.98
+    rect(s, x, y, w, bh, fill=BG, line=LINE, rounded=True)
+    text(s, x + 0.12, y + 0.05, w - 0.2, 0.28, [[("ROUTE-SPECIFIC EVIDENCE  ", {"bold": True, "size": 10.5, "color": INK}), ("sampled along the selected road, each factor with its freshness", {"size": 9.5, "color": GREY})]])
+    chips = ["Terrain", "Weather", "Landslide exposure", "Flood context", "Official warnings", "Fleet traffic", "Evidence freshness"]
+    cw = [0.85, 0.85, 1.35, 1.1, 1.25, 1.0, 1.35]
+    cx, cy = x + 0.12, y + 0.36
+    for c, wdt in zip(chips, cw):
+        if cx + wdt > x + w - 0.1:
+            cx = x + 0.12; cy += 0.3
+        pill(s, cx, cy, wdt, 0.25, c, fill=WHITE, color=INK, line=INK, size=9, bold=False)
+        cx += wdt + 0.08
+    y += bh
+    arrow(s, x + w / 2, y + 0.01, x + w / 2, y + 0.12, color=INK)
+    y += 0.13
+    y = vchain(s, x, w, y, [("OPERATIONAL DECISION  ·  CONTINUE / CAUTION / HOLD / REROUTE", BLUE, WHITE, None),
+                            ("Manager governance  ·  reviews evidence, authorises, dispatches, approves reroutes", WHITE, INK, INK),
+                            ("Driver  ·  navigation, danger context, 23 languages, offline package", WHITE, INK, INK)], gap=0.13, h=0.3)
+    # unknown != safe, dominant
+    pill(s, 0.5, 6.34, 2.45, 0.44, "UNKNOWN  ≠  SAFE", fill=DANGER, size=13)
+    text(s, 3.1, 6.3, 6.1, 0.55, [[("The system refuses to fabricate certainty: ", {"size": 11, "color": INK, "bold": True}),
+                                   ("missing or stale evidence is marked UNKNOWN, never counted as safe, and the route goes to an authorised reviewer.", {"size": 11, "color": INK})]], spacing=1.0)
     p, w, h = picture(s, evid, 9.45, 1.3, h=5.45, size=evid_size)
     caption(s, 9.45, 6.5, "Manager · Check conditions (real screen)", w=w)
 
 
 def slide3(s):
     strip_instruction_box(s); team_oval(s)
-    # data row
     label(s, 0.45, 1.16, 8.5, "VERIFIED DATA  ·  provider adapters with health + freshness")
     srcs = [("WEATHER", "Open-Meteo · MET Norway"), ("TERRAIN", "Copernicus DEM · OpenTopoData"), ("WARNINGS", "NDMA SACHET (CAP)"),
             ("FLOOD", "GloFAS"), ("LANDSLIDE HISTORY", "NASA GLC 2007–17"), ("TRAFFIC", "fleet GPS fixes")]
-    x = 0.45; bw = 1.34; gap = 0.1; y = 1.48
+    x = 0.45; bw = 1.34; gap = 0.1; y = 1.46
     for t, sub in srcs:
-        box(s, x, y, bw, 0.68, t, sub, title_size=10, sub_size=8.5)
-        arrow(s, x + bw / 2, y + 0.7, x + bw / 2, y + 0.92, color=MUTED)
+        box(s, x, y, bw, 0.64, t, sub, title_size=10, sub_size=8.5)
+        arrow(s, x + bw / 2, y + 0.66, x + bw / 2, y + 0.86, color=MUTED)
         x += bw + gap
     total = 6 * bw + 5 * gap
-    # backend
-    box(s, 0.45, 2.42, total, 0.62, "FASTAPI BACKEND", "PostgreSQL + PostGIS (Supabase) · OSRM routing, alternatives, turn steps · offline trip package · push relay · audit log",
-        fill=BG, title_size=11.5, sub_size=9.5)
-    arrow(s, 0.45 + total / 2, 3.06, 0.45 + total / 2, 3.28)
-    # policy
-    box(s, 0.45, 3.3, total, 0.62, "DETERMINISTIC RISK POLICY", "11 factors · reason codes · UNKNOWN ≠ SAFE · reviewer authorisation when hazard data is missing",
+    box(s, 0.45, 2.34, total, 0.58, "ROUTE-SPECIFIC EVIDENCE  ·  FastAPI backend", "every factor sampled along the selected road · PostgreSQL + PostGIS (Supabase) · OSRM routes, alternatives, turn steps · freshness per factor",
+        fill=BG, title_size=11, sub_size=9.5)
+    arrow(s, 0.45 + total / 2, 2.94, 0.45 + total / 2, 3.14)
+    box(s, 0.45, 3.16, total, 0.58, "DETERMINISTIC SAFETY POLICY", "11 factors · reason codes · UNKNOWN ≠ SAFE · reviewer authorisation when hazard data is missing",
         fill=BLUE, line=BLUE, title_color=WHITE, sub_color=WHITE, title_size=11.5, sub_size=9.5)
-    arrow(s, 0.45 + total / 2, 3.94, 0.45 + total / 2, 4.16)
-    # decisions
+    arrow(s, 0.45 + total / 2, 3.76, 0.45 + total / 2, 3.96)
     dec = [("CONTINUE", GREEN), ("CAUTION", WARN), ("HOLD", DANGER), ("REROUTE", INK)]
     dw = (total - 3 * 0.15) / 4
     x = 0.45
     for t, c in dec:
-        pill(s, x, 4.18, dw, 0.42, t, fill=c, size=11)
+        pill(s, x, 3.98, dw, 0.38, t, fill=c, size=11)
         x += dw + 0.15
-    # clients
-    arrow(s, 0.45 + total * 0.3, 4.62, 0.45 + total * 0.25, 4.92)
-    arrow(s, 0.45 + total * 0.7, 4.62, 0.45 + total * 0.75, 4.92)
-    cw = (total - 0.3) / 2
-    box(s, 0.45, 4.95, cw, 0.78, "MANAGER CONSOLE  ·  React + TypeScript", "trip → route review → conditions → decision → dispatch → reroute review; manager accounts only",
-        title_size=11, sub_size=9.5, accent=BLUE)
-    box(s, 0.45 + cw + 0.3, 4.95, cw, 0.78, "DRIVER APP  ·  React Native / Expo (Android)", "one login, server-decided role · truck check · GPS navigation · danger cards · 23 languages · offline package",
-        title_size=11, sub_size=9.5, accent=GREEN)
-    text(s, 0.45, 5.92, total, 0.9, [
+    arrow(s, 0.45 + total / 2, 4.38, 0.45 + total / 2, 4.58)
+    # the operating loop
+    loop = [("MANAGER REVIEW", 1.45), ("DRIVER NAVIGATION", 1.6), ("ROUTE-AHEAD MONITOR (60 s)", 2.0), ("CONDITIONS CHANGE?", 1.55), ("REASSESS / REROUTE", 1.5)]
+    x = 0.45; ly = 4.6
+    for i, (t, w) in enumerate(loop):
+        pill(s, x, ly, w, 0.38, t, fill=WHITE if i else INK, color=INK if i else WHITE, line=INK, size=9)
+        if i < len(loop) - 1:
+            arrow(s, x + w + 0.02, ly + 0.19, x + w + 0.1, ly + 0.19, color=INK)
+        x += w + 0.11
+    # return arrow: reassess -> policy
+    rx = 0.45 + total + 0.12
+    arrow(s, x - 0.11 + 0.02, ly + 0.19, rx, ly + 0.19, color=BLUE, head=False)
+    arrow(s, rx, ly + 0.19, rx, 3.45, color=BLUE, head=False)
+    arrow(s, rx, 3.45, 0.45 + total + 0.02, 3.45, color=BLUE)
+    text(s, 0.45, 5.06, total, 0.4, [[("Decision loop: conditions are re-scored every 60 s along the road ahead; a material change goes back through the policy, and a reroute is proposed to the manager — never applied silently.", {"size": 9.5, "color": GREY})]])
+    text(s, 0.45, 5.5, total, 1.3, [
+        [("CLIENTS  ", {"bold": True, "size": 10, "color": GREY}), ("Manager console — React + TypeScript, manager accounts only · Driver app — React Native / Expo, Android; one login, server-decided role, offline trip package", {"size": 10.5, "color": INK})],
         [("STACK  ", {"bold": True, "size": 10, "color": GREY}), ("FastAPI · PostgreSQL / PostGIS (Supabase) · React · React Native / Expo · OSRM · OpenStreetMap · Gemini", {"size": 10.5, "color": INK})],
         [("EVIDENCE  ", {"bold": True, "size": 10, "color": GREY}), ("Open-Meteo / MET Norway · NDMA SACHET · GloFAS · NASA historical landslides · OpenTopoData / Copernicus DEM", {"size": 10.5, "color": INK})],
-        [("METHOD  ", {"bold": True, "size": 10, "color": GREY}), ("plan → score evidence → decide → dispatch → track (60 s route-ahead worker) → reassess → human reroute → deliver", {"size": 10.5, "color": INK})],
-    ], spacing=1.1)
-    # right panel: who decides
+    ], spacing=1.1, space_after=3)
+    # right panel: supporting AI
     px = 9.35; pw = 3.6
     rect(s, px, 1.18, pw, 5.62, fill=BG, line=None, rounded=True)
-    label(s, px + 0.15, 1.28, 3.3, "AI ARCHITECTURE — WHO DECIDES")
+    label(s, px + 0.15, 1.28, 3.3, "WHO DECIDES — AI IS SUPPORTING")
     rows = [("DETERMINISTIC SAFETY ENGINE", "makes every operational decision", BLUE),
-            ("AI / LLM  (Gemini, OpenRouter fallback)", "explains and assists in the driver's language — never decides", GREEN),
-            ("EXPERIMENTAL ML", "research channel only; held out of routing by a validation gate", MUTED)]
+            ("GEMINI / OPENROUTER (LLM)", "explains the decision and assists in the driver's language — never decides", GREEN),
+            ("EXPERIMENTAL ML", "research channel only; kept outside routing by the safety-validation gate", MUTED)]
     y = 1.65
     for t, sub, c in rows:
         rect(s, px + 0.15, y, 0.07, 0.72, fill=c)
@@ -376,55 +369,52 @@ def slide3(s):
         y += 0.52
 
 
-def slide4(s, mgr, mgr_size, phone, phone_size):
+def slide4(s, mgr, mgr_size, truck, truck_size, nav, nav_size):
     strip_instruction_box(s); team_oval(s)
-    text(s, 0.5, 1.15, 8.5, 0.55, [[("NOT A CONCEPT — AN END-TO-END WORKING PROTOTYPE", {"bold": True, "size": 23, "color": INK})]], anchor=MSO_ANCHOR.MIDDLE)
-    text(s, 0.5, 1.68, 8.5, 0.35, [[("Hosted backend, manager console and the Android app on a physical phone, on real roads.", {"size": 12.5, "color": GREY})]])
-    # screens
-    p, w1, h1 = picture(s, mgr, 0.5, 2.2, h=4.35, size=mgr_size)
-    p, w2, h2 = picture(s, phone, 0.5 + w1 + 0.25, 2.2, h=4.35, size=phone_size)
-    caption(s, 0.5, 6.62, "Real screens · manager route review · driver trip", w=w1 + w2 + 0.25)
-    # working today
-    cx = 0.5 + w1 + w2 + 0.6
-    label(s, cx, 2.12, 3, "WORKING TODAY")
-    items = ["Manager login (manager-only console)", "Driver login · role-aware mobile UI", "Real OSRM route + alternatives", "Terrain, weather, flood, landslide evidence",
-             "Truck photo verification", "Physical GPS navigation", "Off-route detection", "Manager-approved reroute", "Offline / degraded operation", "Stops → delivery → fleet available"]
-    y = 2.42
-    for t in items:
-        text(s, cx, y, 0.3, 0.3, [[("✓", {"bold": True, "size": 12, "color": GREEN})]])
-        text(s, cx + 0.28, y, 3.0, 0.3, [t], size=11.5)
-        y += 0.33
-    # validation
-    vx = cx + 3.45
-    label(s, vx, 2.12, 3, "VALIDATION")
-    stats = [("1138+", "backend tests"), ("621+", "driver-app tests"), ("170+", "manager-web tests")]
-    y = 2.42
+    text(s, 0.5, 1.12, 9.0, 0.5, [[("NOT A CONCEPT — A PHYSICAL, END-TO-END WORKING PROTOTYPE", {"bold": True, "size": 22, "color": INK})]], anchor=MSO_ANCHOR.MIDDLE)
+    steps = [("MANAGER ROUTE REVIEW", 1.75), ("DISPATCH", 1.0), ("DRIVER ACCEPT + TRUCK CHECK", 2.1), ("NAVIGATION", 1.2), ("OFF-ROUTE", 1.05), ("REROUTE", 1.0), ("MANAGER APPROVAL", 1.6), ("DELIVERY", 1.0)]
+    x = 0.5; sy = 1.72
+    for i, (t, w) in enumerate(steps):
+        pill(s, x, sy, w, 0.34, t, fill=BLUE if i in (0, 6) else (GREEN if i == 7 else WHITE), color=WHITE if i in (0, 6, 7) else INK, line=None if i in (0, 6, 7) else INK, size=9)
+        if i < len(steps) - 1:
+            arrow(s, x + w + 0.02, sy + 0.17, x + w + 0.1, sy + 0.17, color=INK)
+        x += w + 0.12
+    # three real screens
+    top = 2.32; hh = 3.55
+    p, w1, h1 = picture(s, mgr, 0.5, top, h=hh, size=mgr_size)
+    p, w2, h2 = picture(s, truck, 0.5 + w1 + 0.22, top, h=hh, size=truck_size)
+    p, w3, h3 = picture(s, nav, 0.5 + w1 + w2 + 0.44, top, h=hh, size=nav_size)
+    caption(s, 0.5, top + hh + 0.1, "Manager · route review", w=w1)
+    caption(s, 0.5 + w1 + 0.22, top + hh + 0.1, "Driver · truck check", w=w2)
+    caption(s, 0.5 + w1 + w2 + 0.44, top + hh + 0.1, "Driver · navigation", w=w3)
+    # proof column
+    cx = 0.5 + w1 + w2 + w3 + 0.75
+    cw = 12.85 - cx
+    label(s, cx, 2.25, cw, "PROOF")
+    text(s, cx, 2.55, cw, 0.4, [[("Physical Android phone · hosted backend · real roads", {"size": 11, "color": INK})]], spacing=1.0)
+    stats = [("12/12", "judge-flow steps on the phone: dispatch → accept → truck check → GPS navigation → real off-route → reroute → manager approval → stops → delivery"),
+             ("9/9", "role steps: driver ↔ manager sign-in on one APK, no data leak"),
+             ("1138+", "backend tests  ·  621+ driver tests  ·  170+ manager tests")]
+    y = 2.95
     for n, t in stats:
-        text(s, vx, y, 1.4, 0.55, [[(n, {"bold": True, "size": 24, "color": BLUE})]], anchor=MSO_ANCHOR.MIDDLE)
-        text(s, vx + 1.35, y, 1.9, 0.55, [[(t, {"size": 11.5, "color": INK})]], anchor=MSO_ANCHOR.MIDDLE)
-        y += 0.58
-    pill(s, vx, y + 0.05, 3.15, 0.38, "PHYSICAL ANDROID · CERTIFIED", fill=GREEN, size=11)
-    text(s, vx, y + 0.5, 3.2, 0.9, [[("Canonical demo  ", {"bold": True, "size": 11, "color": GREY}), ("Guwahati → Shillong", {"bold": True, "size": 12, "color": INK})],
-                                    [("≈ 98.8 km real route · 9/9 role steps · 12/12 judge-flow steps on the phone", {"size": 10.5, "color": GREY})]], spacing=1.05)
-    # limits
-    ly = 5.72
-    hline(s, cx, ly - 0.06, 12.85 - cx)
-    label(s, cx, ly, 4, "KNOWN LIMITS → MITIGATION")
-    lim = [("Render cold start", "warm /health before the demo"),
-           ("Provider rate limits", "cached evidence + explicit UNKNOWN"),
-           ("Push needs Firebase config", "in-app safety alerts already work"),
-           ("Experimental ML", "outside routing until the gate passes")]
-    for i, (a, b) in enumerate(lim):
-        col, row = divmod(i, 2)
-        text(s, cx + col * 3.3, ly + 0.3 + row * 0.4, 3.25, 0.4, [[(a, {"bold": True, "size": 10, "color": INK}), ("  →  " + b, {"size": 10, "color": GREY})]], spacing=1.0)
-    notes(s, "Judge answer on ML: We trained and evaluated a landslide-hazard model, but deliberately keep it outside production routing because its geographic false-positive rate is still too high (recall 0.95 at FPR 0.50 on the NER holdout). This prevents unreliable ML from making safety-critical decisions. Tests: backend 1138 passed / 5 skipped, driver 621, manager 170 (14 Sep 2026, commit 0b89ddf). Physical certification: docs/terrain/HANDOFF.md section 9.")
+        text(s, cx, y, 1.15, 0.5, [[(n, {"bold": True, "size": 20, "color": BLUE})]], anchor=MSO_ANCHOR.MIDDLE)
+        text(s, cx + 1.15, y - 0.1, cw - 1.15, 0.72, [[(t, {"size": 10.5, "color": INK})]], anchor=MSO_ANCHOR.MIDDLE, spacing=1.0)
+        y += 0.78
+    pill(s, cx, y - 0.02, cw, 0.36, "PHYSICAL ANDROID · CERTIFIED", fill=GREEN, size=11)
+    text(s, cx, y + 0.42, cw, 0.4, [[("Canonical demo  ", {"bold": True, "size": 10.5, "color": GREY}), ("Guwahati → Shillong · ≈ 98.8 km real route", {"bold": True, "size": 11, "color": INK})]], spacing=1.0)
+    ly = 6.36
+    hline(s, 0.5, ly - 0.05, 12.35)
+    text(s, 0.5, ly, 12.35, 0.55, [[("KNOWN LIMITS → MITIGATION   ", {"bold": True, "size": 10, "color": GREY}),
+                                   ("Render cold start → warm /health before the demo  ·  provider rate limits → cached evidence + explicit UNKNOWN  ·  background push needs Firebase config → in-app alerts already work  ·  experimental ML → outside routing until the gate passes", {"size": 10, "color": INK})]], spacing=1.05)
+    notes(s, "Judge answer on ML: We trained and evaluated a landslide-hazard model, but deliberately keep it outside production routing because its geographic false-positive rate is still too high (recall 0.95 at FPR 0.50 on the NER holdout). This prevents unreliable ML from making safety-critical decisions. Tests: backend 1138 passed / 5 skipped, driver 621, manager 170 (14 Sep 2026, commit 0b89ddf). Physical certification: docs/terrain/HANDOFF.md section 9; judge flow 12/12, role flow 9/9 on APK 1.0.18.")
 
 
-def slide5(s, lang, lang_size):
+def slide5(s, lang, lang_size, mobile, mobile_size):
     strip_instruction_box(s); team_oval(s)
-    text(s, 0.5, 1.15, 8.7, 0.95, [[("RASTA AI does not ask only ", {"size": 19, "color": GREY}), ("“Which road is shortest?”", {"size": 19, "color": INK, "bold": True}),
-                                    ("  It asks ", {"size": 19, "color": GREY}), ("“Can this truck reliably use this corridor now?”", {"size": 19, "color": BLUE, "bold": True})]], spacing=1.05, anchor=MSO_ANCHOR.MIDDLE)
-    label(s, 0.5, 2.2, 4, "WHO BENEFITS")
+    text(s, 0.5, 1.12, 8.7, 0.9, [[("RASTA AI does not ask only ", {"size": 19, "color": GREY}), ("“Which road is shortest?”", {"size": 19, "color": INK, "bold": True}),
+                                   ("  It asks ", {"size": 19, "color": GREY}), ("“Can this truck reliably use this corridor now?”", {"size": 19, "color": BLUE, "bold": True})]], spacing=1.05, anchor=MSO_ANCHOR.MIDDLE)
+    text(s, 0.5, 2.02, 8.7, 0.34, [[("FOOD  ·  MEDICINE  ·  FUEL  ·  RELIEF SUPPLIES", {"bold": True, "size": 12.5, "color": GREEN}), ("   — essential logistics for hill communities, decided on evidence", {"size": 11.5, "color": GREY})]])
+    label(s, 0.5, 2.42, 4, "WHO BENEFITS")
     who = [("FLEET MANAGERS", "Route usability and uncertainty visible before dispatch; auditable decisions."),
            ("DRIVERS", "Safer navigation, danger context, emergency support, 23 languages."),
            ("REMOTE COMMUNITIES", "More resilient access to food, medicine, fuel and relief supplies."),
@@ -432,34 +422,37 @@ def slide5(s, lang, lang_size):
     cw = 2.1
     for i, (h, b) in enumerate(who):
         x = 0.5 + i * (cw + 0.13)
-        hline(s, x, 2.5, cw, color=BLUE, width=1.5)
-        text(s, x, 2.56, cw, 1.3, [[(h, {"bold": True, "size": 11, "color": BLUE})], [(b, {"size": 11.5, "color": INK})]], spacing=1.05, space_after=3)
-    label(s, 0.5, 3.95, 4, "DEMONSTRATED TODAY")
-    caps = [("23", "selectable languages, explicit fallback status"), ("11", "factor route-risk assessment"), ("60 s", "route-ahead coordinator"),
+        hline(s, x, 2.72, cw, color=BLUE, width=1.5)
+        text(s, x, 2.78, cw, 1.2, [[(h, {"bold": True, "size": 11, "color": BLUE})], [(b, {"size": 11.5, "color": INK})]], spacing=1.05, space_after=3)
+    label(s, 0.5, 4.05, 4, "DEMONSTRATED TODAY")
+    caps = [("23", "selectable languages, explicit fallback status"), ("11", "route factors in every decision"), ("60 s", "route-ahead monitor while driving"),
             ("12/12", "judge-flow steps certified on a physical phone"), ("100 %", "of reroutes reviewed by a human"), ("0", "unknown factors counted as safe")]
     for i, (n, t) in enumerate(caps):
         col, row = divmod(i, 3)
-        x = 0.5 + col * 4.4; y = 4.25 + row * 0.55
-        text(s, x, y, 1.0, 0.5, [[(n, {"bold": True, "size": 22, "color": BLUE})]], anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.RIGHT)
-        text(s, x + 1.1, y, 3.2, 0.5, [[(t, {"size": 11.5, "color": INK})]], anchor=MSO_ANCHOR.MIDDLE)
-    label(s, 0.5, 5.98, 5, "HUMAN GOVERNANCE — AI HAS NO UNCONTROLLED AUTHORITY")
+        x = 0.5 + col * 4.4; y = 4.35 + row * 0.5
+        text(s, x, y, 1.0, 0.46, [[(n, {"bold": True, "size": 20, "color": BLUE})]], anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.RIGHT)
+        text(s, x + 1.1, y, 3.2, 0.46, [[(t, {"size": 11.5, "color": INK})]], anchor=MSO_ANCHOR.MIDDLE)
+    label(s, 0.5, 5.95, 5, "HUMAN GOVERNANCE — AI HAS NO UNCONTROLLED AUTHORITY")
     chain = ["Verified evidence", "Deterministic safety policy", "Manager governance", "Driver action"]
-    x = 0.5; y = 6.28
+    x = 0.5; y = 6.25
     for i, t in enumerate(chain):
         w = 2.0
         pill(s, x, y, w, 0.38, t, fill=WHITE if i else INK, color=INK if i else WHITE, line=INK, size=10.5)
         if i < 3:
             arrow(s, x + w + 0.03, y + 0.19, x + w + 0.2, y + 0.19, color=INK)
         x += w + 0.24
-    text(s, 0.5, 6.7, 8.7, 0.25, [[("Impact is framed on essential logistics — food, medicine, fuel, relief — and on evidence, not on unmeasured savings.", {"size": 9.5, "color": GREY})]])
-    p, w, h = picture(s, lang, 9.75, 1.25, h=4.3, size=lang_size)
-    caption(s, 9.75, 1.25 + h + 0.12, "Driver · language selector (real screen)", w=w)
-    text(s, 9.75, 1.25 + h + 0.48, w, 0.9, [[("23 languages in the selector; each shows its status — Verified, Draft or English fallback — so a driver is never misled.", {"size": 10, "color": GREY})]], spacing=1.05)
+    text(s, 0.5, 6.67, 8.7, 0.25, [[("No invented percentages: impact is stated as who gains what, backed by the working system.", {"size": 9.5, "color": GREY})]])
+    px = 9.4
+    p, w, h = picture(s, lang, px, 1.2, h=2.8, size=lang_size)
+    caption(s, px, 1.2 + h + 0.1, "Driver · 23 languages", w=w)
+    p2, w2, h2 = picture(s, mobile, px + w + 0.15, 1.2, h=2.8, size=mobile_size)
+    caption(s, px + w + 0.15, 1.2 + h2 + 0.1, "Manager · mobile", w=w2)
+    text(s, px, 1.2 + h + 0.5, 12.85 - px, 1.8, [[("Real screens, APK 1.0.18. One login, server-decided role: a manager gets a mobile fleet view, a driver gets navigation. Each language shows its status — Verified, Draft or English fallback — so nobody is misled.", {"size": 10, "color": GREY})]], spacing=1.05)
 
 
 def slide6(s):
     strip_instruction_box(s); team_oval(s)
-    label(s, 0.5, 1.18, 5, "RESEARCH / EVIDENCE SOURCES")
+    label(s, 0.5, 1.18, 5, "RESEARCH / EVIDENCE SOURCES BEHIND THE ROUTE DECISION")
     src = [("NASA Global Landslide Catalog", "historical landslide exposure; inventory 2007–2017, ≤5 km accuracy filter"),
            ("NDMA SACHET (CAP feed)", "official warnings, polled with freshness"),
            ("GloFAS — Copernicus Emergency Management", "flood context: river discharge vs 30-day mean"),
@@ -469,26 +462,29 @@ def slide6(s):
            ("MDoNER problem statement SIH26002", "AI-based smart logistics and accessibility intelligence for the NER")]
     y = 1.5
     for a, b in src:
-        text(s, 0.5, y, 5.9, 0.55, [[(a, {"bold": True, "size": 12, "color": INK})], [(b, {"size": 10.5, "color": GREY})]], spacing=1.0)
+        text(s, 0.5, y, 6.0, 0.55, [[(a, {"bold": True, "size": 12, "color": INK})], [(b, {"size": 10.5, "color": GREY})]], spacing=1.0)
         y += 0.6
-    # model validation
-    mx = 6.85; mw = 6.0
-    rect(s, mx, 1.18, mw, 4.25, fill=BG, rounded=True)
-    label(s, mx + 0.2, 1.28, 5, "MODEL VALIDATION — EXPERIMENTAL LANDSLIDE MODEL")
-    text(s, mx + 0.2, 1.58, mw - 0.4, 0.62, [[("Logistic regression on NASA GLC events + ERA5-Land rain + DEM slope. ", {"size": 11, "color": INK}),
-                                              ("India-wide training (605 events, 3,025 rows) · NER geographic holdout (770 days, 154 events) · temporal split ≤2014 / 2015–17 · threshold chosen on train only.", {"size": 11, "color": GREY})]], spacing=1.0)
-    mets = [("0.95", "Recall"), ("0.32", "Precision"), ("0.55", "PR-AUC"), ("0.83", "ROC-AUC"), ("0.50", "FPR")]
-    x = mx + 0.2
-    for n, t in mets:
-        text(s, x, 2.3, 1.1, 0.5, [[(n, {"bold": True, "size": 24, "color": INK})]], align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
-        text(s, x, 2.78, 1.1, 0.3, [[(t, {"size": 10.5, "color": GREY})]], align=PP_ALIGN.CENTER)
-        x += 1.12
-    pill(s, mx + 0.2, 3.2, 3.0, 0.38, "EXPERIMENTAL — NOT DEPLOYED", fill=INK, size=11)
-    text(s, mx + 3.35, 3.2, 2.5, 0.38, [[("rule baseline: recall 0.25 @ FPR 0.03", {"size": 10, "color": GREY})]], anchor=MSO_ANCHOR.MIDDLE)
-    text(s, mx + 0.2, 3.72, mw - 0.4, 1.9, [
-        [("Validation before automation. ", {"bold": True, "size": 13, "color": BLUE}), ("Experimental ML stays outside production until it meets the required geographic reliability and false-positive thresholds.", {"size": 13, "color": INK})],
-        [("The false-positive floor is a data-design limit (same-site quiet-day negatives; false positives are wet monsoon days), measured in a full error analysis. Next data: sub-daily rain intensity, soil moisture, cross-site negatives.", {"size": 10.5, "color": GREY})],
-    ], spacing=1.05, space_after=4)
+    # experimental research, deliberately secondary
+    mx = 7.0; mw = 5.85
+    hline(s, mx, 1.25, mw, color=INK, width=1.0)
+    label(s, mx, 1.32, mw, "EXPERIMENTAL LANDSLIDE RESEARCH  ·  ML-ready architecture, model not in production")
+    text(s, mx, 1.72, 1.25, 0.7, [[("95 %", {"bold": True, "size": 30, "color": INK})]], anchor=MSO_ANCHOR.MIDDLE)
+    text(s, mx + 1.3, 1.72, 1.95, 0.7, [[("RECALL", {"bold": True, "size": 10.5, "color": GREY})], [("NER geographic holdout (154 events)", {"size": 9.5, "color": GREY})]], anchor=MSO_ANCHOR.MIDDLE, spacing=1.0)
+    text(s, mx + 3.4, 1.72, 1.15, 0.7, [[("50 %", {"bold": True, "size": 30, "color": DANGER})]], anchor=MSO_ANCHOR.MIDDLE)
+    text(s, mx + 4.6, 1.72, 1.25, 0.7, [[("FALSE-POSITIVE RATE", {"bold": True, "size": 9.5, "color": GREY})], [("too high for production", {"size": 9.5, "color": GREY})]], anchor=MSO_ANCHOR.MIDDLE, spacing=1.0)
+    pill(s, mx, 2.55, 2.75, 0.36, "SAFETY GATE  ·  NOT DEPLOYED", fill=INK, size=10.5)
+    text(s, mx + 2.9, 2.55, mw - 2.9, 0.36, [[("trained India-wide, validated on the untouched NER holdout", {"size": 10, "color": GREY})]], anchor=MSO_ANCHOR.MIDDLE)
+    flow = ["TRAIN", "HELD-OUT TEST", "FALSE POSITIVES TOO HIGH", "SAFETY GATE", "NOT DEPLOYED"]
+    fw = [0.7, 1.15, 1.7, 0.95, 1.05]
+    x = mx; fy = 3.1
+    for i, (t, w) in enumerate(zip(flow, fw)):
+        pill(s, x, fy, w, 0.32, t, fill=WHITE if i < 4 else INK, color=INK if i < 4 else WHITE, line=INK, size=8.5)
+        if i < 4:
+            arrow(s, x + w + 0.01, fy + 0.16, x + w + 0.065, fy + 0.16, color=INK)
+        x += w + 0.075
+    text(s, mx, 3.55, mw, 0.9, [[("VALIDATION BEFORE AUTOMATION. ", {"bold": True, "size": 12.5, "color": BLUE}),
+                                 ("The model is trained and geographically validated, but the safety-validation gate keeps it outside production until it meets the required geographic reliability and false-positive thresholds. Route decisions today use verified evidence and deterministic policy only.", {"size": 11, "color": INK})]], spacing=1.05)
+    text(s, mx, 4.5, mw, 0.5, [[("Technical: precision 0.32 · PR-AUC 0.55 · ROC-AUC 0.83 · Brier 0.12 · rule baseline recall 0.25 @ FPR 0.03 · logistic regression on NASA GLC events + ERA5-Land rain + DEM slope · full error analysis in docs/HAZARD_ERROR_ANALYSIS.md", {"size": 9, "color": GREY})]], spacing=1.05)
     hline(s, 0.5, 5.92, 12.35)
     label(s, 0.5, 5.98, 3, "REFERENCES")
     refs = ["gpm.nasa.gov/landslides (NASA GLC)", "sachet.ndma.gov.in", "global-flood.emergency.copernicus.eu (GloFAS)", "open-meteo.com · api.met.no",
@@ -502,28 +498,27 @@ def slide6(s):
              "OpenTopoData — https://www.opentopodata.org ; Copernicus DEM GLO-90 — https://spacedata.copernicus.eu\n"
              "OSRM — https://project-osrm.org ; OpenStreetMap — https://www.openstreetmap.org\n"
              "Repository — https://github.com/nxtlucifer/ner-ai-logistics (docs/MODEL_REGISTRY.md, docs/HAZARD_ERROR_ANALYSIS.md, docs/AI_INVENTORY.md)\n"
-             "Model metrics: NER holdout n=770, 154 events; recall 0.95, precision 0.32, F1 0.48, PR-AUC 0.55, ROC-AUC 0.83, FPR 0.50, Brier 0.12; status EXPERIMENTAL, not deployed.")
+             "Model metrics (experimental, not deployed): NER holdout n=770, 154 events; recall 0.95, precision 0.32, F1 0.48, PR-AUC 0.55, ROC-AUC 0.83, FPR 0.50, Brier 0.12; temporal split recall 0.90 @ FPR 0.38.")
 
 
 def main() -> int:
     prs = Presentation(str(TEMPLATE))
     nav, nav_size = crop("07-navigation.png")
-    mgr, mgr_size = crop("02-trip-route.png", (1370, 200, 2470, 1800), "mgr-route.png")
-    evid, evid_size = crop("03-route-evidence.png", (1400, 70, 2460, 1720), "mgr-evidence.png")
-    phone, phone_size = crop("06b-trip-after-verification.png", (0, 100, 1264, 2780), "phone-trip.png")
+    mgr, mgr_size = crop("02-trip-route.png", tuple(int(v) for v in os.environ.get("MGR_CROP", "1370,200,2470,1800").split(",")), "mgr-route.png")
+    evid, evid_size = crop("03-route-evidence.png", tuple(int(v) for v in os.environ.get("EVID_CROP", "1400,70,2460,1720").split(",")), "mgr-evidence.png")
+    truck, truck_size = crop("06-truck-verification.png", None if os.environ.get("TRUCK_WEB") else (0, 100, 1264, 2780), "truck-check.png")
     lang, lang_size = crop("11-language-selector.png", (0, 1000, 1264, 2780), "phone-lang.png")
+    mobile, mobile_size = crop("10-manager-mobile.png", (0, 100, 1264, 2780), "phone-manager.png")
     slides = list(prs.slides)
     slide1(slides[0], nav, nav_size, mgr, mgr_size)
     slide2(slides[1], evid, evid_size)
     slide3(slides[2])
-    slide4(slides[3], mgr, mgr_size, phone, phone_size)
-    slide5(slides[4], lang, lang_size)
+    slide4(slides[3], mgr, mgr_size, truck, truck_size, nav, nav_size)
+    slide5(slides[4], lang, lang_size, mobile, mobile_size)
     slide6(slides[5])
-    # drop the template's instruction slide (7)
     sldIdLst = prs.slides._sldIdLst
     last = list(sldIdLst)[6]
-    rId = last.get(qn("r:id"))
-    prs.part.drop_rel(rId)
+    prs.part.drop_rel(last.get(qn("r:id")))
     sldIdLst.remove(last)
     prs.save(str(OUT))
     print("wrote", OUT, "slides:", len(prs.slides))
