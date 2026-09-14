@@ -1114,8 +1114,11 @@ export const restApi = {
    *   503 ROUTING_UNAVAILABLE — every provider is down; retrying may work
    *   422 NO_VIABLE_ROUTE     — a provider answered and no route exists
    */
+  // `detailed=true`: a route planned here is reviewed, selected and DRIVEN.
+  // Without it the server stores a simplified overview with no turn steps, and
+  // the driver's screen reads "Guidance unavailable" on a manager-planned trip.
   planRoute: (tripId: string) =>
-    request<RoutePlanResult>(`/api/trips/${tripId}/routes/recalculate`, {
+    request<RoutePlanResult>(`/api/trips/${tripId}/routes/recalculate?detailed=true`, {
       method: 'POST',
     }),
   /**

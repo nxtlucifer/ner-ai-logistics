@@ -15,7 +15,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiError, NetworkError, refreshSession, setAccessToken } from './client'
+import { ApiError, NetworkError, api, refreshSession, setAccessToken } from './client'
 
 /** Minimal Web Locks stand-in that actually serialises, so the test is real. */
 function installLockManager() {
@@ -211,5 +211,20 @@ describe('NetworkError', () => {
     expect(error).toBeInstanceOf(NetworkError)
     expect(error).not.toBeInstanceOf(ApiError)
     expect(error.message).toContain('connection refused')
+  })
+})
+
+describe('planRoute', () => {
+  it('asks for full geometry and turn steps: a route planned in the console is driven', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true, status: 201, headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({ route: { id: 'r1' }, provider: 'osrm' }), text: async () => '',
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+    setAccessToken('t')
+    await api.planRoute('trip-1')
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toMatch(/\/api\/trips\/trip-1\/routes\/recalculate\?detailed=true$/)
+    expect(init.method).toBe('POST')
   })
 })
