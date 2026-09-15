@@ -19,6 +19,9 @@ from app.core.errors import ConflictError, NotFoundError
 from app.domain.sentinel import (
     APPROVED_STOP_RADIUS_M,
     DRIVER_RESPONSE_WINDOW_SECONDS,
+    POSITION_FROM_DEVICE,
+    POSITION_FROM_LAST_FIX,
+    POSITION_UNKNOWN,
     STATIONARY_WINDOW_SECONDS,
     ApprovedStop,
     DriverCheckResponse,
@@ -105,8 +108,16 @@ async def _assemble_briefing(
     emergency: Emergency,
     escalation_reason: str,
     now: datetime,
+    device_position: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
-    """Freeze operational state into a snapshot dict."""
+    """Freeze operational state into a snapshot dict.
+
+    `device_position` is what the phone said when the driver pressed SOS. It
+    takes precedence over the last fix the server received, because it is
+    newer by definition and because the fix may be an hour old from before the
+    valley. When there is neither, the snapshot says so - see
+    `build_briefing_snapshot`.
+    """
     driver = (
         await db.execute(select(Driver).where(Driver.id == trip.driver_id))
     ).scalar_one_or_none() if trip.driver_id else None
@@ -139,10 +150,13 @@ async def _assemble_briefing(
     origin_name = stops[0].name if stops else None
     destination_name = stops[-1].name if stops else None
 
-    # Last known GPS fix
-    last_lat = 0.0
-    last_lon = 0.0
-    last_fix_at = emergency.triggered_at
+    # Last known position. None until something actually supplies one: a
+    # briefing that defaulted to 0.0 put the truck in the Gulf of Guinea and
+    # rendered it as a plausible coordinate in the dispatcher's dossier.
+    last_lat: float | None = None
+    last_lon: float | None = None
+    last_fix_at: datetime | None = None
+    position_source = POSITION_UNKNOWN
     if emergency.last_gps_point_id:
         pt = (
             await db.execute(
@@ -157,6 +171,14 @@ async def _assemble_briefing(
             last_lat = float(pt.lat)
             last_lon = float(pt.lon)
             last_fix_at = pt.received_at
+            position_source = POSITION_FROM_LAST_FIX
+
+    if device_position is not None:
+        # Newer than any fix the server holds, and the only position that
+        # exists at all when the driver has been out of coverage.
+        last_lat, last_lon = device_position
+        last_fix_at = now
+        position_source = POSITION_FROM_DEVICE
 
     return build_briefing_snapshot(
         trip_code=trip.trip_code,
@@ -176,6 +198,7 @@ async def _assemble_briefing(
         stationary_since=emergency.stationary_since,
         escalation_reason=escalation_reason,
         now=now,
+        position_source=position_source,
     )
 
 
@@ -388,6 +411,148 @@ async def record_driver_check_in(
 
     await db.commit()
     await db.refresh(emergency)
+    return emergency
+
+
+async def record_driver_sos(
+    db: AsyncSession,
+    *,
+    driver: Driver,
+    trip: Trip,
+    now: datetime | None = None,
+    location: tuple[float, float] | None = None,
+) -> Emergency:
+    """The driver pressed for help. Open or escalate the emergency, once.
+
+    WHY THIS IS SEPARATE FROM `record_driver_check_in`
+
+    Check-in answers a question Fleet Sentinel asked. This one is asked by
+    nobody: a driver presses SOS because something is wrong, and there may be
+    no open emergency to answer. `record_driver_check_in` refuses with "no
+    active check-in is required for this trip", which is the correct answer to
+    a check-in and the wrong answer to a person in trouble.
+
+    IDEMPOTENT THROUGH ITS CALLER, AND AGAIN HERE
+
+    The replay path (`app/services/device_events.py`) only reaches this after
+    the event row was genuinely inserted, so a re-sent batch never arrives.
+    This function is idempotent regardless: an emergency already in
+    SOS_ESCALATED is returned unchanged rather than escalated a second time,
+    and the unique partial index on open emergencies catches the concurrent
+    case, which is how `run_sentinel_sweep` handles the same race.
+
+    NO SENTINEL MEASUREMENTS ARE INVENTED
+
+    `stationary_since`, `check_sent_at` and `response_deadline_at` stay NULL.
+    The truck may be moving, no check was sent, and there is no window to wait
+    out. See migration 0013.
+    """
+    now = now or datetime.now(UTC)
+
+    # Lock the trip first, exactly as the check-in path does: it serialises two
+    # presses of the same button and it is the row the status transition below
+    # will write.
+    locked = (
+        await db.execute(select(Trip).where(Trip.id == trip.id).with_for_update())
+    ).scalar_one_or_none()
+    if locked is None:
+        raise NotFoundError("Trip not found.")
+    if locked.driver_id != driver.id:
+        raise ConflictError("You are not the driver assigned to this trip.")
+
+    emergency = (
+        await db.execute(
+            select(Emergency)
+            .where(
+                Emergency.trip_id == locked.id,
+                Emergency.state.in_(
+                    [
+                        EmergencyState.DRIVER_CHECK_REQUIRED,
+                        EmergencyState.DRIVER_RESPONDED,
+                        EmergencyState.SOS_ESCALATED,
+                    ]
+                ),
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+
+    if emergency is not None and emergency.state is EmergencyState.SOS_ESCALATED:
+        # Already escalated - by a previous press, by the silence rule, or by a
+        # NEED_HELP check-in. The trip event recording this press is still
+        # written by the caller, so the audit trail keeps both.
+        return emergency
+
+    if emergency is None:
+        emergency = Emergency(
+            trip_id=locked.id,
+            state=EmergencyState.SOS_ESCALATED,
+            triggered_at=now,
+            stationary_since=None,
+            check_sent_at=None,
+            response_deadline_at=None,
+            driver_response=DriverCheckResponse.NEED_HELP,
+            responded_at=now,
+            escalated_at=now,
+        )
+        try:
+            async with db.begin_nested():
+                db.add(emergency)
+                await db.flush()
+        except IntegrityError:
+            # A concurrent writer opened one between the select and the insert.
+            # Adopt theirs rather than failing the driver's SOS.
+            logger.info(
+                "driver SOS for trip %s met a concurrently opened emergency", locked.id
+            )
+            emergency = (
+                await db.execute(
+                    select(Emergency)
+                    .where(
+                        Emergency.trip_id == locked.id,
+                        Emergency.state.in_(
+                            [
+                                EmergencyState.DRIVER_CHECK_REQUIRED,
+                                EmergencyState.DRIVER_RESPONDED,
+                                EmergencyState.SOS_ESCALATED,
+                            ]
+                        ),
+                    )
+                    .with_for_update()
+                )
+            ).scalar_one()
+            emergency.state = EmergencyState.SOS_ESCALATED
+            emergency.escalated_at = now
+            emergency.driver_response = DriverCheckResponse.NEED_HELP
+            emergency.responded_at = now
+    else:
+        # An open check-in the driver answered by pressing SOS instead.
+        emergency.state = EmergencyState.SOS_ESCALATED
+        emergency.escalated_at = now
+        emergency.driver_response = DriverCheckResponse.NEED_HELP
+        emergency.responded_at = now
+
+    emergency.briefing_snapshot = await _assemble_briefing(
+        db,
+        locked,
+        emergency,
+        "Driver pressed SOS on the phone",
+        now,
+        device_position=location,
+    )
+
+    if locked.status != TripStatus.INCIDENT:
+        transition(locked, TripStatus.INCIDENT)
+        await record_event(
+            db,
+            locked,
+            kind=TripEventKind.INCIDENT_OPENED,
+            description="Driver pressed SOS - incident escalated to manager",
+        )
+
+    # No commit: the caller owns the transaction, so the SOS event row and the
+    # emergency it opened land together or not at all.
+    await db.flush()
     return emergency
 
 

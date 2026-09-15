@@ -13,12 +13,14 @@ from typing import Annotated
 from pydantic import Field, field_validator, model_validator
 
 from app.models.enums import (
+    DEVICE_ORIGINATED_EVENT_KINDS,
     AssignmentStatus,
     CargoPriority,
     DriverCheckResponse,
     DriverStatus,
     EmergencyState,
     ShipmentStatus,
+    TripEventKind,
     TripStatus,
     TripStopKind,
     TripStopStatus,
@@ -467,6 +469,121 @@ class GpsBatchAccepted(ReadModel):
     server_time: datetime
 
 
+# --- Device-originated trip events ---------------------------------------
+
+
+class DeviceEventIn(APIModel):
+    """One thing the phone observed, possibly hours before it could say so.
+
+    `device_event_id` is generated on the device and kept across retries. It is
+    what makes replay safe: the server deduplicates on
+    `(trip_id, device_event_id)`, so a batch that was accepted but whose
+    response never arrived can be sent again without opening a second emergency
+    or recording a second acknowledgement.
+
+    Note what is NOT here, for the same reason it is absent from `GpsFixIn`:
+    driver_id, truck_id, occurred_at. The subject comes from the authenticated
+    caller and the timeline position comes from the server clock. A client that
+    could name the driver could write another driver's history; a client that
+    could set `occurred_at` could reorder a safety timeline.
+    """
+
+    device_event_id: uuid.UUID
+    kind: TripEventKind
+    #: The DEVICE clock. Recorded as `device_reported_at`, never used for
+    #: ordering - see migration 0013.
+    recorded_at: datetime
+    #: Monotonic per-trip counter from the device, when it has one. Breaks ties
+    #: between events the device stamped in the same second; carried in the
+    #: payload rather than trusted as an ordering key on its own.
+    sequence: Annotated[int, Field(ge=0, le=1_000_000_000)] | None = None
+    #: Where it happened, when the device had a position. Absent is a
+    #: legitimate value: a phone with no fix must not invent one.
+    location: Coordinate | None = None
+    accuracy_m: Annotated[Decimal, Field(ge=0, le=Decimal("20000"))] | None = None
+    #: Kind-specific detail: the acknowledged alert's key and level, the
+    #: cross-track distance of a deviation. Bounded, because it is written
+    #: straight into a JSONB column by an unauthenticated-at-write-time queue
+    #: on a device this service does not control.
+    payload: dict[str, str | int | float | bool | None] | None = None
+
+    @field_validator("kind")
+    @classmethod
+    def _kind_is_device_originated(cls, v: TripEventKind) -> TripEventKind:
+        if v not in DEVICE_ORIGINATED_EVENT_KINDS:
+            allowed = ", ".join(sorted(k.value for k in DEVICE_ORIGINATED_EVENT_KINDS))
+            raise ValueError(
+                f"{v.value} is not a kind a device may report. Allowed: {allowed}"
+            )
+        return v
+
+    @field_validator("payload")
+    @classmethod
+    def _payload_is_bounded(
+        cls, v: dict[str, str | int | float | bool | None] | None
+    ) -> dict[str, str | int | float | bool | None] | None:
+        if v is None:
+            return v
+        if len(v) > 20:
+            raise ValueError("payload may carry at most 20 keys")
+        for key, value in v.items():
+            if len(key) > 40:
+                raise ValueError(f"payload key {key[:40]!r} is longer than 40 characters")
+            if isinstance(value, str) and len(value) > 200:
+                raise ValueError(f"payload value for {key!r} is longer than 200 characters")
+        return v
+
+
+class DeviceEventBatchIn(APIModel):
+    """A batch of device events from one driver.
+
+    `trip_id` can only ever NARROW the request, exactly as on `GpsBatchIn`: the
+    trip is resolved from the authenticated driver regardless, and a mismatch is
+    refused rather than written to whatever trip is current now.
+
+    Bounded at 200 - the device queue is bounded too, and a batch larger than
+    its source is a client that has lost track of what it is sending.
+    """
+
+    trip_id: uuid.UUID | None = None
+    events: Annotated[list[DeviceEventIn], Field(min_length=1, max_length=200)]
+
+    @model_validator(mode="after")
+    def _event_ids_unique(self) -> "DeviceEventBatchIn":
+        ids = [e.device_event_id for e in self.events]
+        if len(ids) != len(set(ids)):
+            raise ValueError("device_event_id must be unique within a batch")
+        return self
+
+
+class DeviceEventBatchAccepted(ReadModel):
+    """Per-event disposition, and the numbers a sync diagnostic is made of.
+
+    The same shape as `GpsBatchAccepted`, on purpose: the device has one queue
+    mechanism and one way of reading a reply. `duplicates_ignored` is the field
+    that proves replay is idempotent - a reconnecting truck re-sending a batch
+    the server already stored sees its events counted here rather than written
+    twice.
+
+    One unusable event does not throw away the rest. A poison event - a kind
+    this server does not accept, a timestamp from next year - is counted in
+    `rejected` with a reason, and the device drops it instead of retrying it
+    forever in front of everything behind it.
+    """
+
+    trip_id: uuid.UUID
+    accepted: int
+    duplicates_ignored: int
+    rejected: int
+    #: Per-event reasons for the `rejected` count, e.g. {"STALE": 2}.
+    rejected_reasons: dict[str, int] = {}
+    #: Ids the server has now stored or already had. The device deletes exactly
+    #: these from its queue, so an event whose fate is unknown is retried
+    #: rather than lost.
+    settled_event_ids: list[uuid.UUID] = []
+    server_time: datetime
+
+
 # --- Emergency -----------------------------------------------------------
 
 
@@ -475,7 +592,9 @@ class EmergencyRead(ReadModel):
     trip_id: uuid.UUID
     state: EmergencyState
     triggered_at: datetime
-    stationary_since: datetime
+    #: Null when no stationary window was measured - a driver-pressed SOS. A
+    #: date here would claim an observation nobody made.
+    stationary_since: datetime | None = None
     last_gps_point_id: uuid.UUID | None = None
     check_sent_at: datetime | None = None
     response_deadline_at: datetime | None = None
