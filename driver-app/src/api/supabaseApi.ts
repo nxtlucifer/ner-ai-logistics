@@ -390,6 +390,24 @@ export const supabaseApi = {
   },
 
   /**
+   * Replay what the phone recorded while it had no network.
+   *
+   * Served by the hosted intelligence plane, like the check-in below it: the
+   * deterministic Fleet Sentinel domain logic that an SOS escalates through
+   * lives there, and a second implementation in SQL would be a second safety
+   * subsystem to keep in step.
+   *
+   * Failure is NOT swallowed. The queue needs to know the difference between
+   * "the server settled these" and "nothing came back", because it deletes
+   * only what the server named.
+   */
+  sendTripEvents: async (tripId: string, events: unknown[]) =>
+    intelligenceFetch<unknown>('/api/driver/me/trip/events', {
+      method: 'POST',
+      body: JSON.stringify({ trip_id: tripId, events }),
+    }),
+
+  /**
    * Submit safety check-in response.
    *
    * Routed through the hosted intelligence / backend service, which holds the

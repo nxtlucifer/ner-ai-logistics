@@ -72,6 +72,7 @@ import { AppState } from 'react-native'
 import { api, type CurrentTrip } from '../api/client'
 import { notifyInBackground } from '../notify/local'
 import { errorMessage } from '../components/ui'
+import { useEventQueue, type TripEvents } from '../events/useEventQueue'
 import { useLocationTracking } from '../tracking/useLocationTracking'
 import { useAuth } from '../auth/AuthProvider'
 
@@ -120,6 +121,15 @@ export interface TripContextValue {
   load: () => Promise<CurrentTrip | null | undefined>
   act: (action: () => Promise<CurrentTrip>) => Promise<void>
   tracking: ReturnType<typeof useLocationTracking>
+  /**
+   * The durable queue for what the phone SAW, and its sync diagnostics.
+   *
+   * Lives here rather than on a screen because it must outlive every screen:
+   * an SOS pressed on Safety, a deviation seen on Navigate and the outage that
+   * spans both belong to the TRIP, and a queue owned by a screen would be torn
+   * down by a tab change with an unsent call for help in it.
+   */
+  events: TripEvents
 }
 
 const TripContext = createContext<TripContextValue | null>(null)
@@ -245,6 +255,45 @@ export function TripProvider({ children }: { children: ReactNode }) {
     trip?.tracking ?? null,
   )
 
+  // Same gate as tracking, for the same reasons: only while the server says
+  // this trip is under way, and never under a manager's read-only support
+  // view - a support session must not write events as the driver.
+  const events = useEventQueue(
+    trip?.id ?? null,
+    Boolean(trip?.tracking_expected) && !supportView,
+  )
+
+  /**
+   * The outage, recorded as it happens.
+   *
+   * The trip poll is this app's own heartbeat: it runs every ten seconds and
+   * it is the first thing to fail when the data path goes. So the transition
+   * of `isStale` IS the connection going and coming back, and recording it
+   * here gives the manager the one thing "the truck went quiet" never told
+   * them - when it went quiet, when it came back, and how much was waiting.
+   *
+   * Recorded on the DEVICE clock at the moment it happened, queued like
+   * everything else, and delivered when there is something to deliver it over.
+   */
+  const commsLost = useRef(false)
+  useEffect(() => {
+    if (!trip?.id) {
+      commsLost.current = false
+      return
+    }
+    if (isStale && !commsLost.current) {
+      commsLost.current = true
+      events.record('COMMS_LOST')
+      return
+    }
+    if (!isStale && commsLost.current) {
+      commsLost.current = false
+      events.record('COMMS_RESTORED', {
+        payload: { queued_events: events.summary.queued },
+      })
+    }
+  }, [isStale, trip?.id, events])
+
   /**
    * Every mutation reloads from the response.
    *
@@ -300,6 +349,7 @@ export function TripProvider({ children }: { children: ReactNode }) {
     load,
     act,
     tracking,
+    events,
   }
 
   return <TripContext.Provider value={value}>{children}</TripContext.Provider>

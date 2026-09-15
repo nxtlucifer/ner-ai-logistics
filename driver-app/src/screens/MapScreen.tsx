@@ -297,7 +297,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
   // On a short screen (320x640) the five-button rail climbed into the top
   // bar. Scaled from its bottom-right corner it clears the SOS button.
   const shortScreen = useWindowDimensions().height < 700
-  const { trip, tracking, loadedAt, isStale } = useTrip()
+  const { trip, tracking, loadedAt, isStale, events } = useTrip()
   const t = useT()
   // NO TRIP IS NOT NO MAP. The tracker uploads position only while the server
   // says a trip is in progress; outside that the map still needs to know
@@ -461,6 +461,37 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
     setOffRoute((prev) => trackOffRoute(prev, projection.crossTrackM, fix.accuracyM))
   }, [projection, fix])
   useEffect(() => { setOffRoute(ON_ROUTE) }, [selectedRouteId])
+
+  /**
+   * A deviation is a fact about the journey, not just a state of this screen.
+   *
+   * Recorded the moment the hysteresis is satisfied - three consecutive fixes
+   * past the threshold, accuracy already subtracted - and queued rather than
+   * sent, because the reason a truck is off its corridor is very often the
+   * same reason it cannot say so. The manager reads it on the trip timeline
+   * whenever it arrives, with the device's own timestamp for when it happened.
+   *
+   * Once per episode. `trackOffRoute` only flips false to true again after the
+   * truck has clearly rejoined, so this fires on the edge, not per fix.
+   */
+  const deviationReported = useRef(false)
+  useEffect(() => {
+    if (!offRoute.off) {
+      deviationReported.current = false
+      return
+    }
+    if (deviationReported.current || !fix || !projection) return
+    deviationReported.current = true
+    events.record('ROUTE_DEVIATION', {
+      location: { lat: fix.lat, lon: fix.lon },
+      accuracyM: fix.accuracyM,
+      payload: {
+        off_route_m: Math.round(projection.crossTrackM),
+        route_id: selectedRouteId ?? null,
+        travelled_m: travelledM === null ? null : Math.round(travelledM),
+      },
+    })
+  }, [offRoute.off, fix, projection, selectedRouteId, travelledM, events])
 
   // Permission is local and wins; with a fresh local fix the rest is decided
   // here (the server's copy of the fix may not have uploaded yet, which is
@@ -1151,7 +1182,21 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
                   <Text style={styles.alertBtnText}>{t('STOPS')}</Text>
                 </Pressable>
                 <Pressable
-                  onPress={() => setAcknowledged((prev) => new Set(prev).add(shownAlert.key))}
+                  onPress={() => {
+                    setAcknowledged((prev) => new Set(prev).add(shownAlert.key))
+                    // The manager can now tell "alert sent" from "driver saw
+                    // it". Queued, so an acknowledgement given in a dead zone
+                    // still reaches the timeline when signal returns.
+                    events.record('ALERT_ACKNOWLEDGED', {
+                      location: fix ? { lat: fix.lat, lon: fix.lon } : null,
+                      accuracyM: fix?.accuracyM ?? null,
+                      payload: {
+                        alert_key: shownAlert.key,
+                        level: shownAlert.level,
+                        title: shownAlert.title,
+                      },
+                    })
+                  }}
                   accessibilityRole="button"
                   accessibilityLabel="Acknowledge this alert"
                   style={[styles.alertBtn, styles.alertBtnPrimary]}
