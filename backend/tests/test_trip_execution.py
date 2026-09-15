@@ -1059,6 +1059,7 @@ class TestDispatch:
 
         created = await api.post("/api/trips", headers=manager_headers, json=payload)
         assert created.status_code == 201, created.text
+        await factories.make_selected_route(session, uuid.UUID(created.json()["id"]))
 
         dispatched = await api.post(
             f"/api/trips/{created.json()['id']}/dispatch", headers=manager_headers
@@ -1154,6 +1155,7 @@ class TestDispatch:
                 },
             )
         ).json()
+        await factories.make_selected_route(session, uuid.UUID(created["id"]))
 
         dispatched = await api.post(
             f"/api/trips/{created['id']}/dispatch", headers=manager_headers

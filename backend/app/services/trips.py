@@ -22,8 +22,8 @@ See docs/DATA_MODEL.md and the comment on TripEvent.
 import uuid
 from datetime import UTC, date, datetime
 
-from geoalchemy2 import WKTElement
-from sqlalchemy import func, select
+from geoalchemy2 import Geometry, WKTElement
+from sqlalchemy import cast, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,6 +33,7 @@ from app.models.enums import (
     AssignmentStatus,
     AuditAction,
     DriverStatus,
+    RouteState,
     TripEventKind,
     TripStatus,
     TripStopKind,
@@ -41,7 +42,7 @@ from app.models.enums import (
 )
 from app.models.fleet import DriverTruckAssignment, Truck
 from app.models.identity import Driver, User
-from app.models.operations import Shipment, Trip, TripEvent, TripStop
+from app.models.operations import Shipment, Trip, TripEvent, TripRoute, TripStop
 from app.schemas.domain import ShipmentCreate, TripCreate, TripPlanTrip
 from app.services import audit, notify, shipments
 from app.services.pagination import (
@@ -542,6 +543,64 @@ async def open_assignment_for(
 # --- Transitions ----------------------------------------------------------
 
 
+async def _assert_dispatchable_route(db: AsyncSession, trip: Trip) -> None:
+    """The road the driver will be told to take must exist before dispatch.
+
+    A trip's `selected_route_id` is written by exactly one path, `apply_selection`,
+    which runs the eligibility decision and spends any review authorisation
+    inside the same transaction that marks the row SELECTED. So "selected,
+    belongs to this trip, still SELECTED, has a line" is the whole invariant:
+    review is proven by the state the selection left behind, not re-run here
+    with a weather fan-out on every dispatch. A disabled button in the console
+    is not a control - TRP-08726C5F went ACTIVE with no route through an older
+    console, and the driver was navigated by nothing.
+
+    One statement, no ORM load: the route row is not needed, only its facts.
+    """
+    if trip.selected_route_id is None:
+        raise BusinessRuleError(
+            "Select a route in the trip review before dispatching. A draft is "
+            "not dispatchable without one.",
+            code="ROUTE_SELECTION_REQUIRED",
+        )
+    row = (
+        await db.execute(
+            select(
+                TripRoute.trip_id,
+                TripRoute.state,
+                func.ST_NPoints(cast(TripRoute.geometry, Geometry)),
+            ).where(TripRoute.id == trip.selected_route_id)
+        )
+    ).one_or_none()
+    if row is None or row[0] != trip.id:
+        raise BusinessRuleError(
+            "The trip's selected route does not belong to this trip. Select a "
+            "route again in the trip review.",
+            code="ROUTE_INVALID",
+        )
+    state, points = row[1], row[2]
+    if state is RouteState.PROPOSED:
+        # Pointed at without passing through selection: no eligibility decision
+        # was made and no authorisation spent.
+        raise BusinessRuleError(
+            "The selected route has not been through selection review. Check "
+            "its conditions and select it in the trip review first.",
+            code="ROUTE_REVIEW_REQUIRED",
+        )
+    if state is not RouteState.SELECTED:
+        raise BusinessRuleError(
+            "The selected route is no longer current "
+            f"({state.value.lower().replace('_', ' ')}). Select a route again.",
+            code="ROUTE_INVALID",
+        )
+    if points is None or points < 2:
+        raise BusinessRuleError(
+            "The selected route has no usable geometry. Re-plan and select a "
+            "route again.",
+            code="ROUTE_INVALID",
+        )
+
+
 async def dispatch(
     db: AsyncSession, trip_id: uuid.UUID, *, actor: User, ip: str | None = None
 ) -> Trip:
@@ -596,6 +655,8 @@ async def dispatch(
             "Create the assignment first.",
             code="NO_ACTIVE_ASSIGNMENT",
         )
+
+    await _assert_dispatchable_route(db, trip)
 
     transition(trip, TripStatus.ASSIGNED)
     trip.assignment_id = assignment.id

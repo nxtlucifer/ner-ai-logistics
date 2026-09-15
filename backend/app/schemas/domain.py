@@ -254,7 +254,32 @@ class ShipmentCreate(APIModel):
             self.destination.lon,
         ):
             raise ValueError("pickup and destination must be different locations")
+        for label, point in (("pickup", self.pickup), ("destination", self.destination)):
+            if not in_service_region(point):
+                raise ValueError(
+                    f"{label} ({point.lat:.4f}, {point.lon:.4f}) is outside the "
+                    f"North-East service region ({SERVICE_REGION_STATES})"
+                )
         return self
+
+
+#: The product's operating scope, as a bounding box: the eight North-Eastern
+#: states with the Siliguri corridor. A box, not state polygons, because no
+#: boundary dataset ships with the backend; it mirrors the console's own check
+#: exactly (manager-web planValidation SERVICE_REGION) so the server never
+#: refuses what the planner allowed. TRP-08726C5F was planned to Ahmedabad
+#: through an older console with no such check anywhere.
+SERVICE_REGION = {"south": 21.5, "north": 29.5, "west": 88.0, "east": 97.5}
+SERVICE_REGION_STATES = (
+    "Assam, Arunachal Pradesh, Manipur, Meghalaya, Mizoram, Nagaland, Sikkim, Tripura"
+)
+
+
+def in_service_region(point: Coordinate) -> bool:
+    return (
+        SERVICE_REGION["south"] <= point.lat <= SERVICE_REGION["north"]
+        and SERVICE_REGION["west"] <= point.lon <= SERVICE_REGION["east"]
+    )
 
 
 class ShipmentRead(ReadModel):

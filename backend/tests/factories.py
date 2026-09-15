@@ -37,6 +37,8 @@ from app.models.enums import (
     AssignmentStatus,
     CargoPriority,
     DriverStatus,
+    RouteKind,
+    RouteState,
     TripStatus,
     TripStopKind,
     TruckStatus,
@@ -45,7 +47,7 @@ from app.models.enums import (
 from app.models.files import StoredFile
 from app.models.fleet import DriverTruckAssignment, Truck
 from app.models.identity import Driver, User
-from app.models.operations import CargoItem, Shipment, Trip, TripStop
+from app.models.operations import CargoItem, Shipment, Trip, TripRoute, TripStop
 from app.schemas.common import Coordinate
 from app.services.shipments import point
 from tests import db_target
@@ -386,6 +388,48 @@ async def make_trip(
     await db.commit()
     await db.refresh(trip)
     return trip
+
+
+async def make_selected_route(
+    db: AsyncSession,
+    trip_id: uuid.UUID,
+    *,
+    state: RouteState = RouteState.SELECTED,
+    select: bool = True,
+) -> TripRoute:
+    """A stored road for a trip, and by default the one the trip follows.
+
+    No provider, no network, no eligibility run: this is the row that
+    `apply_selection` leaves behind, for tests whose subject is what comes
+    AFTER selection (dispatch, execution, notifications). `state`/`select` let
+    a test build the wrong shapes on purpose - a candidate nobody chose, a
+    superseded selection, a selection that skipped review.
+    """
+    from geoalchemy2 import WKTElement
+
+    from app.services.shipments import SRID
+
+    route = TripRoute(
+        trip_id=trip_id,
+        kind=RouteKind.PRIMARY,
+        state=state,
+        geometry=WKTElement(
+            "LINESTRING(91.7362 26.1445, 92.9 26.4, 94.2037 26.7509)", srid=SRID
+        ),
+        distance_km=Decimal("308.00"),
+        estimated_duration_min=360,
+        routing_provider="test",
+    )
+    db.add(route)
+    await db.flush()
+    if select:
+        await db.execute(
+            text("UPDATE trips SET selected_route_id = :r WHERE id = :t"),
+            {"r": route.id, "t": trip_id},
+        )
+    await db.commit()
+    await db.refresh(route)
+    return route
 
 
 async def _by_id(db: AsyncSession, sql: str, table: str) -> None:

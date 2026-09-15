@@ -58,6 +58,7 @@ async def test_dispatch_pushes_trip_assigned_once(session: AsyncSession, relay, 
     manager = await factories.make_user(session, role=UserRole.MANAGER)
     driver.push_token = "ExponentPushToken[phone]"
     trip = await factories.make_trip(session, driver, truck, assignment=assignment, status=TripStatus.DRAFT)
+    await factories.make_selected_route(session, trip.id)
     await session.commit()
 
     await trips.dispatch(session, trip.id, actor=manager)

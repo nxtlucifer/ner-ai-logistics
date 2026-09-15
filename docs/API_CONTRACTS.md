@@ -319,6 +319,22 @@ Gates, checked at **creation**:
 Re-checked at **dispatch**, plus:
 
 5. An open driver↔truck assignment exists → else `409 NO_ACTIVE_ASSIGNMENT`
+6. `trips.selected_route_id` is set → else `422 ROUTE_SELECTION_REQUIRED`
+7. That route belongs to this trip, is still `SELECTED` (not superseded or
+   blocked) and has a line → else `422 ROUTE_INVALID`; a row the trip points at
+   that never went through selection (still `PROPOSED`, so no eligibility
+   decision and no authorisation spent) → `422 ROUTE_REVIEW_REQUIRED`
+
+The route checks come last so the earlier gates keep their own codes. Review is
+proven by the state selection left behind (`apply_selection` spends the
+authorisation in the same transaction that writes `SELECTED`), not re-run with
+a weather fan-out on every dispatch. A retried dispatch of an ASSIGNED trip is
+the state machine's `409 ILLEGAL_TRIP_TRANSITION` and changes nothing.
+
+Shipment creation (`POST /api/shipments`, `POST /api/trips/plan`) refuses a
+pickup or destination outside the North-East service region (bounding box
+21.5–29.5 N, 88–97.5 E, the console's own `SERVICE_REGION`) as a
+`422 VALIDATION_ERROR` naming the endpoint.
 
 Re-checking is not redundancy: a licence lapses, a truck breaks down and an
 assignment ends between planning a trip and dispatching it. Dispatch **never**

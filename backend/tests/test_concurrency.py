@@ -245,6 +245,7 @@ class TestDispatchabilityRaces:
         )
         assert created.status_code == 201, created.text
         trip_id = created.json()["id"]
+        await factories.make_selected_route(session, uuid.UUID(trip_id))
 
         client_a, client_b = await _client(), await _client()
         try:
@@ -328,6 +329,7 @@ class TestDispatchabilityRaces:
             },
         )
         assert created.status_code == 201, created.text
+        await factories.make_selected_route(session, uuid.UUID(created.json()["id"]))
 
         order.clear()
         r = await api.post(
@@ -371,6 +373,7 @@ class TestDispatchabilityRaces:
             )
             assert created.status_code == 201, created.text
             trip_id = created.json()["id"]
+            await factories.make_selected_route(session, uuid.UUID(trip_id))
 
             client_a, client_b = await _client(), await _client()
             try:

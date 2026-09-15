@@ -247,3 +247,33 @@ class TestGpsBatch:
     def test_mock_location_is_accepted_and_preserved(self) -> None:
         """Spoofing is recorded, never auto-rejected. See docs/SECURITY.md."""
         assert self._fix(is_mock_location=True).is_mock_location is True
+
+
+class TestServiceRegion:
+    """The server, not only the planner, refuses a journey outside the North-East."""
+
+    def _payload(self, destination: dict) -> dict:
+        return {
+            "reference_code": "SHP-REGION-1",
+            "client_name": "Test Client",
+            "pickup_address": "Depot, Guwahati",
+            "pickup": {"lat": 26.1445, "lon": 91.7362},
+            "destination_address": "Somewhere",
+            "destination": destination,
+            "cargo_items": [
+                {"cargo_type": "GENERAL", "cargo_name": "Tea", "weight_kg": 100, "quantity": 1}
+            ],
+        }
+
+    def test_the_canonical_corridor_is_accepted(self) -> None:
+        ShipmentCreate.model_validate(self._payload({"lat": 25.5788, "lon": 91.8933}))
+
+    def test_an_ahmedabad_destination_is_refused_and_named(self) -> None:
+        # The TRP-08726C5F shape, refused before a shipment row exists.
+        with pytest.raises(ValidationError, match="destination .* outside the North-East service region"):
+            ShipmentCreate.model_validate(self._payload({"lat": 23.0687, "lon": 72.6735}))
+
+    def test_the_region_matches_the_console(self) -> None:
+        from app.schemas.domain import SERVICE_REGION
+
+        assert SERVICE_REGION == {"south": 21.5, "north": 29.5, "west": 88.0, "east": 97.5}
