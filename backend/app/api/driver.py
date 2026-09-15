@@ -557,6 +557,68 @@ class OfflineStopRead(ReadModel):
     lon: float | None
 
 
+class OfflineManeuverRead(ReadModel):
+    """One turn instruction, carried into the dead zone with the route.
+
+    The same numbers `GET /me/trip/navigation` publishes, because it is the
+    same data: the kit carries it rather than computing a second set, so the
+    turns a driver follows offline cannot disagree with the ones they were
+    following a minute earlier. `distance_from_start_m` is cumulative along the
+    route - subtract travelled distance for "in X m, turn left" - and is NOT
+    the provider's forward-measured step length, which is a different number
+    and wrong by one step.
+    """
+
+    type: str
+    modifier: str | None
+    lat: float
+    lon: float
+    geometry_index: int
+    distance_from_start_m: float
+    step_distance_m: float
+    name: str | None
+
+
+class OfflinePlaceRead(ReadModel):
+    """One roadside service, from the bundled OpenStreetMap snapshot.
+
+    `straight_line_m` is straight-line distance from the corridor and is never
+    a driving distance: a workshop across a river can be 200 m away and 20 km
+    to reach. `phone` and `name` are null far more often than not, and null is
+    the honest value - a blank name would read as a place with no name rather
+    than one nobody has recorded.
+    """
+
+    provider_id: str
+    category: str
+    name: str | None
+    lat: float
+    lon: float
+    phone: str | None
+    straight_line_m: float | None
+
+
+class OfflineDatasetRead(ReadModel):
+    """One block of the kit and how far it can be trusted.
+
+    This is what lets a driver screen say WHICH safety datasets are stale or
+    unavailable instead of showing one badge for the whole package. Ageing it
+    needs no network and no server: `captured_at` plus `valid_for_seconds`
+    against the device clock is the entire computation.
+
+    `state` is AVAILABLE, STALE, NOT_AVAILABLE or BUNDLED_IN_APP.
+    NOT_AVAILABLE is not "nothing to report" - nobody could produce it - and it
+    must never render as a clear reading.
+    """
+
+    name: str
+    state: str
+    captured_at: datetime | None
+    valid_for_seconds: int | None
+    source: str | None
+    detail: str | None
+
+
 class OfflinePackageRead(ReadModel):
     """Everything the driver needs for this journey with no network.
 
@@ -595,6 +657,15 @@ class OfflinePackageRead(ReadModel):
     stops: list[OfflineStopRead]
     risk: RouteRiskRead | None
     risk_captured_at: datetime | None
+    #: Turn instructions for the selected corridor. Empty when it has none
+    #: stored, which `reason_codes` explains - the road still draws.
+    maneuvers: list[OfflineManeuverRead] = []
+    #: Roadside services along the corridor. Bounded per category: this has to
+    #: arrive BEFORE the dead zone.
+    places: list[OfflinePlaceRead] = []
+    #: Per-block freshness. The manifest a driver reads to know what has gone
+    #: stale while they had no signal.
+    datasets: list[OfflineDatasetRead] = []
     basemap: str
     reason_codes: list[str]
     package_hash: str
@@ -656,6 +727,42 @@ async def my_offline_package(
         ],
         risk=risk_read(package.risk) if package.risk is not None else None,
         risk_captured_at=package.risk_captured_at,
+        maneuvers=[
+            OfflineManeuverRead(
+                type=m.type,
+                modifier=m.modifier,
+                lat=m.lat,
+                lon=m.lon,
+                geometry_index=m.geometry_index,
+                distance_from_start_m=m.distance_from_start_m,
+                step_distance_m=m.step_distance_m,
+                name=m.name,
+            )
+            for m in package.maneuvers
+        ],
+        places=[
+            OfflinePlaceRead(
+                provider_id=p.provider_id,
+                category=p.category,
+                name=p.name,
+                lat=p.lat,
+                lon=p.lon,
+                phone=p.phone,
+                straight_line_m=p.straight_line_m,
+            )
+            for p in package.places
+        ],
+        datasets=[
+            OfflineDatasetRead(
+                name=d.name,
+                state=d.state,
+                captured_at=d.captured_at,
+                valid_for_seconds=d.valid_for_seconds,
+                source=d.source,
+                detail=d.detail,
+            )
+            for d in package.datasets
+        ],
         basemap=package.basemap,
         reason_codes=list(package.reason_codes),
         package_hash=package.package_hash,

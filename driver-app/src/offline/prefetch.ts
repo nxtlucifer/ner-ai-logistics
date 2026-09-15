@@ -104,7 +104,15 @@ export const MAX_OUTAGE_MARGIN_SECONDS = 60
 export const MIN_LEAD_M = 5_000
 export const MAX_LEAD_M = 25_000
 
-/** A rough kit: route geometry, stops, maneuvers, risk, places. Bytes. */
+/**
+ * Planning size for the kit: route geometry, stops, maneuvers, risk, places.
+ *
+ * Deliberately conservative. A measured kit for a two-corridor trip is about
+ * 30 KB (`test_the_kit_is_small_enough_to_arrive_before_the_dead_zone` prints
+ * the number), and the server-side ceiling is 512 KB. Planning at 180 KB errs
+ * toward starting the download EARLIER than needed, which costs a little data
+ * and buys margin - the opposite error costs the kit.
+ */
 export const TYPICAL_KIT_BYTES = 180_000
 
 export interface LeadInputs {

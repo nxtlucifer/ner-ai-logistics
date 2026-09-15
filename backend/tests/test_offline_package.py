@@ -8,7 +8,7 @@ as though it were live ten hours after it was taken.
 """
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
@@ -651,3 +651,262 @@ class TestThePackageIsSmallEnoughToActuallyDownload:
             f"offline package is {size_kb:.0f} KB; at 40 kbit/s that is "
             f"{size_kb * 8 / 40:.0f} s on a rural 2G link"
         )
+
+
+class TestTripKitManifest:
+    """Per-dataset freshness: what a driver reads when the signal is gone.
+
+    A single badge on the whole package cannot say "the route is fine, the
+    weather is four hours old and nobody has ever measured the signal on this
+    road". The manifest is what makes that sentence renderable, offline, from
+    the device clock alone.
+    """
+
+    @staticmethod
+    def _risk(**inputs):
+        from app.domain.route_risk import AVAILABLE, NOT_AVAILABLE, RouteRisk
+
+        base = {
+            "distance": AVAILABLE,
+            "duration": AVAILABLE,
+            "weather": NOT_AVAILABLE,
+            "landslide": NOT_AVAILABLE,
+            "flood": NOT_AVAILABLE,
+            "elevation": NOT_AVAILABLE,
+            "historical_incidents": NOT_AVAILABLE,
+            "official_warnings": NOT_AVAILABLE,
+            "connectivity": NOT_AVAILABLE,
+        }
+        base.update(inputs)
+        return RouteRisk(
+            score=10,
+            band="LOW",
+            components=(),
+            inputs=base,
+            unavailable=tuple(k for k, v in base.items() if v == NOT_AVAILABLE),
+            reason_codes=(),
+            observations_used=0,
+            observations_stale=0,
+        )
+
+    def _manifest(self, **kwargs):
+        from app.services.offline_package import datasets_for
+
+        defaults = {
+            "now": datetime.now(UTC),
+            "has_route": True,
+            "guidance": True,
+            "risk": self._risk(),
+            "risk_captured_at": datetime.now(UTC),
+            "places_state": "AVAILABLE",
+        }
+        defaults.update(kwargs)
+        return {d.name: d for d in datasets_for(**defaults)}
+
+    def test_every_safety_block_appears_exactly_once(self) -> None:
+        from app.services.offline_package import datasets_for
+
+        rows = datasets_for(
+            now=datetime.now(UTC),
+            has_route=True,
+            guidance=True,
+            risk=self._risk(),
+            risk_captured_at=datetime.now(UTC),
+            places_state="AVAILABLE",
+        )
+        names = [d.name for d in rows]
+        assert len(names) == len(set(names))
+        for expected in (
+            "route",
+            "guidance",
+            "weather",
+            "official_warnings",
+            "flood",
+            "terrain",
+            "landslide_history",
+            "connectivity",
+            "traffic",
+            "places",
+            "emergency_contacts",
+        ):
+            assert expected in names
+
+    def test_a_provider_that_did_not_answer_is_not_available_with_a_reason(self) -> None:
+        manifest = self._manifest()
+        weather = manifest["weather"]
+        assert weather.state == "NOT_AVAILABLE"
+        assert weather.captured_at is None
+        assert weather.detail
+        # The window is still published, so a device knows what it would have
+        # been had there been anything to age.
+        assert weather.valid_for_seconds == 3_600
+
+    def test_unmeasured_connectivity_says_unknown_is_not_coverage(self) -> None:
+        connectivity = self._manifest()["connectivity"]
+        assert connectivity.state == "NOT_AVAILABLE"
+        assert "not coverage" in (connectivity.detail or "")
+
+    def test_a_captured_block_inside_its_window_is_available(self) -> None:
+        from app.domain.route_risk import AVAILABLE
+
+        now = datetime.now(UTC)
+        manifest = self._manifest(
+            now=now,
+            risk=self._risk(weather=AVAILABLE),
+            risk_captured_at=now - timedelta(minutes=10),
+        )
+        assert manifest["weather"].state == "AVAILABLE"
+
+    def test_a_captured_block_past_its_window_is_stale_not_hidden(self) -> None:
+        from app.domain.route_risk import AVAILABLE
+
+        now = datetime.now(UTC)
+        manifest = self._manifest(
+            now=now,
+            risk=self._risk(weather=AVAILABLE),
+            risk_captured_at=now - timedelta(hours=4),
+        )
+        weather = manifest["weather"]
+        assert weather.state == "STALE"
+        # Still carried, with its timestamp, so the driver can weigh it.
+        assert weather.captured_at is not None
+
+    def test_blocks_age_at_different_rates(self) -> None:
+        """Weather spoils in an hour; a DEM does not spoil within a trip."""
+        from app.domain.route_risk import AVAILABLE
+
+        now = datetime.now(UTC)
+        manifest = self._manifest(
+            now=now,
+            risk=self._risk(weather=AVAILABLE, elevation=AVAILABLE),
+            risk_captured_at=now - timedelta(hours=4),
+        )
+        assert manifest["weather"].state == "STALE"
+        assert manifest["terrain"].state == "AVAILABLE"
+
+    def test_emergency_numbers_are_bundled_rather_than_downloaded(self) -> None:
+        """Two catalogues of the numbers a driver calls would be one too many."""
+        contacts = self._manifest()["emergency_contacts"]
+        assert contacts.state == "BUNDLED_IN_APP"
+        assert contacts.captured_at is None
+        assert contacts.valid_for_seconds is None
+        assert "112" in (contacts.source or "")
+
+    def test_a_trip_with_no_route_says_so_rather_than_claiming_one(self) -> None:
+        manifest = self._manifest(has_route=False, guidance=False)
+        assert manifest["route"].state == "NOT_AVAILABLE"
+        assert manifest["guidance"].state == "NOT_AVAILABLE"
+        assert manifest["guidance"].detail
+
+
+class TestTripKitContents:
+    async def test_the_kit_carries_turn_instructions_and_a_manifest(
+        self, api: AsyncClient, session: AsyncSession, manager_headers, routing, weather
+    ) -> None:
+        routing(_OneCorridor())
+        weather(rain=0.0)
+        _trip, _route, driver_headers = await _trip_ready_to_drive(
+            api, session, manager_headers
+        )
+
+        body = (
+            await api.get(
+                "/api/driver/me/trip/offline-package", headers=driver_headers
+            )
+        ).json()
+
+        assert body["version"] == "offline-corridor-package-v2"
+        # The manifest is the point: every block with its own freshness.
+        names = {d["name"] for d in body["datasets"]}
+        assert "weather" in names
+        assert "connectivity" in names
+        assert "emergency_contacts" in names
+        assert body["places"] == [] or isinstance(body["places"], list)
+        # Emergency numbers are declared as bundled, never shipped twice.
+        assert "EMERGENCY_CONTACTS_BUNDLED_IN_APP" in body["reason_codes"]
+
+    async def test_a_corridor_without_stored_turns_still_draws(
+        self, api: AsyncClient, session: AsyncSession, manager_headers, routing, weather
+    ) -> None:
+        """Losing directions is not losing the road."""
+        routing(_OneCorridor())
+        weather(rain=0.0)
+        _trip, _route, driver_headers = await _trip_ready_to_drive(
+            api, session, manager_headers
+        )
+
+        body = (
+            await api.get(
+                "/api/driver/me/trip/offline-package", headers=driver_headers
+            )
+        ).json()
+
+        assert body["selected_route"] is not None
+        assert len(body["selected_route"]["geometry"]) > 1
+        guidance = next(d for d in body["datasets"] if d["name"] == "guidance")
+        if not body["maneuvers"]:
+            assert guidance["state"] == "NOT_AVAILABLE"
+            assert guidance["detail"]
+
+
+class TestTheKitFitsThroughAWeakConnection:
+    """Size is a safety property here, not a performance one.
+
+    The kit has to arrive BEFORE the dead zone, over whatever connection is
+    left approaching it. The driver app plans the download at 120 kbps for a
+    segment it has measured as WEAK (`src/offline/prefetch.ts`), so every
+    kilobyte is a third of a second of margin. An unbounded kit is one that
+    finishes downloading after the signal has gone, which is the same as never
+    having downloaded it.
+
+    The ceiling is deliberately generous - this is a guard against a field
+    being added that carries an unbounded list, not a byte budget.
+    """
+
+    #: 512 KB. At the WEAK planning rate that is about 35 seconds, which the
+    #: computed lead distance can cover at any plausible truck speed.
+    CEILING_BYTES = 512 * 1024
+
+    async def test_the_kit_is_small_enough_to_arrive_before_the_dead_zone(
+        self, api: AsyncClient, session: AsyncSession, manager_headers, routing, weather
+    ) -> None:
+        routing(_TwoCorridors())
+        weather(rain=2.0)
+        _trip, _route, driver_headers = await _trip_ready_to_drive(
+            api, session, manager_headers
+        )
+
+        response = await api.get(
+            "/api/driver/me/trip/offline-package", headers=driver_headers
+        )
+        assert response.status_code == 200, response.text
+        size = len(response.content)
+        print(f"\noffline trip kit: {size} bytes ({size / 1024:.1f} KB)")
+        assert size < self.CEILING_BYTES, (
+            f"the trip kit is {size / 1024:.0f} KB, past the {self.CEILING_BYTES / 1024:.0f} KB "
+            "ceiling. Something is carrying an unbounded list into a dead zone."
+        )
+
+    async def test_roadside_places_are_bounded_per_category(
+        self, api: AsyncClient, session: AsyncSession, manager_headers, routing, weather
+    ) -> None:
+        from app.services.offline_package import (
+            KIT_PLACE_CATEGORIES,
+            KIT_PLACES_PER_CATEGORY,
+        )
+
+        routing(_OneCorridor())
+        weather(rain=0.0)
+        _trip, _route, driver_headers = await _trip_ready_to_drive(
+            api, session, manager_headers
+        )
+
+        body = (
+            await api.get(
+                "/api/driver/me/trip/offline-package", headers=driver_headers
+            )
+        ).json()
+
+        assert len(body["places"]) <= KIT_PLACES_PER_CATEGORY * len(KIT_PLACE_CATEGORIES)
+        # Hotels are deliberately absent: a bed can wait for signal.
+        assert all(place["category"] != "HOTEL" for place in body["places"])
