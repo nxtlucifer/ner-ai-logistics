@@ -674,6 +674,8 @@ export interface RouteRiskSummary {
   official_warnings?: OfficialWarningsRead | null
   /** RASTA fleet traffic from our own trucks' probes. UNKNOWN until proven. */
   traffic?: TrafficRead | null
+  /** Absent on a route scored before this factor existed. */
+  connectivity?: ConnectivityRead | null
 }
 
 export interface TrafficSegmentRead {
@@ -685,6 +687,52 @@ export interface TrafficSegmentRead {
   sample_count: number
   vehicle_count: number
   newest_age_seconds: number | null
+}
+
+export interface ConnectivitySegmentRead {
+  start_m: number
+  end_m: number
+  state: 'GOOD' | 'UNSTABLE' | 'WEAK' | 'DEAD_ZONE' | 'UNKNOWN' | string
+  sample_count: number
+  trip_count: number
+  queued_share: number | null
+  median_delay_s: number | null
+  newest_age_seconds: number | null
+  /** How much independent evidence: LOW / MEDIUM / HIGH / SIMULATED. Journeys
+   *  counted, never a probability. */
+  evidence: string
+  /** The fleet, or DEMO_SIMULATION. Provenance travels with every segment. */
+  source: string
+}
+
+/**
+ * Where this fleet's own phones lost their data path along the corridor.
+ *
+ * NOT a carrier coverage map. Derived from the upload delay of the GPS fixes
+ * RASTA drivers already send: a fix that waited ten minutes between the device
+ * clock and the server clock sat in the phone's offline queue because there
+ * was no path where it was recorded.
+ *
+ * `status` is the worst KNOWN segment. UNKNOWN when no segment meets the
+ * evidence floor - and unknown is not coverage.
+ */
+export interface ConnectivityRead {
+  status: 'GOOD' | 'UNSTABLE' | 'WEAK' | 'DEAD_ZONE' | 'UNKNOWN' | string
+  coverage: number
+  unknown_share: number
+  weak_km: number
+  dead_km: number
+  unknown_km: number
+  /** Longest contiguous weak-or-dead run. How long the phone goes quiet. */
+  longest_gap_km: number
+  sample_count: number
+  trip_count: number
+  newest_age_seconds: number | null
+  updated_at: string
+  provider: string
+  version: string
+  reason_codes: string[]
+  segments: ConnectivitySegmentRead[]
 }
 
 export interface TrafficRead {
