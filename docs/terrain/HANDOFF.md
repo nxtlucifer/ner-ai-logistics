@@ -1482,3 +1482,24 @@ verification; exact-text match, fixed in the scripts (prefix match).
 Hosted probe (manager_probe.mjs, MANAGER_URL set): 34/34. Buttons audit: Add
 driver / Add truck / assignment records all work. judge.sh reset + check:
 READY.
+
+**Server invariant gate (6936499, 15 Sep 06:00 IST).** The backend now refuses
+a dispatch without a real selection, after the driver/capacity/assignment
+gates: `422 ROUTE_SELECTION_REQUIRED` (no selection or a planned-but-unchosen
+route), `422 ROUTE_INVALID` (a route of another trip, a superseded or blocked
+selection, no line), `422 ROUTE_REVIEW_REQUIRED` (a row the trip points at that
+never went through `apply_selection`, so no eligibility decision and no
+authorisation spent). Review is proven by the state selection left behind, not
+re-run with a weather fan-out per dispatch; a retried dispatch stays the state
+machine's `409 ILLEGAL_TRIP_TRANSITION` and mutates nothing (one ASSIGNED
+event, `dispatched_at` unchanged). `ShipmentCreate` refuses a pickup or
+destination outside the North-East bounding box the console already checks
+(21.5-29.5 N, 88-97.5 E) - no state-polygon dataset ships with the backend, so
+the box IS the product scope, mirrored exactly. Tests: eight gate cases, three
+region cases, `factories.make_selected_route`, six success-path dispatch tests
+given a route; full suite 1159 passed, 5 skipped on the isolated cluster.
+Hosted smoke (`.runtime/smoke_dispatch_gate.py`): routeless draft -> 422
+ROUTE_SELECTION_REQUIRED; Guwahati -> Ahmedabad plan -> 422 naming the
+destination; canonical JUDGE draft (route selected, authorised) -> 200
+ASSIGNED. judge.sh reset + check: READY. Route UI, driver UI and APK
+untouched.
