@@ -527,6 +527,42 @@
       "en": "Official disaster alerts could not be checked for this route.",
       "hi": "इस मार्ग के लिए आधिकारिक आपदा चेतावनियाँ जाँची नहीं जा सकीं।",
       "as": "এই পথৰ বাবে চৰকাৰী দুৰ্যোগ সতৰ্কবাণী পৰীক্ষা কৰিব পৰা নগ'ল।"
+    },
+    "CONNECTIVITY_UNKNOWN": {
+      "speak": false,
+      "en": "No fleet phone has reported from this road in the last 30 days, so signal coverage is unknown. Unknown is not safe: the trip kit is prepared as if there were no signal.",
+      "hi": "पिछले 30 दिनों में बेड़े के किसी फ़ोन ने इस सड़क से रिपोर्ट नहीं की, इसलिए सिग्नल कवरेज अज्ञात है। अज्ञात सुरक्षित नहीं है: ट्रिप किट ऐसे तैयार की जाती है जैसे सिग्नल न हो।",
+      "as": "যোৱা ৩০ দিনত ফ্লীটৰ কোনো ফোনে এই পথৰ পৰা ৰিপৰ্ট কৰা নাই, সেয়ে ছিগনেল কভাৰেজ অজ্ঞাত। অজ্ঞাত মানে সুৰক্ষিত নহয়: ছিগনেল নথকা বুলি ধৰি ট্ৰিপ কিট প্ৰস্তুত কৰা হয়।"
+    },
+    "CONNECTIVITY_COVERAGE_PARTIAL": {
+      "speak": false,
+      "en": "Signal coverage is known for only part of this road; the rest is unknown.",
+      "hi": "इस सड़क के केवल कुछ हिस्से की सिग्नल कवरेज ज्ञात है; बाकी अज्ञात है।",
+      "as": "এই পথৰ কেৱল কিছু অংশৰ ছিগনেল কভাৰেজ জনা আছে; বাকীখিনি অজ্ঞাত।"
+    },
+    "CONNECTIVITY_GOOD_ON_ROUTE": {
+      "speak": false,
+      "en": "Fleet phones kept a data connection along this road in the last 30 days.",
+      "hi": "पिछले 30 दिनों में बेड़े के फ़ोनों का इस सड़क पर डेटा कनेक्शन बना रहा।",
+      "as": "যোৱা ৩০ দিনত ফ্লীটৰ ফোনবোৰে এই পথত ডাটা সংযোগ বজাই ৰাখিছিল।"
+    },
+    "CONNECTIVITY_UNSTABLE_ON_ROUTE": {
+      "speak": false,
+      "en": "Fleet phones sometimes lost data on stretches of this road. Expect short gaps.",
+      "hi": "बेड़े के फ़ोनों का इस सड़क के कुछ हिस्सों पर कभी-कभी डेटा कट गया। छोटे अंतराल की उम्मीद करें।",
+      "as": "ফ্লীটৰ ফোনবোৰে এই পথৰ কিছু অংশত মাজে মাজে ডাটা হেৰুৱাইছিল। সৰু সৰু বিৰতি আশা কৰক।"
+    },
+    "CONNECTIVITY_WEAK_ZONES_ON_ROUTE": {
+      "speak": false,
+      "en": "Fleet phones lost data on stretches of this road. The trip kit is prepared before them; guidance continues offline.",
+      "hi": "बेड़े के फ़ोनों का इस सड़क के कुछ हिस्सों पर डेटा कट गया। उनसे पहले ट्रिप किट तैयार की जाती है; मार्गदर्शन ऑफ़लाइन जारी रहता है।",
+      "as": "ফ্লীটৰ ফোনবোৰে এই পথৰ কিছু অংশত ডাটা হেৰুৱাইছিল। সেইবোৰৰ আগতে ট্ৰিপ কিট প্ৰস্তুত কৰা হয়; নিৰ্দেশনা অফলাইনেও চলি থাকে।"
+    },
+    "CONNECTIVITY_DEAD_ZONE_ON_ROUTE": {
+      "speak": false,
+      "en": "Fleet phones had no data at all on a stretch of this road. The trip kit is prepared before it; the manager sees your last position until signal returns.",
+      "hi": "इस सड़क के एक हिस्से पर बेड़े के फ़ोनों में बिल्कुल डेटा नहीं था। उससे पहले ट्रिप किट तैयार की जाती है; सिग्नल लौटने तक मैनेजर आपकी आखिरी स्थिति देखता है।",
+      "as": "এই পথৰ এটা অংশত ফ্লীটৰ ফোনত একেবাৰে ডাটা নাছিল। তাৰ আগতে ট্ৰিপ কিট প্ৰস্তুত কৰা হয়; ছিগনেল ঘূৰি নহালৈকে মেনেজাৰে আপোনাৰ শেষ অৱস্থান দেখে।"
     }
   }
 }

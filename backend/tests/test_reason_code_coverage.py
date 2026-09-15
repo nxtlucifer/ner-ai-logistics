@@ -39,6 +39,7 @@ CODE_MODULES = (
     "app.domain.flood",
     "app.domain.warnings",
     "app.domain.traffic",
+    "app.domain.connectivity",
     "app.services.simulation",  # DEMO_SIMULATION_ACTIVE - the label every simulated score carries
     "app.services.offline_package",
     "app.services.navigation",

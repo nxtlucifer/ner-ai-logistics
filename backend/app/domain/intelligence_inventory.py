@@ -37,6 +37,7 @@ INVENTORY: Final[list[tuple[str, str, str]]] = [
     ("DETERMINISTIC_INTELLIGENCE", "backend/app/domain/landslide.py", "historical exposure by distance to recorded events"),
     ("DETERMINISTIC_INTELLIGENCE", "backend/app/domain/warnings.py", "CAP alert parsing, expiry, corridor district match"),
     ("DETERMINISTIC_INTELLIGENCE", "backend/app/domain/traffic.py", "fleet traffic: median observed vs planned pace"),
+    ("DETERMINISTIC_INTELLIGENCE", "backend/app/domain/connectivity.py", "fleet connectivity: upload-delay share per 5 km segment; UNKNOWN is not GOOD"),
     ("DETERMINISTIC_INTELLIGENCE", "backend/app/domain/fuel_model.py", "physics-informed fuel baseline (hand-set constants)"),
     ("DETERMINISTIC_INTELLIGENCE", "driver-app/src/navigation/routeAi.ts", "Personal Route AI: fixed policy + explanation over route_risk"),
     ("DETERMINISTIC_INTELLIGENCE", "driver-app/src/assistant/intents.ts", "offline NLU: keyword intent matching, five languages"),

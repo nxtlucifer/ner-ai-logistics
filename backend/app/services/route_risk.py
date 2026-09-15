@@ -62,6 +62,8 @@ from app.services.terrain import profile_for as terrain_profile_for
 from app.services import simulation
 from app.services import traffic as traffic_service
 from app.domain.traffic import estimate as traffic_estimate
+from app.services import connectivity as connectivity_service
+from app.domain.connectivity import estimate as connectivity_estimate
 from app.services.weather import OpenMeteoWeatherProvider
 
 logger = logging.getLogger(__name__)
@@ -294,6 +296,9 @@ async def assess_route(db: AsyncSession, route_id: uuid.UUID) -> RouteRisk:
     # Fleet probes come from OUR database, so they are read while the
     # session is still held - before the provider fan-out below.
     probes = await traffic_service.samples_for(db, route_id)
+    # So do the upload delays the connectivity layer reads - same table, same
+    # rule: read while the session is held, aggregate after it is released.
+    delays = await connectivity_service.samples_for(db, route_id)
 
     # Release the connection BEFORE the provider fan-out. See module docstring.
     await db.commit()
@@ -314,6 +319,7 @@ async def assess_route(db: AsyncSession, route_id: uuid.UUID) -> RouteRisk:
         flood=flood,
         warnings=warnings,
         traffic=traffic_estimate(geometry=geometry, samples=probes, distance_km=distance, duration_min=duration),
+        connectivity=connectivity_estimate(geometry=geometry, samples=delays),
     ))
 
 

@@ -60,6 +60,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, no runtime import
     from app.domain.fuel_model import FuelEstimate
     from app.domain.terrain import TerrainProfile
     from app.domain.traffic import TrafficEstimate
+    from app.domain.connectivity import ConnectivityProfile
 
 #: Points each landslide severity contributes to a route's score.
 #:
@@ -99,6 +100,7 @@ FACTOR_HISTORICAL_INCIDENTS: Final[str] = "historical_incidents"
 FACTOR_ELEVATION: Final[str] = "elevation"
 FACTOR_FUEL: Final[str] = "fuel_model"
 FACTOR_OFFICIAL_WARNINGS: Final[str] = "official_warnings"
+FACTOR_CONNECTIVITY: Final[str] = "connectivity"
 
 UNAVAILABLE_FACTORS: Final[tuple[str, ...]] = (
     # FACTOR_LANDSLIDE, FACTOR_FUEL, FACTOR_ELEVATION, FACTOR_FLOOD and
@@ -118,6 +120,41 @@ HISTORY_POINTS: Final[dict[str, int]] = {
     "LOW": 0,
     "UNKNOWN": 0,
 }
+
+#: Points a corridor's CONNECTIVITY EXPOSURE contributes. A MODERATE penalty
+#: by design (the mission's own word for it): a stretch with no signal is a
+#: stretch where a driver cannot call for help, cannot receive a warning and
+#: cannot be seen - which is a real cost, and one that must never outrank a
+#: confirmed closure or a severe storm. The ceiling equals HIGH landslide
+#: history, and it takes CONNECTIVITY_REFERENCE_KM of WEAK road to reach it.
+#: DEAD_ZONE kilometres weigh CONNECTIVITY_DEAD_WEIGHT times WEAK ones.
+#:
+#: UNKNOWN connectivity scores NOTHING here - it travels as a NOT_AVAILABLE
+#: input and a reason code, the same way flood context and official warnings
+#: do - so a route nobody has measured cannot gain from the silence, and the
+#: many routes scored before this factor existed keep their numbers.
+MAX_CONNECTIVITY_POINTS: Final[int] = 15
+CONNECTIVITY_REFERENCE_KM: Final[float] = 30.0
+CONNECTIVITY_DEAD_WEIGHT: Final[float] = 1.5
+
+#: Points a corridor whose connectivity is UNMEASURED contributes, at the
+#: share of the route nobody has driven.
+#:
+#: This is the uncertainty penalty, and it exists for exactly the reason
+#: LANDSLIDE_POINTS["UNKNOWN"] does - the same number, on purpose. Without it a
+#: road this fleet has never driven scores ZERO for connectivity while a road it
+#: HAS driven and found patchy scores several points, so `route_recommendation`
+#: would silently prefer the unexamined corridor whenever it was marginally
+#: quicker. Absence of evidence would have improved a route's score, which is
+#: the one thing this engine must never do.
+#:
+#: Small, because not knowing is not the same as knowing it is bad: five points
+#: cannot outrank a reported hazard, and it takes a WHOLLY unmeasured route to
+#: reach even that. A route with no connectivity evidence supplied at all
+#: (`connectivity=None` - every caller that predates this factor, and every
+#: cached package) is untouched: the factor reports NOT_AVAILABLE and scores
+#: nothing, so this cannot rewrite history.
+MAX_CONNECTIVITY_UNKNOWN_POINTS: Final[int] = 5
 
 # --- Reason codes ---------------------------------------------------------
 #
@@ -150,8 +187,15 @@ GUST_SEVERE_KMH: Final[float] = 60.0
 DURATION_REFERENCE_MIN: Final[float] = 480.0
 DISTANCE_REFERENCE_KM: Final[float] = 500.0
 
-#: Per-component ceilings. They sum to 100 so no single factor can saturate the
-#: score on its own, and so the weighting is readable at a glance.
+#: Per-component ceilings for WEATHER AND EXPOSURE. These four sum to 100, so
+#: no single one of them can saturate the score on its own and the weighting is
+#: readable at a glance.
+#:
+#: They are not the whole budget, and never were: the hazard factors declared
+#: above and below - landslide (up to 45), history (15), flood, official
+#: warnings, connectivity - add on top of them, and `assess` clamps the total at
+#: 100. That is deliberate. A confirmed closure plus a cloudburst SHOULD reach
+#: the ceiling; what must not happen is one ordinary factor getting there alone.
 MAX_RAIN_POINTS: Final[int] = 45
 MAX_WIND_POINTS: Final[int] = 25
 MAX_DURATION_POINTS: Final[int] = 20
@@ -252,6 +296,11 @@ class RouteRisk:
     #: road only our own trucks have driven must stay comparable with one
     #: they have not.
     traffic: "TrafficEstimate | None" = None
+    #: Where this fleet's phones have lost their data path along the corridor -
+    #: see app/domain/connectivity.py. Carried whole so the offline package,
+    #: the manager map and the driver's prefetch trigger all read the same
+    #: segments. UNKNOWN stays UNKNOWN.
+    connectivity: "ConnectivityProfile | None" = None
     assessed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @property
@@ -376,6 +425,7 @@ def assess(
     flood: "FloodContext | None" = None,
     warnings: "OfficialWarnings | None" = None,
     traffic: "TrafficEstimate | None" = None,
+    connectivity: "ConnectivityProfile | None" = None,
     now: datetime | None = None,
 ) -> RouteRisk:
     """Score one route from the evidence available for it.
@@ -542,6 +592,51 @@ def assess(
     if traffic is not None:
         codes.extend(traffic.reason_codes)
 
+    # Connectivity exposure: kilometres this fleet's phones have spent with no
+    # usable data path. A moderate penalty when KNOWN; when nothing is known
+    # the factor is NOT_AVAILABLE and the code says so - absence of evidence
+    # never lowers a score.
+    connectivity_known = connectivity is not None and connectivity.is_known
+    if connectivity is not None:
+        codes.extend(connectivity.reason_codes)
+        # The uncertainty penalty, charged on the share of the corridor no
+        # fleet phone has reported from. Charged whether or not the rest of the
+        # route is known, so a half-measured road is half-charged.
+        if connectivity.unknown_share > 0.0:
+            unknown_points = max(
+                1,
+                _scaled(
+                    connectivity.unknown_share, 1.0, MAX_CONNECTIVITY_UNKNOWN_POINTS
+                ),
+            )
+            components.append(
+                RiskComponent(
+                    code="CONNECTIVITY_UNMEASURED",
+                    label="Connectivity unmeasured",
+                    points=unknown_points,
+                    detail=(
+                        f"{connectivity.unknown_km:g} km of this corridor has no "
+                        "connectivity evidence. Unknown is not coverage."
+                    ),
+                )
+            )
+    if connectivity_known and connectivity.exposure_km > 0.0:
+        weighted_km = connectivity.weak_km + CONNECTIVITY_DEAD_WEIGHT * connectivity.dead_km
+        points = _scaled(weighted_km, CONNECTIVITY_REFERENCE_KM, MAX_CONNECTIVITY_POINTS)
+        points = max(1, points)
+        components.append(
+            RiskComponent(
+                code="CONNECTIVITY_EXPOSURE",
+                label="Connectivity",
+                points=points,
+                detail=(
+                    f"{connectivity.weak_km:g} km weak and {connectivity.dead_km:g} km "
+                    f"with no data path; longest gap {connectivity.longest_gap_km:g} km "
+                    f"({connectivity.provider}, {connectivity.trip_count} trip(s))"
+                ),
+            )
+        )
+
     score = min(100, sum(c.points for c in components))
 
     landslide_known = landslide is not None and landslide.is_known
@@ -556,6 +651,7 @@ def assess(
         FACTOR_HISTORICAL_INCIDENTS: AVAILABLE if history_known else NOT_AVAILABLE,
         FACTOR_FLOOD: AVAILABLE if flood_known else NOT_AVAILABLE,
         FACTOR_OFFICIAL_WARNINGS: AVAILABLE if warnings_known else NOT_AVAILABLE,
+        FACTOR_CONNECTIVITY: AVAILABLE if connectivity_known else NOT_AVAILABLE,
     }
     for factor in UNAVAILABLE_FACTORS:
         inputs[factor] = NOT_AVAILABLE
@@ -576,6 +672,7 @@ def assess(
         flood=flood,
         warnings=warnings,
         traffic=traffic,
+        connectivity=connectivity,
         observations_used=len(current),
         observations_stale=stale_count,
         assessed_at=moment,
