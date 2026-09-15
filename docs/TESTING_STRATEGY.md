@@ -213,6 +213,43 @@ Constraints must be proven at the database level, not just in Python:
 > rejects a non-local host outright, so even a leaked production URL in the
 > environment could not be migrated by it.
 >
+> **The CI container is not the local cluster, and the difference matters.**
+> `postgis/postgis:18-3.6` installs `postgis_topology` and
+> `postgis_tiger_geocoder` alongside `postgis`, and the tiger geocoder puts its
+> schema on the database `search_path`. SQLAlchemy reflects the default schema
+> by *visibility*, not by namespace, so about thirty relations the project has
+> never heard of (`state`, `county`, `edges`, `addr`, `featnames`, the `zip_*`,
+> `*_lookup` and `loader_*` tables, `topology.topology`) arrive unqualified and
+> read as schema drift. A local cluster built with `CREATE EXTENSION postgis`
+> alone shows none of them, which is why this was invisible until the job
+> actually ran for the first time.
+>
+> What counts as "not ours" is therefore **asked of the database**, not listed
+> by hand: `app/db/schema_ownership.py` reads extension membership out of
+> `pg_depend`, and both `alembic/env.py` and the drift gate use the same answer.
+> A name the ORM models define is never excluded, whatever the database says —
+> hiding drift in one of our own tables is silent, while comparing a colliding
+> extension table fails loudly and gets looked at.
+>
+> The same filter guards `alembic revision --autogenerate`, and that is the
+> serious half: against a tiger-enabled database the old hardcoded list let
+> autogenerate emit `op.drop_table` for every one of those relations.
+>
+> To reproduce the CI environment on the local cluster, add the extensions the
+> image ships:
+>
+> ```bash
+> psql -h 127.0.0.1 -p 55432 -U ner -d ner_logistics_test \
+>   -c "CREATE EXTENSION postgis_topology" \
+>   -c "CREATE EXTENSION fuzzystrmatch" \
+>   -c "CREATE EXTENSION postgis_tiger_geocoder"
+> ```
+>
+> Undo it with the matching `DROP EXTENSION`, `DROP SCHEMA tiger, tiger_data,
+> topology CASCADE`, and `ALTER DATABASE ner_logistics_test RESET search_path` —
+> the tiger geocoder's install edits the search_path and its removal does not
+> restore it.
+>
 > A non-destructive `test_database_is_at_head` runs on every ordinary invocation
 > and catches the common case those tests would otherwise be relied on for — a
 > migration written but never applied.
