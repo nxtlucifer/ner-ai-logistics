@@ -563,6 +563,18 @@
       "en": "Fleet phones had no data at all on a stretch of this road. The trip kit is prepared before it; the manager sees your last position until signal returns.",
       "hi": "इस सड़क के एक हिस्से पर बेड़े के फ़ोनों में बिल्कुल डेटा नहीं था। उससे पहले ट्रिप किट तैयार की जाती है; सिग्नल लौटने तक मैनेजर आपकी आखिरी स्थिति देखता है।",
       "as": "এই পথৰ এটা অংশত ফ্লীটৰ ফোনত একেবাৰে ডাটা নাছিল। তাৰ আগতে ট্ৰিপ কিট প্ৰস্তুত কৰা হয়; ছিগনেল ঘূৰি নহালৈকে মেনেজাৰে আপোনাৰ শেষ অৱস্থান দেখে।"
+    },
+    "EMERGENCY_CONTACTS_BUNDLED_IN_APP": {
+      "speak": false,
+      "en": "Emergency numbers (112, 108, 1033) are built into this app in every language. They work with no signal and are never downloaded.",
+      "hi": "आपातकालीन नंबर (112, 108, 1033) इस ऐप में हर भाषा में शामिल हैं। ये बिना सिग्नल के भी काम करते हैं और कभी डाउनलोड नहीं किए जाते।",
+      "as": "জৰুৰীকালীন নম্বৰ (১১২, ১০৮, ১০৩৩) এই এপত সকলো ভাষাত অন্তৰ্ভুক্ত। ছিগনেল নথাকিলেও কাম কৰে আৰু কেতিয়াও ডাউনলোড কৰা নহয়।"
+    },
+    "ROADSIDE_PLACES_UNAVAILABLE": {
+      "speak": false,
+      "en": "Roadside services could not be read for this corridor, so none are carried in the offline kit. This says nothing about what is on the road.",
+      "hi": "इस मार्ग के लिए सड़क किनारे की सेवाएँ पढ़ी नहीं जा सकीं, इसलिए ऑफ़लाइन किट में कोई शामिल नहीं है। इससे सड़क पर क्या है, यह पता नहीं चलता।",
+      "as": "এই পথৰ বাবে ৰাস্তাৰ কাষৰ সেৱাসমূহ পঢ়িব পৰা নগ'ল, সেয়ে অফলাইন কিটত কোনো অন্তৰ্ভুক্ত কৰা হোৱা নাই। ই ৰাস্তাত কি আছে সেই বিষয়ে একো নকয়।"
     }
   }
 }
