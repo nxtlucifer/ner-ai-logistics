@@ -49,11 +49,15 @@ from app.models.operations import TripRoute
 from app.schemas.common import APIModel, ReadModel
 from app.schemas.domain import (
     AssignmentVerify,
+    DeviceEventBatchAccepted,
+    DeviceEventBatchIn,
     EmergencyRead,
     GpsBatchAccepted,
     GpsBatchIn,
 )
+from app.domain import trip_state
 from app.services import (
+    device_events,
     driver_self,
     driver_trips,
     navigation,
@@ -553,6 +557,68 @@ class OfflineStopRead(ReadModel):
     lon: float | None
 
 
+class OfflineManeuverRead(ReadModel):
+    """One turn instruction, carried into the dead zone with the route.
+
+    The same numbers `GET /me/trip/navigation` publishes, because it is the
+    same data: the kit carries it rather than computing a second set, so the
+    turns a driver follows offline cannot disagree with the ones they were
+    following a minute earlier. `distance_from_start_m` is cumulative along the
+    route - subtract travelled distance for "in X m, turn left" - and is NOT
+    the provider's forward-measured step length, which is a different number
+    and wrong by one step.
+    """
+
+    type: str
+    modifier: str | None
+    lat: float
+    lon: float
+    geometry_index: int
+    distance_from_start_m: float
+    step_distance_m: float
+    name: str | None
+
+
+class OfflinePlaceRead(ReadModel):
+    """One roadside service, from the bundled OpenStreetMap snapshot.
+
+    `straight_line_m` is straight-line distance from the corridor and is never
+    a driving distance: a workshop across a river can be 200 m away and 20 km
+    to reach. `phone` and `name` are null far more often than not, and null is
+    the honest value - a blank name would read as a place with no name rather
+    than one nobody has recorded.
+    """
+
+    provider_id: str
+    category: str
+    name: str | None
+    lat: float
+    lon: float
+    phone: str | None
+    straight_line_m: float | None
+
+
+class OfflineDatasetRead(ReadModel):
+    """One block of the kit and how far it can be trusted.
+
+    This is what lets a driver screen say WHICH safety datasets are stale or
+    unavailable instead of showing one badge for the whole package. Ageing it
+    needs no network and no server: `captured_at` plus `valid_for_seconds`
+    against the device clock is the entire computation.
+
+    `state` is AVAILABLE, STALE, NOT_AVAILABLE or BUNDLED_IN_APP.
+    NOT_AVAILABLE is not "nothing to report" - nobody could produce it - and it
+    must never render as a clear reading.
+    """
+
+    name: str
+    state: str
+    captured_at: datetime | None
+    valid_for_seconds: int | None
+    source: str | None
+    detail: str | None
+
+
 class OfflinePackageRead(ReadModel):
     """Everything the driver needs for this journey with no network.
 
@@ -591,6 +657,15 @@ class OfflinePackageRead(ReadModel):
     stops: list[OfflineStopRead]
     risk: RouteRiskRead | None
     risk_captured_at: datetime | None
+    #: Turn instructions for the selected corridor. Empty when it has none
+    #: stored, which `reason_codes` explains - the road still draws.
+    maneuvers: list[OfflineManeuverRead] = []
+    #: Roadside services along the corridor. Bounded per category: this has to
+    #: arrive BEFORE the dead zone.
+    places: list[OfflinePlaceRead] = []
+    #: Per-block freshness. The manifest a driver reads to know what has gone
+    #: stale while they had no signal.
+    datasets: list[OfflineDatasetRead] = []
     basemap: str
     reason_codes: list[str]
     package_hash: str
@@ -652,6 +727,42 @@ async def my_offline_package(
         ],
         risk=risk_read(package.risk) if package.risk is not None else None,
         risk_captured_at=package.risk_captured_at,
+        maneuvers=[
+            OfflineManeuverRead(
+                type=m.type,
+                modifier=m.modifier,
+                lat=m.lat,
+                lon=m.lon,
+                geometry_index=m.geometry_index,
+                distance_from_start_m=m.distance_from_start_m,
+                step_distance_m=m.step_distance_m,
+                name=m.name,
+            )
+            for m in package.maneuvers
+        ],
+        places=[
+            OfflinePlaceRead(
+                provider_id=p.provider_id,
+                category=p.category,
+                name=p.name,
+                lat=p.lat,
+                lon=p.lon,
+                phone=p.phone,
+                straight_line_m=p.straight_line_m,
+            )
+            for p in package.places
+        ],
+        datasets=[
+            OfflineDatasetRead(
+                name=d.name,
+                state=d.state,
+                captured_at=d.captured_at,
+                valid_for_seconds=d.valid_for_seconds,
+                source=d.source,
+                detail=d.detail,
+            )
+            for d in package.datasets
+        ],
         basemap=package.basemap,
         reason_codes=list(package.reason_codes),
         package_hash=package.package_hash,
@@ -1312,9 +1423,9 @@ async def submit_location(
             details={"current_trip_id": str(trip.id)},
         )
 
-    if trip.status not in driver_trips.IN_PROGRESS_STATUSES:
+    if trip.status not in trip_state.COLLECTS_TELEMETRY:
         raise ConflictError(
-            "Location is only collected while a trip is in progress.",
+            "Location is only collected while a trip is under way.",
             code="TRIP_NOT_IN_PROGRESS",
             details={"current": trip.status.value},
         )
@@ -1329,5 +1440,69 @@ async def submit_location(
         rejected=result.rejected,
         rejected_reasons=result.rejected_reasons,
         anomalies=sorted(result.anomalies),
+        server_time=datetime.now(UTC),
+    )
+
+
+@router.post(
+    "/me/trip/events",
+    response_model=DeviceEventBatchAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Replay events the phone recorded, including while it was offline",
+)
+async def submit_trip_events(
+    payload: DeviceEventBatchIn,
+    driver: CurrentDriver,
+    db: DbSession,
+) -> DeviceEventBatchAccepted:
+    """Ingest a batch of device-originated events for the driver's own trip.
+
+    The other half of surviving an outage. GPS says where the truck was;
+    this says what happened - it left the corridor, the driver acknowledged a
+    warning, the driver pressed SOS, the connection went and came back - for
+    the stretch when none of it could be reported at the time.
+
+    202, not 201, and for the same reason `POST /me/location` is: the batch is
+    accepted for processing and the response reports per-event dispositions
+    rather than pretending each one created a resource.
+
+    SAFE TO SEND TWICE. The server deduplicates on `(trip_id,
+    device_event_id)`, and every side effect is bound to a row actually having
+    been inserted, so a replayed SOS is counted in `duplicates_ignored` instead
+    of opening a second emergency. `settled_event_ids` names exactly what the
+    device may now delete; anything absent from it is retried rather than lost.
+
+    Bound to an in-progress trip, enforced here rather than in the app, exactly
+    as location collection is (docs/SECURITY.md section 3). An event for a trip
+    that has ended is refused rather than appended to a closed timeline.
+    """
+    trip = await driver_trips.current_trip(db, driver)
+    if trip is None:
+        raise NotFoundError("You have no trip to report events for.")
+
+    if payload.trip_id is not None and payload.trip_id != trip.id:
+        raise ConflictError(
+            "Those events are for a different trip.",
+            code="TRIP_SUPERSEDED",
+            details={"current_trip_id": str(trip.id)},
+        )
+
+    if trip.status not in trip_state.COLLECTS_TELEMETRY:
+        raise ConflictError(
+            "Events are only recorded while a trip is under way.",
+            code="TRIP_NOT_IN_PROGRESS",
+            details={"current": trip.status.value},
+        )
+
+    result = await device_events.ingest(
+        db, trip=trip, driver=driver, events=payload.events
+    )
+    return DeviceEventBatchAccepted(
+        trip_id=trip.id,
+        accepted=result.accepted,
+        duplicates_ignored=result.duplicates_ignored,
+        rejected=result.rejected,
+        rejected_reasons=result.rejected_reasons,
+        settled_event_ids=result.settled,
         server_time=datetime.now(UTC),
     )

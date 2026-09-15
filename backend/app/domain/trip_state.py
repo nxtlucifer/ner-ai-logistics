@@ -44,6 +44,31 @@ TERMINAL_STATES: frozenset[TripStatus] = frozenset({S.CLOSED, S.CANCELLED})
 #: monitors exactly these, and the partial index ix_trips_active matches.
 IN_TRANSIT_STATES: frozenset[TripStatus] = frozenset({S.ACTIVE, S.DELAYED})
 
+#: States in which the phone may still report - position, and what it saw.
+#:
+#: IN_TRANSIT_STATES plus INCIDENT, and that one addition is the whole point.
+#: An incident is a SUSPENSION of a journey, not the end of one: the truck is
+#: still on the road, the driver is still beside it, and a dispatcher trying to
+#: reach them needs the position more urgently than at any other moment of the
+#: trip.
+#:
+#: Collection used to stop dead at that moment. `submit_location` gated on
+#: "is the driver executing", which is the right question for starting a trip
+#: or completing a stop and the wrong one for telemetry, so the instant Fleet
+#: Sentinel escalated a truck to INCIDENT - or a driver answered a check-in
+#: with NEED_HELP - the server began refusing that truck's fixes with a 409.
+#: The phone classifies a 4xx as permanent and discards the batch, so the
+#: positions were not merely unrecorded, they were thrown away, and the fleet
+#: map showed a truck going quiet at exactly the moment it was in trouble.
+#:
+#: Still bounded, and the bound is the privacy commitment in
+#: docs/SECURITY.md section 3: collection happens during a trip and not
+#: outside one. DELIVERED and CLOSED are excluded - the journey is over and a
+#: phone still uploading would be tracking a person off duty.
+COLLECTS_TELEMETRY: frozenset[TripStatus] = frozenset(
+    {S.ACTIVE, S.DELAYED, S.INCIDENT}
+)
+
 #: States in which the trip still ties this driver to this truck, so the
 #: assignment behind it must not be ended.
 #:

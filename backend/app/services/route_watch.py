@@ -48,6 +48,8 @@ from app.models.enums import TripStatus
 from app.models.operations import Trip
 from app.services import notify, simulation, telemetry
 from app.services import traffic as traffic_service
+from app.services import connectivity as connectivity_service
+from app.domain import connectivity as connectivity_domain
 from app.services.driver_trips import IN_PROGRESS_STATUSES
 from app.services.route_risk import ROUTE_SAMPLES, _route_facts, evidence_for
 
@@ -73,6 +75,9 @@ class Ahead:
     horizon_km: float
     fraction_complete: float | None
     band: str
+    #: Kilometres of the window this fleet's phones have driven with no
+    #: dependable data path (WEAK + DEAD_ZONE). 0.0 when none is known.
+    signal_gap_km: float = 0.0
 
 
 @dataclass
@@ -123,6 +128,10 @@ def changes(prev: Ahead | None, now: Ahead) -> list[tuple[str, str, str, str]]:
         out.append(("WEATHER_SEVERITY_CHANGED", "Weather worsening ahead", f"Reported ahead: {', '.join(words[c] for c in weather)}. Slow down; check Navigate.", "+".join(weather)))
     if now.exposure == "HIGH" and (prev is None or prev.exposure != "HIGH"):
         out.append(("ROUTE_DANGER_AHEAD", "High historical landslide exposure ahead", f"Recorded landslide sites lie within 5 km of the next {now.horizon_km:.0f} km. Slow on cut slopes, especially in rain. History, not a live report.", "LANDSLIDE_HISTORY_HIGH"))
+    # A stretch with no data path entered the window. Once per episode: the
+    # cooldown on the notify side stops a repeat while the gap stays ahead.
+    if now.signal_gap_km > 0.0 and (prev is None or prev.signal_gap_km <= 0.0):
+        out.append(("NO_SIGNAL_ZONE_AHEAD", "Weak or no signal ahead", f"Fleet phones lost data on {now.signal_gap_km:.0f} km of the next {now.horizon_km:.0f} km. Your trip kit is being prepared; guidance continues offline.", "SIGNAL_GAP"))
     return out
 
 
@@ -131,6 +140,7 @@ async def look_ahead(db: AsyncSession, trip_id: uuid.UUID, route_id: uuid.UUID) 
     geometry = parse_wkt_linestring(wkt)
     fix = await telemetry.latest_position(db, trip_id)
     probes = await traffic_service.samples_for(db, route_id)
+    delays = await connectivity_service.samples_for(db, route_id)
     await db.commit()  # release the connection before the provider fan-out
 
     total_km = float(distance_km) if distance_km is not None else 0.0
@@ -141,6 +151,13 @@ async def look_ahead(db: AsyncSession, trip_id: uuid.UUID, route_id: uuid.UUID) 
     )
     km = horizon_km(fix.speed_kmph if fix else None)
     window = ahead_slice(geometry, progress.fraction_complete, km)
+    # Connectivity is graded on the whole line and then clipped to the window,
+    # so the segments a phone caches and the ones this worker warns about are
+    # the same segments.
+    full_connectivity = connectivity_domain.estimate(geometry=geometry, samples=delays)
+    total_m = sum(seg.length_m for seg in full_connectivity.segments)
+    start_m = max(0.0, min(1.0, progress.fraction_complete or 0.0)) * total_m
+    connectivity = connectivity_domain.window(full_connectivity, start_m, start_m + km * 1000.0)
     positions = sample_positions(window, ROUTE_SAMPLES)
     # Terrain is cached per route (whole route, static): the full geometry keeps
     # that cache honest. Everything point-based sees only the window ahead.
@@ -151,11 +168,13 @@ async def look_ahead(db: AsyncSession, trip_id: uuid.UUID, route_id: uuid.UUID) 
         duration_min=total_min * share,
         observations=observations, landslide=landslide, terrain=terrain, history=history, flood=flood, warnings=warnings,
         traffic=traffic_estimate(geometry=geometry, samples=probes, distance_km=total_km, duration_min=total_min),
+        connectivity=connectivity,
     ))
     exposure = risk.history.exposure.value if risk.history else None
     decision = driver_decision(risk.band, None, reason_codes=risk.reason_codes, history_exposure=exposure)
+    signal_gap_km = risk.connectivity.exposure_km if risk.connectivity is not None else 0.0
     return Ahead(decision=decision, codes=frozenset(risk.reason_codes), exposure=exposure, horizon_km=km,
-                 fraction_complete=progress.fraction_complete, band=risk.band), risk
+                 fraction_complete=progress.fraction_complete, band=risk.band, signal_gap_km=signal_gap_km), risk
 
 
 async def run_tick(db: AsyncSession, *, now: float | None = None) -> list[dict]:

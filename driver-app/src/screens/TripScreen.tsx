@@ -811,6 +811,7 @@ export default function TripScreen({
 
         {/* Location status. Never claims to be working when it is not. */}
         {inProgress ? <TrackingBanner tracking={tracking} /> : null}
+        {inProgress ? <SyncLine /> : null}
 
         {/* THE REQUEST, AND THE ONE THING TO DO WITH IT.
 
@@ -1003,8 +1004,48 @@ function TrackingBanner({
   )
 }
 
+/**
+ * What the phone recorded while it could not say so, and what became of it.
+ *
+ * The mission asks for this in as many words: prove how many events were
+ * queued offline and later accepted. `duplicatesIgnored` is the line that
+ * proves replay is idempotent - a reconnecting truck re-sending a batch the
+ * server already had sees them counted rather than written twice.
+ *
+ * Hidden entirely when nothing has happened. A diagnostics panel that is
+ * always on screen is one a driver stops reading.
+ */
+function SyncLine() {
+  const { events } = useTrip()
+  const t = useT()
+  const styles = useStyles()
+  const { queued, accepted, duplicatesIgnored, rejected, droppedCritical, persistence } =
+    events.summary
+
+  if (queued === 0 && accepted === 0 && rejected === 0) return null
+
+  const parts = [
+    queued > 0 ? `${queued} ${t('waiting')}` : null,
+    accepted > 0 ? `${accepted} ${t('synced')}` : null,
+    duplicatesIgnored > 0 ? `${duplicatesIgnored} ${t('already had')}` : null,
+    rejected > 0 ? `${rejected} ${t('refused')}` : null,
+  ].filter(Boolean)
+
+  return (
+    <View style={styles.syncLine} testID="event-sync-line">
+      <Text style={styles.syncText}>
+        {t('Trip events')}: {parts.join(' · ')}
+        {persistence === 'degraded' ? ` · ${t('this phone cannot save them')}` : ''}
+        {droppedCritical > 0 ? ` · ${droppedCritical} ${t('dropped')}` : ''}
+      </Text>
+    </View>
+  )
+}
+
 const useStyles = makeStyles((COLORS) => ({
   flex: { flex: 1, backgroundColor: COLORS.bg },
+  syncLine: { paddingHorizontal: 16, paddingTop: 6 },
+  syncText: { color: COLORS.faint, fontSize: 12 },
   centre: { flex: 1, justifyContent: 'center', backgroundColor: COLORS.bg },
   centrePadded: {
     flex: 1,

@@ -48,6 +48,7 @@ import { emergencyNumbers } from '../safety/guide'
 import DriverRouteMap from '../map/DriverRouteMap'
 import { type LatLon } from '../map/geo'
 import { useRouteGeometry } from '../map/useRouteGeometry'
+import { useTripKit } from '../offline/useTripKit'
 import { useNavigationPackage } from '../map/useNavigationPackage'
 import { guidanceHold, upcomingManeuver, maneuverIcon, formatTurnDistance, instructionFor, type GuidanceHold } from '../map/maneuvers'
 import { navState, ON_ROUTE, projectOntoRoute, shouldRequestReroute, trackOffRoute, type NavState, type OffRouteTrack, type RerouteMark } from '../map/navState'
@@ -297,7 +298,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
   // On a short screen (320x640) the five-button rail climbed into the top
   // bar. Scaled from its bottom-right corner it clears the SOS button.
   const shortScreen = useWindowDimensions().height < 700
-  const { trip, tracking, loadedAt, isStale } = useTrip()
+  const { trip, tracking, loadedAt, isStale, events } = useTrip()
   const t = useT()
   // NO TRIP IS NOT NO MAP. The tracker uploads position only while the server
   // says a trip is in progress; outside that the map still needs to know
@@ -368,6 +369,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
 
   const selectedRouteId = trip?.selected_route_id ?? null
   const geometry = useRouteGeometry(trip?.id ?? null, selectedRouteId)
+  const geometryReload = geometry.reload
   // Follows the SAME id as the geometry, so the line on screen and the
   // instructions over it can only ever describe one route.
   const navigation = useNavigationPackage(trip?.id ?? null, selectedRouteId)
@@ -462,6 +464,37 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
   }, [projection, fix])
   useEffect(() => { setOffRoute(ON_ROUTE) }, [selectedRouteId])
 
+  /**
+   * A deviation is a fact about the journey, not just a state of this screen.
+   *
+   * Recorded the moment the hysteresis is satisfied - three consecutive fixes
+   * past the threshold, accuracy already subtracted - and queued rather than
+   * sent, because the reason a truck is off its corridor is very often the
+   * same reason it cannot say so. The manager reads it on the trip timeline
+   * whenever it arrives, with the device's own timestamp for when it happened.
+   *
+   * Once per episode. `trackOffRoute` only flips false to true again after the
+   * truck has clearly rejoined, so this fires on the edge, not per fix.
+   */
+  const deviationReported = useRef(false)
+  useEffect(() => {
+    if (!offRoute.off) {
+      deviationReported.current = false
+      return
+    }
+    if (deviationReported.current || !fix || !projection) return
+    deviationReported.current = true
+    events.record('ROUTE_DEVIATION', {
+      location: { lat: fix.lat, lon: fix.lon },
+      accuracyM: fix.accuracyM,
+      payload: {
+        off_route_m: Math.round(projection.crossTrackM),
+        route_id: selectedRouteId ?? null,
+        travelled_m: travelledM === null ? null : Math.round(travelledM),
+      },
+    })
+  }, [offRoute.off, fix, projection, selectedRouteId, travelledM, events])
+
   // Permission is local and wins; with a fresh local fix the rest is decided
   // here (the server's copy of the fix may not have uploaded yet, which is
   // exactly the offline case); otherwise the server's view stands.
@@ -500,6 +533,24 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
       : reroute.error
         ? `Off the planned road · ${isStale ? 'no connection' : 'no road from here yet'}`
         : 'Off the planned road · rejoin it'
+
+  /**
+   * The offline trip kit: what is cached, what has gone stale on THIS device,
+   * and whether the phone is preparing for the next stretch without signal.
+   *
+   * Fed the same package the map is drawn from, so a readiness card and a
+   * corridor can never disagree about which road is cached.
+   */
+  const kit = useTripKit({
+    tripId: trip?.id ?? null,
+    routeId: selectedRouteId,
+    packageData: geometry.packageData,
+    travelledM: guidanceHasPosition ? travelledM : null,
+    speedKmph: fix?.speedKmh ?? null,
+    online: !isStale,
+    reload: geometryReload,
+    now: clock.now,
+  })
 
   const [following, setFollowing] = useState(false)
   const nav: NavState = navState({
@@ -1151,7 +1202,21 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
                   <Text style={styles.alertBtnText}>{t('STOPS')}</Text>
                 </Pressable>
                 <Pressable
-                  onPress={() => setAcknowledged((prev) => new Set(prev).add(shownAlert.key))}
+                  onPress={() => {
+                    setAcknowledged((prev) => new Set(prev).add(shownAlert.key))
+                    // The manager can now tell "alert sent" from "driver saw
+                    // it". Queued, so an acknowledgement given in a dead zone
+                    // still reaches the timeline when signal returns.
+                    events.record('ALERT_ACKNOWLEDGED', {
+                      location: fix ? { lat: fix.lat, lon: fix.lon } : null,
+                      accuracyM: fix?.accuracyM ?? null,
+                      payload: {
+                        alert_key: shownAlert.key,
+                        level: shownAlert.level,
+                        title: shownAlert.title,
+                      },
+                    })
+                  }}
                   accessibilityRole="button"
                   accessibilityLabel="Acknowledge this alert"
                   style={[styles.alertBtn, styles.alertBtnPrimary]}
@@ -1349,6 +1414,58 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
                 <Text style={[styles.factorState, state !== 'Available' && styles.factorStateOff]}>{state}</Text>
               </View>
             ))}
+          </View>
+          {/* OFFLINE TRIP KIT - what this phone is carrying, how old each part
+              of it is on THIS device's clock, and what it has no evidence for
+              at all. Rendered from the package's own manifest, so it keeps
+              working with the radio off. */}
+          <View style={styles.kitCard} testID="offline-kit">
+            <Text style={styles.kitHeading}>
+              {t('Offline kit')}
+              {kit.isPreparing ? ` · ${t('preparing')}` : ''}
+            </Text>
+            {kit.capturedAt === null ? (
+              <Text style={styles.kitLine}>
+                {t('Nothing saved for this road yet.')}
+                {!isStale ? ` ${t('Preparing it now.')}` : ` ${t('It will save when there is signal.')}`}
+              </Text>
+            ) : (
+              <>
+                <Text style={styles.kitLine}>
+                  {t('Saved')} {relativeTime(kit.capturedAt)}
+                  {kit.version ? ` · ${kit.version}` : ''}
+                </Text>
+                <Text style={styles.kitLine}>
+                  {kit.readiness.complete
+                    ? t('Every safety dataset is present and current.')
+                    : [
+                        kit.readiness.stale.length
+                          ? `${t('Stale')}: ${kit.readiness.stale.join(', ')}`
+                          : null,
+                        kit.readiness.unavailable.length
+                          ? `${t('No data')}: ${kit.readiness.unavailable.join(', ')}`
+                          : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                </Text>
+              </>
+            )}
+            <Text style={styles.kitLine}>
+              {kit.nextGap === null
+                ? t('No weak or unmeasured stretch ahead on this road.')
+                : `${
+                    kit.nextGap.state === 'UNKNOWN'
+                      ? t('Signal unmeasured')
+                      : kit.nextGap.state === 'DEAD_ZONE'
+                        ? t('No signal')
+                        : t('Weak signal')
+                  } ${t('for')} ${formatDistanceKm((kit.nextGap.endM - kit.nextGap.startM) / 1000)}${
+                    kit.distanceToGapM === null
+                      ? ''
+                      : `, ${t('in')} ${formatDistanceKm(kit.distanceToGapM / 1000)}`
+                  }`}
+            </Text>
           </View>
           {risk?.terrain?.usable ? (
             <Text style={styles.detailLine}>
@@ -1661,6 +1778,15 @@ const useStyles = makeStyles((COLORS) => ({
   detailsBody: { paddingHorizontal: 14, paddingVertical: 10, gap: 8 },
   sectionTitle: { color: COLORS.aqua, fontSize: 11, fontWeight: '800', letterSpacing: 1, marginTop: 6 },
   detailLine: { color: COLORS.text, fontSize: 13, lineHeight: 18 },
+  kitCard: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    padding: 12,
+    gap: 4,
+  },
+  kitHeading: { color: COLORS.faint, fontSize: 11, fontWeight: '700', letterSpacing: 0.6 },
+  kitLine: { color: COLORS.text, fontSize: 13, lineHeight: 18 },
   detailStamp: { color: COLORS.faint, fontSize: 11, lineHeight: 15 },
   tripLine: { color: COLORS.text, fontSize: 14, fontWeight: '700' },
 

@@ -330,6 +330,74 @@ function BreakCard() {
   )
 }
 
+/**
+ * Tell the manager, from a road with no signal.
+ *
+ * Calling 112 reaches an emergency service. It does not reach the dispatcher
+ * who knows which truck this is, what it is carrying and where it was going -
+ * and on this road the call may not connect at all. This records the press
+ * into the durable queue, which survives the app being killed and delivers
+ * whenever signal returns. The server opens the incident idempotently, so a
+ * queue flushed three times still means one emergency.
+ *
+ * WHAT IT DOES NOT CLAIM
+ *
+ * It does not transmit. The button says "recorded" and then says whether it
+ * has been delivered yet, because a driver who believes a message went out
+ * when it did not is worse off than one who knows it is waiting. There is no
+ * SMS fallback here and none is implied: a compact SMS would need permissions
+ * and a carrier path this build has neither, and claiming one would be the
+ * kind of promise this project has rules against.
+ */
+function SosCard() {
+  const styles = useStyles()
+  const t = useT()
+  const { trip, tracking, events } = useTrip()
+  const [pressed, setPressed] = useState(false)
+
+  if (!trip) return null
+
+  const fix = tracking.lastPosition
+  const waiting = events.summary.queued > 0
+
+  return (
+    <View style={styles.sosCard}>
+      <Text style={styles.sosHeading}>{t('Tell your manager')}</Text>
+      <Pressable
+        onPress={() => {
+          setPressed(true)
+          events.record('SOS_TRIGGERED', {
+            // The best position this phone has, with its accuracy. Null when
+            // there is none - never a guess, and never the depot.
+            location: fix ? { lat: fix.lat, lon: fix.lon } : null,
+            accuracyM: fix?.accuracyM ?? null,
+            payload: { trip_code: trip.trip_code },
+          })
+        }}
+        accessibilityRole="button"
+        accessibilityLabel={t('Send SOS to your manager')}
+        testID="driver-sos"
+        style={({ pressed: down }) => [styles.sosButton, down && styles.pressed]}
+      >
+        <Text style={styles.sosButtonText}>{t('SOS - NEED HELP')}</Text>
+      </Pressable>
+      {pressed ? (
+        <Text style={styles.sosState}>
+          {waiting
+            ? t('Recorded on this phone. It will reach your manager when there is signal.')
+            : t('Sent to your manager.')}
+        </Text>
+      ) : (
+        <Text style={styles.sosNote}>
+          {fix
+            ? t('Sends your last known position and accuracy.')
+            : t('No position yet - your manager will see that it is unknown.')}
+        </Text>
+      )}
+    </View>
+  )
+}
+
 export default function SafetyScreen() {
   const styles = useStyles()
   const t = useT()
@@ -368,6 +436,8 @@ export default function SafetyScreen() {
       <Text style={styles.numbersNote}>
         {t('Tapping opens your dialler. You still press call.')}
       </Text>
+
+      <SosCard />
 
       <BreakCard />
 
@@ -457,7 +527,26 @@ const useStyles = makeStyles((COLORS) => ({
   },
   numberDigits: { color: COLORS.bad, fontSize: 24, fontWeight: '800' },
   numberLabel: { color: COLORS.muted, fontSize: 11, textAlign: 'center', marginTop: 3 },
-  numbersNote: { color: COLORS.faint, fontSize: 12, marginTop: 8, marginBottom: 28 },
+  numbersNote: { color: COLORS.faint, fontSize: 12, marginTop: 8, marginBottom: 16 },
+  sosCard: {
+    borderWidth: 1,
+    borderColor: COLORS.badBorder,
+    backgroundColor: COLORS.badBg,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 28,
+  },
+  sosHeading: { color: COLORS.text, fontSize: 13, fontWeight: '700', marginBottom: 10 },
+  sosButton: {
+    minHeight: TOUCH_TARGET,
+    borderRadius: 10,
+    backgroundColor: COLORS.bad,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sosButtonText: { color: '#fff', fontSize: 16, fontWeight: '800', letterSpacing: 0.5 },
+  sosState: { color: COLORS.text, fontSize: 12, marginTop: 10 },
+  sosNote: { color: COLORS.faint, fontSize: 12, marginTop: 10 },
 
   /* --- Route conditions -------------------------------------------------- */
 
