@@ -451,6 +451,77 @@ person.
 
 ---
 
+### Device event replay (`POST /api/driver/me/trip/events`)
+
+The other half of surviving an outage. Location says where the truck was; this
+says **what happened** — it left the corridor, the driver acknowledged a
+warning, the driver pressed SOS, the connection went and came back — for the
+stretch when none of it could be reported at the time.
+
+**202 Accepted**, like the location batch, and for the same reason: the batch is
+accepted for processing and the body reports per-event dispositions rather than
+pretending each one created a resource.
+
+```json
+{
+  "trip_id": "optional, may only NARROW - a mismatch is 409 TRIP_SUPERSEDED",
+  "events": [
+    {
+      "device_event_id": "uuid, generated on the device, kept across retries",
+      "kind": "ROUTE_DEVIATION | ALERT_ACKNOWLEDGED | SOS_TRIGGERED | COMMS_LOST | COMMS_RESTORED",
+      "recorded_at": "device clock, ISO 8601",
+      "sequence": 41,
+      "location": { "lat": 26.1445, "lon": 91.7362 },
+      "accuracy_m": "12.0",
+      "payload": { "off_route_m": 412 }
+    }
+  ]
+}
+```
+
+| Field | Rule |
+| --- | --- |
+| `kind` | **Allowlist**, not the whole `trip_event_kind` enum. `DISPATCHED`, `DELIVERED` and `CLOSED` are office facts and a device may never write one — 422 with the allowed list |
+| `device_event_id` | The replay key. Unique within a batch (422 otherwise) and deduplicated server-side on `(trip_id, device_event_id)` |
+| `recorded_at` | The **device** clock. Stored as `device_reported_at` and never used for ordering; `occurred_at` stays the server clock |
+| `payload` | At most 20 keys, keys ≤ 40 chars, string values ≤ 200 chars. It is written into JSONB from a device this service does not control |
+| `events` | 1–200. The device queue is bounded too; a larger batch is a client that has lost track of what it is sending |
+
+Response:
+
+```json
+{
+  "trip_id": "...", "accepted": 71, "duplicates_ignored": 2, "rejected": 0,
+  "rejected_reasons": {}, "settled_event_ids": ["...", "..."],
+  "server_time": "2026-09-15T08:34:20Z"
+}
+```
+
+`settled_event_ids` is the contract that makes replay safe: it names exactly
+what the device may delete — stored, already stored, or refused for good.
+Anything **absent** from it (the request died mid-flight) stays queued and is
+sent again. Losing an SOS to an ambiguous response is the failure this field
+exists to prevent.
+
+**Idempotence.** Every side effect is bound to a row actually having been
+inserted, so a replayed `SOS_TRIGGERED` reaches the escalation path *never*,
+not twice: three identical batches produce one emergency and one timeline
+entry.
+
+**One poison event does not block the queue.** Each event applies inside its own
+SAVEPOINT. An unprocessable one is counted in `rejected`, settled so the device
+drops it, and the SOS queued behind it still lands.
+
+**Acceptance window.** Same as location: `FUTURE_TIMESTAMP` beyond two minutes
+of clock skew, `STALE` beyond 24 hours. A truck out of coverage for a shift can
+still flush.
+
+**Errors.** 404 with no current trip · 409 `TRIP_SUPERSEDED` for another trip's
+id · 409 `TRIP_NOT_IN_PROGRESS` when the trip is not under way. Collection is
+bound to ACTIVE, DELAYED **and INCIDENT** — an incident is a suspension of a
+journey, not the end of one, and it is the moment a dispatcher most needs to
+hear from the truck. The same set now governs `POST /me/location`.
+
 ## 9. `/api/routes`
 
 | Method | Path | Perms | Status |
@@ -863,6 +934,99 @@ this endpoint could do.
 ask "has the corridor changed" without the answer flipping every time the weather does. A test
 asserts a changed risk score leaves the hash alone.
 
+#### v2 — the trip kit (`offline-corridor-package-v2`)
+
+Three additive blocks. A client reading v1 keeps working; the fields are
+optional and a package cached by an older build simply lacks them.
+
+| Block | What it carries |
+| --- | --- |
+| `maneuvers` | Turn instructions for the selected corridor, the same numbers `GET /me/trip/navigation` publishes. Carried rather than recomputed, so the turns followed offline cannot disagree with the ones followed a minute earlier. Empty when the route has none stored — which is "this corridor cannot drive guidance", not "this road has no turns" |
+| `places` | Roadside services along the corridor from the **bundled** OSM snapshot: EMERGENCY, TYRES and REST, at most 12 each, within 3 km of the line. Hotels are deliberately absent — a bed can wait for signal, and every place carried is bytes a phone has to download before a weak segment |
+| `datasets` | The freshness manifest |
+
+**The manifest is the part that matters.** One badge on a whole package cannot
+say "the route is fine, the weather is four hours old and nobody has ever
+measured the signal on this road", and that is exactly what a driver in a valley
+needs to know. Each row is `{name, state, captured_at, valid_for_seconds,
+source, detail}`:
+
+| `state` | Meaning |
+| --- | --- |
+| `AVAILABLE` | Captured and inside its window |
+| `STALE` | Captured, past its window. Shown and marked — **never hidden**, because a four-hour-old forecast is still the best thing a driver in a valley has, as long as nothing calls it current |
+| `NOT_AVAILABLE` | Nobody could produce it. **Not** "nothing to report", and never rendered as a clear reading |
+| `BUNDLED_IN_APP` | Shipped with the build rather than downloaded, so it is always present and never ages |
+
+Rows: `route`, `guidance`, `weather`, `official_warnings`, `flood`, `terrain`,
+`landslide_history`, `connectivity`, `traffic`, `places`, `emergency_contacts`.
+
+Validity windows are **product decisions about a package sitting in a valley**,
+not the providers' cache policies, and they differ because the things they
+describe age at different rates: weather one hour (matching
+`WEATHER_FRESH_SECONDS` — the engine already refuses to score an older
+observation, so a driver must not be shown one as current), traffic fifteen
+minutes, flood a day, connectivity a day, route and guidance a week, terrain and
+the landslide inventory thirty days.
+
+Ageing happens **twice on purpose**. The server states the state at capture
+time; the device recomputes it against the device clock, because that is the
+only clock a phone with no signal has. A block the server called AVAILABLE
+becomes STALE on the device by itself; one it called NOT_AVAILABLE never becomes
+anything else, because time does not produce evidence.
+
+`emergency_contacts` is `BUNDLED_IN_APP` with reason code
+`EMERGENCY_CONTACTS_BUNDLED_IN_APP`. 112 / 108 / 1033 are in the app, in every
+language it speaks, and they work with the radio off. Shipping a second copy in
+this package would be two catalogues of the numbers a driver calls in an
+emergency, and two catalogues drift.
+
+### Connectivity evidence (on every route risk body)
+
+`risk.connectivity` is where this fleet's own phones lost their data path along
+the corridor. **Not a carrier coverage map** — no operator publishes one this
+project could verify. The evidence is the upload delay of the GPS fixes drivers
+already send: a fix that waited ten minutes between `recorded_at` and
+`received_at` sat in the phone's offline queue because there was no path where
+it was recorded.
+
+```json
+{
+  "status": "GOOD | UNSTABLE | WEAK | DEAD_ZONE | UNKNOWN",
+  "coverage": 0.8, "unknown_share": 0.2,
+  "weak_km": 5.0, "dead_km": 10.0, "unknown_km": 15.0, "longest_gap_km": 15.0,
+  "sample_count": 120, "trip_count": 4, "newest_age_seconds": 600,
+  "provider": "RASTA fleet telemetry (upload delay)",
+  "version": "fleet-connectivity-v1",
+  "reason_codes": ["CONNECTIVITY_DEAD_ZONE_ON_ROUTE"],
+  "segments": [
+    {
+      "start_m": 0, "end_m": 5000, "state": "GOOD",
+      "sample_count": 18, "trip_count": 3,
+      "queued_share": 0.0, "median_delay_s": 12.0, "newest_age_seconds": 900,
+      "evidence": "HIGH", "source": "RASTA fleet telemetry (upload delay)"
+    }
+  ]
+}
+```
+
+`evidence` counts independent journeys (LOW / MEDIUM / HIGH, or SIMULATED for a
+labelled demo segment). It is deliberately **not** called confidence and
+deliberately not a number: a confidence score implies a trained, validated model
+and there is none here. `source` carries provenance per segment, so a
+demonstration can exercise the outage path without a synthetic segment ever
+being mistaken for a measurement.
+
+**Scoring.** Weak and dead kilometres are a MODERATE penalty, ceiling 15 points
+— the same as HIGH landslide history, so connectivity can never outrank a
+confirmed closure. Separately, an **unmeasured** corridor is charged the
+uncertainty penalty at the share nobody has driven, ceiling 5 points (the same
+number `LANDSLIDE_POINTS["UNKNOWN"]` uses). Without it a road nobody has driven
+would score zero while a road driven and found patchy scored several, and the
+recommendation would silently prefer the unexamined one. A route scored with no
+connectivity evidence supplied at all is untouched: `connectivity` is
+`NOT_AVAILABLE` and scores nothing.
+
 ### Route progress (on `GET /api/driver/me/trip`)
 
 `progress` is `null` only when the trip has no selected route — progress along a corridor nobody
@@ -996,6 +1160,7 @@ from the token, not the URL.
 | POST | `/api/driver/me/trip/stops/{stop_id}/complete` | ARRIVED → COMPLETED |
 | POST | `/api/driver/me/trip/complete` | ACTIVE/DELAYED → DELIVERED |
 | POST | `/api/driver/me/location` | Position fixes for the current trip |
+| POST | `/api/driver/me/trip/events` | Replay of what the phone saw, including while offline |
 
 `stop_id` is the one id that appears in a driver path, and it is checked for
 membership of the driver's **own** trip. A stop belonging to another trip is a

@@ -139,6 +139,49 @@ Never label planned functionality as implemented.
 
 ## Current state
 
+### Connectivity and offline resilience *(latest mission)*
+
+One chain, end to end: the manager sees whether the driver will be reachable,
+the phone prepares a versioned trip kit before the signal dies, guidance and
+the emergency path keep working without a network, everything the phone sees is
+queued durably, and the replay after reconnect is idempotent.
+
+| Piece | Where |
+| --- | --- |
+| Connectivity evidence (5 km segments from the fleet's own upload delay) | `backend/app/domain/connectivity.py`, `services/connectivity.py` |
+| Scored as a moderate penalty, with an uncertainty charge for unmeasured road | `backend/app/domain/route_risk.py` |
+| Trip kit v2: turns, roadside places, per-dataset freshness manifest | `backend/app/services/offline_package.py` |
+| Idempotent device-event replay | `backend/app/services/device_events.py`, migration `0013` |
+| Driver-initiated SOS | `backend/app/services/sentinel.py` `record_driver_sos` |
+| Bounded durable event queue, priority-ordered | `driver-app/src/events/eventQueue.ts` |
+| Adaptive prefetch and device-clock ageing | `driver-app/src/offline/prefetch.ts`, `useTripKit.ts` |
+| Runtime state on three axes | `driver-app/src/net/runtimeState.ts` |
+| Mobile signal evidence in the console | `manager-web/src/components/TripRouteReview.tsx` |
+
+**Rules this mission added that must not be quietly undone:**
+
+- **UNKNOWN connectivity is charged, not free.** Without the uncertainty
+  penalty the recommendation silently prefers a road nobody has driven whenever
+  it is marginally quicker.
+- **Telemetry and events are collected during ACTIVE, DELAYED *and* INCIDENT**
+  (`trip_state.COLLECTS_TELEMETRY`). Narrowing that set again makes a truck go
+  dark at the moment Fleet Sentinel says it is in trouble, and the phone
+  *destroys* the batch because a 4xx reads as permanent.
+- **No Sentinel measurement is invented for a driver-pressed SOS.**
+  `stationary_since`, `check_sent_at` and `response_deadline_at` stay NULL, and
+  an incident briefing with no fix reports a null position with
+  `source: UNKNOWN` rather than 0°, 0°.
+- **Every side effect of a replayed event is bound to a row actually having
+  been inserted.** That is what makes a re-sent SOS a no-op instead of a second
+  emergency.
+- **There is no `confidence` number anywhere in the connectivity layer.**
+  Segments carry an `evidence` word counting independent journeys. A confidence
+  score implies a trained model, and there is none.
+
+Demo procedure and the NOT CERTIFIED list: [docs/RESILIENCE_DEMO.md](docs/RESILIENCE_DEMO.md).
+
+### Before that
+
 P0–P6 complete. The full operational loop is closed and certified end to end: a
 manager creates a driver, truck and assignment; the driver signs in and verifies
 the physical truck; the manager plans a shipment and its trip **atomically** and

@@ -381,9 +381,60 @@ source .runtime/use-isolated-db.sh       # Bash
 cd backend && pytest -v                 # backend suite
 cd backend && pytest --cov=app          # with coverage
 cd manager-web && npm run typecheck     # tsc --noEmit
+cd manager-web && npm run test          # Vitest
 cd manager-web && npm run build         # production build
 cd driver-app && npm run typecheck      # tsc --noEmit
+cd driver-app && npm run test           # Vitest
 ```
+
+### Standing the isolated cluster up on Linux
+
+`.runtime/` is git-ignored, so a fresh checkout has no armed shell and no
+cluster. On Windows that is `scripts\db-start.ps1` plus the PowerShell arming
+script. The Linux equivalent, which is what CI and a cloud session use:
+
+```bash
+# PostgreSQL 16 + PostGIS, one disposable cluster, loopback only.
+apt-get install -y postgresql-16 postgresql-16-postgis-3
+mkdir -p .runtime && chown -R postgres:postgres .runtime
+runuser -u postgres -- /usr/lib/postgresql/16/bin/initdb -D .runtime/pgdata -U ner --auth=trust
+runuser -u postgres -- /usr/lib/postgresql/16/bin/pg_ctl -D .runtime/pgdata -l .runtime/pg.log \
+  -o "-p 55432 -c listen_addresses=127.0.0.1 -c fsync=off -c synchronous_commit=off" start
+psql -h 127.0.0.1 -p 55432 -U ner -d postgres -c "CREATE DATABASE ner_logistics_test"
+psql -h 127.0.0.1 -p 55432 -U ner -d ner_logistics_test -c "CREATE EXTENSION postgis"
+cd backend && python -m alembic upgrade head
+```
+
+`.runtime/use-isolated-db.sh` must export `DATABASE_PROVIDER=local`,
+`LOCAL_DATABASE_URL` and `MIGRATION_DATABASE_URL` pointing at
+`postgresql+psycopg://ner@127.0.0.1:55432/ner_logistics_test` (the one target
+`tests/db_target.py` permits), `DB_REQUIRE_SSL=false`, a non-placeholder
+`SECRET_KEY`, and the provider switches off so no test reaches the network:
+`WEATHER_ENABLED`, `TERRAIN_ENABLED`, `FLOOD_ENABLED`, `WARNINGS_ENABLED`,
+`ROUTE_WATCH_ENABLED`, `SENTINEL_SCHEDULER_ENABLED` all `false`.
+
+**Leave `APP_ENV` at `development`.** Setting it to `test` makes the refresh
+cookie `secure`, which an httpx test client over plain HTTP will not send back,
+and three refresh-rotation tests fail for a reason that has nothing to do with
+what they are testing.
+
+`tests/test_select_route_rpc.py` additionally needs a superuser role and
+`.runtime/pgpass.txt` holding its password; without them its 18 cases skip with
+a stated reason rather than passing silently.
+
+### Resilience suites *(added by the connectivity/offline mission)*
+
+| Suite | Covers |
+| --- | --- |
+| `backend/tests/test_connectivity.py` | The evidence floor, every segment state, clock clamping, journey counting, gap measurement, windowing, and the labelled simulation |
+| `backend/tests/test_device_events.py` | Offline replay: ordering, the two clocks, triple replay of an SOS, a poison event in front of an SOS, the acceptance window at both ends, every bound |
+| `backend/tests/test_offline_package.py` | The v2 trip kit and its per-dataset freshness manifest |
+| `backend/tests/test_route_risk.py` | The connectivity factor: a measured good corridor beats an unmeasured one; a dead zone costs more than a weak zone of the same length; not knowing stays cheaper than knowing it is bad |
+| `backend/tests/test_telemetry.py` | An incident does not stop tracking; delivery does |
+| `driver-app/src/events/eventQueue.test.ts` | Priority, overflow, settlement, backoff, process death, a disk that will not write, a truncated file |
+| `driver-app/src/offline/prefetch.test.ts` | Lead distance from speed/size/connection/outage, idempotent triggering, per-dataset ageing on the device clock |
+| `driver-app/src/offline/useTripKit.test.ts` | Reading connectivity segments; which refresh reasons this hook owns |
+| `manager-web/src/components/TripRouteReview.test.tsx` | Unknown signal is reported as unknown, never as coverage |
 
 ## 13. CI Gate (when a repository is initialised)
 

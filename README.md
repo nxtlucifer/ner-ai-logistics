@@ -327,6 +327,7 @@ Full posture, including known gaps, in [docs/SECURITY.md](docs/SECURITY.md).
 | [SECURITY.md](docs/SECURITY.md) | Auth, Supabase keys, privacy, retention, gaps |
 | [TESTING_STRATEGY.md](docs/TESTING_STRATEGY.md) | Test layers and what exists today |
 | [DEMO_PLAN.md](docs/DEMO_PLAN.md) | Three-minute demo narrative |
+| [RESILIENCE_DEMO.md](docs/RESILIENCE_DEMO.md) | Online → weak zone → offline → reconnect, with its NOT CERTIFIED list |
 | [DEVELOPMENT_ROADMAP.md](docs/DEVELOPMENT_ROADMAP.md) | Phases P0–P13 with exit gates |
 
 Working on this with an AI agent? Read [AGENTS.md](AGENTS.md) first.
