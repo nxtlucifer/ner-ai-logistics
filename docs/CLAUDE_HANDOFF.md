@@ -1,5 +1,366 @@
 # CLAUDE HANDOFF
 
+## 2026-09-16 — CONNECTIVITY AND OFFLINE RESILIENCE (PR #1, session transfer)
+
+**Read this section, then stop reading. Everything below it is older work.**
+
+**Branch `claude/pdf-master-mission-gohuj5` · HEAD = `3455746` (code) · pushed
+YES · shared Supabase UNTOUCHED.** This handoff entry itself is a later commit on
+the same branch.
+PR #1 <https://github.com/nxtlucifer/ner-ai-logistics/pull/1> — **open, draft,
+CI green, mergeable, no reviews.** Its 2 comments are self-authored. **Do not
+merge it.**
+
+9 code commits, 61 files, +7,595 / −74, 16 of them new.
+
+| Gate | Result | Re-verified |
+| --- | --- | --- |
+| Backend `pytest` (isolated cluster, WITH `.runtime/pgpass.txt`) | **1,231 passed · 1 failed · 5 skipped** | 2026-09-15 |
+| Backend destructive migration + drift (`RUN_DESTRUCTIVE_MIGRATION_TESTS=1`) | **14 passed** | 2026-09-15 |
+| `alembic check` | no new upgrade operations | 2026-09-15 |
+| Driver app Vitest | **697 passed · 57 files** | 2026-09-16 |
+| Driver app `tsc --noEmit` | clean | 2026-09-16 |
+| Manager web Vitest | **211 passed · 19 files** | 2026-09-16 |
+| Manager web `tsc -b` | clean | 2026-09-16 |
+| CI `Migration rollback` on `3455746` | **success** (first ever pass) | 2026-09-15 |
+
+**The PR body still quotes 1,227 / 10.** Those were correct when it was written,
+before commits `8172109` and `3455746`. The table above is current.
+
+The **one** backend failure is the KNOWN baseline
+`test_domain_integrity::TestRowLevelSecurity::test_no_table_in_public_lacks_rls`
+on `spatial_ref_sys` — pre-existing, caused by the isolated cluster installing
+PostGIS into `public`. **It is not yours. Do not "fix" it by enabling RLS on a
+PostGIS table, and do not skip, `xfail`, deselect or loosen it to get a clean
+run** (AGENTS.md:36). A red count of 1 is the expected, correct result.
+
+### On a FRESH machine the counts are DIFFERENT — read this before panicking
+
+`backend/tests/test_select_route_rpc.py` skips all **18** of its cases when
+`.runtime/pgpass.txt` is missing (it needs a superuser role). The recipe in
+`docs/TESTING_STRATEGY.md` §"Standing the isolated cluster up on Linux" does
+**not** create either. So a successor who rebuilds the cluster from that recipe
+alone sees roughly **1,213 passed · 1 failed · 23 skipped** — nothing has
+regressed. Provision the superuser and `pgpass.txt` to get back to 1,231 / 1 / 5.
+
+### What this branch added
+
+Chain: manager plans → route is evaluated **including whether the driver will be
+reachable** → the phone prepares a versioned trip kit **before** the signal dies
+→ the outage is survived → events buffer durably → reconnect replays
+idempotently → the manager reads an auditable history.
+
+**Connectivity evidence** — `backend/app/domain/connectivity.py` (pure rule),
+`backend/app/services/connectivity.py` (the query). Not a carrier coverage map:
+every GPS fix already carries a device clock and a server clock, and a fix that
+waited ten minutes sat in the phone's offline queue. That delay, aggregated into
+`SEGMENT_KM = 5.0` segments, is the evidence.
+
+- States `GOOD` / `UNSTABLE` / `WEAK` / `DEAD_ZONE` / `UNKNOWN`.
+- `QUEUED_DELAY_S = 120.0`, `DEAD_DELAY_S = 600.0`, `MATCH_DISTANCE_M = 60.0`,
+  `MAX_AGE_DAYS = 30`, `MIN_SAMPLES = 4`, `STRONG_EVIDENCE_SAMPLES = 12`,
+  shares `0.2 / 0.5 / 0.8`.
+- Each segment carries `evidence` (`LOW`/`MEDIUM`/`HIGH`/`SIMULATED`) and a
+  `source`. **The field is `evidence`, never `confidence`** — a confidence number
+  implies a trained, validated model, and this is a counting rule with published
+  constants.
+- **Silence produces UNKNOWN, never GOOD.** An unmeasured road is prepared for
+  as though the signal dies there.
+
+**Know exactly what the honesty tests do and do not cover** — this was
+overstated in an earlier draft of this handoff:
+
+| Guard | Where | Scope |
+| --- | --- | --- |
+| no `confidence` / `probability` / `model_version` / `predicted_state` | `backend/tests/test_connectivity.py:189` `test_there_is_no_confidence_or_probability_anywhere` | the `ConnectivityProfile` OBJECT and its segments — not the HTTP body |
+| no `confidence` / `model_version` / `probability` / `predicted` / `percent` / `%` | `backend/tests/test_route_recommendation_api.py:334` `test_no_percentage_or_model_field_reaches_the_wire` | the raw text of **ONE** endpoint, `GET /api/trips/{trip_id}/routes/recommendation` |
+
+**There is no test forbidding `%` on the risk body, the offline package, or any
+driver endpoint.** A percentage added to connectivity output tomorrow would pass
+CI. Honour the rule anyway — and if you extend it, that second test is the
+pattern to copy.
+
+**Risk scoring** — `backend/app/domain/route_risk.py`:
+`FACTOR_CONNECTIVITY`, `MAX_CONNECTIVITY_POINTS = 15` (same ceiling as HIGH
+landslide history, so it can never outrank a confirmed closure),
+`CONNECTIVITY_REFERENCE_KM = 30.0`, `CONNECTIVITY_DEAD_WEIGHT = 1.5`, and a
+SEPARATE `MAX_CONNECTIVITY_UNKNOWN_POINTS = 5` charged on `unknown_share`.
+That second charge exists because without it the recommendation silently prefers
+a road nobody has driven whenever it is marginally quicker.
+
+**Device event replay** — `POST /api/driver/me/trip/events` → **202**,
+`backend/app/services/device_events.py`.
+
+- Idempotency is a **partial unique index** `(trip_id, device_event_id) WHERE
+  device_event_id IS NOT NULL` plus `INSERT ... ON CONFLICT DO NOTHING`. Never
+  SELECT-then-INSERT. Side effects fire only when a row was really inserted, so
+  a re-sent SOS escalates **once**.
+- Each event applies inside its own `SAVEPOINT` (`db.begin_nested()`), so one
+  poison event cannot block the queue
+  (`backend/tests/test_device_events.py:476`).
+- `device_reported_at` (phone clock) is separate from `occurred_at` (server
+  clock). Their difference **is** the measured outage. **The device clock is
+  recorded and NEVER TRUSTED** — AGENTS.md:133 and 0013's own docstring: a phone
+  with a wrong or manipulated clock must not be able to reorder a safety
+  timeline or backdate an acknowledgement. Safety timers use `received_at`.
+- A device may only write `DEVICE_ORIGINATED_EVENT_KINDS`. `DISPATCHED`,
+  `DELIVERED`, `CLOSED` are office facts → **422**
+  (`backend/tests/test_device_events.py:119`).
+
+**Offline trip kit v2** — `backend/app/services/offline_package.py`,
+`VERSION = "offline-corridor-package-v2"`. Route geometry, turn maneuvers,
+112/108/1033 emergency numbers, POIs, weather, hazards, connectivity segments,
+and a per-dataset freshness manifest. Measured at **~30 KB**.
+
+**Two size gates, not one.** If you add a field to the kit you will hit the
+tighter one first:
+
+- `backend/tests/test_offline_package.py:604` — `MAX_KB = 120`, on
+  `GET /api/driver/me/trip/offline-package` with a planted 500-vertex geometry.
+- `backend/tests/test_offline_package.py:868` — `CEILING_BYTES = 512 * 1024`,
+  the trip-kit test that also prints the measured size.
+
+**Driver app** —
+- `src/events/eventQueue.ts`: `EVENT_QUEUE_LIMIT = 200`, `EVENT_BATCH_SIZE = 50`,
+  `BACKOFF_BASE_MS = 2_000`, `BACKOFF_MAX_MS = 60_000`. Overflow drops the
+  **oldest of the lowest priority present** — so an hour of connectivity chatter
+  can never evict an SOS. `SOS_TRIGGERED` is CRITICAL.
+- `src/offline/prefetch.ts`: the lead distance is **computed, not a fixed
+  threshold** (the brief explicitly forbade a hard-coded 9 km trigger) —
+  `THROUGHPUT_KBPS` per segment state, `HANDSHAKE_SECONDS = 4`,
+  `RETRY_FACTOR = 2`, `OUTAGE_MARGIN_SECONDS_PER_KM = 0.5`,
+  `MAX_OUTAGE_MARGIN_SECONDS = 60`, clamped to `MIN_LEAD_M = 5_000` (one
+  connectivity segment — the resolution at which a gap's start is known at all)
+  and `MAX_LEAD_M = 25_000`. `TYPICAL_KIT_BYTES = 180_000` is deliberately
+  conservative against the measured ~30 KB.
+- `src/offline/useTripKit.ts` is **not a second fetcher.** `useRouteGeometry`
+  owns downloading. `shouldTriggerRefresh()` returns true only for `GAP_AHEAD`
+  and `PACKAGE_STALE`; `NO_PACKAGE` is deliberately excluded because the base
+  fetcher already has a tested retry delay and two racing downloads was a real
+  regression.
+- `src/net/runtimeState.ts` is **three independent axes, ten values** — not one
+  flat enum:
+  - `LinkState` = `ONLINE` | `NETWORK_LOST` | `BACKEND_UNAVAILABLE` | `UNKNOWN`
+  - `PositionState` = `GPS_OK` | `GPS_DEGRADED` | `GPS_LOST` | `GPS_OFF` | `UNKNOWN`
+  - `DataState` = `CURRENT` | `STALE_DATA` | `UNKNOWN`
+
+  `HEADLINE_ORDER` (worst first) starts at **`GPS_OFF`** — the highest-severity
+  headline the reducer can emit. Keep the axes separate; the module docstring
+  treats that separation as load-bearing.
+- The SOS card says *"Recorded on this phone. It will reach your manager when
+  there is signal."* — it must never claim a transmission that has not happened.
+
+**Manager** — `manager-web/src/components/TripRouteReview.tsx` gains a **Mobile
+signal** block beside Fleet traffic, and `Signal` joins the evidence-coverage
+line. On a corridor nobody has driven it reads UNKNOWN and says so.
+
+### Two production defects found and fixed (root causes, not patches)
+
+1. **Telemetry died at the worst possible moment.** Collection gated on
+   `ACTIVE`/`DELAYED`. `INCIDENT` is neither — so the instant Fleet Sentinel
+   escalated a truck, the server refused its GPS with 409, and the phone treats
+   4xx as permanent and **discards the batch**. The positions were destroyed,
+   and the fleet map went quiet exactly when the truck was in trouble. Fixed
+   with `trip_state.COLLECTS_TELEMETRY = {ACTIVE, DELAYED, INCIDENT}`;
+   `backend/tests/test_telemetry.py:174` `TestTrackingSurvivesAnIncident` pins
+   both halves (an incident does not stop tracking; delivery still does).
+   `docs/SECURITY.md` §3 carries the privacy reasoning — an incident is a
+   suspension of a journey, not the end of one.
+2. **The incident dossier could place a truck at 0°, 0°** — a plausible
+   coordinate in the Gulf of Guinea. Position is now nullable with a `source`
+   (`DEVICE_AT_SOS` / `LAST_RECEIVED_FIX` / `UNKNOWN`).
+
+### Migration 0013 and the schema-ownership fix
+
+`0013_device_events` (down_revision `0012_push_notifications`): adds
+`trip_events.device_event_id` + `device_reported_at` and the partial unique
+index; adds `ROUTE_DEVIATION`, `ALERT_ACKNOWLEDGED`, `SOS_TRIGGERED` to
+`trip_event_kind`; makes `emergencies.stationary_since`, `check_sent_at`,
+`response_deadline_at` nullable (a driver-pressed SOS has none of those Sentinel
+measurements, and writing `now()` would claim observations nobody made).
+Downgrade backfills from `triggered_at` and restores NOT NULL. **Enum labels
+stay — PostgreSQL cannot drop one.** New labels must be registered in
+`ENUM_LABELS_ADDED_AFTER_0002` (`backend/tests/test_schema_drift.py:82`) or
+drift fails. 0013 adds no table, which is why it carries no RLS statement.
+
+**0013 is committed, pushed and under review. Do not edit it.** Migrations are
+history (AGENTS.md:48) — answer a reviewer with **0014**.
+
+`backend/app/db/schema_ownership.py` is **new and load-bearing**. It asks
+`pg_depend` (`deptype = 'e'`) which relations an extension created, and both
+`backend/alembic/env.py` and the drift gate use that one answer.
+
+- Why: `postgis/postgis:18-3.6` (what CI runs) ships `postgis_topology` and
+  `postgis_tiger_geocoder`; the tiger geocoder puts its schema on the database
+  `search_path`, and **SQLAlchemy reflects the default schema by VISIBILITY, not
+  by namespace**, so ~30 relations arrive unqualified and read as drift. A local
+  cluster with `CREATE EXTENSION postgis` alone shows none of this.
+- The dangerous half was `alembic/env.py`: against such a database
+  `alembic revision --autogenerate` emitted `op.drop_table` for the entire
+  geocoder. Confirmed by running `alembic check` on the old code.
+- On the CONNECTED path, `relations_not_ours()` never excludes a name the ORM
+  models define — a false pass is silent, a false failure is loud. **The OFFLINE
+  branch does not apply that subtraction** (it uses the static
+  `POSTGIS_CORE_RELATIONS | NOT_MIGRATION_OWNED`). Harmless today, but if you
+  ever add a model named `system_info` or `alembic_version`, fix that branch.
+- **TRAP, documented in `env.py` and worth re-reading before touching it:**
+  `context.configure()` runs BEFORE `context.begin_transaction()`. A query
+  issued at configure time opens an implicit transaction, Alembic then declines
+  to own one, and `run_migrations_online` never commits — every `alembic
+  upgrade` applies its DDL and throws it away. The ownership query is therefore
+  **deferred until the hook is called**. `test_upgrade_downgrade_upgrade_cycle`
+  is what caught this.
+
+### CI
+
+`.github/workflows/migrations.yml` is the repository's **only** workflow (the
+Supabase Preview check is an external GitHub App and skips). Before this branch
+it had **never passed** — it pointed at `localhost:5432/ner_logistics` while
+`backend/tests/db_target.py` permits exactly one target,
+`postgresql+psycopg://127.0.0.1:55432/ner_logistics_test`, with **no
+environment-variable override by design**. It failed during collection on every
+run including on `main`. Now green.
+
+The inline `POSTGRES_PASSWORD`, `SECRET_KEY` and the password inside
+`LOCAL_DATABASE_URL` in that workflow are **deliberately literal** — the URL has
+to string-match the exact target `db_target.py` permits, and that guard takes no
+override. They are bound to one ephemeral runner and are destroyed with it.
+**Do not "fix" them into GitHub secrets** to satisfy the no-credentials rule; the
+workflow explains this in its own comments.
+
+### DO NOT REPEAT
+
+- Do not re-audit the repository. The resilience inventory was built and
+  adversarially verified before any code was written. **It is not in the repo —
+  the surviving copy is the PR #1 description.** Read that, do not rebuild it.
+- Do not add a `confidence`, `probability`, `model_version` or `predicted_*`
+  field, or a `%`, to anything that reaches the wire — even where no test
+  currently checks (see the guard-scope table above).
+- Do not paint an unmeasured road as covered. UNKNOWN stays UNKNOWN.
+- Do not make `useTripKit` fetch. `useRouteGeometry` owns acquisition.
+- Do not "fix" the `spatial_ref_sys` RLS failure, by RLS or by skipping it.
+- Do not widen `db_target.py` or add an env override to it. That guard exists
+  because a routine `pytest` run once destroyed fixtures in the shared Supabase
+  project.
+- Do not edit migration 0013. Add 0014.
+- Do not merge PR #1.
+
+### STANDING RULES most likely to be broken on THIS branch
+
+Full list in `AGENTS.md`; these are the ones this work walks straight into.
+
+- **RLS on every new table, always** (AGENTS.md:122). Persisting connectivity
+  segments is the obvious next step from this branch, and a new table without
+  `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` is readable by anyone holding the
+  anon key, bypassing FastAPI entirely. Precedent:
+  `backend/alembic/versions/0012_push_notifications.py:37`. The two RLS mentions
+  elsewhere in this section are about a PostGIS table and are **not** licence to
+  treat RLS complaints as noise.
+- **Never skip, delete, `xfail` or loosen a failing test** (AGENTS.md:36).
+- **Safety timers use server time, never device time** (AGENTS.md:133).
+- **Migrations are history; add a new one** (AGENTS.md:48).
+- **Any new test that can destroy data must be gated** behind
+  `RUN_DESTRUCTIVE_MIGRATION_TESTS=1` (AGENTS.md:49).
+- **`DATABASE_PROVIDER` has no automatic fallback — never add one**
+  (AGENTS.md:103). On a branch entirely about degrading gracefully, "fall back
+  to local when Supabase is unreachable" is the natural next thought and is
+  forbidden.
+- **Commit, push or deploy only when asked** (AGENTS.md:53). The standing
+  consent here covers pushing to `claude/pdf-master-mission-gohuj5` only — not
+  `main`, not a deploy, not a history rewrite, not a merge.
+- **Docs are the contract** (AGENTS.md:9-23). Read `docs/DATA_MODEL.md` before
+  changing tables/columns/enums/indexes, `docs/API_CONTRACTS.md` before changing
+  endpoints/payloads/error codes, `docs/SECURITY.md` for auth/permissions/
+  privacy. This branch already updated all three plus `docs/ARCHITECTURE.md`;
+  if code and docs disagree that is a defect, fix both in the same change.
+
+### CURRENT DEFECTS / OPEN ITEMS
+
+1. **`spatial_ref_sys` RLS baseline failure.** Pre-existing. It has the same
+   shape as the drift bug just fixed — an audit treating an extension-owned
+   table as an application table — and
+   `schema_ownership.extension_owned_relations()` could now resolve it **on
+   principle** rather than by name exemption. Deliberately NOT done on this
+   branch: out of CI's path, out of the PR's scope, and prior sessions recorded
+   a decision to leave it. Owner's call.
+2. **No `%` guard on the connectivity/offline/driver responses.** See the
+   guard-scope table. Extending
+   `test_no_percentage_or_model_field_reaches_the_wire` to the risk body and the
+   offline package would close it.
+3. **NOT CERTIFIED items** — full table with exact manual device steps in
+   `docs/RESILIENCE_DEMO.md` §6: Android process death with a queued SOS;
+   background push; background GPS (not implemented, by design — foreground
+   only, no background permission requested); SMS fallback (not implemented and
+   **not claimed anywhere**); battery-adaptive cadence (PARTIAL — adapts to
+   movement, does not read the battery, because `expo-battery` is not a
+   dependency and a fabricated reading would be worse than none); real carrier
+   coverage (NOT AVAILABLE, by design).
+4. **Events queued for a trip that ends before reconnect are refused and
+   dropped**, matching how location already behaves. Documented limitation.
+
+### RESUME COMMAND — 2026-09-16
+
+    CONTINUE FROM EXISTING PROJECT STATE. Do not re-audit the repository and do
+    not repeat completed work.
+
+    Read, in order:
+      1. AGENTS.md and CLAUDE.md (standing rules — they override defaults)
+      2. The TOP section of docs/CLAUDE_HANDOFF.md (2026-09-16) only
+      3. docs/RESILIENCE_DEMO.md   (demo procedure + the NOT CERTIFIED table)
+      4. docs/TESTING_STRATEGY.md  (isolated cluster, env traps, CI)
+      5. Before touching schema: docs/DATA_MODEL.md
+         Before touching an endpoint: docs/API_CONTRACTS.md
+      6. The PR #1 description (the only surviving copy of the inventory)
+
+    Verify state before touching anything:
+      git fetch origin && git status --short     # expect NO output
+      git rev-parse --abbrev-ref HEAD            # claude/pdf-master-mission-gohuj5
+      git log --oneline origin/main..HEAD        # 10 commits, newest is this handoff
+
+    Rebuild anything missing (ALL of this is git-ignored — see the warning):
+      # Postgres 16 must be installed; pg-start.sh needs root and hardcodes
+      # PGBIN=/usr/lib/postgresql/16/bin. Check before starting:
+      pg_isready -h 127.0.0.1 -p 55432 || bash .runtime/pg-start.sh
+      cd backend && python3.11 -m venv .venv && .venv/bin/pip install -r requirements.txt
+      cd ../driver-app && npm install
+      cd ../manager-web && npm install
+
+    Run the gates:
+      cd backend && source ../.runtime/use-isolated-db.sh && .venv/bin/python -m pytest -q
+      cd ../driver-app  && npx vitest run && npx tsc --noEmit
+      cd ../manager-web && npx vitest run && npx tsc -b
+
+    Expect 1,231 passed / 1 failed / 5 skipped WITH .runtime/pgpass.txt present,
+    or about 1,213 / 1 / 23 without it. The one failure is spatial_ref_sys RLS
+    and is NOT yours — do not skip it.
+
+    PR #1 is open, draft, green and mergeable. Do not merge it. If CI goes red
+    or a reviewer comments, fix and push to the SAME branch.
+
+**Fresh clone warning.** `.runtime/` (the disposable cluster, `pgpass.txt`, the
+start script and the arming script), `backend/.venv`, `backend/.env` and every
+`node_modules` are **git-ignored and will not exist**. Only `.env.example` files
+are tracked. Note `backend/.env` is NOT needed for the test suite —
+`.runtime/use-isolated-db.sh` exports everything the suite reads, so do not
+waste time recreating it.
+
+**Environment traps, all previously paid for:**
+- `APP_ENV=test` makes the refresh cookie `secure`, so an httpx client over
+  plain HTTP cannot return it and three auth tests fail. The arming script uses
+  `APP_ENV=development` deliberately — do not "correct" it.
+- `test_notify` and `test_inference` need push and AI left enabled; the arming
+  script does not disable them.
+- The backend suite takes a **lock on the test database**. Two runs delete each
+  other's fixtures, so a second run refuses with the holder's pid and the exact
+  `SELECT pg_terminate_backend(<pid>);` needed to release a leaked one.
+- To reproduce CI's PostGIS locally, add `postgis_topology`, `fuzzystrmatch` and
+  `postgis_tiger_geocoder`; undo with the matching `DROP EXTENSION`, `DROP
+  SCHEMA tiger, tiger_data, topology CASCADE` and `ALTER DATABASE
+  ner_logistics_test RESET search_path` — the geocoder edits the search_path and
+  its removal does not restore it.
+
+---
+
 ## 2026-09-06 — MAP-FIRST MISSION: navigation, layout, APK, local AI
 
 **HEAD = `f850de4`** · committed NO · pushed NO · shared Supabase UNTOUCHED
