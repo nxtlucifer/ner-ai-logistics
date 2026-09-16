@@ -14,6 +14,7 @@ import { useAuth } from '../auth/AuthProvider'
 import AuthImage, { initials } from './AuthImage'
 import { Button, ErrorState, LoadingState, StatusPill } from './ui'
 import AssignTruckDialog from './AssignTruckDialog'
+import { wrapTab } from './focusTrap'
 import { useMutation, useResource } from '../hooks/useResource'
 
 // A draft is the manager's, not the driver's: only a dispatched trip is "current".
@@ -108,7 +109,7 @@ export default function DriverProfileDrawer({ driver, trucks, assignments, trips
       role="dialog"
       aria-modal="true"
       aria-labelledby="driver-profile-title"
-      onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onClose() } }}
+      onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onClose() } else wrapTab(e) }}
       className="fixed inset-0 z-50 flex justify-end bg-canvas/70"
       data-testid="driver-profile"
     >

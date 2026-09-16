@@ -16,6 +16,7 @@ import { api, type Assignment, type Driver, type Trip, type Truck } from '../api
 import { Button, ErrorState, LoadingState } from './ui'
 import { useMutation, useResource } from '../hooks/useResource'
 import { licenceHealth } from './DriverProfileDrawer'
+import { wrapTab } from './focusTrap'
 
 const OPEN_TRIP = new Set(['ASSIGNED', 'VERIFICATION_PENDING', 'ACTIVE', 'DELAYED'])
 const HELD = new Set(['ACTIVE', 'PENDING_VERIFICATION'])
@@ -126,7 +127,9 @@ export default function AssignTruckDialog({ driverId, truckId, onClose, onChange
       role="dialog"
       aria-modal="true"
       aria-label="Assign a truck"
-      onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }}
+      // Handled here and stopped: when this dialog sits inside the profile
+      // drawer, the drawer's own trap must not also act on the same key.
+      onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } else if (e.key === 'Tab') { e.stopPropagation(); wrapTab(e) } }}
       className="fixed inset-0 z-[60] flex items-center justify-center bg-canvas/80 p-4"
     >
       <div className="w-full max-w-lg space-y-3 rounded-xl border border-line bg-surface p-5 shadow-2xl">

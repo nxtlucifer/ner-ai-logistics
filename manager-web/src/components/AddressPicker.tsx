@@ -40,6 +40,7 @@ import { Map as MapLibreMap, Marker } from 'maplibre-gl'
 
 import { ApiError, api, type AddressSuggestion } from '../api/client'
 import { parseGoogleMapsUrl } from '../utils/googleMapsUrl'
+import { wrapTab } from './focusTrap'
 import { NER_CENTRE, NER_ZOOM, OSM_STYLE } from './FleetMap'
 
 export type CoordinateSource = 'GOOGLE' | 'MAP' | 'GOOGLE_MAPS_LINK' | 'MANUAL'
@@ -724,19 +725,8 @@ function MapPointPicker({
           event.preventDefault()
           event.stopPropagation()
           onCancel()
-        } else if (event.key === 'Tab') {
-          const focusable = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
-            'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-          )).filter((element) => !element.hidden && element.getAttribute('aria-hidden') !== 'true')
-          const first = focusable[0]
-          const last = focusable[focusable.length - 1]
-          if (event.shiftKey && document.activeElement === first) {
-            event.preventDefault()
-            last?.focus()
-          } else if (!event.shiftKey && document.activeElement === last) {
-            event.preventDefault()
-            first?.focus()
-          }
+        } else {
+          wrapTab(event)
         }
       }}
       className="fixed inset-0 z-50 flex items-center justify-center bg-canvas/80 p-4"
