@@ -40,6 +40,13 @@ services:
     # brief Supabase hiccup would make the platform kill and restart a process
     # that was fine.
     healthCheckPath: /health
+    # Redeploy the API only when the API changes. Without this filter every
+    # push - a manager-only fix, a docs handoff - restarted the backend, and
+    # for those minutes hosted requests timed out or closed mid-body.
+    buildFilter:
+      paths:
+        - backend/**
+        - render.yaml
     envVars:
       - key: APP_ENV
         value: production
