@@ -1568,3 +1568,59 @@ and time remains" - the deadline is today); a weak-zone coverage dataset does
 not exist, so WEAK_ZONE_PREDICTION = DATA_UNAVAILABLE; APK 1.0.18 not rebuilt
 (the driver-app change ships in the driver web; a phone rebuild needs the user's
 EAS run and re-certification).
+
+
+## 14. Manager final audit (16 Sep 2026) - Assign truck as one workflow
+
+Commits a329ae0, 8431ad9. Preflight: HEAD b3d3828, judge READY, draft PR #1
+still open and untouched. The Assign Truck capability existed only inside the
+driver profile (a select for a truck-less driver) and on the old
+`/assignments` page; nothing offered it from Fleet, a truck, or a paired
+driver; the old page duplicated the pairing logic.
+
+**What changed.** One `AssignTruckDialog` owns the rules the server enforces
+(`assignments.create`: one driver one truck, live-trip guard
+ASSIGNMENT_HAS_LIVE_TRIP, suspended / expired licence / non-operational truck
+refused, same pair 409 ASSIGNMENT_UNCHANGED) and states the verdict before
+the click: the blocker in words, or the summary of what the server will do
+("takes AS01AB1234 from Bipul Das"). It opens from Fleet Quick actions (New
+trip / Assign truck / Review required / Active trips - shortcuts to the
+canonical workflows, not copies), a driver row without a truck, the driver
+profile (Assign truck / Change truck), a truck row (Assign driver / Change
+driver / End assignment), and the records page, whose duplicate form is
+gone. The trip planner already fills the paired truck from the live
+assignment, so a new pairing shows there at once. Backend unchanged; a
+reviewer-denied assignment test added.
+
+**Defect found by the hosted human check and fixed (8431ad9).** The Trucks
+page and the dialog judged "on a trip" from the newest 50 trips only;
+TRP-A7678F (ACTIVE since 15 Sep) had aged out, so AS01AB1234 - status
+ON_TRIP - was offered a Change driver the server would have refused. The
+truck's and the driver's own ON_TRIP status now gate the buttons and the
+verdict, and the Current trip cell says "on a trip · older than the newest 50".
+
+**Tests.** Manager 215 passed (new: dialog verdicts incl. ON_TRIP, double-click
+= one call, refusal surfaced; Fleet tests now render under a router);
+backend authorization/fleet/invariant suites 82 passed; typecheck and build
+clean.
+
+**Hosted (targeted, real Chromium).** `assign_truck_check.mjs` 13/13
+(third run; the first stalled on the login limiter - 20 attempts/min/IP,
+ENVIRONMENT - and the second on the script matching only "Assign truck" when
+the button read "Change pairing", AUTOMATION): Fleet Quick actions present;
+disposable truck added via Trucks -> Add truck; Assign truck from Fleet ->
+dialog states the rule -> Probe Driver + new truck -> verdict "Probe Driver
+-> AS99ZZ2617 · ends Probe Driver's pairing with AS99ZZ1985" -> dialog closes;
+Drivers row, Trucks row (Change driver / End assignment) and the Trip planner
+all show the same pairing at once; AS01AB1234 (ON_TRIP, trip older than the
+newest 50) has Change driver disabled "On a trip - the pairing cannot change
+until it ends"; End assignment frees the truck; the disposable trucks were
+retired through the product's own Retire. No exceptions, no 5xx.
+`manager_probe.mjs` 34/34 including the four-width overflow sweep (768 / 1024
+/ 1366 / 1920, 0 px). judge.sh check: READY. The canonical pair was never
+touched. Screens .runtime/evidence/delta/15-18.
+
+**Left as is.** No new top-level Assignments page (records only). Truck
+"detail" is the row: registration, capacity, status, holder + verification,
+current trip, and the three actions; a drawer would duplicate it. APK not
+rebuilt, driver app untouched.
