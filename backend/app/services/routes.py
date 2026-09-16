@@ -56,6 +56,8 @@ from app.domain.routing import (
     endpoint_mismatch,
     is_distinct_corridor,
     parse_wkt_point,
+    DETOUR_SLACK_M,
+    MAX_DETOUR_RATIO,
 )
 from app.models.enums import AuditAction, RouteKind, RouteState, TripStopKind
 from app.models.identity import User
@@ -221,9 +223,17 @@ async def plan(
             code="ROUTING_DISABLED",
         )
 
-    await trips.get(db, trip_id)  # 404 before anything external is called
+    trip = await trips.get(db, trip_id)  # 404 before anything external is called
     pickup, destination = await _endpoints(db, trip_id)
+    reroute_from = origin
     origin = origin or pickup
+    # The road the trip is following - the yardstick for a road planned from
+    # where the truck is. Read now, before the connection is released.
+    planned_m: float | None = None
+    if reroute_from is not None and trip.selected_route_id is not None:
+        current = await db.get(TripRoute, trip.selected_route_id)
+        if current is not None and current.distance_km is not None:
+            planned_m = float(current.distance_km) * 1000.0
 
     # Release the database BEFORE calling the provider.
     #
@@ -295,6 +305,24 @@ async def plan(
         raise BusinessRuleError(
             "The routing provider returned a route that does not connect this "
             f"trip's stops ({mismatch}). Nothing was stored.",
+            code="ROUTE_VALIDATION_FAILED",
+        )
+
+    # A ROAD FROM WHERE THE TRUCK IS must still be a road for THIS trip. A
+    # position far outside the corridor - a phone whose GPS was in another
+    # state produced a 2,451 km "backup" for a 97 km trip (16 Sep) - yields a
+    # route that connects its own ends perfectly and answers nothing. Judged
+    # against the road the trip is following, with the planner's own ratio
+    # and slack, so a genuine detour around a closed hill road still passes.
+    if planned_m is not None and candidate.distance_m > planned_m * MAX_DETOUR_RATIO + DETOUR_SLACK_M:
+        logger.warning(
+            "reroute refused for trip %s: %.0f m from the reported position against %.0f m planned",
+            trip_id, candidate.distance_m, planned_m,
+        )
+        raise BusinessRuleError(
+            "The reported position is too far from this trip's planned road for a reroute "
+            f"({candidate.distance_m / 1000:.0f} km against {planned_m / 1000:.0f} km planned). "
+            "Nothing was stored.",
             code="ROUTE_VALIDATION_FAILED",
         )
 

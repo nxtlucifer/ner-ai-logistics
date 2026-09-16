@@ -38,6 +38,8 @@ class _Recording:
     def __init__(self) -> None:
         self.origins: list[tuple[float, float]] = []
         self.fail = False
+        #: Distance of the road planned from the reported position; None = 190 km.
+        self.reroute_m: float | None = None
 
     async def route_options(self, origin, destination, *, kind, limit=1, detailed=False):  # noqa: ANN001
         from app.services.routing.base import ChainAttempt, ChainOptions
@@ -53,7 +55,7 @@ class _Recording:
                     kind=kind,
                     provider="stub",
                     geometry=geometry,
-                    distance_m=190_000.0 if rerouting else 305_000.0,
+                    distance_m=(self.reroute_m or 190_000.0) if rerouting else 305_000.0,
                     duration_s=90 * 60.0,
                 ),
             ),
@@ -164,3 +166,30 @@ async def test_provider_outage_is_503_and_persists_nothing(
     session.expire_all()
     rows = (await session.execute(select(TripRoute).where(TripRoute.trip_id == trip_id))).scalars().all()
     assert len(rows) == 1
+
+
+# A phone whose GPS is in another state (Gujarat, 16 Sep) asked for a road
+# from there: the provider returned a perfectly self-consistent 2,451 km route
+# to Shillong, and it was stored as the trip's EMERGENCY_BACKUP. A road from
+# where the truck is must still be a road for THIS trip.
+FAR_AWAY = (24.0, 73.0)
+
+
+async def test_a_road_from_far_outside_the_corridor_is_refused_and_nothing_is_stored(
+    api: AsyncClient, session: AsyncSession, chain: _Recording
+) -> None:
+    trip, primary, headers = await _trip(api, session, start=True)
+    trip_id = trip.id
+    chain.reroute_m = 2_451_000.0
+
+    res = await api.post(
+        "/api/driver/me/trip/reroute", headers=headers,
+        json={"lat": FAR_AWAY[0], "lon": FAR_AWAY[1]},
+    )
+    assert res.status_code == 422, res.text
+    assert res.json()["error"]["code"] == "ROUTE_VALIDATION_FAILED"
+
+    session.expire_all()
+    rows = (await session.execute(select(TripRoute).where(TripRoute.trip_id == trip_id))).scalars().all()
+    assert [r.id for r in rows] == [primary.id]
+    assert rows[0].state is RouteState.SELECTED
