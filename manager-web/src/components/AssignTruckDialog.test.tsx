@@ -40,6 +40,10 @@ describe('assignmentBlocker', () => {
     // A driver mid-trip keeps their truck; a truck mid-trip keeps its driver.
     expect(assignmentBlocker({ driver: driver(), truck: truck({ id: 't2' }), assignments: [pairing('d1', 't1')], trips: [trip('d1', 't1')], drivers: [] })).toMatch(/on TRP-LIVE/)
     expect(assignmentBlocker({ driver: driver(), truck: truck(), assignments: [pairing('d2', 't1')], trips: [trip('d2', 't1')], drivers: [bipul] })).toMatch(/on TRP-LIVE with Bipul Das/)
+    // A trip older than the newest 50 is not in `trips`; the truck's and the
+    // driver's own ON_TRIP status still block, as the server's guard will.
+    expect(assignmentBlocker({ driver: driver(), truck: truck({ status: 'ON_TRIP' }), assignments: [pairing('d2', 't1')], trips: [], drivers: [bipul] })).toMatch(/on a trip with Bipul Das/)
+    expect(assignmentBlocker({ driver: driver({ status: 'ON_TRIP' }), truck: truck({ id: 't2' }), assignments: [pairing('d1', 't1')], trips: [], drivers: [] })).toMatch(/is on a trip/)
   })
   it('allows taking a free truck from an idle driver - the server ends that pairing', () => {
     expect(assignmentBlocker({ driver: driver(), truck: truck(), assignments: [pairing('d2', 't1')], trips: [], drivers: [bipul] })).toBeNull()

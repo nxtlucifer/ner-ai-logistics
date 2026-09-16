@@ -268,6 +268,10 @@ export default function TrucksPage() {
                 {trucks.data?.items.map((truck) => {
                   const holder = driverFor(truck.id)
                   const open = tripFor(truck.id)
+                  // The truck's own status is authoritative: the trips list is
+                  // the newest 50, and a long-running trip ages out of it.
+                  const busy = open !== null || truck.status === 'ON_TRIP'
+                  const busyWhy = open ? `On ${open.trip_code}` : 'On a trip'
                   return (
                   <tr key={truck.id}>
                     <td className="py-3 font-mono font-medium text-ink">
@@ -307,7 +311,7 @@ export default function TrucksPage() {
                       ) : <span className="text-muted">—</span>}
                     </td>
                     <td className="py-3 text-xs">
-                      {trips.status === 'success' ? (open ? <span className="text-ink">{open.trip_code} <span className="text-muted">· {open.status.replaceAll('_', ' ').toLowerCase()}</span></span> : <span className="text-muted">none</span>) : <span className="text-muted">—</span>}
+                      {trips.status === 'success' ? (open ? <span className="text-ink">{open.trip_code} <span className="text-muted">· {open.status.replaceAll('_', ' ').toLowerCase()}</span></span> : truck.status === 'ON_TRIP' ? <span className="text-ink">on a trip <span className="text-muted">· older than the newest 50</span></span> : <span className="text-muted">none</span>) : <span className="text-muted">—</span>}
                     </td>
                     <td className="py-3 text-right">
                       <div className="flex flex-wrap justify-end gap-2">
@@ -315,8 +319,8 @@ export default function TrucksPage() {
                         <Button
                           variant={holder ? 'secondary' : 'primary'}
                           className="min-h-9 px-2 py-1 text-xs"
-                          disabled={open !== null}
-                          title={open ? `On ${open.trip_code} — the pairing cannot change until it ends` : holder ? 'Move this truck to another driver - the current pairing ends in the same step' : 'Pair a driver with this truck'}
+                          disabled={busy}
+                          title={busy ? `${busyWhy} — the pairing cannot change until it ends` : holder ? 'Move this truck to another driver - the current pairing ends in the same step' : 'Pair a driver with this truck'}
                           onClick={() => setAssignFor(truck.id)}
                         >
                           {holder ? 'Change driver' : 'Assign driver'}
@@ -327,8 +331,8 @@ export default function TrucksPage() {
                           variant="secondary"
                           className="min-h-9 px-2 py-1 text-xs"
                           busy={endingId === truck.id}
-                          disabled={open !== null || endingId !== null}
-                          title={open ? `Cannot end while ${open.trip_code} is open` : 'Free this truck and its driver from each other'}
+                          disabled={busy || endingId !== null}
+                          title={busy ? `${busyWhy} — cannot end while the trip is open` : 'Free this truck and its driver from each other'}
                           onClick={() => void handleEndAssignment(truck)}
                         >
                           End assignment

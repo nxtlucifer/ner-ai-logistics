@@ -48,13 +48,18 @@ export function assignmentBlocker(input: {
   const held = (id: string, key: 'driver_id' | 'truck_id') => assignments.find((a) => a[key] === id && HELD.has(a.status)) ?? null
   const driverHolds = held(driver.id, 'driver_id')
   if (driverHolds && driverHolds.truck_id === truck.id) return `${driver.full_name} is already paired with ${truck.registration_number}.`
+  // The trips list is the newest 50 and a long trip ages out of it, so the
+  // driver's and the truck's own ON_TRIP status are read as well - they are
+  // what the server's live-trip guard will find.
   const driverTrip = trips.find((t) => t.driver_id === driver.id && OPEN_TRIP.has(t.status))
-  if (driverHolds && driverTrip) return `${driver.full_name} is on ${driverTrip.trip_code} — the pairing cannot change until it ends.`
+  if (driverHolds && (driverTrip || driver.status === 'ON_TRIP')) {
+    return `${driver.full_name} is on ${driverTrip ? driverTrip.trip_code : 'a trip'} — the pairing cannot change until it ends.`
+  }
   const truckHolds = held(truck.id, 'truck_id')
   const truckTrip = trips.find((t) => t.truck_id === truck.id && OPEN_TRIP.has(t.status))
-  if (truckHolds && truckTrip) {
+  if (truckHolds && (truckTrip || truck.status === 'ON_TRIP')) {
     const who = drivers.find((d) => d.id === truckHolds.driver_id)?.full_name ?? 'another driver'
-    return `${truck.registration_number} is on ${truckTrip.trip_code} with ${who} — it cannot be reassigned until that trip ends.`
+    return `${truck.registration_number} is on ${truckTrip ? truckTrip.trip_code : 'a trip'} with ${who} — it cannot be reassigned until that trip ends.`
   }
   return null
 }

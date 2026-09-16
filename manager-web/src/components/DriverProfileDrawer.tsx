@@ -160,7 +160,7 @@ export default function DriverProfileDrawer({ driver, trucks, assignments, trips
                 {manual.error ? <ErrorState error={manual.error} /> : null}
                 <div className="flex flex-wrap items-center gap-2 pt-1">
                   {can('assignment:create') ? (
-                    <Button variant="secondary" className="min-h-9 px-2 py-1 text-xs" disabled={current !== null} title={current ? `Cannot change while ${current.trip_code} is open` : 'Move this driver to another truck - the current pairing ends in the same step'} onClick={() => setAssigning(true)}>Change truck</Button>
+                    <Button variant="secondary" className="min-h-9 px-2 py-1 text-xs" disabled={current !== null || driver.status === 'ON_TRIP'} title={current ? `Cannot change while ${current.trip_code} is open` : driver.status === 'ON_TRIP' ? 'Cannot change while the driver is on a trip' : 'Move this driver to another truck - the current pairing ends in the same step'} onClick={() => setAssigning(true)}>Change truck</Button>
                   ) : null}
                   {can('assignment:end') ? (
                     <Button variant="danger" className="min-h-9 px-2 py-1 text-xs" busy={end.isSubmitting} disabled={endBlocked !== null || current !== null} title={endBlocked ?? (current ? `Cannot end while ${current.trip_code} is open` : undefined)} onClick={() => void handleEnd()}>End assignment</Button>
