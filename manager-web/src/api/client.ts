@@ -58,13 +58,20 @@ export class ApiError extends Error {
 }
 
 export class NetworkError extends Error {
+  /** True when the request was abandoned because the backend took too long. */
+  readonly timedOut: boolean
+
   constructor(cause: unknown) {
+    const timedOut = cause instanceof Error && cause.name === 'TimeoutError'
     super(
-      cause instanceof Error
-        ? `Cannot reach the backend: ${cause.message}`
-        : 'Cannot reach the backend',
+      timedOut
+        ? 'The backend did not answer in time. It may still be working on the request.'
+        : cause instanceof Error
+          ? `Cannot reach the backend: ${cause.message}`
+          : 'Cannot reach the backend',
     )
     this.name = 'NetworkError'
+    this.timedOut = timedOut
   }
 }
 
@@ -96,9 +103,19 @@ interface RequestOptions {
   /** Internal: prevents infinite refresh recursion. */
   skipRefresh?: boolean
   signal?: AbortSignal
+  /** Longer than the default for a read that fans out to slow providers. */
+  timeoutMs?: number
 }
 
 const REQUEST_TIMEOUT_MS = 15_000
+/**
+ * A route assessment asks weather at up to ten points per route, plus terrain,
+ * river levels, official alerts and fleet traffic; on the hosted backend a cold
+ * two-corridor check was observed to outlast the 15 s default, which left the
+ * manager a "Cannot reach the backend" they never saw and a NOT ASSESSED panel.
+ * The answer arrives; it needs the time it costs.
+ */
+const SLOW_READ_TIMEOUT_MS = 90_000
 
 async function rawRequest(path: string, options: RequestOptions): Promise<Response> {
   const headers: Record<string, string> = { Accept: 'application/json' }
@@ -109,7 +126,7 @@ async function rawRequest(path: string, options: RequestOptions): Promise<Respon
   // A backend that accepts the connection and never answers (pool exhausted,
   // upstream database gone) must not hold a page on "Loading…" forever. The
   // caller's own signal still aborts sooner.
-  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+  const timeout = AbortSignal.timeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS)
   const signal =
     options.signal && typeof AbortSignal.any === 'function'
       ? AbortSignal.any([options.signal, timeout])
@@ -1190,11 +1207,11 @@ export const restApi = {
    * polled, and never fired merely because a row was clicked.
    */
   routeRecommendation: (tripId: string) =>
-    request<RouteRecommendation>(`/api/trips/${tripId}/routes/recommendation`),
+    request<RouteRecommendation>(`/api/trips/${tripId}/routes/recommendation`, { timeoutMs: SLOW_READ_TIMEOUT_MS }),
 
   /** Same cost, same rule: ask, do not poll. */
   rerouteAssessment: (tripId: string) =>
-    request<RerouteAssessment>(`/api/trips/${tripId}/reroute`),
+    request<RerouteAssessment>(`/api/trips/${tripId}/reroute`, { timeoutMs: SLOW_READ_TIMEOUT_MS }),
 
   /**
    * Move a moving trip onto another route, because a person decided to.

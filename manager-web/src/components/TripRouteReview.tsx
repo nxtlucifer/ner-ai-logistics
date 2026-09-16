@@ -177,7 +177,9 @@ export default function TripRouteReview({ trip, onChanged }: { trip: Trip; onCha
   const [assessment, setAssessment] = useState<RouteRecommendation | null>(null)
   const [authorizations, setAuthorizations] = useState<Record<string, ReviewAuthorization | null>>({})
   const [busy, setBusy] = useState<string | null>('load')
-  const [error, setError] = useState<unknown>(null)
+  // Which action failed travels with the error, so "Try again" repeats THAT
+  // action - a failed conditions check is retried as a check, not as a reload.
+  const [error, setError] = useState<{ name: string; error: unknown } | null>(null)
   const active = useRef(true)
   const locked = useRef(false)
 
@@ -193,7 +195,7 @@ export default function TripRouteReview({ trip, onChanged }: { trip: Trip; onCha
     locked.current = true
     setBusy(name)
     setError(null)
-    try { await action() } catch (caught) { if (active.current) setError(caught) }
+    try { await action() } catch (caught) { if (active.current) setError({ name, error: caught }) }
     finally { locked.current = false; if (active.current) setBusy(null) }
   }
   useEffect(() => {
@@ -234,8 +236,13 @@ export default function TripRouteReview({ trip, onChanged }: { trip: Trip; onCha
   }
 
   const selectedRoute = detail?.selected_route_id ?? trip.selected_route_id
+  const retry = error ? { load: () => void run('load', read), assess: () => void run('assess', assess) }[error.name] : undefined
+  // The failure is shown where the manager is looking: beside the decision
+  // block once a route exists (a check or a selection failed there), at the
+  // top only while there is no route to stand beside.
+  const failure = error ? <ErrorState error={error.error} onRetry={retry} /> : null
   return <Card title={`Trip review · ${trip.trip_code}`} action={<span className="flex items-center gap-2"><StatusPill status={selectedRoute ? 'ROUTE_SELECTED' : 'NO_ROUTE_SELECTED'} /><StatusPill status={detail?.status ?? trip.status} /></span>}>
-    {error ? <ErrorState error={error} onRetry={() => void run('load', read)} /> : null}
+    {error && !route ? failure : null}
     {busy === 'load' && !detail ? <LoadingState label="Loading trip review…" /> : <>
       <ol className="space-y-4 mb-5 border-l-2 border-line pl-4">
         {[detail?.stops[0], detail?.stops.at(-1)].map((stop, index) => <li key={index}>
@@ -326,6 +333,7 @@ export default function TripRouteReview({ trip, onChanged }: { trip: Trip; onCha
         {assessment?.unavailable_inputs.length ? <p className="text-xs text-muted">Unavailable: {factorLabels(assessment.unavailable_inputs)}</p> : null}
         {eligible ? <p className="text-xs text-muted" data-testid="evidence-coverage">Evidence coverage · {evidenceCoverage(eligible.risk)}</p> : null}
         {eligible ? <TerrainHazardSummary risk={eligible.risk} /> : null}
+        {route ? failure : null}
         {can('route:select') && editable ? (
           route.is_current ? <Button disabled>Route assigned</Button>
           : needsReview ? <Link to={`/review?trip=${trip.id}`} className={LINK_BUTTON}>Open review</Link>

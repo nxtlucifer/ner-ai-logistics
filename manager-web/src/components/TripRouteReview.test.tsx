@@ -14,7 +14,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { ApiError, api, type ReviewAuthorization, type Trip, type TripRoute, type RouteEligibility } from '../api/client'
+import { ApiError, NetworkError, api, type ReviewAuthorization, type Trip, type TripRoute, type RouteEligibility } from '../api/client'
 vi.mock('../auth/AuthProvider', () => ({ useAuth: () => ({ can: () => true }) }))
 vi.mock('./FleetMap', () => ({ default: () => <div>Map loaded</div> }))
 import TripRouteReview from './TripRouteReview'
@@ -30,7 +30,7 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 function assess(eligibility: RouteEligibility) {
-  vi.spyOn(api, 'routeRecommendation').mockResolvedValue({ recommended_route_id: null, baseline_route_id: 'road', comparable: false, reason_codes: [], tradeoff: null, unavailable_inputs: ['landslide'], margin_points: 0, version: 'test', candidates: [{ route_id: 'road', kind: 'PRIMARY', distance_km: 305.4, estimated_duration_min: 230, eligibility, risk: { score: 10, band: 'LOW', unavailable: ['landslide'], reason_codes: [] } }] })
+  return vi.spyOn(api, 'routeRecommendation').mockResolvedValue({ recommended_route_id: null, baseline_route_id: 'road', comparable: false, reason_codes: [], tradeoff: null, unavailable_inputs: ['landslide'], margin_points: 0, version: 'test', candidates: [{ route_id: 'road', kind: 'PRIMARY', distance_km: 305.4, estimated_duration_min: 230, eligibility, risk: { score: 10, band: 'LOW', unavailable: ['landslide'], reason_codes: [] } }] })
 }
 async function check(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await screen.findByRole('button', { name: 'Check conditions & review' }))
@@ -127,4 +127,21 @@ it('fetch failure offers retry instead of showing an empty map as success', asyn
   await screen.findByRole('alert')
   expect(screen.getByRole('button', { name: 'Try again' })).toBeDefined()
   expect(screen.queryByText('Map loaded')).toBeNull()
+})
+
+it('a conditions check that times out is shown beside the control, and Try again repeats the check', async () => {
+  const cause = new Error('signal timed out'); cause.name = 'TimeoutError'
+  const reco = assess('REQUIRES_REVIEW') // what the second attempt answers
+  reco.mockRejectedValueOnce(new NetworkError(cause)) // the first attempt outlasts the client
+  const user = userEvent.setup()
+  show()
+  await user.click(await screen.findByRole('button', { name: 'Check conditions & review' }))
+  const alert = await screen.findByRole('alert')
+  expect(alert.textContent).toMatch(/took too long/i)
+  expect(alert.closest('.bg-soft')).not.toBeNull() // inside the decision block, next to the control
+  expect(button('Use this route').disabled).toBe(true)
+  await user.click(screen.getByRole('button', { name: 'Try again' }))
+  await screen.findByRole('link', { name: 'Open review' })
+  expect(reco).toHaveBeenCalledTimes(2)
+  expect(api.getTrip).toHaveBeenCalledTimes(1) // retried as a check, not as a reload
 })

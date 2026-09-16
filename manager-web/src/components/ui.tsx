@@ -238,10 +238,12 @@ export function ErrorState({
   let detail = 'An unexpected error occurred.'
   let retryable = true
 
-  if (error instanceof NetworkError) {
+  if (error instanceof NetworkError && error.timedOut) {
+    title = 'The backend took too long'
+    detail = error.message + ' Try again in a moment.'
+  } else if (error instanceof NetworkError) {
     title = 'Cannot reach the backend'
-    detail =
-      'The API is not responding. Check that the backend is running on port 8000.'
+    detail = 'The API is not responding. Check the connection and that the backend is up.'
   } else if (error instanceof ApiError) {
     detail = error.message
     retryable = error.isRetryable

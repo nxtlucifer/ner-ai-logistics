@@ -211,6 +211,13 @@ describe('NetworkError', () => {
     expect(error).toBeInstanceOf(NetworkError)
     expect(error).not.toBeInstanceOf(ApiError)
     expect(error.message).toContain('connection refused')
+    expect(error.timedOut).toBe(false)
+  })
+  it('names a timeout as one, so the screen can say the backend is slow rather than absent', () => {
+    const cause = new Error('signal timed out'); cause.name = 'TimeoutError'
+    const error = new NetworkError(cause)
+    expect(error.timedOut).toBe(true)
+    expect(error.message).toMatch(/did not answer in time/i)
   })
 })
 
