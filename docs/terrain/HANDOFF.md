@@ -1738,3 +1738,79 @@ on the backend service, so every push (docs or manager-only) restarts the
 backend; requests during those minutes time out or close. Sign-ins from the
 automation and from a human share one manager session - each kicks the other.
 Manager 224 passed, typecheck/lint/build clean; backend and driver untouched.
+
+## 17. True-human browser + physical phone certification (16 Sep 2026, 12:45-16:05 UTC)
+
+One clean trip, TRP-56A4FF2D (Guwahati -> Shillong, 97.21 km, Bipul Das /
+AS06QQ1107), driven end to end: every manager action by real clicks and
+typing in a real Chromium on the hosted console (one session, driven step by
+step over `.runtime/rehearsal/bridge.mjs`; the Claude-in-Chrome extension was
+not connected), the driver side on the connected phone (CPH2691, APK 1.0.18),
+the moving leg on the hosted driver web with SIMULATED GPS. Evidence in
+`.runtime/evidence/final-cert/` (manager) and `.runtime/evidence/phone-cert-*`
+(phone; private, never published).
+
+**What passed, in order.** Fleet quick actions -> Assign truck (two
+disposable trucks created through the New truck form; Probe Driver assigned,
+same-pair / busy-truck blockers, "Change pairing" with two rapid clicks = one
+POST, cross-page consistency on Drivers / Trucks / planner, End assignment and
+Retire with their confirmations, then retired) -> planner invalid states
+(empty, cargo 0 / -5 / abc / over capacity, pickup typed-not-picked, edited
+after confirmation -> invalidated, destination = pickup blocked) -> one draft
+from a double click (one POST /trips/plan) -> Plan route 2.9 s -> conditions
+check cold 9.3 s (server 7.0 s) -> REQUIRES REVIEW, "Open review" -> Review
+page landed on the trip, manager told only a reviewer can accept -> reviewer
+authorised (POST 201) -> manager re-check warm 5.3 s -> "Use this route" live,
+two rapid clicks = one POST select 200 -> row Selected / Ready to dispatch,
+Dispatch enabled, reload keeps it -> Dispatch (one POST) -> phone showed the
+trip in <= 9 s -> Accept on the phone -> Start on the phone (manager ACTIVE in
+10 s) -> Trip tab: 1 Pickup NEXT, "Arrived at Pickup" first; Navigate: first
+manoeuvre from the pickup -> pickup completed on the phone (manager 1/2, next
+Delivery) -> SIMULATED GPS along the corridor (manager last position on the
+corridor) -> off the road at 22 km: driver web "Off the planned road · new
+road 76.6 km awaits manager", POST /me/trip/reroute 201 -> manager Route tab:
+backup REVIEW REQUIRED with "Open review" -> reviewer authorised the backup ->
+"Reroute onto this" (two rapid clicks = one POST /reroute/accept 200) -> backup
+CURRENT -> driver web on the new road ("1.4 km Turn right") -> phone: 76 km /
+60 min on relaunch -> delivery completed on the phone (manager DELIVERED in
+45 s including the taps) -> driver and truck AVAILABLE -> Close -> CLOSED.
+Keyboard-only path at 1366: skip link -> planner -> "Check conditions &
+review" (Enter) -> "Open review" (Enter) -> Review page -> "Check hazard
+evidence" (Space). Responsive 768-1920 on Fleet, Trips + review, Drivers,
+Trucks, Review, Diagnostics, profile drawer, assign dialog: overflow 0, hidden
+CTA 0, tall buttons 0, dialogs fit. Disabled buttons all carry a reason.
+Driver credentials on the manager console: "Manager account required", no
+shell, no session after reload. Reviewer nav Trips / Review / Diagnostics.
+
+**Fixed today (commits).** 829b17d `render.yaml` buildFilter - the API no
+longer restarts on manager-only or docs pushes (three restarts had cut
+responses short earlier in the day). 76bfb17 a 2xx whose body cannot be read
+is a NetworkError, not `null` data (the reviewer's Review page went blank on
+`null.filter` when a restart closed a response mid-body). 7b56554 a reroute
+planned from a position far outside the corridor is refused: the phone,
+still holding its real position when the trip started, asked for a road from
+another state and a self-consistent 2,451 km route was stored as the trip's
+EMERGENCY_BACKUP; the candidate is now judged against the road the trip is
+following (ratio 3 + 20 km) -> 422 ROUTE_VALIDATION_FAILED, verified live
+("2458 km against 77 km planned"). Backend 1172 passed / 5 skipped, manager
+225, driver 624, typecheck / build clean.
+
+**Open, recorded, not fixed (all P3/P4).** The manager has no sign of the
+driver's acceptance (row reads "Awaiting driver" until Start; `driver_accepted_at`
+is exposed only to the driver). The Fleet inspector does not pick up a
+driver's reroute proposal until the page is reloaded, and the on-the-road row
+carries no "action needed" for it. A trip older than the newest 50 cannot be
+reached or stopped from the console (the 55-hour simulation trip TRP-A7678F
+was closed out through the API; AS01AB1234 is AVAILABLE again). With the
+device's location off, the driver app still reads "GPS live · Location
+active" from a cached fix and uploads it; the manager saw it as LIVE - the
+phone's real position reached the trip track before the app was stopped for
+the simulated leg. Two sessions of one driver do not coexist: the driver web
+was signed out each time the phone app restored its session. The planner
+keeps the cargo weight after creating a draft while clearing the client (P4).
+The phone's guidance figures with a cached position are not evidence:
+NEW_ROUTE_GUIDANCE is HOSTED_WEB (simulated GPS), PHONE_NEW_ROUTE is
+PHYSICAL_PHONE (route summary changed on the phone).
+
+Judge reset + check: READY. Bridges stopped, lock released, phone location
+restored, phone on its Trip tab (Bipul Das, no active trip).
