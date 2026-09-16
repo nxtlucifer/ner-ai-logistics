@@ -195,7 +195,18 @@ class TripEventKind(_StrEnum):
     STOP_ARRIVED = "STOP_ARRIVED"
     STOP_COMPLETED = "STOP_COMPLETED"
     ROUTE_CHANGED = "ROUTE_CHANGED"
+    #: The truck meaningfully left the assigned corridor. Reported by the
+    #: phone, which is the only thing that can see it during an outage, and
+    #: replayed on reconnect. Added in 0013.
+    ROUTE_DEVIATION = "ROUTE_DEVIATION"
     DELAY_DETECTED = "DELAY_DETECTED"
+    #: A driver confirmed they have SEEN a critical or warning alert. The
+    #: manager can then tell "alert sent" from "driver acknowledged", which
+    #: `driver_notifications` alone cannot say. Added in 0013.
+    ALERT_ACKNOWLEDGED = "ALERT_ACKNOWLEDGED"
+    #: The driver pressed for help. Distinct from INCIDENT_OPENED, which is
+    #: what the system did about it. Added in 0013.
+    SOS_TRIGGERED = "SOS_TRIGGERED"
     COMMS_LOST = "COMMS_LOST"
     COMMS_RESTORED = "COMMS_RESTORED"
     BREAKDOWN_REPORTED = "BREAKDOWN_REPORTED"
@@ -204,6 +215,24 @@ class TripEventKind(_StrEnum):
     DELIVERED = "DELIVERED"
     CLOSED = "CLOSED"
     CANCELLED = "CANCELLED"
+
+
+#: The kinds a DEVICE may originate, and the only ones the replay endpoint
+#: accepts (`POST /api/driver/me/trip/events`).
+#:
+#: An allowlist rather than "any kind the enum has", because most of this enum
+#: describes what the SERVER did - DISPATCHED, DELIVERED and CLOSED are office
+#: facts, and a phone must never be able to write one. Declared beside the enum
+#: so that adding a kind forces a decision about whether a device may send it.
+DEVICE_ORIGINATED_EVENT_KINDS: frozenset[TripEventKind] = frozenset(
+    {
+        TripEventKind.ROUTE_DEVIATION,
+        TripEventKind.ALERT_ACKNOWLEDGED,
+        TripEventKind.SOS_TRIGGERED,
+        TripEventKind.COMMS_LOST,
+        TripEventKind.COMMS_RESTORED,
+    }
+)
 
 
 # --- Audit ----------------------------------------------------------------

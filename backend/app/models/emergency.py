@@ -41,8 +41,20 @@ class Emergency(Base):
         server_default=sa.text("now()"),
     )
 
-    stationary_since: Mapped[datetime] = mapped_column(
-        sa.DateTime(timezone=True), nullable=False
+    #: When the truck stopped, as Fleet Sentinel measured it.
+    #:
+    #: NULLABLE since 0013, and the nullability is the honest part: a
+    #: driver-pressed SOS is not a stationary observation. The truck may be
+    #: moving, and writing `now()` into this column would have told a manager
+    #: the truck stopped at a moment it did not. "Unavailable renders as
+    #: unavailable, never a plausible-looking placeholder" (AGENTS.md).
+    stationary_since: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=True,
+        comment=(
+            "When the truck stopped, as Fleet Sentinel measured it. NULL when "
+            "no stationary window was observed - a driver-pressed SOS."
+        ),
     )
 
     last_gps_point_id: Mapped[int | None] = mapped_column(
@@ -51,12 +63,28 @@ class Emergency(Base):
         nullable=True,
     )
 
-    check_sent_at: Mapped[datetime] = mapped_column(
-        sa.DateTime(timezone=True), nullable=False
+    #: When Fleet Sentinel asked the driver to check in. NULL since 0013 for a
+    #: driver-pressed SOS: no check was sent, and a timestamp here would say
+    #: one was.
+    check_sent_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=True,
+        comment=(
+            "When Sentinel asked the driver to check in. NULL when no check "
+            "was sent - a driver-pressed SOS."
+        ),
     )
 
-    response_deadline_at: Mapped[datetime] = mapped_column(
-        sa.DateTime(timezone=True), nullable=False
+    #: When an unanswered check-in escalates. NULL for the same reason: an
+    #: emergency the driver raised is already escalated and has no window to
+    #: wait out.
+    response_deadline_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=True,
+        comment=(
+            "When an unanswered check-in escalates. NULL when there is no "
+            "window to wait out - a driver-pressed SOS is already escalated."
+        ),
     )
 
     driver_response: Mapped[DriverCheckResponse | None] = mapped_column(

@@ -148,11 +148,23 @@ Two rules that carry most of the weight:
 
 The most sensitive data we hold. Specific commitments:
 
-- **Collected only during an ACTIVE trip.** Trip ends → collection stops. This is enforced
-  server-side: `POST /api/driver/me/location` resolves the trip from the authenticated driver and
-  refuses unless it is in progress, so an app bug, a tampered client or a background task the app
-  failed to stop cannot cause off-duty tracking. *(Implemented P5; the endpoint was planned as
-  `POST /api/gps/batch` — see [API_CONTRACTS.md](API_CONTRACTS.md) §8 for why the path changed.)*
+- **Collected only during a trip that is under way.** Trip ends → collection stops. This is
+  enforced server-side: `POST /api/driver/me/location` resolves the trip from the authenticated
+  driver and refuses unless its status is in `trip_state.COLLECTS_TELEMETRY`, so an app bug, a
+  tampered client or a background task the app failed to stop cannot cause off-duty tracking.
+  *(Implemented P5; the endpoint was planned as `POST /api/gps/batch` — see
+  [API_CONTRACTS.md](API_CONTRACTS.md) §8 for why the path changed.)*
+  - **The set is ACTIVE, DELAYED and INCIDENT**, and the third was a correction, not a widening.
+    Collection used to gate on "is the driver executing", which excludes INCIDENT — so the moment
+    Fleet Sentinel escalated a truck, or a driver answered a check-in with NEED_HELP, the server
+    began refusing that truck's fixes with a 409. The phone treats a 4xx as permanent and discards
+    the batch, so the positions were not merely unrecorded, they were destroyed, and the fleet map
+    showed the truck going quiet at exactly the moment it was in trouble. An incident is a
+    suspension of a journey, not the end of one.
+  - **The bound is still real.** DELIVERED and CLOSED stop collection. Two tests pin both halves:
+    an incident does not stop tracking, and delivery does.
+  - `POST /api/driver/me/trip/events` — the replay of what the phone saw while offline — is
+    governed by the same set, for the same reasons.
 - **The client never names its own subject.** `driver_id`, `truck_id`, `trip_id`-as-owner and
   `user_id` are absent from the ingestion contract entirely, and `extra="forbid"` makes an attempt
   to send one a 422 rather than a silently ignored field. Trip and driver come from the token.

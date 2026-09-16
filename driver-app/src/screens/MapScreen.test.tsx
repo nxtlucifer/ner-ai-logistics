@@ -14,6 +14,7 @@ const state = vi.hoisted(() => {
     geometry: { error: null as unknown, reload: vi.fn() },
     trip: { id: 'trip-a', trip_code: 'DEMO', selected_route_id: 'route-a', tracking: { fresh_seconds: 60 }, tracking_expected: true, status: 'ACTIVE', stops: [] } as Record<string, unknown> | null,
     browse: { permission: 'unknown', lastPosition: null as null | Record<string, unknown>, requestPermission: vi.fn() },
+    record: vi.fn(),
   }
 })
 vi.mock('react-native', async () => {
@@ -66,6 +67,15 @@ vi.mock('../places/usePlaces', () => ({ usePlaces: () => ({
 vi.mock('../trip/TripProvider', () => ({ useTrip: () => ({
   trip: state.trip,
   tracking: state.tracking, loadedAt: new Date(100_000),
+  events: {
+    record: state.record,
+    hasPending: () => false,
+    summary: {
+      queued: 0, accepted: 0, duplicatesIgnored: 0, rejected: 0,
+      dropped: 0, droppedCritical: 0, lastSyncAt: null, lastError: null,
+      persistence: 'durable' as const,
+    },
+  },
 }) }))
 vi.mock('../auth/AuthProvider', () => ({
   useAuth: () => ({ driver: { full_name: 'Test Driver' } }),
@@ -83,6 +93,7 @@ beforeEach(() => {
   state.geometry = { error: null, reload: vi.fn() }
   state.trip = { id: 'trip-a', trip_code: 'DEMO', selected_route_id: 'route-a', tracking: { fresh_seconds: 60 }, tracking_expected: true, status: 'ACTIVE', stops: [] }
   state.browse = { permission: 'unknown', lastPosition: null, requestPermission: vi.fn() }
+  state.record = vi.fn()
   host = document.createElement('div')
   root = createRoot(host)
 })
@@ -126,17 +137,28 @@ describe('map position truthfulness without new GPS samples', () => {
     }
     expect(host.textContent).not.toContain('Off route')
     expect(state.reroute).not.toHaveBeenCalled()
+    // Nothing is recorded for jitter either: two fixes are not a deviation.
+    expect(state.record).not.toHaveBeenCalled()
     // The third is believed: the request goes out once, and the state says so.
     state.tracking = { ...state.tracking, lastPosition: { lat: 26.5, lon: 92.5, accuracyM: 20, at: 103_000 } }
     state.clock = { ...state.clock, now: 103_000 }
     await render()
     expect(state.reroute).toHaveBeenCalledTimes(1)
     expect(state.reroute).toHaveBeenCalledWith(26.5, 92.5)
+    // And the deviation is recorded ONCE as an auditable event, with the
+    // position and the cross-track distance. It goes through the durable
+    // queue, so it survives the outage that often causes it.
+    const deviations = state.record.mock.calls.filter((call) => call[0] === 'ROUTE_DEVIATION')
+    expect(deviations).toHaveLength(1)
+    expect(deviations[0][1].location).toEqual({ lat: 26.5, lon: 92.5 })
+    expect(deviations[0][1].payload.off_route_m).toBeGreaterThan(200)
     expect(host.textContent).toContain('Rerouting')
     expect(host.textContent).toContain('awaits manager')
     state.clock = { ...state.clock, now: 104_000 }
     await render()
     expect(state.reroute).toHaveBeenCalledTimes(1)
+    // Still one deviation: an episode, not one per fix.
+    expect(state.record.mock.calls.filter((call) => call[0] === 'ROUTE_DEVIATION')).toHaveLength(1)
     // Nothing new for a minute: the fix goes stale and guidance says so.
     state.clock = { ...state.clock, now: 170_000 }
     await render()

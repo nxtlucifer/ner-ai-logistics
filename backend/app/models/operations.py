@@ -518,11 +518,50 @@ class TripEvent(Base):
         sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")
     )
 
+    #: Client-generated identity for an event the DEVICE originated, which is
+    #: what makes the phone's offline queue safely retryable: re-posting an
+    #: unacknowledged batch cannot open a second emergency or record a second
+    #: acknowledgement. NULL for the many events the server itself writes -
+    #: they have no device and need no replay key - so the unique index below
+    #: is partial. Added in 0013.
+    device_event_id: Mapped[uuid.UUID | None] = mapped_column(
+        postgresql.UUID(as_uuid=True),
+        nullable=True,
+        comment=(
+            "Client-generated identity for a device-originated event. The "
+            "replay key for the phone's offline queue; NULL for events the "
+            "server writes."
+        ),
+    )
+
+    #: When the DEVICE says it happened. Recorded, never trusted: `occurred_at`
+    #: stays the server clock, so a phone with a wrong clock cannot reorder a
+    #: safety timeline or backdate an acknowledgement. The gap between the two
+    #: is also how long the event sat in the offline queue. Added in 0013.
+    device_reported_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=True,
+        comment=(
+            "When the device says it happened. Recorded, never trusted - "
+            "occurred_at (server clock) remains the ordering key."
+        ),
+    )
+
     trip: Mapped[Trip] = relationship(back_populates="events", lazy="raise")
 
     __table_args__ = (
         sa.Index("ix_trip_events_trip_time", "trip_id", sa.text("occurred_at DESC")),
         sa.Index("ix_trip_events_kind", "kind"),
+        # Partial, because only device-originated events carry an identity to
+        # deduplicate on. This index IS the idempotency guarantee - not a
+        # SELECT-then-INSERT, which two concurrent replays both pass.
+        sa.Index(
+            "uq_trip_events_device_event",
+            "trip_id",
+            "device_event_id",
+            unique=True,
+            postgresql_where=sa.text("device_event_id IS NOT NULL"),
+        ),
         {
             "comment": (
                 "What happened on the road. audit_logs records who changed what."

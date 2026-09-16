@@ -421,3 +421,137 @@ class TestEveryComponentIsClassified:
             "exposure leaked into the conditions total, which would let a long "
             "dull trip raise a severe-weather alert"
         )
+
+
+class TestConnectivityFactor:
+    """Connectivity exposure as a MODERATE penalty, and the uncertainty charge.
+
+    The mission's rule is the one this class exists to pin: "lack of evidence
+    must not improve a route score". A corridor nobody has measured must not
+    beat one that was measured and found patchy - and neither of them may beat
+    a corridor that was measured and found good.
+    """
+
+    @staticmethod
+    def _profile(delays_by_fraction, *, line=None):
+        """A connectivity profile over a ~20 km line from upload delays."""
+        from app.domain import connectivity as c
+
+        samples = []
+        for fraction, delays in delays_by_fraction.items():
+            for i, delay in enumerate(delays):
+                samples.append(
+                    c.ConnectivitySample(
+                        fraction=fraction,
+                        upload_delay_s=delay,
+                        age_seconds=3600.0,
+                        trip=f"trip-{i % 2}",
+                        vehicle="truck-a",
+                    )
+                )
+        geometry = line or [
+            (26.2, 91.70), (26.2, 91.75), (26.2, 91.80), (26.2, 91.85), (26.2, 91.90)
+        ]
+        return c.estimate(geometry=geometry, samples=samples)
+
+    def _score(self, connectivity):
+        return assess(
+            distance_km=100,
+            duration_min=120,
+            observations=[obs(rain=0.0)],
+            connectivity=connectivity,
+        )
+
+    def test_absent_connectivity_changes_nothing(self) -> None:
+        """Every caller that predates this factor, and every cached package."""
+        from app.domain.route_risk import FACTOR_CONNECTIVITY
+
+        before = assess(distance_km=100, duration_min=120, observations=[obs(rain=0.0)])
+        assert before.inputs[FACTOR_CONNECTIVITY] == NOT_AVAILABLE
+        assert FACTOR_CONNECTIVITY in before.unavailable
+        assert before.connectivity is None
+        assert not any(c.code.startswith("CONNECTIVITY") for c in before.components)
+
+    def test_an_unmeasured_corridor_is_charged_for_being_unmeasured(self) -> None:
+        from app.domain.route_risk import (
+            FACTOR_CONNECTIVITY,
+            MAX_CONNECTIVITY_UNKNOWN_POINTS,
+        )
+
+        risk = self._score(self._profile({}))
+        assert risk.inputs[FACTOR_CONNECTIVITY] == NOT_AVAILABLE
+        assert "CONNECTIVITY_UNKNOWN" in risk.reason_codes
+        charge = next(c for c in risk.components if c.code == "CONNECTIVITY_UNMEASURED")
+        assert charge.points == MAX_CONNECTIVITY_UNKNOWN_POINTS
+        assert "Unknown is not coverage" in charge.detail
+
+    def test_a_measured_good_corridor_beats_an_unmeasured_one(self) -> None:
+        """The whole point of the uncertainty penalty, stated as a comparison."""
+        good = self._profile({0.1: [5.0] * 4, 0.35: [5.0] * 4, 0.6: [5.0] * 4, 0.85: [5.0] * 4})
+        assert good.status == "GOOD"
+        assert good.unknown_share == 0.0
+
+        measured = self._score(good)
+        unmeasured = self._score(self._profile({}))
+        assert measured.score < unmeasured.score
+        assert not any(c.code == "CONNECTIVITY_UNMEASURED" for c in measured.components)
+        assert not any(c.code == "CONNECTIVITY_EXPOSURE" for c in measured.components)
+
+    def test_weak_and_dead_kilometres_are_a_moderate_penalty(self) -> None:
+        from app.domain.route_risk import (
+            FACTOR_CONNECTIVITY,
+            MAX_CONNECTIVITY_POINTS,
+        )
+
+        patchy = self._profile({
+            0.1: [5.0] * 4,
+            0.35: [300.0] * 4,
+            0.6: [900.0] * 5,
+            0.85: [5.0] * 4,
+        })
+        assert [s.state for s in patchy.segments] == ["GOOD", "WEAK", "DEAD_ZONE", "GOOD"]
+
+        risk = self._score(patchy)
+        assert risk.inputs[FACTOR_CONNECTIVITY] == AVAILABLE
+        exposure = next(c for c in risk.components if c.code == "CONNECTIVITY_EXPOSURE")
+        assert 0 < exposure.points <= MAX_CONNECTIVITY_POINTS
+        # Moderate: it must never outweigh a confirmed hazard. HIGH landslide
+        # history alone is 15 points, and that is this factor's ceiling too.
+        assert exposure.points <= 15
+        assert "CONNECTIVITY_DEAD_ZONE_ON_ROUTE" in risk.reason_codes
+        assert "CONNECTIVITY_WEAK_ZONES_ON_ROUTE" in risk.reason_codes
+        # Fully measured, so nothing is charged for uncertainty.
+        assert not any(c.code == "CONNECTIVITY_UNMEASURED" for c in risk.components)
+
+    def test_a_dead_zone_costs_more_than_a_weak_zone_of_the_same_length(self) -> None:
+        weak = self._profile({0.1: [300.0] * 4, 0.35: [5.0] * 4, 0.6: [5.0] * 4, 0.85: [5.0] * 4})
+        dead = self._profile({0.1: [900.0] * 5, 0.35: [5.0] * 4, 0.6: [5.0] * 4, 0.85: [5.0] * 4})
+        assert weak.segments[0].state == "WEAK"
+        assert dead.segments[0].state == "DEAD_ZONE"
+        assert self._score(weak).score < self._score(dead).score
+
+    def test_a_patchy_measured_road_still_beats_a_wholly_unmeasured_one(self) -> None:
+        """Not knowing is not worse than knowing it is bad - it is cheaper.
+
+        The uncertainty penalty is deliberately small: it breaks the tie that
+        would otherwise favour an unexamined road, without pretending that
+        silence is evidence of danger.
+        """
+        patchy = self._profile({
+            0.1: [300.0] * 4, 0.35: [300.0] * 4, 0.6: [900.0] * 5, 0.85: [900.0] * 5
+        })
+        assert patchy.exposure_km == 20.0
+        assert self._score(self._profile({})).score < self._score(patchy).score
+
+    def test_half_measured_is_half_charged(self) -> None:
+        half = self._profile({0.1: [5.0] * 4, 0.35: [5.0] * 4})
+        assert 0.49 < half.unknown_share < 0.51
+        charge = next(
+            c for c in self._score(half).components if c.code == "CONNECTIVITY_UNMEASURED"
+        )
+        whole = next(
+            c
+            for c in self._score(self._profile({})).components
+            if c.code == "CONNECTIVITY_UNMEASURED"
+        )
+        assert charge.points < whole.points

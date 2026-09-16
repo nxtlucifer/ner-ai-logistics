@@ -29,6 +29,7 @@ function evidenceCoverage(risk: RouteRiskSummary): string {
     ['Terrain', !!risk.terrain?.usable],
     ['Warnings', !!risk.official_warnings && risk.official_warnings.level !== 'UNKNOWN'],
     ['Traffic', !!risk.traffic && risk.traffic.status !== 'UNKNOWN'],
+    ['Signal', !!risk.connectivity && risk.connectivity.status !== 'UNKNOWN'],
   ]
   return rows.map(([name, ok]) => `${name} ${ok ? 'AVAILABLE' : 'UNKNOWN'}`).join(' · ')
 }
@@ -39,7 +40,8 @@ function TerrainHazardSummary({ risk }: { risk: RouteRiskSummary }) {
   const flood = risk.flood ?? null
   const warnings = risk.official_warnings ?? null
   const traffic = risk.traffic ?? null
-  if (!terrain && !history && !flood && !warnings && !traffic) return null
+  const connectivity = risk.connectivity ?? null
+  if (!terrain && !history && !flood && !warnings && !traffic && !connectivity) return null
   const tone = (label: string) =>
     label === 'HIGH'
       ? 'bg-danger-soft text-danger'
@@ -163,6 +165,28 @@ function TerrainHazardSummary({ risk }: { risk: RouteRiskSummary }) {
             ? `${Math.round(traffic.coverage * 100)}% of the road graded from ${traffic.vehicle_count} RASTA truck${traffic.vehicle_count === 1 ? '' : 's'} (${traffic.sample_count} probes)${traffic.newest_age_seconds !== null ? `, updated ${Math.max(1, Math.round(traffic.newest_age_seconds / 60))} min ago` : ''}${traffic.delay_min > 0 ? ` · about ${Math.round(traffic.delay_min)} min slower than the planned pace` : ''}. Observed by our own fleet against the router's planned pace - not Google live traffic.`
             : `No RASTA truck has driven this road in the last 15 minutes${traffic && traffic.sample_count > 0 ? ` (${traffic.sample_count} probe${traffic.sample_count === 1 ? '' : 's'} from one truck - one vehicle is not traffic)` : ''}. Unknown, not clear.`}
         </p>
+      </div>
+      {/* MOBILE SIGNAL ALONG THE CORRIDOR - from this fleet's own phones, and
+          the one block where UNKNOWN is the most common honest answer. Never a
+          carrier coverage map: the evidence is how long each GPS fix waited in
+          the phone's offline queue before it could be uploaded. */}
+      <div className="rounded-[10px] border border-line bg-surface p-3 sm:col-span-2" data-testid="connectivity-summary">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.13em] text-muted">Mobile signal</span>
+          <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-bold ${connectivity?.status === 'DEAD_ZONE' ? 'bg-danger-soft text-danger' : connectivity?.status === 'WEAK' ? 'bg-warning-soft text-warning' : connectivity?.status === 'GOOD' ? 'bg-primary-soft text-primary' : connectivity?.status === 'UNSTABLE' ? 'bg-warning-soft text-warning' : 'bg-soft text-muted'}`}>
+            {connectivity && connectivity.status !== 'UNKNOWN' ? connectivity.status.replace('_', ' ') : 'UNKNOWN'}
+          </span>
+        </div>
+        <p className="mt-1.5 text-[12.5px] text-muted">
+          {connectivity && connectivity.status !== 'UNKNOWN'
+            ? `${Math.round(connectivity.coverage * 100)}% of the road measured from ${connectivity.trip_count} past trip${connectivity.trip_count === 1 ? '' : 's'} (${connectivity.sample_count} fixes)${connectivity.dead_km > 0 ? ` · ${connectivity.dead_km} km with no data path` : ''}${connectivity.weak_km > 0 ? ` · ${connectivity.weak_km} km weak` : ''}${connectivity.longest_gap_km > 0 ? ` · longest gap ${connectivity.longest_gap_km} km` : ''}${connectivity.unknown_km > 0 ? ` · ${connectivity.unknown_km} km never measured` : ''}. Measured from how long our own drivers' GPS fixes waited to upload - not a carrier coverage map.`
+            : `No RASTA phone has reported from this road in the last 30 days${connectivity && connectivity.sample_count > 0 ? ` (${connectivity.sample_count} fix${connectivity.sample_count === 1 ? '' : 'es'}, below the evidence floor)` : ''}. Signal is UNKNOWN, which is not coverage - the driver's trip kit is prepared as if there were none.`}
+        </p>
+        {connectivity?.segments?.some((segment) => segment.source === 'DEMO_SIMULATION') ? (
+          <p className="mt-1 text-[11.5px] font-semibold text-warning">
+            DEMO SIMULATION - some segments carry synthetic evidence, not a measurement.
+          </p>
+        ) : null}
       </div>
     </div>
   )

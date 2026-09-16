@@ -77,6 +77,15 @@ APPROVED_STOP_RADIUS_M: Final[float] = 300.0  # 300 metres
 #: How long without ANY GPS fix before comms are declared lost (NOT an SOS).
 COMMS_LOST_THRESHOLD_SECONDS: Final[int] = 3600  # 60 minutes
 
+#: Where the coordinate in an incident briefing came from.
+#:
+#: A dispatcher acting on a position needs to know whether it is where the
+#: phone said it was at the moment the driver pressed for help, or the last
+#: thing the server heard an hour earlier - those call for different searches.
+POSITION_FROM_DEVICE: Final[str] = "DEVICE_AT_SOS"
+POSITION_FROM_LAST_FIX: Final[str] = "LAST_RECEIVED_FIX"
+POSITION_UNKNOWN: Final[str] = "UNKNOWN"
+
 
 # --- Domain Data Structures ----------------------------------------------
 
@@ -312,20 +321,46 @@ def build_briefing_snapshot(
     cargo_weight_kg: Decimal | float | None,
     origin_name: str | None,
     destination_name: str | None,
-    last_lat: float,
-    last_lon: float,
-    last_fix_at: datetime,
-    stationary_since: datetime,
+    last_lat: float | None,
+    last_lon: float | None,
+    last_fix_at: datetime | None,
+    stationary_since: datetime | None,
     escalation_reason: str,
     now: datetime,
+    position_source: str = POSITION_FROM_LAST_FIX,
 ) -> dict[str, Any]:
     """Assemble frozen incident briefing snapshot for managers.
 
     Freezes all operational facts at the exact moment of escalation so later
     truck movements or changes do not rewrite the historical incident record.
+
+    A POSITION MAY BE ABSENT, AND THEN IT IS ABSENT
+
+    `last_lat`/`last_lon` are nullable, and the null travels into the snapshot
+    as null. They used to default to 0.0 when no fix could be found, which puts
+    a truck in the Gulf of Guinea and renders as a perfectly plausible
+    coordinate in a dispatcher's incident dossier - the exact failure the
+    mission brief names: never fabricate vehicle position. A rescue coordinated
+    from a fabricated coordinate is worse than one that begins by admitting the
+    position is unknown.
+
+    `position_source` says where the coordinate came from: the device's own
+    report at the moment the driver pressed SOS, the last fix the server
+    received, or nothing at all.
     """
-    age_seconds = max(0.0, (now - last_fix_at).total_seconds())
-    stopped_minutes = max(0.0, (now - stationary_since).total_seconds() / 60.0)
+    age_seconds = (
+        max(0.0, (now - last_fix_at).total_seconds())
+        if last_fix_at is not None
+        else None
+    )
+    # None when nothing stationary was observed - a driver-pressed SOS. The
+    # briefing then says so rather than reporting a truck that stopped "0.0
+    # minutes ago", which reads as a measurement and is not one.
+    stopped_minutes = (
+        max(0.0, (now - stationary_since).total_seconds() / 60.0)
+        if stationary_since is not None
+        else None
+    )
 
     suggested_actions = [
         f"1. Attempt voice contact with driver at {driver_phone or 'unlisted'}",
@@ -362,10 +397,19 @@ def build_briefing_snapshot(
         "location": {
             "lat": last_lat,
             "lon": last_lon,
-            "fix_recorded_at": last_fix_at.isoformat(),
-            "fix_age_seconds": round(age_seconds, 1),
-            "stopped_since": stationary_since.isoformat(),
-            "stopped_duration_minutes": round(stopped_minutes, 1),
+            #: DEVICE_AT_SOS / LAST_RECEIVED_FIX / UNKNOWN. A coordinate with no
+            #: provenance is a coordinate a dispatcher cannot weigh.
+            "source": position_source if last_lat is not None else POSITION_UNKNOWN,
+            "fix_recorded_at": (
+                last_fix_at.isoformat() if last_fix_at is not None else None
+            ),
+            "fix_age_seconds": round(age_seconds, 1) if age_seconds is not None else None,
+            "stopped_since": (
+                stationary_since.isoformat() if stationary_since is not None else None
+            ),
+            "stopped_duration_minutes": (
+                round(stopped_minutes, 1) if stopped_minutes is not None else None
+            ),
         },
         "suggested_actions": suggested_actions,
     }

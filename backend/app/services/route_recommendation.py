@@ -54,7 +54,10 @@ from app.models.operations import Trip, TripRoute
 from app.services import route_risk as route_risk_service
 from app.services import simulation
 from app.services import traffic as traffic_service
+from app.services import connectivity as connectivity_service
 from app.domain.traffic import TrafficSample, estimate as traffic_estimate
+from app.domain.connectivity import ConnectivitySample
+from app.domain.connectivity import estimate as connectivity_estimate
 from app.services.route_risk import ROUTE_SAMPLES
 
 #: States in which a route is still something the trip could actually take.
@@ -120,6 +123,7 @@ async def _live_route_facts(
 async def _risk_for(
     route_id: uuid.UUID, wkt: str, distance_km: Decimal | None, duration_min: int | None,
     probes: list[TrafficSample] | None = None,
+    delays: list[ConnectivitySample] | None = None,
 ) -> RouteRisk:
     """Score one route from geometry already read out of the database.
 
@@ -154,6 +158,7 @@ async def _risk_for(
         flood=flood,
         warnings=warnings,
         traffic=traffic_estimate(geometry=geometry, samples=probes or [], distance_km=distance, duration_min=duration),
+        connectivity=connectivity_estimate(geometry=geometry, samples=delays or []),
     ))
 
 
@@ -175,6 +180,7 @@ async def candidates_for_trip(
     facts = await _live_route_facts(db, trip_id)
     # Fleet probes per route, while the session is still held.
     probes = {route_id: await traffic_service.samples_for(db, route_id) for route_id, *_ in facts}
+    delays = {route_id: await connectivity_service.samples_for(db, route_id) for route_id, *_ in facts}
 
     # Release the connection BEFORE the provider fan-out. See module docstring.
     await db.commit()
@@ -185,7 +191,7 @@ async def candidates_for_trip(
     # Concurrent across routes as well as within one: two serial assessments
     # would stack their timeouts, and the routes are independent.
     risks = await asyncio.gather(
-        *(_risk_for(route_id, wkt, distance, duration, probes.get(route_id)) for route_id, _, wkt, distance, duration in facts)
+        *(_risk_for(route_id, wkt, distance, duration, probes.get(route_id), delays.get(route_id)) for route_id, _, wkt, distance, duration in facts)
     )
 
     return [

@@ -172,6 +172,61 @@ class TestLocationAuthorization:
 # --- Coordinate safety ----------------------------------------------------
 
 
+class TestTrackingSurvivesAnIncident:
+    """A truck in trouble is the one a dispatcher most needs to see.
+
+    Collection used to gate on "is the driver executing" - ACTIVE or DELAYED -
+    so the instant Fleet Sentinel escalated a truck to INCIDENT, or a driver
+    answered a check-in with NEED_HELP, the server began refusing that truck's
+    fixes with a 409. The phone treats a 4xx as permanent and discards the
+    batch, so the positions were not merely unrecorded, they were destroyed,
+    and the fleet map showed the truck going quiet at exactly the wrong moment.
+    """
+
+    async def test_an_incident_does_not_stop_the_truck_being_tracked(
+        self, api: AsyncClient, session: AsyncSession
+    ) -> None:
+        from app.models.enums import TripStatus
+        from app.services import trips as trip_service
+
+        _driver, _user, _truck, trip, headers = await _driving(session, api)
+        # The API started the trip in its own session; this one still holds the
+        # ASSIGNED copy.
+        await session.refresh(trip)
+
+        trip_service.transition(trip, TripStatus.INCIDENT)
+        await session.commit()
+
+        response = await api.post(
+            "/api/driver/me/location", headers=headers, json={"fixes": [fix()]}
+        )
+        assert response.status_code == 202, response.text
+        assert response.json()["accepted"] == 1
+
+    async def test_a_delivered_trip_stops_collection(
+        self, api: AsyncClient, session: AsyncSession
+    ) -> None:
+        """The bound is still real: the journey is over, so tracking stops.
+
+        docs/SECURITY.md section 3 - collection happens during a trip and not
+        outside one. An incident is a suspension of a journey; delivery is the
+        end of it.
+        """
+        from app.models.enums import TripStatus
+        from app.services import trips as trip_service
+
+        _driver, _user, _truck, trip, headers = await _driving(session, api)
+        await session.refresh(trip)
+
+        trip_service.transition(trip, TripStatus.DELIVERED)
+        await session.commit()
+
+        response = await api.post(
+            "/api/driver/me/location", headers=headers, json={"fixes": [fix()]}
+        )
+        assert response.status_code in (404, 409), response.text
+
+
 class TestCoordinateSafety:
     async def test_valid_fix_is_accepted(
         self, api: AsyncClient, session: AsyncSession

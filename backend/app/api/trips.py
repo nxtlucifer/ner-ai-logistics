@@ -546,6 +546,52 @@ class TrafficRead(ReadModel):
     segments: list[TrafficSegmentRead]
 
 
+class ConnectivitySegmentRead(ReadModel):
+    start_m: float
+    end_m: float
+    #: GOOD / UNSTABLE / WEAK / DEAD_ZONE / UNKNOWN
+    state: str
+    sample_count: int
+    trip_count: int
+    queued_share: float | None
+    median_delay_s: float | None
+    newest_age_seconds: float | None
+    #: How much independent evidence stands behind this state: LOW / MEDIUM /
+    #: HIGH / SIMULATED. Journeys counted, never a probability.
+    evidence: str
+    #: The fleet, or DEMO_SIMULATION. Provenance travels with every segment.
+    source: str
+
+
+class ConnectivityRead(ReadModel):
+    """RASTA FLEET CONNECTIVITY - where this fleet's phones lost their data
+    path, from the upload delay of the fixes they already send. Never a
+    carrier map.
+
+    `status` is the worst KNOWN segment; UNKNOWN when no segment meets the
+    evidence floor (app/domain/connectivity.py). `coverage` is the share of
+    the route with a known state, so "GOOD over 25% of the road" reads as
+    exactly that. `longest_gap_km` is the figure a driver needs before a
+    valley: how long the phone will be without a path.
+    """
+
+    status: str
+    coverage: float
+    unknown_share: float
+    weak_km: float
+    dead_km: float
+    unknown_km: float
+    longest_gap_km: float
+    sample_count: int
+    trip_count: int
+    newest_age_seconds: float | None
+    updated_at: datetime
+    provider: str
+    version: str
+    reason_codes: list[str]
+    segments: list[ConnectivitySegmentRead]
+
+
 class RouteRiskRead(ReadModel):
     """A route's risk, with its evidence AND its gaps.
 
@@ -581,6 +627,9 @@ class RouteRiskRead(ReadModel):
     official_warnings: OfficialWarningsRead | None = None
     #: Fleet traffic estimate. Absent on older packages; UNKNOWN when unproven.
     traffic: TrafficRead | None = None
+    #: Fleet connectivity per segment. Absent on older packages; UNKNOWN stays
+    #: UNKNOWN and never reads as coverage.
+    connectivity: ConnectivityRead | None = None
     #: CONTINUE / CAUTION / HOLD_AND_REVIEW / REROUTE_RECOMMENDED - the driver's
     #: instruction, derived from `band` and the reroute assessment by
     #: `app/domain/reroute.driver_decision`. Optional for cached packages.
@@ -1055,6 +1104,36 @@ def risk_read(risk, reroute=None, alternative=None) -> RouteRiskRead:
                 ],
             )
             if risk.traffic is not None
+            else None
+        ),
+        connectivity=(
+            ConnectivityRead(
+                status=risk.connectivity.status,
+                coverage=risk.connectivity.coverage,
+                unknown_share=risk.connectivity.unknown_share,
+                weak_km=risk.connectivity.weak_km,
+                dead_km=risk.connectivity.dead_km,
+                unknown_km=risk.connectivity.unknown_km,
+                longest_gap_km=risk.connectivity.longest_gap_km,
+                sample_count=risk.connectivity.sample_count,
+                trip_count=risk.connectivity.trip_count,
+                newest_age_seconds=risk.connectivity.newest_age_seconds,
+                updated_at=risk.connectivity.updated_at,
+                provider=risk.connectivity.provider,
+                version=risk.connectivity.version,
+                reason_codes=list(risk.connectivity.reason_codes),
+                segments=[
+                    ConnectivitySegmentRead(
+                        start_m=seg.start_m, end_m=seg.end_m, state=seg.state,
+                        sample_count=seg.sample_count, trip_count=seg.trip_count,
+                        queued_share=seg.queued_share, median_delay_s=seg.median_delay_s,
+                        newest_age_seconds=seg.newest_age_seconds,
+                        evidence=seg.evidence, source=seg.source,
+                    )
+                    for seg in risk.connectivity.segments
+                ],
+            )
+            if risk.connectivity is not None
             else None
         ),
         decision=driver_decision(

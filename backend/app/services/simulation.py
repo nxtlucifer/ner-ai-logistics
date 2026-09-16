@@ -25,6 +25,7 @@ from dataclasses import dataclass, replace
 from typing import Final
 
 from app.core.config import get_settings
+from app.domain.connectivity import simulate_dead_zone
 from app.domain.route_risk import RiskComponent, RouteRisk, _band
 
 REASON_DEMO_SIMULATION_ACTIVE: Final = "DEMO_SIMULATION_ACTIVE"
@@ -38,6 +39,12 @@ SCENARIOS: Final[dict[str, tuple[tuple[str, ...], int]]] = {
     #: One provider gone: weather becomes NOT_AVAILABLE and stays UNKNOWN - the
     #: score must not read as safer because a source went quiet.
     "PROVIDER_FAILURE": (("WEATHER_UNAVAILABLE",), 0),
+    #: The middle stretch of the selected road loses its data path. The
+    #: connectivity segments are relabelled DEAD_ZONE with source
+    #: DEMO_SIMULATION (app/domain/connectivity.simulate_dead_zone), so the
+    #: driver's prefetch, the route-ahead push and the manager's map all
+    #: exercise the real outage path against evidence that says it is fake.
+    "NO_SIGNAL_ZONE_AHEAD": (("CONNECTIVITY_DEAD_ZONE_ON_ROUTE",), 15),
 }
 MAX_MINUTES: Final = 180
 
@@ -101,6 +108,11 @@ def apply(route_id: uuid.UUID, risk: RouteRisk, now: float | None = None) -> Rou
     if sc.name == "PROVIDER_FAILURE":
         out = replace(out, inputs={**risk.inputs, "weather": "NOT_AVAILABLE"},
                       unavailable=tuple(dict.fromkeys((*risk.unavailable, "weather"))), observations_used=0, observations_stale=0)
+    if sc.name == "NO_SIGNAL_ZONE_AHEAD" and risk.connectivity is not None:
+        simulated = simulate_dead_zone(risk.connectivity)
+        out = replace(out, connectivity=simulated,
+                      inputs={**out.inputs, "connectivity": "AVAILABLE"},
+                      unavailable=tuple(u for u in out.unavailable if u != "connectivity"))
     return out
 
 

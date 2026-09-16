@@ -903,6 +903,53 @@ export interface RouteRisk {
   } | null
 }
 
+/**
+ * One block of the trip kit and how far it can be trusted.
+ *
+ * The manifest exists because one badge on the whole package cannot say "the
+ * route is fine, the weather is four hours old and nobody has ever measured
+ * the signal on this road" - which is exactly what a driver in a valley needs
+ * to know. Ageing it needs no network: `captured_at` plus `valid_for_seconds`
+ * against the device clock is the whole computation.
+ *
+ * `state` is the server's reading at capture time. The device recomputes it
+ * as the package ages - see `datasetFreshness` in src/offline/packageStore.ts.
+ */
+export interface OfflineDataset {
+  name: string
+  /** AVAILABLE | STALE | NOT_AVAILABLE | BUNDLED_IN_APP */
+  state: string
+  captured_at: string | null
+  valid_for_seconds: number | null
+  source: string | null
+  /** Why it is absent, when it is. Never a silent gap. */
+  detail: string | null
+}
+
+/** One roadside service carried into the dead zone. */
+export interface OfflinePlace {
+  provider_id: string
+  category: string
+  name: string | null
+  lat: number
+  lon: number
+  phone: string | null
+  /** Straight-line metres from the corridor. NEVER a driving distance. */
+  straight_line_m: number | null
+}
+
+/** A turn instruction carried offline. Same numbers as NavigationManeuver. */
+export interface OfflineManeuver {
+  type: string
+  modifier: string | null
+  lat: number
+  lon: number
+  geometry_index: number
+  distance_from_start_m: number
+  step_distance_m: number
+  name: string | null
+}
+
 export interface OfflinePackage {
   trip_id: string
   trip_code: string
@@ -912,6 +959,10 @@ export interface OfflinePackage {
   stops: OfflineStop[]
   risk: OfflineRisk | null
   risk_captured_at: string | null
+  /** Absent on a v1 package cached by an older build. */
+  maneuvers?: OfflineManeuver[]
+  places?: OfflinePlace[]
+  datasets?: OfflineDataset[]
   basemap: string
   reason_codes: string[]
   package_hash: string
@@ -996,6 +1047,35 @@ export interface GpsBatchAccepted {
   rejected: number
   rejected_reasons: Record<string, number>
   anomalies: string[]
+  server_time: string
+}
+
+/**
+ * What the phone saw, replayed. The other half of surviving an outage.
+ *
+ * Shape-identical to the queue's own `DeviceEvent` (src/events/eventQueue.ts),
+ * which is the point: the queue holds exactly what the wire takes, so nothing
+ * has to be transformed on the way out of a device that may be flushing two
+ * hours of backlog.
+ */
+export interface DeviceEventOut {
+  device_event_id: string
+  kind: string
+  recorded_at: string
+  sequence?: number
+  location?: { lat: number; lon: number } | null
+  accuracy_m?: string | null
+  payload?: Record<string, string | number | boolean | null> | null
+}
+
+export interface DeviceEventBatchAccepted {
+  trip_id: string
+  accepted: number
+  duplicates_ignored: number
+  rejected: number
+  rejected_reasons: Record<string, number>
+  /** Exactly what the device may now delete. Anything else is retried. */
+  settled_event_ids: string[]
   server_time: string
 }
 
@@ -1250,6 +1330,20 @@ const restApi = {
       method: 'POST',
       body: { trip_id: tripId, fixes },
       timeoutMs: 10_000,
+    }),
+
+  /**
+   * Replay what the phone recorded, including while it had no network.
+   *
+   * Same timeout reasoning as `sendLocation`: this runs on a background
+   * cadence and a long hang would stall the backlog behind it. Safe to send
+   * twice - the server deduplicates on `device_event_id`.
+   */
+  sendTripEvents: (tripId: string, events: DeviceEventOut[]) =>
+    request<DeviceEventBatchAccepted>('/api/driver/me/trip/events', {
+      method: 'POST',
+      body: { trip_id: tripId, events },
+      timeoutMs: 15_000,
     }),
 
   /**

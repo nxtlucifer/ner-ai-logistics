@@ -296,6 +296,44 @@ Two distinctions that matter:
 
 ---
 
+## 7a. Connectivity and offline resilience *(added by the resilience mission)*
+
+One chain, end to end, and every link is deterministic:
+
+```
+manager plans  ->  route is scored, connectivity included  ->  driver gets a
+versioned trip kit before the weak stretch  ->  signal goes  ->  guidance runs
+from the kit; positions and events queue durably on the phone  ->  signal
+returns  ->  replay is idempotent  ->  manager reads an auditable history
+```
+
+**`app/domain/connectivity.py`** grades the corridor in 5 km segments from the
+fleet's own upload delay — the gap between a fix's device clock and its server
+clock, which is exactly how long it sat in the phone's offline queue. Not a
+carrier map, and never treated as one: UNKNOWN is the default, UNKNOWN is not
+GOOD, and silence produces no dead zone because a phone that is switched off
+produces no fixes. It is read by `route_risk.assess_route`,
+`route_recommendation` and the route-ahead worker — all three, because a second
+scoring path is where a new factor gets missed (the LS-7 lesson).
+
+**`app/services/offline_package.py`** assembles the trip kit: corridor, stops,
+turn instructions, roadside places, the risk snapshot with its connectivity
+segments, and a per-dataset freshness manifest. The manifest ages twice — once
+here against the server clock, once on the device against the device clock,
+which is the only one a phone in a valley has.
+
+**`app/services/device_events.py`** takes the phone's replay. Idempotent on a
+partial unique index, ordered by the device clock but never positioned by it,
+and one poison event cannot block the queue behind it because each event applies
+inside its own SAVEPOINT.
+
+On the device: `src/events/eventQueue.ts` (bounded, durable, priority-ordered
+so chatter cannot push out an SOS), `src/offline/prefetch.ts` (lead distance
+from speed, kit size, measured connection and predicted outage — not a fixed
+threshold) and `src/net/runtimeState.ts` (link, position and data as three
+separate axes, because "no signal, good GPS, cached weather" is a real state a
+single enum cannot express).
+
 ## 8. Deterministic / AI Boundary
 
 | Concern | Owner | Rationale |

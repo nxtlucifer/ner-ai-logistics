@@ -54,6 +54,17 @@ export interface RouteGeometry {
   source: GeometrySource
   /** When the server built this package. Null when nothing has loaded. */
   capturedAt: string | null
+  /**
+   * The whole package behind the geometry, live or cached.
+   *
+   * Exposed so the offline trip kit - the per-dataset freshness manifest, the
+   * connectivity segments, the turn instructions and the roadside places -
+   * reads the SAME package the map is drawn from. A second fetcher would mean
+   * a map and a readiness card that could disagree about which corridor is
+   * cached, which is the one thing a driver about to lose signal must be able
+   * to trust.
+   */
+  packageData: OfflinePackage | null
   isLoading: boolean
   /** Set when the fetch failed AND no usable cache stood in for it. */
   error: unknown
@@ -72,6 +83,7 @@ const EMPTY: Omit<RouteGeometry, 'reload'> = {
   distanceKm: null,
   source: 'NONE',
   capturedAt: null,
+  packageData: null,
   isLoading: false,
   error: null,
 }
@@ -121,6 +133,7 @@ export function useRouteGeometry(
         distanceKm: packageData.selected_route?.distance_km ?? null,
         source,
         capturedAt: packageData.captured_at,
+        packageData,
         isLoading: false,
         error: null,
       })

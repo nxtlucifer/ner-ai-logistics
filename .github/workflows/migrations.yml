@@ -49,11 +49,17 @@ jobs:
         env:
           POSTGRES_USER: ner
           POSTGRES_PASSWORD: ci-throwaway-not-a-secret
-          POSTGRES_DB: ner_logistics
+          # The database name and the port below are not free choices. They are
+          # the exact target tests/db_target.py permits, and the suite refuses
+          # every other one before a socket is opened. See the note on
+          # LOCAL_DATABASE_URL.
+          POSTGRES_DB: ner_logistics_test
         ports:
-          - 5432:5432
+          # 55432 on the runner, 5432 inside the container. The runner-side port
+          # is the one the guard checks.
+          - 55432:5432
         options: >-
-          --health-cmd "pg_isready -U ner -d ner_logistics"
+          --health-cmd "pg_isready -U ner -d ner_logistics_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -65,7 +71,22 @@ jobs:
       # would be the mistake.
       SECRET_KEY: ci-only-signing-key-not-used-outside-this-job
       DATABASE_PROVIDER: local
-      LOCAL_DATABASE_URL: postgresql+psycopg://ner:ci-throwaway-not-a-secret@localhost:5432/ner_logistics
+      # EXACTLY the target tests/db_target.py allows, and that is why this job
+      # could not run before.
+      #
+      # `db_target` vetoes every connection whose scheme, host, port and
+      # database are not 127.0.0.1:55432/ner_logistics_test - deliberately, and
+      # with no environment-variable override, because the failure it guards
+      # against is somebody not setting an environment variable correctly. This
+      # workflow was written against the older, looser rule and pointed at
+      # `localhost:5432/ner_logistics`, so every run since that guard landed
+      # exited 3 during collection with "REFUSING TO RUN" and no test executed.
+      # Fourteen runs, all red, on main and on every branch.
+      #
+      # `localhost` would fail on the host alone: the guard compares the string,
+      # and "any local address" is not good enough for it - an SSH tunnel
+      # forwarding a remote port to localhost presents exactly the same way.
+      LOCAL_DATABASE_URL: postgresql+psycopg://ner:ci-throwaway-not-a-secret@127.0.0.1:55432/ner_logistics_test
       RUN_DESTRUCTIVE_MIGRATION_TESTS: "1"
 
     steps:

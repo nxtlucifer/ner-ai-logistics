@@ -351,10 +351,10 @@ LANDSLIDE_RISK / STORM) · `severity` · `rainfall_mm` · `valid_from` · `valid
 | `trip_id` | FK |
 | `state` | `emergency_state` |
 | `triggered_at` | When the stationary condition was confirmed |
-| `stationary_since` | Start of the stationary window |
+| `stationary_since` | Start of the stationary window. **NULL since 0013** when none was measured |
 | `last_gps_point_id` | BIGINT FK→`gps_points` |
-| `check_sent_at` | |
-| `response_deadline_at` | `check_sent_at + 30 min`, stored not computed |
+| `check_sent_at` | **NULL since 0013** when no check was sent |
+| `response_deadline_at` | `check_sent_at + 30 min`, stored not computed. **NULL since 0013** when there is no window to wait out |
 | `driver_response` | `driver_check_response` NULL |
 | `responded_at` | NULL |
 | `escalated_at` | NULL |
@@ -372,6 +372,18 @@ LANDSLIDE_RISK / STORM) · `severity` · `rainfall_mm` · `valid_from` · `valid
   cannot spam a driver.
 - `response_deadline_at` is **stored, not derived**, so the 30-minute window is unaffected by a
   later configuration change.
+- **Three columns became nullable in 0013, and the nullability is the honest part.** Every
+  emergency until then came from Fleet Sentinel, which had all three. A driver who presses SOS
+  has none of them: the truck may be moving, no check was sent, and the emergency is already
+  escalated. Writing `now()` into them would have told a dispatcher the truck stopped, and was
+  asked, at a moment when neither happened — a plausible-looking placeholder, which this project
+  does not ship.
+- **`briefing_snapshot.location` may report no position at all.** It used to default to
+  `0.0, 0.0` whenever no fix could be found, which puts a truck in the Gulf of Guinea and renders
+  as a perfectly plausible coordinate in an incident dossier. `lat`/`lon` are now nullable and
+  carry a `source`: `DEVICE_AT_SOS` (what the phone said when the driver pressed),
+  `LAST_RECEIVED_FIX`, or `UNKNOWN`. The device's own report wins, because it is newer by
+  definition and is the only position that exists after an hour in a valley.
 - `briefing_snapshot` freezes the full manager briefing at escalation time. The truck may move and
   the weather may change afterwards; the incident record must show what was true when it fired.
 
@@ -438,6 +450,18 @@ Two entities were added beyond the original design in this document:
   *commercial* pickup and destination; `trip_stops` carries the *operational* sequence, which may
   include rest, fuel and checkpoint stops. This is what Fleet Sentinel will later treat as an
   approved stationary location.
+- **`trip_events`** — since 0013 also carries `device_event_id` (UUID NULL) and
+  `device_reported_at` (TIMESTAMPTZ NULL), with a **partial** unique index
+  `uq_trip_events_device_event (trip_id, device_event_id) WHERE device_event_id IS NOT NULL`.
+  That index is the idempotency guarantee for the phone's offline replay: ingest uses
+  `INSERT ... ON CONFLICT DO NOTHING` against it and binds every side effect to a row actually
+  having been inserted, so a re-sent SOS cannot open a second emergency. Partial because the
+  server writes most of this table itself and those rows have no device to deduplicate on — a
+  NOT NULL column would have meant inventing an identity for them, and a full unique index would
+  have allowed exactly one NULL per trip. `occurred_at` remains the server clock and the ordering
+  key; `device_reported_at` is recorded and never trusted, and the gap between the two is how
+  long the event sat in the offline queue. New kinds: `ROUTE_DEVIATION`, `ALERT_ACKNOWLEDGED`,
+  `SOS_TRIGGERED`.
 - **`trip_events`** — the append-only operational timeline (what happened on the road), distinct
   from `audit_logs` (who changed which record, for compliance).
 
