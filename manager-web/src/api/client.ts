@@ -281,10 +281,19 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   if (response.status === 204) return undefined as T
 
   let payload: unknown = null
+  let unreadable: unknown = null
   try {
     payload = await response.json()
-  } catch {
+  } catch (cause) {
     payload = null
+    unreadable = cause
+  }
+
+  // A success whose body could not be read (a restart closed the connection
+  // after the headers) is a failed request, not `null` data: the Review page
+  // once received `null` routes this way and rendered a blank screen.
+  if (response.ok && unreadable !== null) {
+    throw new NetworkError(new Error('the answer was cut short'))
   }
 
   if (!response.ok) {

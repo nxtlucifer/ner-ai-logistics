@@ -205,6 +205,20 @@ describe('ApiError', () => {
   })
 })
 
+describe('a 2xx whose body cannot be read', () => {
+  it('is an error, never null data - a screen that maps over it must not crash', async () => {
+    // Seen on the hosted console: a backend restart closed the connection
+    // mid-body; the 200 headers had arrived, the JSON never did. The Review
+    // page then rendered `null.filter(...)` and went blank.
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true, status: 200, headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => { throw new SyntaxError('Unexpected end of JSON input') }, text: async () => '',
+    }) as unknown as typeof fetch
+    setAccessToken('t')
+    await expect(api.listRoutes('trip-1')).rejects.toBeInstanceOf(NetworkError)
+  })
+})
+
 describe('NetworkError', () => {
   it('is distinguishable from an HTTP failure', () => {
     const error = new NetworkError(new Error('connection refused'))
