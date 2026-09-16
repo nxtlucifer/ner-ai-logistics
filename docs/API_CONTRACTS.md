@@ -263,7 +263,17 @@ illegal move is `409 ILLEGAL_TRIP_TRANSITION`, never a silent write.
 | `ASSIGNED` | `ACTIVE` | **driver (own)** | assignment open **and verified**, truck operational | `started_at`; driver and truck → `ON_TRIP` | `STARTED` |
 | `ACTIVE`/`DELAYED` | `DELIVERED` | **driver (own)** | every stop `COMPLETED` or `SKIPPED` | `delivered_at` (server clock); driver and truck released | `DELIVERED` |
 | `DELIVERED` | `CLOSED` | manager | — | `closed_at` | `CLOSED` |
-| `DRAFT`/`ASSIGNED`/`ACTIVE`/`DELAYED` | `CANCELLED` | manager | — | driver and truck released | `CANCELLED` |
+| `DRAFT`/`ASSIGNED`/`ACTIVE`/`DELAYED` | `CANCELLED` | manager | **before pickup**: none. **After pickup** (pickup stop `COMPLETED`): `reason` ≥ 10 chars **and** `disposition = CARGO_UNLOADED`; else `422 CANCEL_REASON_REQUIRED` / `422 POST_PICKUP_RESOLUTION_REQUIRED` | driver and truck released; driver notified (`TRIP_CANCELLED`) | `CANCELLED` (payload: reason, disposition) |
+| `ACTIVE`/`INCIDENT` | `DELAYED` | manager, via `/cancel` with `disposition = HOLD_FOR_INSTRUCTION` | reason ≥ 10 chars, cargo on board | driver notified (`HOLD_AND_REVIEW`); instruction awaits driver ack | `DELAY_DETECTED` (payload: instruction, reason, requires_ack) |
+| `ACTIVE`/`DELAYED` | *(unchanged)* | manager, via `/cancel` with `RETURN_TO_DEPOT` or `NEW_DESTINATION` | reason ≥ 10 chars; NEW_DESTINATION needs a confirmed in-region point (`422 LOCATION_CONFIRMATION_REQUIRED` / `422 OUTSIDE_SERVICE_REGION`) | pending drop-off → `SKIPPED`, new `DROPOFF` stop appended (old rows kept); current route untouched; candidates planned for the new destination; driver notified (`CRITICAL_ROUTE_CHANGE`) | `ROUTE_CHANGED` (payload: instruction, reason, previous/new destination, previous_route_id, requires_ack) |
+| `ACTIVE`/`DELAYED` | *(unchanged)* | manager, via `/cancel` with `COMPLETE_CURRENT_LEG` | reason ≥ 10 chars | audit row only | — |
+
+A loaded truck is never left guessing: every post-pickup outcome above is an
+instruction the driver acknowledges (`POST /api/driver/me/trip/instruction/ack`,
+idempotent, an `ACCEPTED` event whose payload names the instruction event), and
+`GET /api/driver/me/trip` / `GET /api/trips/{id}` carry `pending_instruction`
+until it is. What the driver was told stays readable at
+`GET /api/driver/me/notices` after the trip has left the screen.
 
 `COMPLETED → IN_PROGRESS` and every other resurrection is absent from the table
 and therefore prohibited. `DELAYED`, `INCIDENT`, `VERIFICATION_PENDING` and

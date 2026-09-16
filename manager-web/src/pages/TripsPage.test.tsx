@@ -58,6 +58,19 @@ function trip(overrides: Partial<Trip> = {}): Trip {
   }
 }
 
+/** The detail the stop dialog reads: the pickup's status decides what is required. */
+function detail(pickupStatus: 'PENDING' | 'COMPLETED') {
+  const stop = (sequence: number, kind: string, status: string) => ({
+    id: `s${sequence}`, sequence, kind, status: status as 'PENDING' | 'COMPLETED', name: kind, address: `${kind} address`,
+    planned_arrival_at: null, actual_arrival_at: null, actual_departure_at: status === 'COMPLETED' ? new Date().toISOString() : null,
+  })
+  return {
+    ...trip(),
+    stops: [stop(0, 'PICKUP', pickupStatus), stop(1, 'DROPOFF', 'PENDING')],
+    shipment: { id: 'sh1', reference_code: 'SHP-1', client_name: 'Client', total_weight_kg: '1000.00', priority: 'NORMAL' as const },
+  }
+}
+
 function conflict(message: string) {
   return new ApiError(
     409,
@@ -96,10 +109,15 @@ describe('TripsPage', () => {
       conflict('Illegal trip transition ACTIVE -> CANCELLED.'),
     )
 
+    vi.spyOn(api, 'getTrip').mockResolvedValue(detail('PENDING'))
+
     render(<TripsPage />)
     await screen.findByText('TRP-ALPHA')
 
-    await user.click(screen.getByRole('button', { name: /cancel/i }))
+    // A started trip is stopped through the dialog, never a bare confirm.
+    await user.click(screen.getByRole('button', { name: /stop \/ change/i }))
+    await screen.findByText(/pickup not completed yet/i)
+    await user.click(screen.getByRole('button', { name: /^cancel trip$/i }))
 
     // The manager must be told. Before this was fixed the button simply
     // stopped spinning and the row was unchanged.
@@ -108,6 +126,36 @@ describe('TripsPage', () => {
         screen.getByText(/illegal trip transition ACTIVE -> CANCELLED/i),
       ).toBeDefined()
     })
+  })
+
+  it('requires a reason and a cargo disposition once the pickup is completed', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'listTrips').mockResolvedValue({ items: [trip()], next_cursor: null })
+    vi.spyOn(api, 'getTrip').mockResolvedValue(detail('COMPLETED'))
+    const cancel = vi.spyOn(api, 'cancelTrip').mockResolvedValue(trip({ status: 'DELAYED' }))
+
+    render(<TripsPage />)
+    await screen.findByText('TRP-ALPHA')
+    await user.click(screen.getByRole('button', { name: /stop \/ change/i }))
+    await screen.findByText(/cargo is on the truck/i)
+
+    // Nothing to press until both facts are given - and the reason is on screen.
+    const submit = () => screen.getByRole('button', { name: /^cancel trip$|^apply$/i }) as HTMLButtonElement
+    expect(submit().disabled).toBe(true)
+    expect(screen.getByTestId('stop-blocker').textContent).toMatch(/reason of at least 10 characters/i)
+    await user.type(screen.getByLabelText(/^reason/i), 'Customer asked us to wait at the junction')
+    expect(screen.getByTestId('stop-blocker').textContent).toMatch(/what happens to the cargo/i)
+    await user.selectOptions(screen.getByLabelText(/cargo disposition/i), 'HOLD_FOR_INSTRUCTION')
+    expect(submit().disabled).toBe(false)
+
+    await user.click(submit())
+    await waitFor(() => expect(cancel).toHaveBeenCalledTimes(1))
+    expect(cancel.mock.calls[0][1]).toEqual({
+      reason: 'Customer asked us to wait at the junction',
+      disposition: 'HOLD_FOR_INSTRUCTION',
+    })
+    // A bare cancel never went to the server for a loaded truck.
+    expect(cancel.mock.calls.every(([, body]) => body?.disposition)).toBe(true)
   })
 
   it('surfaces a refused Close instead of failing silently', async () => {

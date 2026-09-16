@@ -58,6 +58,9 @@ PRODUCT: Final[dict[str, tuple[str, str]]] = {
     "GOOGLE_GEMINI": ("Assistant wording", "ONLINE_LLM"),
     "OPENROUTER": ("Assistant wording (fallback)", "ONLINE_LLM"),
     "EXPO_PUSH": ("Driver push notifications", "NOT_AI"),
+    # No SMS gateway is integrated. The row exists so Diagnostics says
+    # NOT_CONFIGURED in words, and nothing anywhere simulates a send.
+    "SMS": ("Driver SMS fallback", "NOT_AI"),
 }
 
 
@@ -113,6 +116,12 @@ def fail(provider: str, category: str) -> None:
     h.last_error = category
     h.calls += 1
     h.failures += 1
+
+
+def not_configured(provider: str) -> None:
+    """Say plainly that nothing is wired up. Not a failure, not unknown."""
+    h = _h(provider)
+    h.state = "NOT_CONFIGURED"
 
 
 def category(exc: BaseException, status_code: int | None = None) -> str:

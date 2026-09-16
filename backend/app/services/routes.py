@@ -76,6 +76,9 @@ AUDITED_FIELDS = (
 #: Guwahati-Jorhat return one road, Guwahati-Itanagar two. Every distinct
 #: extra is stored as an EMERGENCY_BACKUP; nothing is padded to make three.
 MAX_ROUTE_OPTIONS = 3
+#: How many distinct extras are kept as EMERGENCY_BACKUP. A maximum, never a
+#: quota: two contingency roads is a choice, five is a list nobody reads.
+MAX_EMERGENCY_BACKUPS = 2
 
 
 @dataclass(frozen=True)
@@ -304,6 +307,8 @@ async def plan(
     # all - which is the honest answer, not a gap.
     backups: list[RouteCandidate] = []
     for other in result.candidates[1:] if kind is RouteKind.PRIMARY else []:
+        if len(backups) >= MAX_EMERGENCY_BACKUPS:
+            break
         if endpoint_mismatch(other, origin, destination) is not None:
             continue
         if all(is_distinct_corridor(kept, other) for kept in (candidate, *backups)):

@@ -508,8 +508,22 @@ function NoTrip({ isStale, loadedAt, onOpenMap, onCheckTruck, onReload }: {
     return () => { alive = false }
   }, [loadedAt])
   const numbers = emergencyNumbers(resolveLanguage()).slice(0, 3)
+  // Why the last trip left this screen. Read from the notification record,
+  // so it is here whether or not a push ever reached the phone; only the
+  // newest cancellation, and only while it is recent enough to matter.
+  const [notice, setNotice] = useState<Awaited<ReturnType<typeof api.myNotices>>[number] | null>(null)
+  useEffect(() => {
+    let alive = true
+    api.myNotices(5).then((rows) => {
+      if (!alive) return
+      const latest = rows.find((n) => n.event === 'TRIP_CANCELLED')
+      setNotice(latest && Date.now() - Date.parse(latest.sent_at) < 24 * 3_600_000 ? latest : null)
+    }, () => { if (alive) setNotice(null) })
+    return () => { alive = false }
+  }, [loadedAt])
   return (
     <ScrollView style={styles.sheet} contentContainerStyle={styles.sheetContent}>
+      {notice ? <Banner tone="warn" title={t('Trip cancelled by your manager')} detail={notice.body} /> : null}
       <View style={styles.empty}>
         <View style={styles.emptyIcon}><Icon name="truck" size={28} color={COLORS.muted} /></View>
         <Text style={styles.emptyTitle}>{t('No active trip')}</Text>
@@ -799,6 +813,30 @@ export default function TripScreen({
             title={t('Not up to date')}
             detail="Could not reach the server on the last check. This is the last information received — pull down to try again."
           />
+        ) : null}
+
+        {/* A manager changed a loaded trip. Said in words, with the reason,
+            and acknowledged with one press - the server records "seen", so
+            the manager knows this reached the cab and not only the network. */}
+        {trip.pending_instruction ? (
+          <>
+            <Banner
+              tone="warn"
+              title={t('Manager changed this trip')}
+              detail={`${t('Cargo is already onboard')}. ${
+                trip.pending_instruction.instruction === 'RETURN_TO_DEPOT'
+                  ? t('Return to depot')
+                  : trip.pending_instruction.instruction === 'NEW_DESTINATION'
+                    ? `${t('New destination')}: ${trip.pending_instruction.new_destination ?? ''}`
+                    : t('Hold for instruction')
+              }${trip.pending_instruction.reason ? ` — ${trip.pending_instruction.reason}` : ''}`}
+            />
+            <Button
+              label={t('Acknowledge')}
+              busy={isBusy}
+              onPress={() => void act(() => api.acknowledgeInstruction(trip.pending_instruction!.event_id))}
+            />
+          </>
         ) : null}
 
         {trip.status === 'DELIVERED' ? (

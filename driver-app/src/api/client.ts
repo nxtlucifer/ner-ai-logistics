@@ -549,6 +549,31 @@ export interface CurrentTrip {
   shipment?: { total_weight_kg?: string | number | null } | null
   driver?: { full_name?: string | null } | null
   active_emergency?: ActiveEmergency | null
+  /**
+   * A manager instruction after pickup - hold, return to depot, new
+   * destination - this driver has not acknowledged yet. Shown until
+   * `acknowledgeInstruction` records that it was seen.
+   */
+  pending_instruction?: PendingInstruction | null
+}
+
+export interface PendingInstruction {
+  event_id: number
+  instruction: 'RETURN_TO_DEPOT' | 'NEW_DESTINATION' | 'HOLD_FOR_INSTRUCTION' | string | null
+  reason: string | null
+  previous_destination?: string | null
+  new_destination?: string | null
+  issued_at: string
+}
+
+/** One thing this driver was told, as recorded - readable after the trip is gone. */
+export interface Notice {
+  event: string
+  title: string
+  body: string
+  trip_id: string | null
+  sent_at: string
+  delivery: string
 }
 
 export type EmergencyState =
@@ -1236,6 +1261,14 @@ const restApi = {
       method: 'POST',
       body: { trip_id: tripId },
     }),
+  /** Records that this driver has seen a manager instruction. Idempotent. */
+  acknowledgeInstruction: (eventId: number) =>
+    request<CurrentTrip>('/api/driver/me/trip/instruction/ack', {
+      method: 'POST',
+      body: { event_id: eventId },
+    }),
+  /** What this driver was told recently - a cancelled trip's reason lives here. */
+  myNotices: (limit = 5) => request<Notice[]>(`/api/driver/me/notices?limit=${limit}`),
   checkInEmergency: (tripId: string, response: DriverCheckResponse) =>
     request<ActiveEmergency>('/api/driver/me/trip/check-in', {
       method: 'POST',

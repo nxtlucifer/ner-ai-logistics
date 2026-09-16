@@ -125,9 +125,12 @@ async def providers(user: CurrentUser) -> dict[str, Any]:
     `app/domain/intelligence_inventory.py`, so the System page and the report
     cannot disagree.
     """
+    from app.core.config import get_settings
     from app.domain import intelligence_inventory
     from app.services import provider_health
 
+    if not get_settings().SMS_PROVIDER:
+        provider_health.not_configured("SMS")
     return {
         "providers": provider_health.snapshot(),
         "intelligence": {"counts": intelligence_inventory.counts(), **intelligence_inventory.totals(),

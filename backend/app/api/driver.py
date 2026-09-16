@@ -298,6 +298,17 @@ class RouteProgressRead(ReadModel):
     version: str
 
 
+class InstructionRead(ReadModel):
+    """A manager's post-pickup instruction, from the trip timeline."""
+
+    event_id: int
+    instruction: str | None
+    reason: str | None
+    previous_destination: str | None = None
+    new_destination: str | None = None
+    issued_at: datetime
+
+
 class CurrentTrip(ReadModel):
     id: uuid.UUID
     trip_code: str
@@ -350,6 +361,25 @@ class CurrentTrip(ReadModel):
     #: from whoever held the job before.
     driver_accepted_at: datetime | None
     active_emergency: EmergencyRead | None = None
+    #: A manager instruction after pickup (hold, return to depot, new
+    #: destination) that this driver has not acknowledged. The app shows it
+    #: until `/me/trip/instruction/ack` records the acknowledgement.
+    pending_instruction: InstructionRead | None = None
+
+
+class InstructionAck(APIModel):
+    event_id: int
+
+
+class NoticeRead(ReadModel):
+    """One notification as recorded for this driver - what was said and when."""
+
+    event: str
+    title: str
+    body: str
+    trip_id: uuid.UUID | None
+    sent_at: datetime
+    delivery: str
 
 
 class TripActionRequest(APIModel):
@@ -514,6 +544,7 @@ async def _trip_view(db, driver, trip) -> CurrentTrip:
         tracking=TrackingConfig(**policy.tracking_config()),
         last_fix=last_fix,
         active_emergency=active_emergency,
+        pending_instruction=await trips.pending_instruction(db, trip.id),
     )
 
 
@@ -1166,6 +1197,46 @@ async def reroute_my_trip(
         provider=result.provider,
         has_guidance=route.maneuvers is not None,
     )
+
+
+@router.post(
+    "/me/trip/instruction/ack",
+    response_model=CurrentTrip,
+    summary="Acknowledge a manager instruction (hold, return, new destination)",
+)
+async def acknowledge_instruction(
+    payload: InstructionAck,
+    driver: CurrentDriver,
+    user: CurrentUser,
+    db: DbSession,
+) -> CurrentTrip:
+    """Records that THIS driver has seen the instruction. Idempotent."""
+    trip = await driver_trips.acknowledge_instruction(db, driver, user, event_id=payload.event_id)
+    return await _trip_view(db, driver, trip)
+
+
+@router.get(
+    "/me/notices",
+    response_model=list[NoticeRead],
+    summary="What this driver has been told recently",
+)
+async def my_notices(driver: CurrentDriver, db: DbSession, limit: int = 5) -> list[NoticeRead]:
+    """The notification record, newest first - so a cancelled trip's reason is
+    still readable after the trip has left the current-trip screen, whether or
+    not a push ever reached the phone."""
+    from sqlalchemy import select as _select
+
+    from app.models.operations import DriverNotification
+
+    rows = (
+        await db.execute(
+            _select(DriverNotification)
+            .where(DriverNotification.driver_id == driver.id)
+            .order_by(DriverNotification.sent_at.desc())
+            .limit(max(1, min(limit, 20)))
+        )
+    ).scalars().all()
+    return [NoticeRead.model_validate(r) for r in rows]
 
 
 @router.post("/me/trip/start", response_model=CurrentTrip, summary="Start the trip")

@@ -17,7 +17,7 @@
 
 import { useRef, useState } from 'react'
 
-import { api, type Assignment, type Driver, type Trip, type Truck, unavailableReason } from '../api/client'
+import { api, type Assignment, type Driver, type Trip, type TripDetail, type Truck, unavailableReason } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
 import {
   Button,
@@ -92,7 +92,43 @@ export default function TripsPage() {
   const [actingOn, setActingOn] = useState<string | null>(null)
 
   const dispatchTrip = useMutation((id: string) => api.dispatchTrip(id))
-  const cancelTrip = useMutation((id: string) => api.cancelTrip(id))
+  const cancelTrip = useMutation((id: string, body?: Parameters<typeof api.cancelTrip>[1]) => api.cancelTrip(id, body))
+  // A started trip is stopped through a dialog, not a confirm box: once cargo
+  // is on the truck the server requires a reason and a cargo disposition, and
+  // the manager should see that before pressing anything.
+  const [stopping, setStopping] = useState<{ trip: Trip; detail: TripDetail | null; failed: boolean } | null>(null)
+  const [stopReason, setStopReason] = useState('')
+  const [stopDisposition, setStopDisposition] = useState('')
+  const [stopDestination, setStopDestination] = useState<EndpointValue>(EMPTY_ENDPOINT)
+  const cargoLoaded = stopping?.detail?.stops[0]?.status === 'COMPLETED'
+  const stopDestinationPoint = endpointPoint(stopDestination)
+  const stopBlocker =
+    cargoLoaded && stopReason.trim().length < 10
+      ? 'Give a reason of at least 10 characters — cargo is already on the truck.'
+      : cargoLoaded && !stopDisposition
+        ? 'Say what happens to the cargo.'
+        : stopDisposition === 'NEW_DESTINATION' && (!stopDestinationPoint || !stopDestination.address.trim())
+          ? 'Confirm the new destination.'
+          : null
+  function openStop(trip: Trip) {
+    setStopping({ trip, detail: null, failed: false })
+    setStopReason(''); setStopDisposition(''); setStopDestination(EMPTY_ENDPOINT)
+    api.getTrip(trip.id).then(
+      (detail) => setStopping((s) => (s && s.trip.id === trip.id ? { ...s, detail } : s)),
+      () => setStopping((s) => (s && s.trip.id === trip.id ? { ...s, failed: true } : s)),
+    )
+  }
+  async function submitStop() {
+    if (!stopping || stopBlocker) return
+    const body: Parameters<typeof api.cancelTrip>[1] = { reason: stopReason.trim() || undefined }
+    if (stopDisposition) body.disposition = stopDisposition
+    if (stopDisposition === 'NEW_DESTINATION' && stopDestinationPoint) {
+      body.destination = stopDestinationPoint
+      body.destination_address = stopDestination.address.trim()
+    }
+    const { data } = await run(stopping.trip.id, () => cancelTrip.submit(stopping.trip.id, body))
+    if (data) setStopping(null)
+  }
   const closeTrip = useMutation((id: string) => api.closeTrip(id))
   const cancelBlocked = unavailableReason('cancelTrip')
   const closeBlocked = unavailableReason('closeTrip')
@@ -171,14 +207,18 @@ export default function TripsPage() {
   ) {
     setActingOn(tripId)
     try {
-      if ((await action()).data) trips.reload()
+      const outcome = await action()
+      if (outcome.data) trips.reload()
+      return outcome
     } finally {
       setActingOn(null)
     }
   }
 
   const canCreate = can('trip:create')
-  const actionError = dispatchTrip.error ?? cancelTrip.error ?? closeTrip.error
+  // While the stop dialog is open it owns the cancel error; showing it twice
+  // (behind the overlay as well) reads as two failures.
+  const actionError = dispatchTrip.error ?? (stopping ? null : cancelTrip.error) ?? closeTrip.error
   const pairedFor = (id: string) => pairedTruckId(assignments.data ?? [], id)
 
   return (
@@ -456,11 +496,15 @@ export default function TripsPage() {
                             disabled={cancelBlocked !== null || busyElsewhere}
                             title={cancelBlocked ?? undefined}
                             onClick={() => {
+                              // A started trip may have cargo on board: the
+                              // dialog asks what happens to it. A draft or an
+                              // undispatched job just ends.
+                              if (trip.status === 'ACTIVE' || trip.status === 'DELAYED') { openStop(trip); return }
                               if (!window.confirm(`Cancel ${trip.trip_code}?`)) return
                               void run(trip.id, () => cancelTrip.submit(trip.id))
                             }}
                           >
-                            Cancel
+                            {trip.status === 'ACTIVE' || trip.status === 'DELAYED' ? 'Stop / change' : 'Cancel'}
                           </Button>
                         ) : null}
                       </div>
@@ -473,6 +517,52 @@ export default function TripsPage() {
           </div>
         )}
       </Card>
+
+      {stopping ? (
+        <div role="dialog" aria-modal="true" aria-label={`Stop or change ${stopping.trip.trip_code}`} className="fixed inset-0 z-50 flex items-center justify-center bg-canvas/80 p-4">
+          <div className="w-full max-w-lg space-y-3 rounded-xl border border-line bg-surface p-5 shadow-2xl">
+            <h2 className="text-base font-semibold text-ink">Stop or change {stopping.trip.trip_code}</h2>
+            {/* The one fact that changes what is required. Stated in words, from the server. */}
+            <p className="text-xs text-muted" data-testid="stop-cargo-state">
+              {stopping.detail === null && !stopping.failed
+                ? 'Checking whether the cargo has been picked up…'
+                : cargoLoaded
+                  ? `Cargo is on the truck — pickup completed${stopping.detail?.stops[0]?.actual_departure_at ? ` at ${new Date(stopping.detail.stops[0].actual_departure_at).toLocaleTimeString()}` : ''}. A reason and a cargo disposition are required; nothing changes for the driver silently.`
+                  : stopping.failed
+                    ? 'Could not read the pickup state. The server will still refuse a bare cancellation if cargo is on board.'
+                    : 'Pickup not completed yet. The trip can be cancelled; the driver is told and released.'}
+            </p>
+            <Field label="Reason" name="stop_reason" value={stopReason} onChange={setStopReason} required={cargoLoaded} hint="Shown to the driver and kept in the audit trail." />
+            {cargoLoaded || stopping.failed ? (
+              <label className="block">
+                <span className="text-xs font-medium text-ink">What happens to the cargo<span className="ml-0.5 text-danger">*</span></span>
+                <select value={stopDisposition} onChange={(e) => setStopDisposition(e.target.value)} className="mt-1 w-full rounded-[var(--radius-control)] border border-outline bg-surface px-3 py-2 text-sm text-ink" aria-label="Cargo disposition">
+                  <option value="">Choose…</option>
+                  <option value="RETURN_TO_DEPOT">Return to depot — back to the pickup point</option>
+                  <option value="NEW_DESTINATION">New destination — confirm a point below</option>
+                  <option value="HOLD_FOR_INSTRUCTION">Hold for instruction — driver waits, trip reads DELAYED</option>
+                  <option value="COMPLETE_CURRENT_LEG">Complete current leg — no change on the road, decision recorded</option>
+                  <option value="CARGO_UNLOADED">Cargo already unloaded — close the trip as cancelled</option>
+                </select>
+              </label>
+            ) : null}
+            {stopDisposition === 'NEW_DESTINATION' ? (
+              <AddressPicker label="New destination" name="stop_destination" value={stopDestination} onChange={setStopDestination} placeholder="Search address or paste Maps link" />
+            ) : null}
+            {stopDisposition === 'RETURN_TO_DEPOT' || stopDisposition === 'NEW_DESTINATION' ? (
+              <p className="text-[11px] text-muted">The driver keeps the current road until you select a route for the new destination in Fleet → Route options.</p>
+            ) : null}
+            {cancelTrip.error ? <ErrorState error={cancelTrip.error} /> : null}
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {stopBlocker ? <span className="mr-auto text-xs text-warning" role="status" data-testid="stop-blocker">{stopBlocker}</span> : null}
+              <Button variant="secondary" onClick={() => setStopping(null)}>Keep trip</Button>
+              <Button variant="danger" busy={cancelTrip.isSubmitting} disabled={stopBlocker !== null || cancelTrip.isSubmitting} title={stopBlocker ?? undefined} onClick={() => void submitStop()}>
+                {stopDisposition && stopDisposition !== 'CARGO_UNLOADED' ? 'Apply' : 'Cancel trip'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

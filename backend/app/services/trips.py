@@ -19,6 +19,7 @@ Two records are written for every transition, and they are not duplicates:
 See docs/DATA_MODEL.md and the comment on TripEvent.
 """
 
+import logging
 import uuid
 from datetime import UTC, date, datetime
 
@@ -43,7 +44,10 @@ from app.models.enums import (
 from app.models.fleet import DriverTruckAssignment, Truck
 from app.models.identity import Driver, User
 from app.models.operations import Shipment, Trip, TripEvent, TripRoute, TripStop
-from app.schemas.domain import ShipmentCreate, TripCreate, TripPlanTrip
+from app.domain.routing import Coordinate as RouteCoordinate
+from app.domain.routing import parse_wkt_point
+from app.schemas.common import Coordinate
+from app.schemas.domain import ShipmentCreate, TripCreate, TripPlanTrip, in_service_region
 from app.services import audit, notify, shipments
 from app.services.pagination import (
     build_page,
@@ -81,6 +85,8 @@ AUDITED_FIELDS = (
 #: work rather than the thing the driver is doing now, and it is addressed by
 #: id through `_own_delivered_trip` instead. Keeping it out is what lets the
 #: next trip become current once a delivery is made.
+logger = logging.getLogger(__name__)
+
 OPEN_TRIP_STATUSES = (
     TripStatus.ASSIGNED,
     TripStatus.ACTIVE,
@@ -694,6 +700,121 @@ async def dispatch(
     return trip
 
 
+#: What happens to cargo that is already on the truck when a manager stops or
+#: changes a trip. A post-pickup "cancel" without one of these is refused: a
+#: loaded truck with a cancelled job and no instruction is a driver left
+#: guessing at a roadside, which is the silent failure this exists to prevent.
+DISPOSITIONS = (
+    "RETURN_TO_DEPOT",  # cargo goes back to where it was loaded (the pickup stop)
+    "NEW_DESTINATION",  # cargo goes to a new, confirmed, in-region drop-off
+    "HOLD_FOR_INSTRUCTION",  # truck waits; trip reads DELAYED until told otherwise
+    "COMPLETE_CURRENT_LEG",  # nothing changes on the road; the decision is recorded
+    "CARGO_UNLOADED",  # cargo already accounted for off-system; the trip closes as cancelled
+)
+MIN_REASON_CHARS = 10
+#: Kinds whose payload may carry an instruction the driver must acknowledge.
+INSTRUCTION_KINDS = (TripEventKind.DELAY_DETECTED, TripEventKind.ROUTE_CHANGED)
+
+
+async def cargo_loaded(db: AsyncSession, trip_id: uuid.UUID) -> bool:
+    """True once the pickup stop is COMPLETED - the cargo is on the truck."""
+    stops = await stops_for(db, trip_id)
+    pickup = next((s for s in stops if s.kind is TripStopKind.PICKUP), stops[0] if stops else None)
+    return pickup is not None and pickup.status is TripStopStatus.COMPLETED
+
+
+async def pending_instruction(db: AsyncSession, trip_id: uuid.UUID) -> dict | None:
+    """The newest manager instruction the driver has not acknowledged, or None.
+
+    Read from the timeline, not from a column: the instruction and its
+    acknowledgement are both events, so "sent" and "seen" are told apart by
+    the same record an incident review reads. Few rows per trip; filtered in
+    Python rather than with a self-join.
+    """
+    rows = (
+        await db.execute(
+            select(TripEvent)
+            .where(
+                TripEvent.trip_id == trip_id,
+                TripEvent.kind.in_((*INSTRUCTION_KINDS, TripEventKind.ACCEPTED)),
+            )
+            .order_by(TripEvent.occurred_at.desc(), TripEvent.id.desc())
+        )
+    ).scalars().all()
+    acked = {
+        (e.payload or {}).get("acknowledges")
+        for e in rows
+        if e.kind is TripEventKind.ACCEPTED and e.payload
+    }
+    for e in rows:
+        p = e.payload or {}
+        if e.kind in INSTRUCTION_KINDS and p.get("requires_ack") and e.id not in acked:
+            return {
+                "event_id": e.id,
+                "instruction": p.get("instruction"),
+                "reason": p.get("reason"),
+                "previous_destination": p.get("previous_destination"),
+                "new_destination": p.get("new_destination"),
+                "issued_at": e.occurred_at,
+            }
+    return None
+
+
+async def _redirect_cargo(
+    db: AsyncSession,
+    trip: Trip,
+    *,
+    disposition: str,
+    destination: Coordinate | None,
+    destination_address: str | None,
+) -> tuple[str | None, str]:
+    """Skip the pending drop-off and append the new one. History is kept.
+
+    RETURN_TO_DEPOT goes back to the pickup stop's own location - where the
+    cargo was loaded is the one place known to accept it. NEW_DESTINATION needs
+    a confirmed, in-region point. Neither touches the current route: the
+    driver keeps the road they are on until the manager selects a candidate
+    for the new destination through the reroute path.
+    """
+    stops = await stops_for(db, trip.id)
+    pickup = next((s for s in stops if s.kind is TripStopKind.PICKUP), stops[0])
+    previous = next((s for s in reversed(stops) if s.kind is TripStopKind.DROPOFF and s.status is TripStopStatus.PENDING), None)
+    if disposition == "RETURN_TO_DEPOT":
+        lat, lon = parse_wkt_point(
+            (await db.execute(select(func.ST_AsText(TripStop.location)).where(TripStop.id == pickup.id))).scalar_one()
+        )
+        destination = Coordinate(lat=lat, lon=lon)
+        destination_address = pickup.address or pickup.name or "Pickup point"
+        name = "Return to depot"
+    else:
+        if destination is None or not (destination_address or "").strip():
+            raise BusinessRuleError(
+                "NEW_DESTINATION needs a confirmed destination (address and coordinates).",
+                code="LOCATION_CONFIRMATION_REQUIRED",
+            )
+        if not in_service_region(destination):
+            raise BusinessRuleError(
+                f"The new destination ({destination.lat:.4f}, {destination.lon:.4f}) is "
+                "outside the North-East service region.",
+                code="OUTSIDE_SERVICE_REGION",
+            )
+        name = "New delivery"
+    for s in stops:
+        if s.kind is TripStopKind.DROPOFF and s.status is TripStopStatus.PENDING:
+            s.status = TripStopStatus.SKIPPED
+    db.add(
+        TripStop(
+            trip_id=trip.id,
+            sequence=max(s.sequence for s in stops) + 1,
+            kind=TripStopKind.DROPOFF,
+            location=shipments.point(destination),
+            name=name,
+            address=destination_address,
+        )
+    )
+    return (previous.address if previous else None), destination_address
+
+
 async def cancel(
     db: AsyncSession,
     trip_id: uuid.UUID,
@@ -701,11 +822,125 @@ async def cancel(
     actor: User,
     reason: str | None = None,
     ip: str | None = None,
+    disposition: str | None = None,
+    destination: Coordinate | None = None,
+    destination_address: str | None = None,
 ) -> Trip:
-    """Cancel a trip, releasing the driver and truck if it had started."""
+    """Cancel a trip - or, once cargo is on the truck, resolve it explicitly.
+
+    BEFORE PICKUP the job simply ends: CANCELLED, resources released, the
+    driver told. AFTER PICKUP a reason (>= MIN_REASON_CHARS) and a cargo
+    disposition are both required, every outcome writes a timeline event with
+    the instruction in its payload, and the driver is notified through the
+    real notification path. Nothing about a loaded truck changes silently.
+    """
     trip = await load_for_update(db, trip_id)
     before = audit.snapshot(trip, AUDITED_FIELDS)
+    reason_text = (reason or "").strip()
+    loaded = trip.status in (TripStatus.ACTIVE, TripStatus.DELAYED, TripStatus.INCIDENT) and await cargo_loaded(db, trip.id)
 
+    if loaded:
+        if len(reason_text) < MIN_REASON_CHARS:
+            raise BusinessRuleError(
+                f"Cargo is already on the truck. Give a reason of at least {MIN_REASON_CHARS} "
+                "characters before changing this trip.",
+                code="CANCEL_REASON_REQUIRED",
+            )
+        if disposition not in DISPOSITIONS:
+            raise BusinessRuleError(
+                "Cargo is already on the truck. Say what happens to it: "
+                + ", ".join(DISPOSITIONS) + ".",
+                code="POST_PICKUP_RESOLUTION_REQUIRED",
+            )
+        if disposition == "COMPLETE_CURRENT_LEG":
+            await audit.record(
+                db, action=AuditAction.UPDATE, entity_type="trips", entity_id=trip.id,
+                actor_user_id=actor.id, before=before, after=before,
+                reason=f"cancel withdrawn - complete current leg: {reason_text}", ip_address=ip,
+            )
+            await db.commit()
+            await db.refresh(trip)
+            return trip
+        if disposition == "HOLD_FOR_INSTRUCTION":
+            if trip.status is not TripStatus.DELAYED:
+                transition(trip, TripStatus.DELAYED)
+            await db.flush()
+            event = await record_event(
+                db, trip, kind=TripEventKind.DELAY_DETECTED,
+                description=f"Hold for instruction - {reason_text}", actor_user_id=actor.id,
+                # ponytail: DELAY_DETECTED carries the hold; a MANAGER_INSTRUCTION
+                # kind needs a pg_enum migration and PR #1 already holds 0013.
+                payload={"instruction": disposition, "reason": reason_text, "requires_ack": True},
+            )
+            await db.flush()
+            await notify.send(
+                db, driver_id=trip.driver_id, event="HOLD_AND_REVIEW", trip_id=trip.id,
+                title="Hold - instruction from your manager", body=reason_text,
+                fingerprint=f"hold:{trip.id}:{event.id}", data={"event_id": event.id},
+            )
+        elif disposition in ("RETURN_TO_DEPOT", "NEW_DESTINATION"):
+            previous_address, new_address = await _redirect_cargo(
+                db, trip, disposition=disposition, destination=destination,
+                destination_address=destination_address,
+            )
+            await db.flush()
+            event = await record_event(
+                db, trip, kind=TripEventKind.ROUTE_CHANGED,
+                description=f"Destination changed by manager ({disposition.lower().replace('_', ' ')}) - {reason_text}",
+                actor_user_id=actor.id,
+                payload={
+                    "instruction": disposition, "reason": reason_text, "requires_ack": True,
+                    "previous_destination": previous_address, "new_destination": new_address,
+                    "previous_route_id": str(trip.selected_route_id) if trip.selected_route_id else None,
+                },
+            )
+            await db.flush()
+            await notify.send(
+                db, driver_id=trip.driver_id, event="CRITICAL_ROUTE_CHANGE", trip_id=trip.id,
+                title="Destination changed by your manager", body=f"{new_address}. {reason_text}",
+                fingerprint=f"redirect:{trip.id}:{event.id}", data={"event_id": event.id},
+            )
+        else:  # CARGO_UNLOADED - accounted for off-system; the job ends.
+            transition(trip, TripStatus.CANCELLED)
+            await release_resources(db, trip)
+            await db.flush()
+            await record_event(
+                db, trip, kind=TripEventKind.CANCELLED, description=reason_text,
+                actor_user_id=actor.id, payload={"disposition": disposition, "reason": reason_text},
+            )
+            await notify.send(
+                db, driver_id=trip.driver_id, event="TRIP_CANCELLED", trip_id=trip.id,
+                title="Trip cancelled by your manager", body=reason_text,
+                fingerprint=f"cancel:{trip.id}",
+            )
+        await audit.record(
+            db, action=AuditAction.STATUS_CHANGE, entity_type="trips", entity_id=trip.id,
+            actor_user_id=actor.id, before=before, after=audit.snapshot(trip, AUDITED_FIELDS),
+            reason=f"{disposition}: {reason_text}", ip_address=ip,
+        )
+        await db.commit()
+        await db.refresh(trip)
+        if disposition in ("RETURN_TO_DEPOT", "NEW_DESTINATION"):
+            # Candidates for the new destination, planned from the last fresh
+            # fix or the pickup. A provider failure leaves the redirect intact:
+            # the manager re-plans from the Fleet route tab.
+            from app.services import routes as route_service, telemetry
+
+            position = await telemetry.latest_position(db, trip.id)
+            origin = (
+                RouteCoordinate(lat=position.lat, lon=position.lon)
+                if position is not None and position.age_seconds() < 600
+                else None
+            )
+            try:
+                await route_service.plan(db, trip.id, actor=actor, ip=ip, detailed=True, origin=origin)
+            except Exception as exc:  # noqa: BLE001 - recorded, never fatal to the redirect
+                logger.warning("redirect planning for trip %s deferred: %s", trip.id, exc)
+                await db.rollback()
+            await db.refresh(trip)
+        return trip
+
+    had_driver = trip.status in OPEN_TRIP_STATUSES
     transition(trip, TripStatus.CANCELLED)
     await release_resources(db, trip)
 
@@ -714,9 +949,17 @@ async def cancel(
         db,
         trip,
         kind=TripEventKind.CANCELLED,
-        description=reason or "cancelled by manager",
+        description=reason_text or "cancelled by manager",
         actor_user_id=actor.id,
+        payload={"reason": reason_text or None, "before_pickup": True},
     )
+    if had_driver:
+        await notify.send(
+            db, driver_id=trip.driver_id, event="TRIP_CANCELLED", trip_id=trip.id,
+            title="Trip cancelled by your manager",
+            body=reason_text or "No pickup required. You are available for the next assignment.",
+            fingerprint=f"cancel:{trip.id}",
+        )
     await audit.record(
         db,
         action=AuditAction.STATUS_CHANGE,
@@ -725,7 +968,7 @@ async def cancel(
         actor_user_id=actor.id,
         before=before,
         after=audit.snapshot(trip, AUDITED_FIELDS),
-        reason=reason or "cancelled by manager",
+        reason=reason_text or "cancelled by manager",
         ip_address=ip,
     )
     await db.commit()

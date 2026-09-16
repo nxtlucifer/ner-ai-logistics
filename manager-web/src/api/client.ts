@@ -1100,8 +1100,22 @@ export const restApi = {
     request<Trip>('/api/trips/plan', { method: 'POST', body }),
   dispatchTrip: (id: string) =>
     request<Trip>(`/api/trips/${id}/dispatch`, { method: 'POST' }),
-  cancelTrip: (id: string) =>
-    request<Trip>(`/api/trips/${id}/cancel`, { method: 'POST' }),
+  /**
+   * Before pickup the body is optional. Once cargo is on the truck the server
+   * requires `reason` (10+ chars) and a `disposition` - RETURN_TO_DEPOT,
+   * NEW_DESTINATION (+ destination), HOLD_FOR_INSTRUCTION,
+   * COMPLETE_CURRENT_LEG or CARGO_UNLOADED - and refuses otherwise with
+   * CANCEL_REASON_REQUIRED / POST_PICKUP_RESOLUTION_REQUIRED.
+   */
+  cancelTrip: (
+    id: string,
+    body?: {
+      reason?: string
+      disposition?: string
+      destination?: { lat: number; lon: number }
+      destination_address?: string
+    },
+  ) => request<Trip>(`/api/trips/${id}/cancel`, { method: 'POST', body: body ?? {} }),
   closeTrip: (id: string) =>
     request<Trip>(`/api/trips/${id}/close`, { method: 'POST' }),
 

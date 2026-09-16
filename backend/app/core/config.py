@@ -289,6 +289,9 @@ class Settings(BaseSettings):
     # and a default would also mean a misconfigured deployment quietly starts
     # against the wrong database.
     DATABASE_URL: str | None = None
+    #: SMS gateway for driver fallback messages. None = no gateway integrated:
+    #: Diagnostics reads NOT_CONFIGURED and no code path pretends to send.
+    SMS_PROVIDER: str | None = None
 
     # Optional separate connection for Alembic. Defaults to DATABASE_URL.
     # Kept configurable because Supabase offers several pooling modes and DDL has

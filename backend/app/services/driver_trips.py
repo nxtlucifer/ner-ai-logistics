@@ -42,7 +42,8 @@ from app.models.enums import (
 )
 from app.models.fleet import Truck
 from app.models.identity import Driver, User
-from app.models.operations import Trip, TripStop
+from app.models.enums import TripEventKind
+from app.models.operations import Trip, TripEvent, TripStop
 from app.services import audit, trips
 
 AUDITED_FIELDS = trips.AUDITED_FIELDS
@@ -366,6 +367,44 @@ async def accept(
         after=audit.snapshot(trip, AUDITED_FIELDS),
         reason="accepted by driver",
         ip_address=ip,
+    )
+    await db.commit()
+    await db.refresh(trip)
+    return trip
+
+
+async def acknowledge_instruction(
+    db: AsyncSession, driver: Driver, user: User, *, event_id: int
+) -> Trip:
+    """Record that the driver has seen a manager's post-pickup instruction.
+
+    An ACCEPTED event whose payload names the instruction event - the same
+    kind the job acknowledgement uses, because it is the same act: the driver
+    saying "I have this". Idempotent: acknowledging twice writes once. The
+    instruction must belong to the driver's own current trip.
+    """
+    trip = await _own_trip_for_update(db, driver, trip_id=None)
+    pending = await trips.pending_instruction(db, trip.id)
+    if pending is None or pending["event_id"] != event_id:
+        already = (
+            await db.execute(
+                select(TripEvent.id).where(
+                    TripEvent.trip_id == trip.id,
+                    TripEvent.kind == TripEventKind.ACCEPTED,
+                    TripEvent.payload["acknowledges"].as_integer() == event_id,
+                )
+            )
+        ).first()
+        if already is not None:
+            return trip
+        raise NotFoundError("That instruction is not outstanding on your current trip.")
+    await trips.record_event(
+        db,
+        trip,
+        kind=TripEventKind.ACCEPTED,
+        description=f"Driver acknowledged: {pending['instruction'] or 'instruction'}",
+        actor_user_id=user.id,
+        payload={"acknowledges": event_id, "instruction": pending["instruction"]},
     )
     await db.commit()
     await db.refresh(trip)

@@ -151,6 +151,10 @@ class ShipmentSummary(ReadModel):
 class TripDetail(TripRead):
     stops: list[TripStopRead]
     shipment: ShipmentSummary
+    #: The manager instruction the driver has not acknowledged yet (hold or
+    #: destination change after pickup), from the timeline. Null when none is
+    #: outstanding - "sent" and "seen" are told apart here.
+    pending_instruction: dict | None = None
 
 
 @trips_router.get("", response_model=TripPage, summary="List trips")
@@ -248,6 +252,7 @@ async def get_trip(
         **TripRead.model_validate(trip).model_dump(),
         stops=[TripStopRead.model_validate(s) for s in stops],
         shipment=ShipmentSummary.model_validate(shipment),
+        pending_instruction=await trip_service.pending_instruction(db, trip_id),
     )
 
 
@@ -317,6 +322,21 @@ async def stop_simulation(
     return {"cleared": stopped is not None}
 
 
+class CancelRequest(APIModel):
+    """Why, and - once cargo is on the truck - what happens to it.
+
+    Before pickup every field is optional. After pickup the server requires a
+    reason of at least `trips.MIN_REASON_CHARS` and one of `trips.DISPOSITIONS`;
+    NEW_DESTINATION also needs a confirmed, in-region destination. See
+    docs/API_CONTRACTS.md section 9 for the codes.
+    """
+
+    reason: Annotated[str | None, Field(max_length=500)] = None
+    disposition: Annotated[str | None, Field(max_length=32)] = None
+    destination: Coordinate | None = None
+    destination_address: Annotated[str | None, Field(max_length=500)] = None
+
+
 @trips_router.post(
     "/{trip_id}/cancel", response_model=TripRead, summary="Cancel a trip"
 )
@@ -326,9 +346,20 @@ async def cancel_trip(
     actor: Annotated[User, Depends(require_permission(perm.TRIP_CANCEL))],
     ip: ClientIp,
     reason: Annotated[str | None, Query(max_length=200)] = None,
+    payload: CancelRequest | None = None,
 ) -> TripRead:
+    body = payload or CancelRequest()
     return TripRead.model_validate(
-        await trip_service.cancel(db, trip_id, actor=actor, reason=reason, ip=ip)
+        await trip_service.cancel(
+            db,
+            trip_id,
+            actor=actor,
+            reason=body.reason or reason,
+            ip=ip,
+            disposition=body.disposition,
+            destination=body.destination,
+            destination_address=body.destination_address,
+        )
     )
 
 

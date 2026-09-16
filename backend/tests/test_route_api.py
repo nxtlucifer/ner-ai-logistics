@@ -37,6 +37,8 @@ GEOMETRY = [(26.1445, 91.7362), (26.4, 92.9), (26.7509, 94.2037)]
 FAR_GEOMETRY = [GEOMETRY[0], (26.9, 92.9), GEOMETRY[2]]
 #: A third corridor, distinct from both of the above.
 THIRD_GEOMETRY = [GEOMETRY[0], (25.9, 92.9), GEOMETRY[2]]
+#: A fourth, to prove the emergency-backup cap is a maximum that bites.
+FOURTH_GEOMETRY = [GEOMETRY[0], (27.4, 92.9), GEOMETRY[2]]
 #: A few hundred metres off the same road. Must NOT be stored as a backup.
 NUDGED_GEOMETRY = [(lat + 0.003, lon) for lat, lon in GEOMETRY]
 
@@ -473,6 +475,18 @@ class TestBackupRoute:
         assert sorted(row.kind.value for row in rows) == [
             "EMERGENCY_BACKUP", "EMERGENCY_BACKUP", "PRIMARY",
         ]
+
+    async def test_at_most_two_emergency_backups_are_kept(
+        self, api: AsyncClient, session: AsyncSession, manager_headers: dict, stub_chain
+    ) -> None:
+        """Three distinct extras offered; two stored. A maximum, not a quota."""
+        stub_chain(extras=[FAR_GEOMETRY, THIRD_GEOMETRY, FOURTH_GEOMETRY])
+        trip = await _trip(session)
+        r = await api.post(f"/api/trips/{trip.id}/routes/recalculate", headers=manager_headers)
+        assert r.status_code == 201, r.text
+        rows = (await session.execute(select(TripRoute).where(TripRoute.trip_id == trip.id))).scalars().all()
+        assert sorted(row.kind.value for row in rows) == ["EMERGENCY_BACKUP", "EMERGENCY_BACKUP", "PRIMARY"]
+        assert route_service.MAX_EMERGENCY_BACKUPS == 2
 
     async def test_a_route_that_does_not_connect_the_stops_is_refused(
         self, api: AsyncClient, session: AsyncSession, manager_headers: dict, stub_chain

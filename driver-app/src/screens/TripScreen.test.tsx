@@ -16,7 +16,7 @@ vi.mock('react-native', async () => {
   return { View: box, ScrollView: box, Pressable: box, Text: box, RefreshControl: () => null,
     Linking: { openURL: vi.fn() }, StyleSheet: { create: (v: unknown) => v, hairlineWidth: 1 } }
 })
-vi.mock('../api/client', () => ({ api: { myAssignment: () => state.assignment() } }))
+vi.mock('../api/client', () => ({ api: { myAssignment: () => state.assignment(), myNotices: () => Promise.resolve([]) } }))
 vi.mock('../auth/AuthProvider', () => ({ useAuth: () => ({ driver: { full_name: 'Test Driver' } }) }))
 vi.mock('../components/ui', async () => {
   const { createElement: h } = await import('react')
