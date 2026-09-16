@@ -67,6 +67,8 @@ vi.mock('../components/FleetMap', () => ({
 }))
 
 import { FLEET_POLL_MS } from '../hooks/useFleetPoll'
+import { MemoryRouter } from 'react-router-dom'
+
 import FleetPage from './FleetPage'
 
 /**
@@ -256,13 +258,13 @@ describe('FleetPage', () => {
     vi.spyOn(api, 'activeFleet').mockImplementation(
       () => new Promise(() => undefined),
     )
-    render(<FleetPage />)
+    render(<MemoryRouter><FleetPage /></MemoryRouter>)
     expect(screen.getByText(/loading the fleet/i)).toBeDefined()
   })
 
   it('shows a useful empty state when nothing is on the road', async () => {
     vi.spyOn(api, 'activeFleet').mockResolvedValue(snapshot([]))
-    render(<FleetPage />)
+    render(<MemoryRouter><FleetPage /></MemoryRouter>)
 
     await screen.findByText(/no trips on the road/i)
     expect(screen.getByText(/dispatch a trip/i)).toBeDefined()
@@ -270,7 +272,7 @@ describe('FleetPage', () => {
 
   it('surfaces a backend failure when there is no data to show', async () => {
     vi.spyOn(api, 'activeFleet').mockRejectedValue(new Error('down'))
-    render(<FleetPage />)
+    render(<MemoryRouter><FleetPage /></MemoryRouter>)
 
     await waitFor(() =>
       expect(screen.getByRole('alert')).toBeDefined(),
@@ -281,7 +283,7 @@ describe('FleetPage', () => {
     vi.spyOn(api, 'activeFleet').mockResolvedValue(
       snapshot([LIVE, STALE, NO_CONTACT, NEVER_REPORTED]),
     )
-    render(<FleetPage />)
+    render(<MemoryRouter><FleetPage /></MemoryRouter>)
 
     await screen.findByText('TRP-LIVE')
     const table = screen.getByRole('table')
@@ -295,7 +297,7 @@ describe('FleetPage', () => {
     vi.spyOn(api, 'activeFleet').mockResolvedValue(
       snapshot([LIVE, NEVER_REPORTED]),
     )
-    render(<FleetPage />)
+    render(<MemoryRouter><FleetPage /></MemoryRouter>)
 
     await screen.findByText('TRP-NOFIX')
     // Listed, so a dispatcher knows it exists...
@@ -311,7 +313,7 @@ describe('FleetPage', () => {
     vi.spyOn(api, 'activeFleet').mockResolvedValue(
       snapshot([LIVE, STALE, NO_CONTACT, NEVER_REPORTED]),
     )
-    render(<FleetPage />)
+    render(<MemoryRouter><FleetPage /></MemoryRouter>)
 
     await screen.findByText('TRP-LIVE')
     // Asserted through the filter's accessible name rather than by walking DOM
@@ -329,7 +331,7 @@ describe('FleetPage', () => {
     vi.spyOn(api, 'activeFleet').mockResolvedValue(
       snapshot([LIVE, STALE, NEVER_REPORTED]),
     )
-    render(<FleetPage />)
+    render(<MemoryRouter><FleetPage /></MemoryRouter>)
     await screen.findByText('TRP-LIVE')
 
     await user.click(screen.getByRole('button', { name: /filter by stale/i }))
@@ -344,7 +346,7 @@ describe('FleetPage', () => {
   it('searches by registration and by driver name', async () => {
     const user = userEvent.setup()
     vi.spyOn(api, 'activeFleet').mockResolvedValue(snapshot([LIVE, STALE]))
-    render(<FleetPage />)
+    render(<MemoryRouter><FleetPage /></MemoryRouter>)
     await screen.findByText('TRP-LIVE')
 
     const box = screen.getByPlaceholderText(/search registration/i)
@@ -361,7 +363,7 @@ describe('FleetPage', () => {
   it('says so when a filter matches nothing, and offers a way out', async () => {
     const user = userEvent.setup()
     vi.spyOn(api, 'activeFleet').mockResolvedValue(snapshot([LIVE]))
-    render(<FleetPage />)
+    render(<MemoryRouter><FleetPage /></MemoryRouter>)
     await screen.findByText('TRP-LIVE')
 
     await user.type(screen.getByPlaceholderText(/search registration/i), 'zzzz')
@@ -374,7 +376,7 @@ describe('FleetPage', () => {
   it('opens a detail panel of real API data when a marker is selected', async () => {
     const user = userEvent.setup()
     vi.spyOn(api, 'activeFleet').mockResolvedValue(snapshot([LIVE]))
-    render(<FleetPage />)
+    render(<MemoryRouter><FleetPage /></MemoryRouter>)
     await screen.findByText('TRP-LIVE')
 
     await user.click(screen.getByTestId('marker-TRP-LIVE'))
@@ -395,7 +397,7 @@ describe('FleetPage', () => {
   it('calls the observed track a track, never a route', async () => {
     const user = userEvent.setup()
     vi.spyOn(api, 'activeFleet').mockResolvedValue(snapshot([LIVE]))
-    render(<FleetPage />)
+    render(<MemoryRouter><FleetPage /></MemoryRouter>)
     await screen.findByText('TRP-LIVE')
 
     await user.click(screen.getByTestId('marker-TRP-LIVE'))
@@ -429,7 +431,7 @@ describe('FleetPage', () => {
       .mockResolvedValueOnce(snapshot([LIVE]))
       .mockResolvedValue(snapshot([moved]))
 
-    render(<FleetPage />)
+    render(<MemoryRouter><FleetPage /></MemoryRouter>)
     await screen.findByText('TRP-LIVE')
     await user.click(screen.getByTestId('marker-TRP-LIVE'))
     await openTab(user, /cargo/i)
@@ -442,7 +444,7 @@ describe('FleetPage', () => {
   it('explains, rather than hides, a truck with no position when selected', async () => {
     const user = userEvent.setup()
     vi.spyOn(api, 'activeFleet').mockResolvedValue(snapshot([NEVER_REPORTED]))
-    render(<FleetPage />)
+    render(<MemoryRouter><FleetPage /></MemoryRouter>)
     await screen.findByText('TRP-NOFIX')
 
     await user.click(screen.getByText('TRP-NOFIX'))
@@ -474,7 +476,7 @@ describe('FleetPage', () => {
 
     vi.useFakeTimers()
     try {
-      render(<FleetPage />)
+      render(<MemoryRouter><FleetPage /></MemoryRouter>)
       await act(async () => { await vi.advanceTimersByTimeAsync(0) })
 
       fireEvent.click(screen.getByText('TRP-LIVE'))
@@ -529,7 +531,7 @@ describe('FleetPage', () => {
     vi.spyOn(api, 'activeFleet').mockResolvedValue(snapshot([LIVE]))
     const planRoute = vi.spyOn(api, 'planRoute')
 
-    render(<FleetPage />)
+    render(<MemoryRouter><FleetPage /></MemoryRouter>)
     await screen.findByText('TRP-LIVE')
     await user.click(screen.getByTestId('marker-TRP-LIVE'))
     await openTab(user, /route/i)
@@ -550,7 +552,7 @@ describe('FleetPage', () => {
       providers_attempted: ['osrm'],
     })
 
-    render(<FleetPage />)
+    render(<MemoryRouter><FleetPage /></MemoryRouter>)
     await screen.findByText('TRP-LIVE')
     await user.click(screen.getByTestId('marker-TRP-LIVE'))
     await openTab(user, /route/i)
@@ -574,7 +576,7 @@ describe('FleetPage', () => {
     vi.spyOn(api, 'activeFleet').mockResolvedValue(snapshot([LIVE]))
     vi.spyOn(api, 'listRoutes').mockResolvedValue([ROUTE])
 
-    render(<FleetPage />)
+    render(<MemoryRouter><FleetPage /></MemoryRouter>)
     await screen.findByText('TRP-LIVE')
     await user.click(screen.getByTestId('marker-TRP-LIVE'))
     await openTab(user, /route/i)
@@ -592,7 +594,7 @@ describe('FleetPage', () => {
     vi.spyOn(api, 'activeFleet').mockResolvedValue(snapshot([LIVE]))
     vi.spyOn(api, 'listRoutes').mockResolvedValue([ROUTE])
 
-    render(<FleetPage />)
+    render(<MemoryRouter><FleetPage /></MemoryRouter>)
     await screen.findByText('TRP-LIVE')
     await user.click(screen.getByTestId('marker-TRP-LIVE'))
     await openTab(user, /route/i)
@@ -619,7 +621,7 @@ describe('FleetPage', () => {
       ),
     )
 
-    render(<FleetPage />)
+    render(<MemoryRouter><FleetPage /></MemoryRouter>)
     await screen.findByText('TRP-LIVE')
     await user.click(screen.getByTestId('marker-TRP-LIVE'))
     await openTab(user, /route/i)
@@ -646,7 +648,7 @@ describe('FleetPage', () => {
       ),
     )
 
-    render(<FleetPage />)
+    render(<MemoryRouter><FleetPage /></MemoryRouter>)
     await screen.findByText('TRP-LIVE')
     await user.click(screen.getByTestId('marker-TRP-LIVE'))
     await openTab(user, /route/i)
@@ -665,7 +667,7 @@ describe('FleetPage', () => {
     vi.spyOn(api, 'activeFleet').mockResolvedValue(snapshot([LIVE]))
     vi.spyOn(api, 'listRoutes').mockResolvedValue([ROUTE])
 
-    render(<FleetPage />)
+    render(<MemoryRouter><FleetPage /></MemoryRouter>)
     await screen.findByText('TRP-LIVE')
     await user.click(screen.getByTestId('marker-TRP-LIVE'))
     // The tab gates the DETAILS panel, not the map: the corridor is handed to
@@ -732,7 +734,7 @@ describe('FleetPage', () => {
       const user = userEvent.setup()
       vi.spyOn(api, 'activeFleet').mockResolvedValue(snapshot([LIVE]))
       vi.spyOn(api, 'listRoutes').mockResolvedValue([ROUTE])
-      render(<FleetPage />)
+      render(<MemoryRouter><FleetPage /></MemoryRouter>)
       await screen.findByText('TRP-LIVE')
       await user.click(screen.getByTestId('marker-TRP-LIVE'))
       await openTab(user, /route/i)
@@ -978,7 +980,7 @@ describe('FleetPage', () => {
       const user = userEvent.setup()
       vi.spyOn(api, 'activeFleet').mockResolvedValue(snapshot([LIVE]))
       vi.spyOn(api, 'listRoutes').mockResolvedValue(routes)
-      render(<FleetPage />)
+      render(<MemoryRouter><FleetPage /></MemoryRouter>)
       await screen.findByText('TRP-LIVE')
       await user.click(screen.getByTestId('marker-TRP-LIVE'))
       await openTab(user, /route/i)

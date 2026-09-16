@@ -48,6 +48,8 @@ import {
   type Truck,
 } from '../api/client'
 const FleetMap = lazy(() => import('../components/FleetMap'))
+import { Link } from 'react-router-dom'
+import AssignTruckDialog from '../components/AssignTruckDialog'
 import { FleetKpiBar } from '../components/FleetKpiBar'
 import { RouteCandidateCards, type Candidate } from '../components/RouteCandidateCards'
 import { TruckContextDrawer } from '../components/TruckContextDrawer'
@@ -281,6 +283,8 @@ export default function FleetPage() {
   const [tab, setTab] = useState<'overview' | 'route' | 'cargo' | 'activity'>(
     'overview',
   )
+  // Quick action: the same assignment dialog the Drivers and Trucks pages open.
+  const [assigning, setAssigning] = useState(false)
 
   const trips = useMemo(() => fleet.snapshot?.trips ?? [], [fleet.snapshot])
 
@@ -717,6 +721,24 @@ export default function FleetPage() {
         ) : null}
       </div>
 
+      {/* QUICK ACTIONS. Shortcuts to the canonical workflows, not copies of
+          them: each goes to the one place that action already lives. */}
+      <div role="group" aria-label="Quick actions" className="flex flex-wrap items-center gap-2" data-testid="quick-actions">
+        <Link to="/trips" className="inline-flex min-h-10 items-center rounded-[var(--radius-control)] bg-primary px-3.5 py-2 text-sm font-semibold text-white hover:bg-primary-hover">
+          + New trip
+        </Link>
+        <Button variant="secondary" onClick={() => setAssigning(true)} title="Pair a driver with a truck - one to one, the driver confirms the truck in the app">
+          Assign truck
+        </Button>
+        <Link to="/review" className="inline-flex min-h-10 items-center rounded-[var(--radius-control)] border border-line bg-surface px-3.5 py-2 text-sm font-semibold text-ink hover:bg-soft">
+          Review required
+        </Link>
+        <a href="#on-the-road" className="inline-flex min-h-10 items-center rounded-[var(--radius-control)] border border-line bg-surface px-3.5 py-2 text-sm font-semibold text-ink hover:bg-soft">
+          Active trips{fleet.snapshot ? ` · ${fleet.snapshot.trips.length}` : ''}
+        </a>
+      </div>
+      {assigning ? <AssignTruckDialog onClose={() => setAssigning(false)} onChanged={fleet.refresh} /> : null}
+
       {/* A failed poll is shown alongside the last good reading, never instead
           of it - one blip must not hide the fleet. */}
       {fleet.isStale ? (
@@ -855,6 +877,7 @@ export default function FleetPage() {
           </Suspense>
 
 
+              <div id="on-the-road">
               <Card
                 title="On the road"
                 action={
@@ -945,6 +968,7 @@ export default function FleetPage() {
                   </div>
                 )}
               </Card>
+              </div>
             </div>
 
             <div className="fleet-detail"><Card title={selectedRow ? selectedRow.trip_code : 'Details'}>

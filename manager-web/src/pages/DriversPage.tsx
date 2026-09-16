@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { ApiError, api, type Driver, unavailableReason } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
 import AuthImage, { initials } from '../components/AuthImage'
+import AssignTruckDialog from '../components/AssignTruckDialog'
 import DriverProfileDrawer, { licenceHealth } from '../components/DriverProfileDrawer'
 import {
   Button,
@@ -34,6 +35,8 @@ export default function DriversPage() {
   const [form, setForm] = useState(BLANK)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [profileId, setProfileId] = useState<string | null>(null)
+  // Contextual "Assign truck" on a row: the same dialog Fleet and Trucks open.
+  const [assignFor, setAssignFor] = useState<string | null>(null)
 
   const drivers = useResource(
     () => api.listDrivers({ search: search || undefined }),
@@ -286,9 +289,17 @@ export default function DriversPage() {
                         {health.label}
                       </td>
                       <td className="py-3 text-right">
-                        <Button variant="secondary" onClick={() => setProfileId(driver.id)}>
-                          View profile
-                        </Button>
+                        <div className="flex flex-wrap justify-end gap-2">
+                          {/* Contextual, not a second workflow: a driver with
+                              no truck cannot be dispatched, so the fix is one
+                              click away. Paired drivers change it from the profile. */}
+                          {assignments.status === 'success' && !reg && driver.login_is_active && can('assignment:create') ? (
+                            <Button onClick={() => setAssignFor(driver.id)}>Assign truck</Button>
+                          ) : null}
+                          <Button variant="secondary" onClick={() => setProfileId(driver.id)}>
+                            View profile
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   )
@@ -308,6 +319,9 @@ export default function DriversPage() {
           onClose={() => setProfileId(null)}
           onChanged={reloadContext}
         />
+      ) : null}
+      {assignFor ? (
+        <AssignTruckDialog driverId={assignFor} onClose={() => setAssignFor(null)} onChanged={reloadContext} />
       ) : null}
     </div>
   )

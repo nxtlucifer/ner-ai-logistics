@@ -13,6 +13,7 @@ import { DRIVER_WEB_URL, api, type Assignment, type Driver, type Trip, type Truc
 import { useAuth } from '../auth/AuthProvider'
 import AuthImage, { initials } from './AuthImage'
 import { Button, ErrorState, LoadingState, StatusPill } from './ui'
+import AssignTruckDialog from './AssignTruckDialog'
 import { useMutation, useResource } from '../hooks/useResource'
 
 // A draft is the manager's, not the driver's: only a dispatched trip is "current".
@@ -72,8 +73,9 @@ export default function DriverProfileDrawer({ driver, trucks, assignments, trips
   const delivered = history.filter((t) => t.status === 'DELIVERED' || t.status === 'CLOSED').length
   const health = licenceHealth(driver.licence_expiry)
 
-  const [pickTruck, setPickTruck] = useState('')
-  const assign = useMutation((truckId: string) => api.createAssignment(driver.id, truckId))
+  // Assign / change go through the shared dialog, the same one Fleet and
+  // Trucks open - one place that knows the pairing rules.
+  const [assigning, setAssigning] = useState(false)
   const end = useMutation((id: string) => api.endAssignment(id))
   const manual = useMutation((id: string, plate: string) => api.verifyAssignmentManually(id, plate))
   const deactivate = useMutation((id: string) => api.deactivateDriver(id))
@@ -83,10 +85,6 @@ export default function DriverProfileDrawer({ driver, trucks, assignments, trips
   const deactivateBlocked = unavailableReason('deactivateDriver')
   const supportBlocked = unavailableReason('supportSession')
 
-  async function handleAssign() {
-    if (!pickTruck) return
-    if ((await assign.submit(pickTruck)).data) { setPickTruck(''); onChanged() }
-  }
   async function handleEnd() {
     if (!live || !window.confirm(`End ${driver.full_name}'s assignment to ${truck?.registration_number ?? 'this truck'}? Trips already dispatched keep their record.`)) return
     if ((await end.submit(live.id)).data) onChanged()
@@ -103,8 +101,6 @@ export default function DriverProfileDrawer({ driver, trucks, assignments, trips
     const { data } = await support.submit(driver.id)
     if (data) window.open(`${DRIVER_WEB_URL}/#support=${encodeURIComponent(data.token)}`, '_blank', 'noopener')
   }
-
-  const assignable = trucks.filter((t) => t.status === 'AVAILABLE' && !assignments.some((a) => a.truck_id === t.id && (a.status === 'ACTIVE' || a.status === 'PENDING_VERIFICATION')))
 
   return (
     <div
@@ -162,27 +158,25 @@ export default function DriverProfileDrawer({ driver, trucks, assignments, trips
                   </form>
                 ) : null}
                 {manual.error ? <ErrorState error={manual.error} /> : null}
-                {can('assignment:end') ? (
-                  <Button variant="danger" className="min-h-9 px-2 py-1 text-xs" busy={end.isSubmitting} disabled={endBlocked !== null || current !== null} title={endBlocked ?? (current ? `Cannot end while ${current.trip_code} is open` : undefined)} onClick={() => void handleEnd()}>End assignment</Button>
-                ) : null}
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  {can('assignment:create') ? (
+                    <Button variant="secondary" className="min-h-9 px-2 py-1 text-xs" disabled={current !== null} title={current ? `Cannot change while ${current.trip_code} is open` : 'Move this driver to another truck - the current pairing ends in the same step'} onClick={() => setAssigning(true)}>Change truck</Button>
+                  ) : null}
+                  {can('assignment:end') ? (
+                    <Button variant="danger" className="min-h-9 px-2 py-1 text-xs" busy={end.isSubmitting} disabled={endBlocked !== null || current !== null} title={endBlocked ?? (current ? `Cannot end while ${current.trip_code} is open` : undefined)} onClick={() => void handleEnd()}>End assignment</Button>
+                  ) : null}
+                </div>
                 {end.error ? <ErrorState error={end.error} /> : null}
               </div>
             ) : (
               <div className="mt-1.5 space-y-2 text-sm">
                 <p className="text-warning">No truck assigned — this driver cannot be dispatched until one is.</p>
                 {can('assignment:create') ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <select aria-label="Truck to assign" value={pickTruck} onChange={(e) => setPickTruck(e.target.value)} className="rounded-[var(--radius-control)] border border-outline bg-surface px-2 py-1.5 text-sm">
-                      <option value="">Choose an available truck…</option>
-                      {assignable.map((t) => <option key={t.id} value={t.id}>{t.registration_number} — {Number(t.max_capacity_kg).toLocaleString()} kg</option>)}
-                    </select>
-                    <Button busy={assign.isSubmitting} disabled={!pickTruck || !driver.login_is_active} title={driver.login_is_active ? undefined : 'Login inactive — reactivate first'} onClick={() => void handleAssign()}>Assign truck</Button>
-                  </div>
+                  <Button disabled={!driver.login_is_active} title={driver.login_is_active ? 'Pair this driver with a truck' : 'Login inactive — reactivate first'} onClick={() => setAssigning(true)}>Assign truck</Button>
                 ) : null}
-                {assignable.length === 0 && can('assignment:create') ? <p className="text-xs text-muted">Every available truck is already paired with a driver.</p> : null}
-                {assign.error ? <ErrorState error={assign.error} /> : null}
               </div>
             )}
+            {assigning ? <AssignTruckDialog driverId={driver.id} onClose={() => setAssigning(false)} onChanged={onChanged} /> : null}
           </section>
 
           <section className="rounded-[10px] border border-line p-3">

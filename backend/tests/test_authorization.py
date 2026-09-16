@@ -98,6 +98,24 @@ class TestRoleEnforcement:
         )
         assert r.status_code == 403
 
+    async def test_reviewer_cannot_create_or_end_an_assignment(
+        self, api: AsyncClient, session: AsyncSession
+    ) -> None:
+        """Least privilege: the reviewer reviews routes and touches no pairing."""
+        reviewer = await factories.make_user(session, role=UserRole.AUTHORISED_REVIEWER)
+        headers = await auth_headers(api, reviewer.email, factories.TEST_PASSWORD)
+        driver, _ = await factories.make_driver(session)
+        truck = await factories.make_truck(session)
+        assignment = await factories.make_assignment(session, driver, truck)
+        r = await api.post(
+            "/api/assignments",
+            headers=headers,
+            json={"driver_id": str(driver.id), "truck_id": str(truck.id)},
+        )
+        assert r.status_code == 403, r.text
+        r = await api.post(f"/api/assignments/{assignment.id}/end", headers=headers)
+        assert r.status_code == 403, r.text
+
     async def test_manager_can_create_a_truck(
         self, api: AsyncClient, session: AsyncSession
     ) -> None:

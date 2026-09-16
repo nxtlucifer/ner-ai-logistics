@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { api, unavailableReason } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
+import AssignTruckDialog from '../components/AssignTruckDialog'
 import AuthImage from '../components/AuthImage'
 import {
   Button,
@@ -15,14 +16,12 @@ import { useMutation, useResource } from '../hooks/useResource'
 
 export default function AssignmentsPage() {
   const { can } = useAuth()
-  const [driverId, setDriverId] = useState('')
-  const [truckId, setTruckId] = useState('')
+  const [assigning, setAssigning] = useState(false)
 
   const assignments = useResource(() => api.listAssignments({ activeOnly: true }), [], 'assignments:active', 5_000)
   const drivers = useResource(() => api.listDrivers({ limit: 100 }), [], 'drivers:100')
   const trucks = useResource(() => api.listTrucks({ limit: 100 }), [], 'trucks:100')
 
-  const assign = useMutation((d: string, t: string) => api.createAssignment(d, t))
   const end = useMutation((id: string) => api.endAssignment(id))
   // No-smartphone fallback: the manager confirms the plate by hand. The
   // record says MANAGER_MANUAL; no photo is pretended.
@@ -36,104 +35,26 @@ export default function AssignmentsPage() {
   const truckReg = (id: string) =>
     trucks.data?.items.find((t) => t.id === id)?.registration_number ?? id.slice(0, 8)
 
-  async function handleAssign() {
-    if (!driverId || !truckId) return
-    if ((await assign.submit(driverId, truckId)).data) {
-      setDriverId('')
-      setTruckId('')
-      assignments.reload()
-    }
-  }
-
   async function handleEnd(id: string) {
     if (!window.confirm('End this assignment?')) return
     if ((await end.submit(id)).data) assignments.reload()
   }
 
   const canAssign = can('assignment:create')
-  const referencesLoading =
-    drivers.status === 'loading' || trucks.status === 'loading'
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-bold text-ink">Assignments</h1>
-        <p className="text-xs text-muted">
-          A driver holds one truck at a time, and a truck one driver — enforced by
-          the database, not just here.
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-ink">Assignment records</h1>
+          <p className="text-xs text-muted">
+            A driver holds one truck at a time, and a truck one driver — enforced by
+            the database, not just here. Pair or change from Fleet, a driver's profile or a truck's row.
+          </p>
+        </div>
+        {canAssign ? <Button onClick={() => setAssigning(true)}>Assign truck</Button> : null}
       </div>
-
-      {canAssign ? (
-        <Card title="Assign a driver to a truck">
-          {referencesLoading ? (
-            <LoadingState label="Loading drivers and trucks…" />
-          ) : drivers.status === 'error' || trucks.status === 'error' ? (
-            <ErrorState
-              error={drivers.error ?? trucks.error}
-              onRetry={() => {
-                drivers.reload()
-                trucks.reload()
-              }}
-            />
-          ) : (
-            <>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block">
-                  <span className="text-xs font-medium text-ink">Driver</span>
-                  <select
-                    value={driverId}
-                    onChange={(e) => setDriverId(e.target.value)}
-                    className="mt-1 w-full rounded-[var(--radius-control)] border border-outline bg-surface px-3 py-2 text-sm text-ink focus:border-route focus:ring-1 focus:ring-route"
-                  >
-                    <option value="">Select a driver…</option>
-                    {drivers.data?.items.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.full_name} — {d.licence_number}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="block">
-                  <span className="text-xs font-medium text-ink">Truck</span>
-                  <select
-                    value={truckId}
-                    onChange={(e) => setTruckId(e.target.value)}
-                    className="mt-1 w-full rounded-[var(--radius-control)] border border-outline bg-surface px-3 py-2 text-sm text-ink focus:border-route focus:ring-1 focus:ring-route"
-                  >
-                    <option value="">Select a truck…</option>
-                    {trucks.data?.items.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.registration_number} —{' '}
-                        {Number(t.max_capacity_kg).toLocaleString()} kg
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-
-              {assign.error ? (
-                <div className="mt-3">
-                  <ErrorState error={assign.error} />
-                </div>
-              ) : null}
-
-              <div className="mt-4">
-                <Button
-                  onClick={handleAssign}
-                  busy={assign.isSubmitting}
-                  // Disabled until both are chosen, so the action is never
-                  // present-but-broken.
-                  disabled={!driverId || !truckId}
-                >
-                  {assign.isSubmitting ? 'Assigning…' : 'Assign'}
-                </Button>
-              </div>
-            </>
-          )}
-        </Card>
-      ) : null}
+      {assigning ? <AssignTruckDialog onClose={() => setAssigning(false)} onChanged={assignments.reload} /> : null}
 
       <Card title="Active assignments">
         {assignments.status === 'loading' ? (

@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 
+import AssignTruckDialog from '../components/AssignTruckDialog'
+
 import { ApiError, api, type Truck, unavailableReason } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
 import AuthImage from '../components/AuthImage'
@@ -44,7 +46,22 @@ export default function TrucksPage() {
   const driverFor = (truckId: string) => {
     const live = assignments.data?.find((a) => a.truck_id === truckId && (a.status === 'ACTIVE' || a.status === 'PENDING_VERIFICATION'))
     if (!live) return null
-    return { name: drivers.data?.items.find((d) => d.id === live.driver_id)?.full_name ?? live.driver_id.slice(0, 8), verified: live.verified_at !== null, mismatch: live.mismatch_flagged }
+    return { id: live.id, name: drivers.data?.items.find((d) => d.id === live.driver_id)?.full_name ?? live.driver_id.slice(0, 8), verified: live.verified_at !== null, mismatch: live.mismatch_flagged }
+  }
+  // Assign / change driver and End assignment: the same dialog and the same
+  // server calls the driver profile uses. The truck is preselected here.
+  const [assignFor, setAssignFor] = useState<string | null>(null)
+  const endAssignment = useMutation((id: string) => api.endAssignment(id))
+  const [endingId, setEndingId] = useState<string | null>(null)
+  async function handleEndAssignment(truck: Truck) {
+    const holder = driverFor(truck.id)
+    if (!holder || !window.confirm(`End ${holder.name}'s assignment to ${truck.registration_number}? Trips already dispatched keep their record.`)) return
+    setEndingId(truck.id)
+    try {
+      if ((await endAssignment.submit(holder.id)).data) { assignments.reload(); drivers.reload() }
+    } finally {
+      setEndingId(null)
+    }
   }
   const tripFor = (truckId: string) => trips.data?.items.find((t) => t.truck_id === truckId && ['ASSIGNED', 'VERIFICATION_PENDING', 'ACTIVE', 'DELAYED'].includes(t.status)) ?? null
 
@@ -293,6 +310,30 @@ export default function TrucksPage() {
                       {trips.status === 'success' ? (open ? <span className="text-ink">{open.trip_code} <span className="text-muted">· {open.status.replaceAll('_', ' ').toLowerCase()}</span></span> : <span className="text-muted">none</span>) : <span className="text-muted">—</span>}
                     </td>
                     <td className="py-3 text-right">
+                      <div className="flex flex-wrap justify-end gap-2">
+                      {can('assignment:create') && assignments.status === 'success' && truck.status !== 'RETIRED' ? (
+                        <Button
+                          variant={holder ? 'secondary' : 'primary'}
+                          className="min-h-9 px-2 py-1 text-xs"
+                          disabled={open !== null}
+                          title={open ? `On ${open.trip_code} — the pairing cannot change until it ends` : holder ? 'Move this truck to another driver - the current pairing ends in the same step' : 'Pair a driver with this truck'}
+                          onClick={() => setAssignFor(truck.id)}
+                        >
+                          {holder ? 'Change driver' : 'Assign driver'}
+                        </Button>
+                      ) : null}
+                      {can('assignment:end') && holder ? (
+                        <Button
+                          variant="secondary"
+                          className="min-h-9 px-2 py-1 text-xs"
+                          busy={endingId === truck.id}
+                          disabled={open !== null || endingId !== null}
+                          title={open ? `Cannot end while ${open.trip_code} is open` : 'Free this truck and its driver from each other'}
+                          onClick={() => void handleEndAssignment(truck)}
+                        >
+                          End assignment
+                        </Button>
+                      ) : null}
                       {can('truck:retire') ? (
                         <Button
                           variant="danger"
@@ -305,6 +346,7 @@ export default function TrucksPage() {
                           Retire
                         </Button>
                       ) : null}
+                      </div>
                     </td>
                   </tr>
                   )
@@ -319,7 +361,15 @@ export default function TrucksPage() {
             <ErrorState error={retire.error} />
           </div>
         ) : null}
+        {endAssignment.error ? (
+          <div className="mt-3">
+            <ErrorState error={endAssignment.error} />
+          </div>
+        ) : null}
       </Card>
+      {assignFor ? (
+        <AssignTruckDialog truckId={assignFor} onClose={() => setAssignFor(null)} onChanged={() => { assignments.reload(); drivers.reload(); trucks.reload() }} />
+      ) : null}
     </div>
   )
 }
