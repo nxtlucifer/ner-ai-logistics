@@ -112,7 +112,6 @@ export default function ReviewPage() {
     })()
   }, [])
 
-
   /**
    * Eligibility is NOT fetched on selecting a trip.
    *

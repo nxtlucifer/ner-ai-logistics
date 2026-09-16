@@ -1681,3 +1681,60 @@ NOT_CONFIGURED, no send path. Connectivity source on main: poll round-trip
 **Current counts.** Backend 1171 passed / 5 skipped; manager 218; driver 624;
 typecheck and build clean. judge.sh reset + check: READY (re-checked after
 the run).
+
+## 16. "Use this route" did nothing (16 Sep 2026, 11:10-12:35 UTC) - two live defects, fixed and rechecked on the hosted console
+
+**Reproduced first, through the hosted UI.** Trips -> Review route on the
+user's drafts (TRP-4205BC9C, two corridors, 370.75 / 397.70 km; TRP-ED782120,
+one corridor, 215.6 km) -> Check conditions & review -> the panel read
+REQUIRES REVIEW with "Warnings ... Traffic UNKNOWN", and offered a greyed
+"Use this route" with an empty title. One real mouse click: no request left
+the browser, the row stayed "Not selected / Needs a route". The recommendation
+response carried `ROUTE_SELECTION_REQUIRES_REVIEW, ROUTE_HAZARD_DATA_UNKNOWN,
+LANDSLIDE_DATA_NOT_CONFIGURED`: on the hosted backend no landslide inventory is
+configured, so EVERY corridor is REQUIRES_REVIEW and a manager can never select
+directly - a reviewer's authorisation is a mandatory step. UNKNOWN stayed
+UNKNOWN; nothing here bypasses review.
+
+**Defect 1 (APP, P1 for the demo path) - wrong control for the state.** The
+Trips review panel and the Fleet route cards showed a disabled primary
+"Use this route" for REVIEW_REQUIRED (no way forward), for REJECTED and for
+NOT_ASSESSED (the Trips panel with no title). Fix 96e5170: one control per
+server state in both panels - SELECTABLE "Use this route"; REVIEW_REQUIRED a
+link "Open review" -> `/review?trip=<id>` with "Safety review required before
+this route can be selected ..."; REJECTED "Route blocked", disabled, reason as
+title; NOT_ASSESSED shut with its reason as title; SELECTED "Route assigned".
+A refusal at selection time re-reads eligibility so the next control is the
+right one. The Review page lands on the trip named in the link and withholds
+the authorise form from anyone without `route:review_authorize`, saying so.
+Red tests first (TripRouteReview 9, TripsPage row update, Fleet cards).
+
+**Defect 2 (APP, P2) - a slow conditions check failed invisibly.** Every
+request had a 15 s budget; the two-corridor check outlasted it cold (direct
+measurement afterwards: 15.4 s cold, 6.5 s warm, 192 KB body), the client
+aborted, and the error rendered at the TOP of the card - off-screen for a
+manager looking at the button - as "Cannot reach the backend ... port 8000".
+Fix bae1542: the recommendation and reroute reads get 90 s; a timeout is
+named ("The backend did not answer in time"); the failure renders inside the
+decision block next to the control, and Try again repeats the failed action.
+
+**Hosted human recheck (real Chromium, every action through the UI).**
+- 11:37-11:45, TRP-ED782120: manager -> Open review -> reviewer signs in,
+  lands on the trip, Check hazard evidence, rationale, "Authorise one
+  selection" (POST 201) -> manager: Check conditions again -> "Use this route"
+  enabled, sentence "A reviewer authorized one selection ..." -> ONE click ->
+  ONE `POST .../select?authorization_id=...` 200 -> ROUTE SELECTED / "Route
+  assigned" -> row "Selected / Ready to dispatch", Dispatch enabled -> reload
+  keeps all of it. 16/23; the seven misses were the automation clicking
+  before the panel settled, redone below.
+- 12:33, TRP-4205BC9C (nobody has authorised it - left that way on purpose):
+  REQUIRES REVIEW, no "Use this route", "Open review" -> Review page with the
+  trip preselected, "Only an authorised reviewer can accept this ...".
+  10/10, console clean.
+- Screenshots `.runtime/evidence/use-route/` (10-18, TRP-*-0[1-3]).
+
+**Observed while rechecking, not changed.** `render.yaml` has no build filter
+on the backend service, so every push (docs or manager-only) restarts the
+backend; requests during those minutes time out or close. Sign-ins from the
+automation and from a human share one manager session - each kicks the other.
+Manager 224 passed, typecheck/lint/build clean; backend and driver untouched.
