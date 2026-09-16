@@ -1503,3 +1503,68 @@ ROUTE_SELECTION_REQUIRED; Guwahati -> Ahmedabad plan -> 422 naming the
 destination; canonical JUDGE draft (route selected, authorised) -> 200
 ASSIGNED. judge.sh reset + check: READY. Route UI, driver UI and APK
 untouched.
+
+
+## 13. Master work mission (16 Sep 2026) - cargo on the truck is never cancelled silently
+
+Commit a584ddd. Preflight facts that decided the scope: pickup-first
+navigation is structural (`driver_trips.next_actionable_stop` walks stops in
+sequence, the pickup is sequence 0, arrive/complete are explicit - no
+auto-completion by time or geofence); the phone derives staleness from poll
+round-trips (`TripProvider.isStale`) and nothing reads signal bars or
+`navigator.onLine`; the demo reset FINISHES active trips and cancels only
+undispatched ones. Draft PR #1 (`claude/pdf-master-mission-gohuj5`, 7.6k
+lines: connectivity evidence, trip kit v2 with per-dataset freshness, durable
+device-event queue and idempotent replay, migration 0013, migrations.yml with
+`pg_depend` schema ownership) already holds the 9 km prefetch and trip-kit
+work; it is NOT merged and was not touched - the user decides. Nothing in this
+commit conflicts with it (no migration, no shared driver-app files).
+
+**Trip lifecycle at the pickup boundary.** `trips.cancel` now branches on
+`cargo_loaded` (pickup stop COMPLETED). Before pickup: unchanged, plus a
+TRIP_CANCELLED notification the driver can read at `GET /api/driver/me/notices`
+after the trip has left the screen. After pickup: reason >= 10 chars
+(`422 CANCEL_REASON_REQUIRED`) and one of `DISPOSITIONS`
+(`422 POST_PICKUP_RESOLUTION_REQUIRED`): RETURN_TO_DEPOT / NEW_DESTINATION skip
+the pending drop-off, append a new DROPOFF (in-region, else
+`422 OUTSIDE_SERVICE_REGION`), leave the current route untouched and plan
+candidates for the new destination (a provider failure leaves the redirect
+intact; the manager re-plans from Fleet); HOLD_FOR_INSTRUCTION -> DELAYED;
+COMPLETE_CURRENT_LEG audits only; CARGO_UNLOADED closes as CANCELLED with the
+disposition on record. Every instruction is a TripEvent payload with
+`requires_ack` (DELAY_DETECTED / ROUTE_CHANGED - no enum migration, see PR #1),
+the driver acknowledges once (`POST /me/trip/instruction/ack`, an ACCEPTED
+event naming the instruction, idempotent), and `pending_instruction` on both
+the driver's trip and the manager's trip detail tells "sent" from "seen".
+Manager console: a started trip is stopped through a dialog that reads the
+cargo state from the server and disables submit with the reason until both
+facts are given. Driver app: instruction banner + Acknowledge, cancellation
+notice on the no-trip screen, four-language strings.
+
+**Also.** EMERGENCY_BACKUP capped at two distinct extras
+(`routes.MAX_EMERGENCY_BACKUPS`); Diagnostics carries an SMS row that reads
+NOT_CONFIGURED (`SMS_PROVIDER` unset) and nothing simulates a send;
+`demo.py finish` skips SKIPPED stops.
+
+**Tests.** Backend 1170 passed / 5 skipped (new: 10 post-pickup cases, the
+pickup-first test, the backup cap); manager 210; driver 624 (phrase coverage
+included). Typecheck and production build clean. No secrets in the diff.
+
+**Hosted (targeted).** `smoke_post_pickup.py`
+prepare (JUDGE-6BE6DE dispatched, driver accepted/verified/started, pickup
+COMPLETED) -> gate: bare cancel 422 CANCEL_REASON_REQUIRED, reason-only 422
+POST_PICKUP_RESOLUTION_REQUIRED, status ACTIVE. `stop_dialog_check.mjs` (real
+Chromium, 10/10): row reads "Stop / change", dialog says "Cargo is on the
+truck - pickup completed at 1:08:41 PM", submit disabled with the reason, HOLD
+chosen -> Apply -> row DELAYED, no exceptions, no 5xx (screens
+.runtime/evidence/delta/12-14). ack: driver sees DELAYED with the instruction
+and reason, acknowledges once, manager's pending_instruction clears. finish:
+DELIVERED. before: dispatch -> cancel before pickup -> CANCELLED, driver's
+current trip null, latest notice TRIP_CANCELLED with the reason. judge.sh
+reset + check: READY.
+
+**Not done, on purpose.** FLYNN/GRU shadow research (P4, "only after P0/P1 = 0
+and time remains" - the deadline is today); a weak-zone coverage dataset does
+not exist, so WEAK_ZONE_PREDICTION = DATA_UNAVAILABLE; APK 1.0.18 not rebuilt
+(the driver-app change ships in the driver web; a phone rebuild needs the user's
+EAS run and re-certification).
