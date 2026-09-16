@@ -15,9 +15,18 @@
  * written in words next to the pill, and a control that would be refused by
  * the server is disabled with that same sentence as its title. "Use this
  * route, then an error" is the failure this exists to remove.
+ *
+ * REVIEW REQUIRED is the one state with a way forward that is not a click
+ * here: an authorised reviewer must accept the incomplete evidence under
+ * Review. So the card offers THAT - "Open review", landing on this trip -
+ * rather than a greyed "Use this route" that can never work. On the hosted
+ * deployment, with no landslide inventory configured, every corridor starts
+ * in this state; the dead grey button was the whole panel for a manager.
  */
 
-import { Button, StatusPill } from './ui'
+import { Link } from 'react-router-dom'
+
+import { Button, LINK_BUTTON, StatusPill } from './ui'
 import type { ReviewAuthorization, RouteComparison, TripRoute } from '../api/client'
 import { translateReasonCodes } from '../i18n/reasonCodes'
 
@@ -56,7 +65,7 @@ export function candidateMessage(c: Candidate, state: CandidateState, inTransit:
         ? 'Authorised for one selection by a reviewer. The hazard evidence is still incomplete — this records who accepted that, not that the road was checked.'
         : 'Eligible under the checks that ran. Not a safety guarantee.'
     case 'REVIEW_REQUIRED':
-      return 'Safety review required — hazard evidence is incomplete or elevated. An authorised reviewer must accept it before this road can be used.'
+      return 'Safety review required before this route can be selected — hazard evidence is incomplete or elevated. An authorised reviewer must accept it under Review; check conditions again afterwards.'
     case 'BLOCKED':
       return 'Blocked by an active hazard. This road cannot be used.'
     case 'STALE':
@@ -74,6 +83,8 @@ function minutes(m: number | null): string {
 }
 
 export interface RouteCandidateCardsProps {
+  /** For the review link: a reviewer lands on this trip, not on a list. */
+  tripId: string
   candidates: Candidate[]
   /** From the comparison rule. Null when nothing was compared. */
   recommendedRouteId: string | null
@@ -90,6 +101,7 @@ export interface RouteCandidateCardsProps {
 }
 
 export function RouteCandidateCards({
+  tripId,
   candidates,
   recommendedRouteId,
   inTransit,
@@ -196,14 +208,16 @@ export function RouteCandidateCards({
               ) : null}
 
               <div className="mt-2 flex flex-wrap gap-2">
-                {state !== 'SELECTED' && state !== 'STALE' ? (
+                {state === 'REVIEW_REQUIRED' ? (
+                  <Link to={`/review?trip=${tripId}`} className={LINK_BUTTON}>Open review</Link>
+                ) : state !== 'SELECTED' && state !== 'STALE' ? (
                   <Button
                     busy={busy}
                     disabled={!actionable || (choosingId !== null && !busy)}
                     title={actionable ? undefined : message}
                     onClick={() => onChoose(r.id, c.authorization?.id)}
                   >
-                    {busy ? 'Applying…' : rerouting ? 'Reroute onto this' : 'Use this route'}
+                    {busy ? 'Applying…' : state === 'BLOCKED' ? 'Route blocked' : rerouting ? 'Reroute onto this' : 'Use this route'}
                   </Button>
                 ) : null}
                 <Button variant="secondary" onClick={() => onPreview(previewId === r.id ? null : r.id)}>

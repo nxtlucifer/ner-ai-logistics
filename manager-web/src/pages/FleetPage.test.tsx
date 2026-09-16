@@ -1072,9 +1072,9 @@ describe('FleetPage', () => {
 
       await screen.findByText('REVIEW REQUIRED')
       expect(screen.getByText(/safety review required/i)).toBeDefined()
-      const button = screen.getByRole('button', { name: /use this route/i })
-      expect(button.hasAttribute('disabled')).toBe(true)
-      expect(button.title).toMatch(/safety review required/i)
+      // A control that can never work is not offered; the way forward is.
+      expect(screen.queryByRole('button', { name: /use this route/i })).toBeNull()
+      expect(screen.getByRole('link', { name: /open review/i }).getAttribute('href')).toBe(`/review?trip=${LIVE.trip_id}`)
       // Nothing measured, nothing said: no fuel model, no verified pipeline,
       // no paragraph about a road this trip is not on.
       expect(screen.queryByText(/physics|CMEM|stages verified|kaziranga|dual-ai/i)).toBeNull()

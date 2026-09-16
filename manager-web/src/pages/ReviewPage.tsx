@@ -23,6 +23,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 
 import {
   api,
@@ -32,6 +33,7 @@ import {
   type TripRoute,
   unavailableReason,
 } from '../api/client'
+import { useAuth } from '../auth/AuthProvider'
 import { Button, Card, EmptyState, ErrorState, LoadingState } from '../components/ui'
 import { translateReasonCodes } from '../i18n/reasonCodes'
 
@@ -48,6 +50,11 @@ function Field({ label, value }: { label: string; value: string }) {
 }
 
 export default function ReviewPage() {
+  const { can } = useAuth()
+  // A manager can read everything here and authorise nothing; the form is
+  // withheld and the reason said, rather than offered and then refused (403).
+  const mayAuthorize = can('route:review_authorize')
+  const [params] = useSearchParams()
   const [trips, setTrips] = useState<Trip[] | null>(null)
   const [loadError, setLoadError] = useState<unknown>(null)
   const [tripId, setTripId] = useState<string | null>(null)
@@ -63,19 +70,6 @@ export default function ReviewPage() {
   const [rationale, setRationale] = useState<Record<string, string>>({})
   const [busyRoute, setBusyRoute] = useState<string | null>(null)
   const [actionError, setActionError] = useState<unknown>(null)
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        // Only trips whose route can still be chosen or changed. A delivered or
-        // cancelled trip has nothing left to review, so it is not offered.
-        const items = (await api.listTrips({ limit: 50 })).items
-        setTrips(items.filter((t) => ['DRAFT', 'ASSIGNED', 'VERIFICATION_PENDING', 'ACTIVE', 'DELAYED'].includes(t.status)))
-      } catch (error) {
-        setLoadError(error)
-      }
-    })()
-  }, [])
 
   const loadTrip = useCallback(async (id: string) => {
     setTripId(id)
@@ -100,6 +94,24 @@ export default function ReviewPage() {
       setDetailError(error)
     }
   }, [])
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        // Only trips whose route can still be chosen or changed. A delivered or
+        // cancelled trip has nothing left to review, so it is not offered.
+        const items = (await api.listTrips({ limit: 50 })).items
+        const open = items.filter((t) => ['DRAFT', 'ASSIGNED', 'VERIFICATION_PENDING', 'ACTIVE', 'DELAYED'].includes(t.status))
+        setTrips(open)
+        // "Open review" from a trip's route panel names the trip: land on it.
+        const wanted = params.get('trip')
+        if (wanted && open.some((t) => t.id === wanted)) void loadTrip(wanted)
+      } catch (error) {
+        setLoadError(error)
+      }
+    })()
+  }, [])
+
 
   /**
    * Eligibility is NOT fetched on selecting a trip.
@@ -295,6 +307,10 @@ export default function ReviewPage() {
                           </Button>
                         </div>
                       </div>
+                    ) : reviewable && !mayAuthorize ? (
+                      <p className="mt-3 text-[11px] text-warning">
+                        Only an authorised reviewer can accept this. Ask one to sign in and open this trip under Review; then check conditions again on the trip.
+                      </p>
                     ) : reviewable ? (
                       <div className="mt-3 space-y-2">
                         <label className="block text-[11px]">

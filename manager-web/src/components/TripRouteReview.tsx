@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api, type ReviewAuthorization, type RouteRecommendation, type RouteRiskSummary, type Trip, type TripDetail, type TripRoute } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
-import { Button, Card, EmptyState, ErrorState, LoadingState, StatusPill } from './ui'
+import { Button, Card, EmptyState, ErrorState, LINK_BUTTON, LoadingState, StatusPill } from './ui'
 import { factorLabels, translateReasonCodes } from '../i18n/reasonCodes'
 
 const FleetMap = lazy(() => import('./FleetMap'))
@@ -209,7 +210,20 @@ export default function TripRouteReview({ trip, onChanged }: { trip: Trip; onCha
   const held = preview ? authorizations[preview] : null
   const authorization = held && !held.consumed_at && !held.revoked_at && Date.parse(held.expires_at) > Date.now() ? held : null
   const selectable = eligible?.eligibility === 'ELIGIBLE' || (eligible?.eligibility === 'REQUIRES_REVIEW' && authorization !== null)
+  // The way forward is not a click here: a reviewer must accept the evidence.
+  const needsReview = eligible?.eligibility === 'REQUIRES_REVIEW' && authorization === null
   const editable = detail?.status === 'DRAFT' || detail?.status === 'ASSIGNED'
+  // One sentence per state - shown above the control and carried as its title
+  // when it is shut, so a greyed button is never unexplained.
+  const verdict = eligible?.eligibility === 'REJECTED'
+    ? 'An active hazard blocks this road. It cannot be selected.'
+    : eligible?.eligibility === 'REQUIRES_REVIEW'
+      ? authorization
+        ? 'A reviewer authorized one selection. Hazard evidence remains incomplete.'
+        : 'Safety review required before this route can be selected. Hazard evidence is incomplete or elevated — an authorised reviewer must accept it under Review; then check conditions again here.'
+      : eligible?.eligibility === 'ELIGIBLE'
+        ? 'Eligible under the checks that ran. This is not a safety guarantee.'
+        : 'Check current conditions before selecting a route.'
 
   async function assess() {
     const result = await api.routeRecommendation(trip.id)
@@ -307,18 +321,30 @@ export default function TripRouteReview({ trip, onChanged }: { trip: Trip; onCha
       ) : null}
       {route ? <div className="rounded-xl bg-soft p-4 space-y-3">
         <StatusPill status={eligible?.eligibility ?? 'NOT_ASSESSED'} />
-        <p className="text-sm">{eligible?.eligibility === 'REJECTED' ? 'An active hazard blocks this road. It cannot be selected.' : eligible?.eligibility === 'REQUIRES_REVIEW' ? authorization ? 'A reviewer authorized one selection. Hazard evidence remains incomplete.' : 'Hazard evidence is incomplete or elevated. An authorised reviewer must review this route before selection. Refresh conditions after review.' : eligible?.eligibility === 'ELIGIBLE' ? 'Eligible under the checks that ran. This is not a safety guarantee.' : 'Check current conditions before selecting a route.'}</p>
+        <p className="text-sm">{verdict}</p>
         {eligible ? <p className="text-xs text-muted">{translateReasonCodes(eligible.risk.reason_codes, 'en').join(' · ')}</p> : null}
         {assessment?.unavailable_inputs.length ? <p className="text-xs text-muted">Unavailable: {factorLabels(assessment.unavailable_inputs)}</p> : null}
         {eligible ? <p className="text-xs text-muted" data-testid="evidence-coverage">Evidence coverage · {evidenceCoverage(eligible.risk)}</p> : null}
         {eligible ? <TerrainHazardSummary risk={eligible.risk} /> : null}
-        {can('route:select') && editable ? <Button disabled={busy !== null || !selectable || route.is_current} busy={busy === 'select'} onClick={() => void run('select', async () => {
-          if (!selectable) return
-          await api.selectRoute(trip.id, route.id, authorization?.id)
-          if (!active.current) return
-          setAssessment(null); setAuthorizations({})
-          await read(); onChanged()
-        })}>{route.is_current ? 'Route assigned' : 'Use this route'}</Button> : null}
+        {can('route:select') && editable ? (
+          route.is_current ? <Button disabled>Route assigned</Button>
+          : needsReview ? <Link to={`/review?trip=${trip.id}`} className={LINK_BUTTON}>Open review</Link>
+          : <Button disabled={busy !== null || !selectable} busy={busy === 'select'} title={selectable ? undefined : verdict} onClick={() => void run('select', async () => {
+            if (!selectable) return
+            try {
+              await api.selectRoute(trip.id, route.id, authorization?.id)
+            } catch (caught) {
+              // The server's refusal is the truth: re-read eligibility so the
+              // control shown next is the right one (an authorisation may have
+              // been spent or expired since the check), then show the refusal.
+              await assess().catch(() => {})
+              throw caught
+            }
+            if (!active.current) return
+            setAssessment(null); setAuthorizations({})
+            await read(); onChanged()
+          })}>{eligible?.eligibility === 'REJECTED' ? 'Route blocked' : 'Use this route'}</Button>
+        ) : null}
       </div> : null}
     </>}
   </Card>

@@ -16,7 +16,9 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiError, api, type Trip } from '../api/client'
+import { MemoryRouter } from 'react-router-dom'
+
+import { ApiError, api, type Trip, type TripRoute } from '../api/client'
 
 // TripsPage reads only `can` from the auth context. Rendering the real
 // provider would pull in a live /api/auth/me round trip that has nothing to do
@@ -35,6 +37,9 @@ vi.mock('../auth/AuthProvider', () => ({
     can: () => true,
   }),
 }))
+
+// The review panel lazy-loads the map; jsdom has no WebGL.
+vi.mock('../components/FleetMap', () => ({ default: () => <div>Map loaded</div> }))
 
 import TripsPage from './TripsPage'
 
@@ -363,6 +368,40 @@ describe('TripsPage', () => {
     expect(dispatch.disabled).toBe(true)
     expect(dispatch.title).toMatch(/select a route/i)
     expect(screen.getByText(/needs a route/i)).toBeDefined()
+  })
+
+  it('a route selected in the review panel moves the row from Not selected to Selected and opens Dispatch', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('scrollTo', vi.fn())
+    const draft = trip({ status: 'DRAFT', selected_route_id: null })
+    const road: TripRoute = { id: 'road', kind: 'PRIMARY', state: 'PROPOSED', distance_km: '98.8', estimated_duration_min: 150, routing_provider: 'test provider', created_at: new Date().toISOString(), geometry: [[26, 91], [25.5, 91.9]], is_current: false }
+    const listTrips = vi.spyOn(api, 'listTrips').mockResolvedValue({ items: [draft], next_cursor: null })
+    vi.spyOn(api, 'getTrip').mockResolvedValue({ ...draft, stops: [], shipment: { id: 'sh1', reference_code: 'DEMO', client_name: 'Synthetic client', total_weight_kg: '1000', priority: 'NORMAL' } })
+    const listRoutes = vi.spyOn(api, 'listRoutes').mockResolvedValue([road])
+    vi.spyOn(api, 'reviewAuthorization').mockResolvedValue(null)
+    vi.spyOn(api, 'routeRecommendation').mockResolvedValue({ recommended_route_id: 'road', baseline_route_id: 'road', comparable: false, reason_codes: [], tradeoff: null, unavailable_inputs: [], margin_points: 10, version: 'test', candidates: [{ route_id: 'road', kind: 'PRIMARY', distance_km: 98.8, estimated_duration_min: 150, eligibility: 'ELIGIBLE', risk: { score: 10, band: 'LOW', unavailable: [], reason_codes: [] } }] })
+    vi.spyOn(api, 'selectRoute').mockImplementation(async () => {
+      // The server's state after the selection: what the reloads must show.
+      listTrips.mockResolvedValue({ items: [{ ...draft, selected_route_id: 'road' }], next_cursor: null })
+      listRoutes.mockResolvedValue([{ ...road, is_current: true }])
+      return { ...road, is_current: true }
+    })
+
+    render(<MemoryRouter><TripsPage /></MemoryRouter>)
+    await screen.findByText('TRP-ALPHA')
+    expect(screen.getByText('Not selected')).toBeDefined()
+    expect((screen.getByRole('button', { name: /^dispatch$/i }) as HTMLButtonElement).disabled).toBe(true)
+
+    await user.click(screen.getByRole('button', { name: 'Review route' }))
+    await user.click(await screen.findByRole('button', { name: 'Check conditions & review' }))
+    const use = (await screen.findByRole('button', { name: 'Use this route' })) as HTMLButtonElement
+    await waitFor(() => expect(use.disabled).toBe(false))
+    await user.click(use)
+
+    await screen.findByText('Selected')
+    expect(screen.getByText(/ready to dispatch/i)).toBeDefined()
+    await waitFor(() => expect((screen.getByRole('button', { name: /^dispatch$/i }) as HTMLButtonElement).disabled).toBe(false))
+    expect(api.selectRoute).toHaveBeenCalledTimes(1)
   })
 
   it('still surfaces a refused Dispatch', async () => {

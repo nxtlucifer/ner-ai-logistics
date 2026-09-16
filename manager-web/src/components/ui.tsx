@@ -67,6 +67,10 @@ export function Button({
   )
 }
 
+/** A <Link> dressed as the primary button - for an action that is a navigation. */
+export const LINK_BUTTON =
+  'inline-flex min-h-11 items-center justify-center rounded-[var(--radius-control)] bg-primary px-4 py-2 text-sm font-semibold text-white shadow-[var(--shadow-card)] hover:bg-primary-hover'
+
 export function Spinner() {
   return (
     <span

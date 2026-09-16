@@ -1286,6 +1286,7 @@ export default function FleetPage() {
 
                   {cards.length > 0 ? (
                     <RouteCandidateCards
+                      tripId={selectedTripId ?? ''}
                       candidates={cards}
                       recommendedRouteId={recommendedId}
                       inTransit={inTransit}
