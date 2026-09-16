@@ -1624,3 +1624,60 @@ touched. Screens .runtime/evidence/delta/15-18.
 "detail" is the row: registration, capacity, status, holder + verification,
 current trip, and the three actions; a drawer would duplicate it. APK not
 rebuilt, driver app untouched.
+
+
+## 15. Independent demo-readiness fact check (16 Sep 2026, 10:08-10:25 UTC)
+
+Evidence gathered today on the current deployment, not carried over from
+earlier reports. HEAD 938abc7 (docs after 1376e5d; last code commits per
+surface: manager 938abc7, backend a584ddd, driver a584ddd). Deployment match:
+the served manager bundle carries the markers of 938abc7 ("details:not([open])"
+Tab wrap, "older than the newest 50", "Assign a truck", "Stop or change"), the
+driver web bundle carries a584ddd's ("instruction/ack", "Trip cancelled by your
+manager", "settledPosition"), the backend answered a584ddd's behaviour live this
+morning (SMS NOT_CONFIGURED row; 422 CANCEL_REASON_REQUIRED /
+POST_PICKUP_RESOLUTION_REQUIRED). Draft PR #1 open, untouched.
+
+**P3 fixed (938abc7).** The profile drawer's empty Tab stop was reproduced on
+the hosted console (09:44: "... Support & danger zone > BODY > Close"). The
+map picker's edge wrap became `focusTrap.wrapTab`, shared by the picker, the
+drawer and the assign dialog, skipping controls inside a closed <details> as
+the browser does. Unit tests for the helper and the drawer; hosted keyboard
+re-check 10:15: twelve Tabs never leave the drawer and wrap to Close,
+Shift+Tab from Close lands on the last control, Escape closes, focus returns
+to View profile. Manager 218 passed.
+
+**Roles, live.** Driver credentials on the manager console: "Manager account
+required.", no shell, no session after reload. Reviewer: navigation is
+Trips / Review / Diagnostics; /drivers by URL yields no driver list or
+actions; server-side the reviewer is refused assignment create/end (test).
+
+**Core flow, once, on the current deployment (manager_human_cert_guidance,
+19/22, JUDGE-55B491).** Console replan 98.82 km; reviewer authorises; ROUTE
+SELECTED; dispatch; driver accepts, verifies the truck, starts; turn-by-turn
+on the manager-planned route ("7.1 km Turn right", 4,341 pts) - the first
+target is the pickup by construction (stops execute in order; verified via API
+this morning: next_stop = pickup, then COMPLETED, then the drop-off); real
+off-route -> "awaits manager"; Fleet shows PLANNED ROUTE OPTIONS with the
+current road and the 74.17 km backup; reviewer authorises the backup; "Reroute
+onto this" enabled; the driver then follows the backup with guidance ("750 m
+Turn left", 3,529 pts); delivery; DELIVERED. The three misses are the same
+script expectations as before (a selection survives a replan by design;
+two reads taken while the inspector reloaded - the next step proved the
+switch). Post-pickup rules, cancel-before-pickup and driver acknowledgement
+were exercised live at 07:39-07:44 today (smoke_post_pickup + stop dialog).
+
+**Not verified today, said plainly.** Nothing on a physical phone: APK 1.0.18
+predates f0740dd (map layer split, settled pin) and a584ddd (instruction
+banner, cancellation notice) - APK_HAS_LATEST_DRIVER_CODE = NO; the certified
+phone flow of 14 Sep remains the phone evidence. Widths 768/1024/1366/1920
+were swept at 09:03 (probe, 0 px overflow), 1280/1440 at 09:43 (0 px; the only
+"clipped" control was the map marker of a truck outside the view).
+9 km prefetch is not on main (draft PR #1 only; the OSM tile policy comment in
+the driver client notes that tile prefetch is prohibited anyway). SMS:
+NOT_CONFIGURED, no send path. Connectivity source on main: poll round-trip
+(`isStale`); nothing reads signal bars or navigator.onLine.
+
+**Current counts.** Backend 1171 passed / 5 skipped; manager 218; driver 624;
+typecheck and build clean. judge.sh reset + check: READY (re-checked after
+the run).
