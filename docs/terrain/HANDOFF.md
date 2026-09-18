@@ -1887,3 +1887,87 @@ gated to `route:review_authorize`, so a manager reaches `/review` only by URL.
 The reroute approval ("Approve & reroute", from_route_id) is covered by two
 API tests and the Fleet-card unit test, not by a hosted moving-truck run.
 
+## 19. Manager approval of a LIVE reroute (18 Sep 2026) - hosted smoke
+
+**What was being closed.** HANDOFF 18 left one gap: the manager's approval of a
+reroute ("Approve & reroute", `from_route_id`) was covered by API tests and a
+manager-web unit test, never by a moving truck on the hosted stack.
+
+**Setup, canonical tooling only.** `judge.sh reset` -> `judge.sh dispatch` ->
+`judge.sh start` (JUDGE-EF050E, ACTIVE). Driver web in a headless mobile
+Chromium with SIMULATED GPS (`GEO_MOCK`) - the physical phone was not used and
+no real position was read. Manager in a second real Chromium, ONE session, no
+reviewer.
+`.runtime/rehearsal/reroute_authority_smoke.mjs`.
+
+**Result: 18/21 checks, the whole chain on one manager session.** JUDGE-0B282F,
+18 Sep 09:40-09:44 UTC. Driver following the assigned 98.82 km road at km 12.6
+(SIMULATED GPS) -> simulator moved 0.015 deg east at km 26.5-27.5 -> driver web
+"Off the planned road ... awaits manager", POST /me/trip/reroute 201
+(LIVE_REROUTE_CREATED) -> the backup card appeared on the manager's already-open
+Route tab within 5 s with no click (MANAGER_REROUTE_AUTO_VISIBLE) -> "Check
+route conditions" -> backup REVIEW REQUIRED, risk 24 LOW, no dead "Use this
+route"/"Reroute onto this", "Review & approve route" enabled -> decision panel
+(evidence status, why review is required, "incomplete evidence is not the same
+as SAFE", Approve shut until BOTH given; gate read rationale 136 chars,
+acknowledgement true) -> ONE POST /api/trips/<id>/routes/<id>/approve 200, and
+nothing else: no /reroute/accept, no /select, no review-authorization ->
+`from_route_id` = ce52c9f2 = the road on screen, target f886d55a -> within 4 s
+the backup card is CURRENT and the old primary is listed, demoted, not deleted.
+
+Backend after the run: trip SELECTED = f886d55a (74.17 km, kind
+EMERGENCY_BACKUP), old PRIMARY ce52c9f2 PROPOSED (retained), earlier proposal
+SUPERSEDED. Exactly ONE authorisation per route, both consumed, reviewer
+"Demo Manager" role MANAGER, basis HAZARD_DATA_UNKNOWN, none revoked - no
+duplicates. Driver: `/api/driver/me/trip` reported the new route id inside the
+polling window, and its navigation package is available for f886d55a with 10
+manoeuvres ("750 m, Turn left, then Turn right" on the Navigate screen) - no
+reload on either client. One manager sign-in for the whole run, no sign-out, no
+reviewer. No uncaught exceptions on either client.
+
+Three assertions failed for reasons that are not the product: the driver-poll
+half of DRIVER_NEW_ROUTE_RECEIVED (the truck is frozen, so its own /me/trip
+poll fell outside the capture window - the route check inside the same
+assertion returned true); the Navigate `nav-state` read (the frozen fix leaves
+it undefined while the manoeuvre card is correct); and the "timeline on the
+Activity tab" check, which looked in the wrong place - the Fleet Activity tab
+shows positions and track, and the manager console has no view of the
+ROUTE_CHANGED event at all. The event IS written: the backend test
+`test_approving_with_from_route_reroutes_and_records_it` asserts it, and there
+is no `/api/trips/{id}/events` endpoint to surface it (404). Recorded as an
+observation, not a regression.
+
+**Hard block, by test rather than by staging a closed road on the demo.**
+`test_a_hard_blocked_road_cannot_be_rerouted_onto_by_a_manager` (4d44503):
+verified closure ON the target corridor -> 422 ROUTE_REJECTED_ACTIVE_HAZARD, no
+authorisation row, trip still on the road it was following. Backend 1183
+passed / 5 skipped; manager 228 passed.
+
+Judge reset + check after the run: RESULT READY (JUDGE-40B013 DRAFT, driver and
+truck AVAILABLE).
+
+**Two fixes found by the smoke.**
+
+`e28ff0d` Fleet: re-read the route list after an assessment. The cards come
+from the last trip poll, the eligibility from the assessment just requested; a
+road proposed BETWEEN the two - a driver's reroute, exactly when this screen
+matters - sat in the list reading NOT CHECKED with no way to clear it, because
+the assessment it needed had already been fetched. Reproduced four times on
+hosted before the fix: the backup card never left NOT CHECKED, so "Review &
+approve route" never appeared and the manager could not approve the reroute
+from the Fleet page at all.
+
+`4d44503` A hard-blocked reroute is refused for the manager too: a verified
+closure ON THE TARGET road -> 422 ROUTE_REJECTED_ACTIVE_HAZARD, no
+authorisation row, trip still on the road it was following. (The existing
+closure fixture sits 78 km off the backup corridor, which made the backup
+assess as eligible - the test now places the incident on the backup itself.)
+
+**Simulator note for the next run.** The driver client re-requests a road
+every time it is off-route and has moved >= 500 m since the last request
+(`REROUTE_MIN_INTERVAL_MS` 120 s, `REROUTE_MIN_MOVE_M` 500). Each request
+INSERTS a new EMERGENCY_BACKUP and supersedes the last, so a simulator that
+keeps the truck moving - including moving it back onto the road - replaces the
+row the manager just assessed. Freeze the fix (`window.__paused = true`) once
+the proposal exists: that is what a driver awaiting instruction does, and it
+is the only state that keeps one proposal stable.
