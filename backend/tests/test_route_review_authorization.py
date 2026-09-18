@@ -98,10 +98,10 @@ class _ClearSource:
         return IncidentQueryResult(state=SourceState.AVAILABLE, provider=self.name)
 
 
-def _incident(blocked: bool) -> LandslideIncident:
+def _incident(blocked: bool, lat: float = 26.4, lon: float = 92.9) -> LandslideIncident:
     return LandslideIncident(
         incident_id="SYNTHETIC-LS11",
-        latitude=26.4, longitude=92.9,
+        latitude=lat, longitude=lon,
         road_blocked=blocked,
         verification_status=VerificationStatus.OFFICIAL,
         sources=(IncidentSource(name="synthetic", source_type=SourceType.OFFICIAL_AGENCY),),
@@ -116,6 +116,19 @@ class _ClosureSource:
     async def incidents_near(self, box, *, since, until):  # noqa: ANN001
         return IncidentQueryResult(
             state=SourceState.AVAILABLE, incidents=(_incident(True),), provider=self.name
+        )
+
+
+class _ClosureOnBackupSource:
+    """Verified closure on the BACKUP corridor (26.4/92.9 is 78 km off it)."""
+
+    name = "ls11-closure-backup"
+
+    async def incidents_near(self, box, *, since, until):  # noqa: ANN001
+        return IncidentQueryResult(
+            state=SourceState.AVAILABLE,
+            incidents=(_incident(True, lat=27.1, lon=92.9),),
+            provider=self.name,
         )
 
 
@@ -748,6 +761,25 @@ class TestManagerApprovalOfAReroute:
         assert event.payload["to_route_id"] == str(backup.id)
         spent = await _authorizations(str(backup.id))
         assert len(spent) == 1 and spent[0].consumed_at is not None
+
+    async def test_a_hard_blocked_road_cannot_be_rerouted_onto_by_a_manager(
+        self, api: AsyncClient, session: AsyncSession, manager_headers: dict, monkeypatch
+    ):
+        """HARD BLOCK on the reroute path. A verified closure on the target road
+        refuses the manager's approval outright: no authorisation is stored, and
+        the truck stays on the road it is following."""
+        trip, primary, backup = await self._moving(api, session, manager_headers)
+        _use(monkeypatch, _ClosureOnBackupSource())
+        refused = await _approve(
+            api, trip.id, backup.id, manager_headers,
+            {**APPROVAL, "from_route_id": str(primary.id)},
+        )
+        assert refused.status_code == 422, refused.text
+        assert refused.json()["error"]["code"] == "ROUTE_REJECTED_ACTIVE_HAZARD"
+        assert await _authorizations(str(backup.id)) == [], "a refusal must store nothing"
+        assert str(await _selected_route_id(trip.id)) == str(primary.id), (
+            "the truck was moved off the road it is following by a refused approval"
+        )
 
     async def test_a_stale_screen_cannot_reroute_and_stores_nothing(
         self, api: AsyncClient, session: AsyncSession, manager_headers: dict
