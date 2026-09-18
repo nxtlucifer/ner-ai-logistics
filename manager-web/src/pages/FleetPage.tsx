@@ -631,6 +631,12 @@ export default function FleetPage() {
       } else {
         setReviewAuths({})
       }
+      // The cards and the assessment must describe the same set of roads. The
+      // route list on screen came from the last poll; a road proposed between
+      // that poll and this answer would sit there reading "not checked" with
+      // no way to clear it, because the assessment it needs has already been
+      // fetched. Re-read the list so the two line up.
+      detail.reload()
     } catch (error) {
       setAdvisoryError({ tripId, error })
     } finally {
