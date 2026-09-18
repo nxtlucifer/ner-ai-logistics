@@ -24,7 +24,8 @@ import uuid
 from datetime import UTC, date, datetime
 
 from geoalchemy2 import Geometry, WKTElement
-from sqlalchemy import cast, func, select
+from sqlalchemy import cast, func, or_, select
+from sqlalchemy import update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -215,6 +216,41 @@ async def stops_for(db: AsyncSession, trip_id: uuid.UUID) -> list[TripStop]:
     )
 
 
+#: Trips nobody is working any more. The console shows these as history:
+#: read-only rows, no dispatch or cancel control.
+HISTORY_STATUSES = (TripStatus.DELIVERED, TripStatus.CLOSED, TripStatus.CANCELLED)
+
+
+def _trip_filters(stmt, *, status, driver_id, truck_id, search, open_only):
+    """Every filter in one place, so the page query and the count query can
+    never disagree about what the page is a page OF."""
+    if status is not None:
+        stmt = stmt.where(Trip.status == status)
+    if driver_id is not None:
+        stmt = stmt.where(Trip.driver_id == driver_id)
+    if truck_id is not None:
+        stmt = stmt.where(Trip.truck_id == truck_id)
+    if open_only is True:
+        stmt = stmt.where(Trip.status.not_in(HISTORY_STATUSES))
+    elif open_only is False:
+        stmt = stmt.where(Trip.status.in_(HISTORY_STATUSES))
+    text = (search or "").strip()
+    if text:
+        # Trip code or client name. ILIKE on two columns, not a full-text
+        # index: a fleet console searches tens of thousands of rows, not
+        # millions, and an index nobody maintains rots.
+        like = f"%{text}%"
+        stmt = stmt.where(
+            or_(
+                Trip.trip_code.ilike(like),
+                Trip.shipment_id.in_(
+                    select(Shipment.id).where(Shipment.client_name.ilike(like))
+                ),
+            )
+        )
+    return stmt
+
+
 async def list_trips(
     db: AsyncSession,
     *,
@@ -222,20 +258,63 @@ async def list_trips(
     cursor: str | None = None,
     status: TripStatus | None = None,
     driver_id: uuid.UUID | None = None,
-) -> tuple[list[Trip], str | None]:
+    truck_id: uuid.UUID | None = None,
+    search: str | None = None,
+    open_only: bool | None = None,
+    with_total: bool = False,
+):
+    """A filtered page of trips, newest first.
+
+    Filtered HERE rather than in the client. The console used to read the
+    newest 50 and filter them in the browser, so a trip older than those 50 -
+    a 55-hour run, a delivered job from last week - could not be reached or
+    searched at all. `with_total` adds one COUNT over the same filters so a
+    pager can say which page of how many.
+    """
     page_size = clamp_limit(limit)
-    stmt = select(Trip)
-    if status is not None:
-        stmt = stmt.where(Trip.status == status)
-    if driver_id is not None:
-        stmt = stmt.where(Trip.driver_id == driver_id)
+    stmt = _trip_filters(
+        select(Trip), status=status, driver_id=driver_id, truck_id=truck_id,
+        search=search, open_only=open_only,
+    )
     if cursor:
         stmt = stmt.where(
             cursor_predicate(Trip.created_at, Trip.id, decode_cursor(cursor))
         )
     stmt = stmt.order_by(Trip.created_at.desc(), Trip.id.desc()).limit(page_size + 1)
     rows = list((await db.execute(stmt)).scalars().all())
-    return build_page(rows, page_size)
+    page, next_cursor = build_page(rows, page_size)
+    if not with_total:
+        return page, next_cursor
+    total = (
+        await db.execute(
+            _trip_filters(
+                select(func.count(Trip.id)), status=status, driver_id=driver_id,
+                truck_id=truck_id, search=search, open_only=open_only,
+            )
+        )
+    ).scalar_one()
+    return page, next_cursor, total
+
+
+async def events_for(
+    db: AsyncSession, trip_id: uuid.UUID, *, limit: int = 100
+) -> list[tuple[TripEvent, str | None]]:
+    """The trip's timeline with each actor's display name, oldest first.
+
+    Read-only, and it invents nothing: every row was written by the operation
+    it describes. The join is to `users` so a screen can say "by Demo Manager"
+    without a second round trip per row.
+    """
+    rows = (
+        await db.execute(
+            select(TripEvent, User.display_name)
+            .outerjoin(User, User.id == TripEvent.actor_user_id)
+            .where(TripEvent.trip_id == trip_id)
+            .order_by(TripEvent.occurred_at.asc(), TripEvent.id.asc())
+            .limit(limit)
+        )
+    ).all()
+    return [(row[0], row[1]) for row in rows]
 
 
 # --- Creation -------------------------------------------------------------
@@ -813,6 +892,200 @@ async def _redirect_cargo(
         )
     )
     return (previous.address if previous else None), destination_address
+
+
+#: Two stops closer than this are the same place for operational purposes, and
+#: a second one buys nothing but a confusing arrival geofence.
+MIN_STOP_SEPARATION_M = 200
+#: Where a new stop may go. Deliberately only two: "next" is what a manager
+#: means by a detour, "before the final delivery" is what they mean by a
+#: drop on the way. Arbitrary index insertion is a sequence-rewrite feature
+#: nobody asked for.
+STOP_PLACEMENTS = ("NEXT", "BEFORE_FINAL")
+
+
+async def add_stop(
+    db: AsyncSession,
+    trip_id: uuid.UUID,
+    *,
+    actor: User,
+    destination: Coordinate,
+    address: str,
+    name: str | None = None,
+    kind: TripStopKind = TripStopKind.CHECKPOINT,
+    placement: str = "NEXT",
+    reason: str,
+    ip: str | None = None,
+) -> Trip:
+    """Add an operational stop to a trip that is already under way.
+
+    WHAT IS AND IS NOT CHANGED. Completed and arrived stops are never touched -
+    a stop the driver has already served is a fact, and renumbering it would
+    rewrite history. The new stop is INSERTED among the stops still pending, and
+    the pending ones after it are renumbered to make room. The route is NOT
+    changed here: the truck keeps the road it is on until a manager plans and
+    approves a new one through the route path, which is where the hazard
+    evidence and the governance live.
+
+    The change is announced to the driver as an instruction that must be
+    acknowledged - the same mechanism a destination change uses - so "the cab
+    was told" is a record rather than an assumption.
+    """
+    trip = await load_for_update(db, trip_id)
+    before = audit.snapshot(trip, AUDITED_FIELDS)
+
+    if trip.status not in (TripStatus.ACTIVE, TripStatus.DELAYED, TripStatus.INCIDENT):
+        raise BusinessRuleError(
+            "Stops can only be added to a trip that is under way. Change the "
+            "plan before dispatch instead.",
+            code="TRIP_NOT_IN_TRANSIT",
+            details={"current": trip.status.value},
+        )
+    if trip.driver_id is None or trip.truck_id is None:
+        raise BusinessRuleError(
+            "This trip has no driver or truck assigned; there is nobody to send to a new stop.",
+            code="TRIP_NOT_ASSIGNED",
+        )
+    reason_text = (reason or "").strip()
+    if len(reason_text) < MIN_REASON_CHARS:
+        raise BusinessRuleError(
+            f"Give a reason of at least {MIN_REASON_CHARS} characters. This is the "
+            "only record of why the journey changed.",
+            code="CHANGE_REASON_REQUIRED",
+        )
+    if placement not in STOP_PLACEMENTS:
+        raise BusinessRuleError(
+            "Say where the stop goes: " + ", ".join(STOP_PLACEMENTS) + ".",
+            code="STOP_PLACEMENT_INVALID",
+        )
+    if not (address or "").strip():
+        raise BusinessRuleError(
+            "A new stop needs a confirmed location (address and coordinates).",
+            code="LOCATION_CONFIRMATION_REQUIRED",
+        )
+    if not in_service_region(destination):
+        raise BusinessRuleError(
+            f"That point ({destination.lat:.4f}, {destination.lon:.4f}) is outside "
+            "the North-East service region.",
+            code="OUTSIDE_SERVICE_REGION",
+        )
+
+    stops = await stops_for(db, trip.id)
+    if not stops:
+        raise BusinessRuleError("This trip has no stops to add to.", code="TRIP_HAS_NO_STOPS")
+    pending = [s for s in stops if s.status is TripStopStatus.PENDING]
+    if not pending:
+        raise BusinessRuleError(
+            "Every stop on this trip has been served; there is nothing left to insert before.",
+            code="NO_PENDING_STOPS",
+        )
+
+    # The same place as a neighbouring stop is not a stop. Measured in the
+    # database, against the points as stored, rather than against a client's
+    # idea of what is nearby.
+    close = (
+        await db.execute(
+            select(TripStop.id, TripStop.name)
+            .where(
+                TripStop.trip_id == trip.id,
+                TripStop.status == TripStopStatus.PENDING,
+                func.ST_DWithin(
+                    TripStop.location, shipments.point(destination), MIN_STOP_SEPARATION_M
+                ),
+            )
+            .limit(1)
+        )
+    ).first()
+    if close is not None:
+        raise BusinessRuleError(
+            f"That point is within {MIN_STOP_SEPARATION_M} m of a stop this trip "
+            "already has. Pick a different place.",
+            code="STOP_TOO_CLOSE",
+        )
+
+    final = pending[-1]
+    at = pending[0] if placement == "NEXT" else final
+    insert_at = at.sequence
+    # Open a gap at `insert_at` in TWO statements. uq_trip_stops_sequence is a
+    # plain unique index, not deferrable, so a row-by-row bump collides with
+    # itself half way up the list; moving the tail out of the way first and
+    # back down after never has two rows on one number.
+    bump = 1000
+    for delta, where in ((bump, TripStop.sequence >= insert_at), (1 - bump, TripStop.sequence >= bump)):
+        await db.execute(
+            sa_update(TripStop)
+            .where(TripStop.trip_id == trip.id, where)
+            .values(sequence=TripStop.sequence + delta)
+        )
+    await db.flush()
+
+    stop = TripStop(
+        trip_id=trip.id,
+        sequence=insert_at,
+        kind=kind,
+        location=shipments.point(destination),
+        name=(name or "").strip() or "Added stop",
+        address=address.strip(),
+    )
+    db.add(stop)
+    await db.flush()
+
+    event = await record_event(
+        db,
+        trip,
+        kind=TripEventKind.ROUTE_CHANGED,
+        description=f"Stop added by manager ({placement.lower().replace('_', ' ')}) - {reason_text}",
+        actor_user_id=actor.id,
+        payload={
+            # ponytail: ROUTE_CHANGED carries this; a STOP_ADDED kind needs a
+            # pg_enum migration and PR #1 already holds the next number.
+            "instruction": "ADD_STOP",
+            "reason": reason_text,
+            "requires_ack": True,
+            "stop_id": str(stop.id),
+            "stop_address": stop.address,
+            "stop_name": stop.name,
+            "placement": placement,
+            "sequence": insert_at,
+        },
+    )
+    await db.flush()
+    await audit.record(
+        db,
+        action=AuditAction.UPDATE,
+        entity_type="trip_stops",
+        entity_id=stop.id,
+        actor_user_id=actor.id,
+        before=None,
+        after={"trip_id": str(trip.id), "sequence": insert_at, "address": stop.address, "placement": placement},
+        reason=f"stop added mid-trip: {reason_text}",
+        ip_address=ip,
+    )
+    await audit.record(
+        db,
+        action=AuditAction.UPDATE,
+        entity_type="trips",
+        entity_id=trip.id,
+        actor_user_id=actor.id,
+        before=before,
+        after=audit.snapshot(trip, AUDITED_FIELDS),
+        reason=f"stop added mid-trip: {reason_text}",
+        ip_address=ip,
+    )
+    await db.commit()
+    await notify.send(
+        db,
+        driver_id=trip.driver_id,
+        trip_id=trip.id,
+        event="CRITICAL_ROUTE_CHANGE",
+        title="Your manager added a stop",
+        body=f"{stop.address}. {reason_text}",
+        fingerprint=f"addstop:{trip.id}:{event.id}",
+        data={"event_id": str(event.id), "screen": "trip"},
+    )
+    await db.commit()
+    await db.refresh(trip)
+    return trip
 
 
 async def cancel(

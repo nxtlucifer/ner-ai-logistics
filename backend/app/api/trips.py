@@ -33,6 +33,7 @@ from app.models.enums import (
     CargoPriority,
     RouteKind,
     RouteState,
+    TripEventKind,
     TripStatus,
     TripStopKind,
     TripStopStatus,
@@ -115,6 +116,9 @@ trips_router = APIRouter(prefix="/api/trips", tags=["trips"])
 class TripPage(BaseModel):
     items: list[TripRead]
     next_cursor: str | None = None
+    #: How many trips match the filter, not how many are on this page. Null
+    #: when the caller did not ask for it (the count is a second query).
+    total: int | None = None
 
 
 class TripStopRead(ReadModel):
@@ -164,12 +168,34 @@ async def list_trips(
     limit: Limit = None,
     cursor: str | None = None,
     trip_status: TripStatus | None = None,
+    driver_id: uuid.UUID | None = None,
+    truck_id: uuid.UUID | None = None,
+    search: Annotated[str | None, Query(max_length=120)] = None,
+    open_only: bool | None = None,
 ) -> TripPage:
-    rows, next_cursor = await trip_service.list_trips(
-        db, limit=limit, cursor=cursor, status=trip_status
+    """Filtered server-side, because the console must be able to reach a trip
+    older than the newest page.
+
+    `search` matches the trip code and the client name, case-insensitively.
+    `open_only=true` is everything still being worked; `false` is history
+    (DELIVERED, CLOSED, CANCELLED). `total` counts the whole filtered set, not
+    the page, so a pager can say which page of how many this is.
+    """
+    rows, next_cursor, total = await trip_service.list_trips(
+        db,
+        limit=limit,
+        cursor=cursor,
+        status=trip_status,
+        driver_id=driver_id,
+        truck_id=truck_id,
+        search=search,
+        open_only=open_only,
+        with_total=True,
     )
     return TripPage(
-        items=[TripRead.model_validate(r) for r in rows], next_cursor=next_cursor
+        items=[TripRead.model_validate(r) for r in rows],
+        next_cursor=next_cursor,
+        total=total,
     )
 
 
@@ -239,12 +265,9 @@ async def plan_trip(
     )
 
 
-@trips_router.get("/{trip_id}", response_model=TripDetail, summary="Get a trip")
-async def get_trip(
-    trip_id: uuid.UUID,
-    db: DbSession,
-    actor: Annotated[User, Depends(require_permission(perm.TRIP_READ))],
-) -> TripDetail:
+async def _trip_detail(db, trip_id: uuid.UUID) -> TripDetail:
+    """One assembly of a trip's detail, so every writer that returns it says
+    the same thing the reader does."""
     trip = await trip_service.get(db, trip_id)
     stops = await trip_service.stops_for(db, trip_id)
     shipment = await shipment_service.get(db, trip.shipment_id)
@@ -254,6 +277,15 @@ async def get_trip(
         shipment=ShipmentSummary.model_validate(shipment),
         pending_instruction=await trip_service.pending_instruction(db, trip_id),
     )
+
+
+@trips_router.get("/{trip_id}", response_model=TripDetail, summary="Get a trip")
+async def get_trip(
+    trip_id: uuid.UUID,
+    db: DbSession,
+    actor: Annotated[User, Depends(require_permission(perm.TRIP_READ))],
+) -> TripDetail:
+    return await _trip_detail(db, trip_id)
 
 
 @trips_router.post(
@@ -1052,6 +1084,122 @@ async def revoke_review_authorization(
         db, authorization_id, actor=actor, reason="revoked by reviewer", ip=ip
     )
     return _review_read(row)
+
+
+class AddStopRequest(APIModel):
+    """A stop a manager adds while the truck is already on the road.
+
+    The location must be confirmed - coordinates AND an address - for the same
+    reason the planner demands it before dispatch: a typed line of text is not
+    a place. `placement` is NEXT (serve it before anything else still pending)
+    or BEFORE_FINAL (a drop on the way to the final delivery).
+    """
+
+    location: Coordinate
+    address: Annotated[str, Field(min_length=3, max_length=300)]
+    name: Annotated[str | None, Field(max_length=160)] = None
+    kind: TripStopKind = TripStopKind.CHECKPOINT
+    placement: Literal["NEXT", "BEFORE_FINAL"] = "NEXT"
+    #: Length is checked in the service, so a short reason answers with
+    #: CHANGE_REASON_REQUIRED rather than a generic field error.
+    reason: Annotated[str, Field(max_length=2000)]
+
+
+@trips_router.post(
+    "/{trip_id}/stops",
+    response_model=TripDetail,
+    status_code=status.HTTP_201_CREATED,
+    summary="Add a stop to a trip that is already under way",
+)
+async def add_stop(
+    trip_id: uuid.UUID,
+    payload: AddStopRequest,
+    db: DbSession,
+    actor: Annotated[User, Depends(require_permission(perm.TRIP_CREATE))],
+    ip: ClientIp,
+) -> TripDetail:
+    """Refuses 422 for a trip that is not under way, an unconfirmed or
+    out-of-region point, a point within 200 m of a stop this trip already has,
+    a trip with no pending stops, or a reason under 10 characters. Stops the
+    driver has already served are never renumbered.
+
+    The ROUTE IS NOT CHANGED here. The truck keeps the road it is on until a
+    manager plans and approves one for the new stop list through the route
+    path, where the hazard evidence and the governance live.
+    """
+    await trip_service.add_stop(
+        db,
+        trip_id,
+        actor=actor,
+        destination=payload.location,
+        address=payload.address,
+        name=payload.name,
+        kind=payload.kind,
+        placement=payload.placement,
+        reason=payload.reason,
+        ip=ip,
+    )
+    return await _trip_detail(db, trip_id)
+
+
+class TripEventRead(ReadModel):
+    """One line of the trip's operational timeline.
+
+    NO coordinates and no payload passthrough: the timeline is read on a
+    screen a manager may show to somebody else, and a stop's position is the
+    most sensitive thing this system holds. What is carried is what happened,
+    when, who did it, and - for a manager instruction - the reason they gave.
+    """
+
+    #: BigInteger, not a UUID: the timeline is append-only and ordered, and
+    #: `pending_instruction`/`acknowledges` already key on this number.
+    id: int
+    kind: str
+    description: str | None
+    occurred_at: datetime
+    actor_name: str | None
+    instruction: str | None
+    reason: str | None
+    acknowledged: bool
+
+
+@trips_router.get(
+    "/{trip_id}/events",
+    response_model=list[TripEventRead],
+    summary="The trip's journey history",
+)
+async def trip_events(
+    trip_id: uuid.UUID,
+    db: DbSession,
+    actor: Annotated[User, Depends(require_permission(perm.TRIP_READ))],
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+) -> list[TripEventRead]:
+    """Oldest first, so it reads as a story. Records already written by the
+    rest of the system - nothing here creates or infers an event.
+    """
+    await trip_service.get(db, trip_id)
+    rows = await trip_service.events_for(db, trip_id, limit=limit)
+    acked = {
+        (e.payload or {}).get("acknowledges")
+        for e, _ in rows
+        if e.kind is TripEventKind.ACCEPTED and e.payload
+    }
+    out: list[TripEventRead] = []
+    for event, actor_name in rows:
+        p = event.payload or {}
+        out.append(
+            TripEventRead(
+                id=event.id,
+                kind=event.kind.value,
+                description=event.description,
+                occurred_at=event.occurred_at,
+                actor_name=actor_name,
+                instruction=p.get("instruction"),
+                reason=p.get("reason"),
+                acknowledged=bool(p.get("requires_ack")) and event.id in acked,
+            )
+        )
+    return out
 
 
 @trips_router.post(
