@@ -844,6 +844,15 @@ export interface ReviewAuthorization {
   evidence_digest?: string | null
   /** The assessment as the reviewer saw it. Incomplete, shown as incomplete. */
   evidence_snapshot: Record<string, unknown>
+  /** Who accepted the evidence - the manager, or a reviewer. */
+  reviewer_name?: string | null
+  reviewer_role?: string | null
+}
+
+/** A manager's approval: the authorisation it issued (already spent) and the route now selected. */
+export interface RouteApproval {
+  route: TripRoute
+  authorization: ReviewAuthorization
 }
 
 export type RouteEligibility =
@@ -1196,6 +1205,26 @@ export const restApi = {
       `/api/trips/${tripId}/routes/${routeId}/review-authorization`,
       { method: 'POST', body: { rationale } },
     ),
+
+  /**
+   * The manager accepts incomplete hazard evidence and selects the route, in
+   * one server transaction. Refused - and nothing stored - for a closed road,
+   * a superseded route, or evidence that changed since the check. Requires
+   * `route:select`; no reviewer sign-in is involved.
+   *
+   * `fromRouteId` for a moving trip: the road on screen when the manager
+   * decided, so the change is a reroute (timeline event, 409 on a stale
+   * screen) rather than a bare selection.
+   */
+  approveRoute: (tripId: string, routeId: string, rationale: string, fromRouteId?: string) =>
+    request<RouteApproval>(`/api/trips/${tripId}/routes/${routeId}/approve`, {
+      method: 'POST',
+      body: {
+        rationale,
+        acknowledged_incomplete_evidence: true,
+        ...(fromRouteId ? { from_route_id: fromRouteId } : {}),
+      },
+    }),
 
   revokeReviewAuthorization: (
     tripId: string,

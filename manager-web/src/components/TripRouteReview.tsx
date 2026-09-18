@@ -1,8 +1,8 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { api, type ReviewAuthorization, type RouteRecommendation, type RouteRiskSummary, type Trip, type TripDetail, type TripRoute } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
-import { Button, Card, EmptyState, ErrorState, LINK_BUTTON, LoadingState, StatusPill } from './ui'
+import { Button, Card, EmptyState, ErrorState, LoadingState, StatusPill } from './ui'
+import { RouteApprovalDialog } from './RouteApprovalDialog'
 import { factorLabels, translateReasonCodes } from '../i18n/reasonCodes'
 
 const FleetMap = lazy(() => import('./FleetMap'))
@@ -180,6 +180,8 @@ export default function TripRouteReview({ trip, onChanged }: { trip: Trip; onCha
   // Which action failed travels with the error, so "Try again" repeats THAT
   // action - a failed conditions check is retried as a check, not as a reload.
   const [error, setError] = useState<{ name: string; error: unknown } | null>(null)
+  // The manager's decision panel for a REVIEW REQUIRED route.
+  const [approving, setApproving] = useState(false)
   const active = useRef(true)
   const locked = useRef(false)
 
@@ -189,6 +191,13 @@ export default function TripRouteReview({ trip, onChanged }: { trip: Trip; onCha
     setDetail(info)
     setRoutes(rows)
     setPreview((id) => rows.some(r => r.id === id) ? id : rows.find(r => r.is_current)?.id ?? rows.find(r => r.state !== 'SUPERSEDED')?.id ?? null)
+    // Who accepted the evidence for the assigned route, if anyone had to -
+    // shown after a reload, not only in the moment of approval.
+    const current = rows.find(r => r.is_current)
+    if (current) {
+      const spent = await api.reviewAuthorization(trip.id, current.id).catch(() => null)
+      if (active.current) setAuthorizations(prev => ({ ...prev, [current.id]: spent }))
+    }
   }
   async function run(name: string, action: () => Promise<unknown>) {
     if (locked.current) return
@@ -211,21 +220,26 @@ export default function TripRouteReview({ trip, onChanged }: { trip: Trip; onCha
   const eligible = assessment?.candidates.find(c => c.route_id === preview)
   const held = preview ? authorizations[preview] : null
   const authorization = held && !held.consumed_at && !held.revoked_at && Date.parse(held.expires_at) > Date.now() ? held : null
+  // A spent authorisation on the assigned route: who accepted the evidence.
+  const spent = held && held.consumed_at ? held : null
   const selectable = eligible?.eligibility === 'ELIGIBLE' || (eligible?.eligibility === 'REQUIRES_REVIEW' && authorization !== null)
-  // The way forward is not a click here: a reviewer must accept the evidence.
+  // The way forward is the manager's own decision: review the evidence here,
+  // say why, acknowledge that incomplete is not SAFE, approve.
   const needsReview = eligible?.eligibility === 'REQUIRES_REVIEW' && authorization === null
   const editable = detail?.status === 'DRAFT' || detail?.status === 'ASSIGNED'
   // One sentence per state - shown above the control and carried as its title
   // when it is shut, so a greyed button is never unexplained.
   const verdict = eligible?.eligibility === 'REJECTED'
-    ? 'An active hazard blocks this road. It cannot be selected.'
+    ? 'An active hazard blocks this road. It cannot be selected, and nobody can override that.'
     : eligible?.eligibility === 'REQUIRES_REVIEW'
       ? authorization
         ? 'A reviewer authorized one selection. Hazard evidence remains incomplete.'
-        : 'Safety review required before this route can be selected. Hazard evidence is incomplete or elevated — an authorised reviewer must accept it under Review; then check conditions again here.'
+        : 'Review required. Hazard evidence is incomplete — it does not prove the road is unsafe, but it is not enough to call it verified. Review it and decide.'
       : eligible?.eligibility === 'ELIGIBLE'
         ? 'Eligible under the checks that ran. This is not a safety guarantee.'
-        : 'Check current conditions before selecting a route.'
+        : eligible?.eligibility === 'NOT_ASSESSED'
+          ? 'The hazard check could not run. This is a fault to fix, not a risk to accept.'
+          : 'Check current conditions before selecting a route.'
 
   async function assess() {
     const result = await api.routeRecommendation(trip.id)
@@ -235,12 +249,30 @@ export default function TripRouteReview({ trip, onChanged }: { trip: Trip; onCha
     setAuthorizations(Object.fromEntries(pairs))
   }
 
+  async function approve(rationale: string) {
+    if (!route) return
+    try {
+      await api.approveRoute(trip.id, route.id, rationale)
+    } catch (caught) {
+      // The server's refusal is the truth (a closure may have appeared, the
+      // route may have been superseded): re-read eligibility, then show it.
+      await assess().catch(() => {})
+      throw caught
+    }
+    if (!active.current) return
+    setApproving(false)
+    setAssessment(null); setAuthorizations({})
+    await read(); onChanged()
+  }
+
   const selectedRoute = detail?.selected_route_id ?? trip.selected_route_id
   const retry = error ? { load: () => void run('load', read), assess: () => void run('assess', assess) }[error.name] : undefined
   // The failure is shown where the manager is looking: beside the decision
   // block once a route exists (a check or a selection failed there), at the
-  // top only while there is no route to stand beside.
-  const failure = error ? <ErrorState error={error.error} onRetry={retry} /> : null
+  // top only while there is no route to stand beside. An approval failure is
+  // shown inside the decision panel instead.
+  const dialogOpen = approving && needsReview && !!eligible && can('route:select') && editable
+  const failure = error && !(error.name === 'approve' && dialogOpen) ? <ErrorState error={error.error} onRetry={retry} /> : null
   return <Card title={`Trip review · ${trip.trip_code}`} action={<span className="flex items-center gap-2"><StatusPill status={selectedRoute ? 'ROUTE_SELECTED' : 'NO_ROUTE_SELECTED'} /><StatusPill status={detail?.status ?? trip.status} /></span>}>
     {error && !route ? failure : null}
     {busy === 'load' && !detail ? <LoadingState label="Loading trip review…" /> : <>
@@ -334,9 +366,14 @@ export default function TripRouteReview({ trip, onChanged }: { trip: Trip; onCha
         {eligible ? <p className="text-xs text-muted" data-testid="evidence-coverage">Evidence coverage · {evidenceCoverage(eligible.risk)}</p> : null}
         {eligible ? <TerrainHazardSummary risk={eligible.risk} /> : null}
         {route ? failure : null}
+        {route.is_current && spent ? (
+          <p className="text-xs text-ink" data-testid="approved-by">
+            Approved by <strong>{spent.reviewer_name ?? 'a reviewer'}</strong>{spent.reviewer_role ? ` (${spent.reviewer_role.toLowerCase().replaceAll('_', ' ')})` : ''} · {new Date(spent.consumed_at ?? spent.issued_at).toLocaleString()} · “{spent.rationale}”
+          </p>
+        ) : null}
         {can('route:select') && editable ? (
           route.is_current ? <Button disabled>Route assigned</Button>
-          : needsReview ? <Link to={`/review?trip=${trip.id}`} className={LINK_BUTTON}>Open review</Link>
+          : needsReview ? (approving ? null : <Button variant="secondary" disabled={busy !== null} onClick={() => { setError(null); setApproving(true) }}>Review & approve route</Button>)
           : <Button disabled={busy !== null || !selectable} busy={busy === 'select'} title={selectable ? undefined : verdict} onClick={() => void run('select', async () => {
             if (!selectable) return
             try {
@@ -352,6 +389,16 @@ export default function TripRouteReview({ trip, onChanged }: { trip: Trip; onCha
             setAssessment(null); setAuthorizations({})
             await read(); onChanged()
           })}>{eligible?.eligibility === 'REJECTED' ? 'Route blocked' : 'Use this route'}</Button>
+        ) : null}
+        {dialogOpen && eligible ? (
+          <RouteApprovalDialog
+            risk={eligible.risk}
+            reasons={translateReasonCodes(eligible.risk.reason_codes, 'en')}
+            busy={busy === 'approve'}
+            error={error?.name === 'approve' ? error.error : null}
+            onCancel={() => { setError(null); setApproving(false) }}
+            onApprove={(rationale) => void run('approve', () => approve(rationale))}
+          />
         ) : null}
       </div> : null}
     </>}

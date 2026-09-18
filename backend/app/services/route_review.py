@@ -14,11 +14,20 @@ WHAT MAKES IT SAFE, IN THE ORDER IT MATTERS
   2. The evidence is DIGESTED at issue and re-digested at consumption. If the
      corridor's evidence changed in any way that matters, the digest differs
      and the authorisation is dead.
-  3. The reviewer may not be the selector. Enforced explicitly, not left to the
-     role split - ADMIN holds both permissions.
-  4. The claim is a single conditional UPDATE inside the selection's own
+  3. The claim is a single conditional UPDATE inside the selection's own
      transaction, under the trip row lock. Check and spend are one statement,
      so there is no window between validating and consuming.
+
+WHO MAY ACCEPT THE RISK (policy 2026-09-18)
+
+The fleet MANAGER is the operational decision-maker. `approve_and_select`
+lets one manager accept the incomplete evidence, say why, and act on it in ONE
+transaction - the authorisation row is issued and spent together, so a
+refusal anywhere leaves nothing behind. The separate AUTHORISED_REVIEWER path
+(`issue`, then a manager spends it) still works and is kept for audit and a
+future second-level workflow; it is no longer required for a dispatch.
+Two-person control is therefore not enforced at consumption any more. It was
+one WHERE clause (`reviewer_user_id != actor.id`) and can return as one.
 
 WHY THE DIGEST IS WHAT IT IS
 
@@ -156,7 +165,7 @@ def refuse_unless_authorizable(
         )
 
 
-async def issue(
+async def _issue(
     db: AsyncSession,
     trip_id: uuid.UUID,
     route_id: uuid.UUID,
@@ -168,7 +177,7 @@ async def issue(
     route_state: str,
     ip: str | None = None,
 ) -> RouteReviewAuthorization:
-    """Record a reviewer's acceptance of this evidence, for one selection.
+    """Write the authorisation and its audit row WITHOUT committing.
 
     Every bound value is computed HERE from the route's own assessment. There
     is no argument by which a caller could assert what it is authorising - the
@@ -218,12 +227,77 @@ async def issue(
         entity_id=authorization.id,
         actor_user_id=reviewer.id,
         after=audit.snapshot(authorization, AUDITED_FIELDS),
-        reason=f"review authorised: {authorization.rationale}",
+        reason=f"review authorised by {reviewer.role.value}: {authorization.rationale}",
         ip_address=ip,
     )
+    return authorization
+
+
+async def issue(db: AsyncSession, *args, **kwargs) -> RouteReviewAuthorization:
+    """A reviewer's acceptance of this evidence, for one later selection."""
+    authorization = await _issue(db, *args, **kwargs)
     await db.commit()
     await db.refresh(authorization)
     return authorization
+
+
+async def approve_and_select(
+    db: AsyncSession,
+    trip_id: uuid.UUID,
+    route_id: uuid.UUID,
+    *,
+    actor: User,
+    rationale: str,
+    decision: EligibilityDecision,
+    assessment: LandslideAssessment | None,
+    route_state: str,
+    ip: str | None = None,
+    from_route_id: uuid.UUID | None = None,
+):
+    """One person accepts the incomplete evidence AND acts on it, atomically.
+
+    Issue, claim and select are one transaction: the authorisation is spent by
+    `apply_selection` under the trip lock against the live evidence, and the
+    caller's session rolls everything back if any step refuses - so a closed
+    road, a superseded route or evidence that moved leaves no row behind.
+    Returns the spent authorisation and the now-selected route.
+
+    `from_route_id` makes it a REROUTE of a moving trip: the same acceptance,
+    applied through `reroute.accept` so the timeline event, the 409 on a
+    stale screen and the driver's notification all still happen.
+    """
+    from app.services import reroute as reroute_service
+    from app.services import routes as route_service
+
+    authorization = await _issue(
+        db, trip_id, route_id,
+        reviewer=actor, rationale=rationale, decision=decision,
+        assessment=assessment, route_state=route_state, ip=ip,
+    )
+    if from_route_id is not None:
+        _, route = await reroute_service.accept(
+            db, trip_id,
+            from_route_id=from_route_id, to_route_id=route_id,
+            actor=actor, ip=ip,
+            authorization_id=authorization.id,
+            evidence=(decision, assessment),
+        )
+    else:
+        route, _ = await route_service.apply_selection(
+            db, trip_id, route_id,
+            actor=actor, ip=ip,
+            reason=(
+                f"route approved with incomplete evidence by {actor.role.value}: "
+                f"{authorization.rationale}"
+            ),
+            eligibility=decision,
+            authorization_id=authorization.id,
+            assessment=assessment,
+        )
+        await db.commit()
+    await db.refresh(authorization)
+    await db.refresh(route)
+    return authorization, route
 
 
 async def revoke(
@@ -296,6 +370,27 @@ async def live_for_route(
     ).scalars().first()
 
 
+async def consumed_for_route(
+    db: AsyncSession, trip_id: uuid.UUID, route_id: uuid.UUID
+) -> RouteReviewAuthorization | None:
+    """The most recently SPENT authorisation for this route, if any.
+
+    So a screen can say who accepted the evidence for the selection that
+    stands, after a reload - the fact an incident review asks first.
+    """
+    return (
+        await db.execute(
+            select(RouteReviewAuthorization)
+            .where(
+                RouteReviewAuthorization.trip_id == trip_id,
+                RouteReviewAuthorization.route_id == route_id,
+                RouteReviewAuthorization.consumed_at.is_not(None),
+            )
+            .order_by(RouteReviewAuthorization.consumed_at.desc())
+        )
+    ).scalars().first()
+
+
 async def claim(
     db: AsyncSession,
     authorization_id: uuid.UUID,
@@ -355,10 +450,10 @@ async def claim(
                 RouteReviewAuthorization.policy_version == decision.policy_version,
                 RouteReviewAuthorization.evidence_version == EVIDENCE_VERSION,
                 RouteReviewAuthorization.route_state_at_issue == route_state,
-                # Two-person control. Enforced HERE and not left to the role
-                # split: ADMIN holds both route:review_authorize and
-                # route:select, so the role sets alone do not guarantee it.
-                RouteReviewAuthorization.reviewer_user_id != actor.id,
+                # No `reviewer_user_id != actor.id` here since 2026-09-18: the
+                # manager who accepts the evidence is allowed to act on it
+                # (`approve_and_select`). Two-person control returns by
+                # restoring that one condition.
             )
             .values(consumed_at=now, consumed_by_user_id=actor.id)
             .returning(RouteReviewAuthorization.id)
@@ -368,8 +463,8 @@ async def claim(
     if claimed is None:
         raise BusinessRuleError(
             "That review authorisation cannot be used: it is expired, already "
-            "used, revoked, issued by you, or the route or its evidence has "
-            "changed since it was given. Ask for a fresh review.",
+            "used, revoked, or the route or its evidence has changed since it "
+            "was given. Review the route again.",
             code="ROUTE_REVIEW_AUTHORIZATION_INVALID",
         )
 

@@ -1071,10 +1071,19 @@ describe('FleetPage', () => {
       })
 
       await screen.findByText('REVIEW REQUIRED')
-      expect(screen.getByText(/safety review required/i)).toBeDefined()
-      // A control that can never work is not offered; the way forward is.
+      expect(screen.getByText(/review required — hazard evidence is incomplete/i)).toBeDefined()
+      // A control that can never work is not offered; the manager's own
+      // decision is: reason, acknowledgement, one approve-and-select call.
       expect(screen.queryByRole('button', { name: /use this route/i })).toBeNull()
-      expect(screen.getByRole('link', { name: /open review/i }).getAttribute('href')).toBe(`/review?trip=${LIVE.trip_id}`)
+      expect(screen.queryByRole('link', { name: /open review/i })).toBeNull()
+      const approve = vi.spyOn(api, 'approveRoute').mockResolvedValue({ route: SELECTED, authorization: { id: 'a', consumed_at: new Date().toISOString() } as never })
+      await user.click(screen.getByRole('button', { name: /review & approve route/i }))
+      await screen.findByRole('dialog', { name: /manager decision/i })
+      expect((screen.getByRole('button', { name: /approve & use route/i }) as HTMLButtonElement).disabled).toBe(true)
+      await user.type(screen.getByRole('textbox', { name: /reason for approval/i }), 'Depot confirms the road is open this morning')
+      await user.click(screen.getByRole('checkbox'))
+      await user.click(screen.getByRole('button', { name: /approve & use route/i }))
+      await waitFor(() => expect(approve).toHaveBeenCalledExactlyOnceWith(LIVE.trip_id, 'r1', 'Depot confirms the road is open this morning', undefined))
       // Nothing measured, nothing said: no fuel model, no verified pipeline,
       // no paragraph about a road this trip is not on.
       expect(screen.queryByText(/physics|CMEM|stages verified|kaziranga|dual-ai/i)).toBeNull()

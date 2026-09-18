@@ -7,7 +7,8 @@ below exists to stop one specific way that could happen:
 
   * a closed road being approved by anybody              -> impossible, tested
   * an integration failure being approved instead of fixed -> impossible, tested
-  * one person reviewing and acting                      -> refused, tested
+  * a manager approving without saying why, or without
+    acknowledging that incomplete is not SAFE              -> refused, tested
   * one authorisation spending twice                     -> refused, tested
   * yesterday's review authorising today's road          -> refused, tested
   * the route quietly becoming ELIGIBLE afterwards       -> it does NOT, tested
@@ -35,8 +36,8 @@ from app.domain.landslide import (
     VerificationStatus,
 )
 from app.domain.routing import RouteCandidate
-from app.models.enums import RouteState, UserRole
-from app.models.operations import Trip, TripRoute
+from app.models.enums import RouteKind, RouteState, TripEventKind, UserRole
+from app.models.operations import Trip, TripEvent, TripRoute
 from app.models.review import RouteReviewAuthorization
 from app.services import route_review
 from app.services import route_risk as risk_service
@@ -47,6 +48,8 @@ from tests.conftest import auth_headers
 pytestmark = pytest.mark.requires_db
 
 GEOMETRY = [(26.1445, 91.7362), (26.4, 92.9), (26.7509, 94.2037)]
+# A second, distinct corridor so an EMERGENCY_BACKUP survives de-duplication.
+BACKUP_GEOMETRY = [(26.1445, 91.7362), (27.1, 92.9), (26.7509, 94.2037)]
 RATIONALE = "Spoke to the depot at Nagaon; road reported open by two drivers today."
 
 
@@ -61,6 +64,10 @@ class _StubChain:
                 RouteCandidate(
                     kind=kind, provider="stub", geometry=GEOMETRY,
                     distance_m=308_000.0, duration_s=21_600.0,
+                ),
+                RouteCandidate(
+                    kind=kind, provider="stub", geometry=BACKUP_GEOMETRY,
+                    distance_m=326_000.0, duration_s=22_800.0,
                 ),
             ),
             attempts=(ChainAttempt("stub", ok=True),),
@@ -323,28 +330,23 @@ class TestConsumption:
         assert replay.status_code == 422, replay.text
         assert replay.json()["error"]["code"] == "ROUTE_REVIEW_AUTHORIZATION_INVALID"
 
-    async def test_the_reviewer_may_not_spend_their_own_authorization(
-        self, api: AsyncClient, session: AsyncSession, manager_headers: dict, monkeypatch
+    async def test_the_person_who_accepted_the_evidence_may_act_on_it(
+        self, api: AsyncClient, session: AsyncSession, manager_headers: dict
     ):
-        """Two-person control, enforced independently of the role split.
-
-        Uses ADMIN deliberately: ADMIN holds BOTH route:review_authorize and
-        route:select, so the permission sets alone cannot separate reviewer from
-        selector. If this passes, the separation rests on the explicit check -
-        which is exactly what must be true.
-        """
+        """Policy 2026-09-18: one accountable person, not two. ADMIN holds both
+        permissions, so this is the two-step shape of what a manager does in
+        one step through /approve."""
         trip, route_id = await _planned(api, session, manager_headers)
         admin = await _headers(api, session, UserRole.ADMIN)
 
         auth_id = (await _authorize(api, trip.id, route_id, admin)).json()["id"]
-        refused = await api.post(
+        ok = await api.post(
             f"/api/trips/{trip.id}/routes/{route_id}/select"
             f"?authorization_id={auth_id}",
             headers=admin,
         )
-        assert refused.status_code == 422, refused.text
-        assert refused.json()["error"]["code"] == "ROUTE_REVIEW_AUTHORIZATION_INVALID"
-        assert await _selected_route_id(trip.id) is None
+        assert ok.status_code == 200, ok.text
+        assert str(await _selected_route_id(trip.id)) == route_id
 
     async def test_a_revoked_authorization_cannot_be_spent(
         self, api: AsyncClient, session: AsyncSession,
@@ -544,3 +546,218 @@ class TestConcurrency:
             ).scalar_one()
             assert spent.consumed_at is not None
             assert spent.consumed_by_user_id is not None
+
+
+APPROVAL = {
+    "rationale": "Use route with current evidence for demo dispatch; depot confirms road open.",
+    "acknowledged_incomplete_evidence": True,
+}
+
+
+async def _approve(api, trip_id, route_id, headers, body=APPROVAL):
+    return await api.post(
+        f"/api/trips/{trip_id}/routes/{route_id}/approve", headers=headers, json=body
+    )
+
+
+async def _authorizations(route_id) -> list[RouteReviewAuthorization]:
+    from app.db import session as db_session
+
+    async with db_session.get_sessionmaker()() as fresh:
+        return list(
+            (
+                await fresh.execute(
+                    select(RouteReviewAuthorization).where(
+                        RouteReviewAuthorization.route_id == uuid.UUID(route_id)
+                    )
+                )
+            ).scalars()
+        )
+
+
+class TestManagerApproval:
+    """The manager is the route authority: accept the evidence and act, at once."""
+
+    async def test_an_eligible_route_is_selected_directly(
+        self, api: AsyncClient, session: AsyncSession, manager_headers: dict, monkeypatch
+    ):
+        trip, route_id = await _planned(api, session, manager_headers)
+        _use(monkeypatch, _ClearSource())
+        ok = await api.post(
+            f"/api/trips/{trip.id}/routes/{route_id}/select", headers=manager_headers
+        )
+        assert ok.status_code == 200, ok.text
+        # And approving it is refused: there was nothing to accept.
+        refused = await _approve(api, trip.id, route_id, manager_headers)
+        assert refused.json()["error"]["code"] == "ROUTE_REVIEW_NOT_REQUIRED"
+
+    async def test_approval_issues_spends_and_selects_in_one_step(
+        self, api: AsyncClient, session: AsyncSession, manager_headers: dict
+    ):
+        trip, route_id = await _planned(api, session, manager_headers)
+        ok = await _approve(api, trip.id, route_id, manager_headers)
+        assert ok.status_code == 200, ok.text
+        body = ok.json()
+        assert body["route"]["is_current"] is True
+        assert body["authorization"]["consumed_at"] is not None
+        assert body["authorization"]["reviewer_role"] == "MANAGER"
+        assert body["authorization"]["reviewer_name"]
+        assert str(await _selected_route_id(trip.id)) == route_id
+
+        rows = await _authorizations(route_id)
+        assert len(rows) == 1
+        assert rows[0].consumed_by_user_id == rows[0].reviewer_user_id
+
+        # Survives a reload: the spent authorisation is still readable.
+        again = await api.get(
+            f"/api/trips/{trip.id}/routes/{route_id}/review-authorization",
+            headers=manager_headers,
+        )
+        assert again.json()["id"] == body["authorization"]["id"]
+        assert again.json()["reviewer_role"] == "MANAGER"
+
+        # STILL NOT "MARK AS SAFE".
+        risk = await api.get(
+            f"/api/trips/{trip.id}/routes/{route_id}/risk", headers=manager_headers
+        )
+        assert risk.json()["inputs"]["landslide"] == "NOT_AVAILABLE"
+
+    async def test_no_rationale_or_no_acknowledgement_is_refused(
+        self, api: AsyncClient, session: AsyncSession, manager_headers: dict
+    ):
+        trip, route_id = await _planned(api, session, manager_headers)
+        for body in (
+            {**APPROVAL, "rationale": "ok"},
+            {**APPROVAL, "acknowledged_incomplete_evidence": False},
+            {"rationale": APPROVAL["rationale"]},
+        ):
+            refused = await _approve(api, trip.id, route_id, manager_headers, body)
+            assert refused.status_code == 422, refused.text
+        assert await _authorizations(route_id) == []
+        assert await _selected_route_id(trip.id) is None
+
+    async def test_a_closed_road_cannot_be_approved_by_a_manager(
+        self, api: AsyncClient, session: AsyncSession, manager_headers: dict, monkeypatch
+    ):
+        trip, route_id = await _planned(api, session, manager_headers)
+        _use(monkeypatch, _ClosureSource())
+        refused = await _approve(api, trip.id, route_id, manager_headers)
+        assert refused.status_code == 422, refused.text
+        assert refused.json()["error"]["code"] == "ROUTE_REJECTED_ACTIVE_HAZARD"
+        assert await _authorizations(route_id) == []
+        assert await _selected_route_id(trip.id) is None
+
+    async def test_high_hazard_is_not_a_manager_override_either(
+        self, api: AsyncClient, session: AsyncSession, manager_headers: dict, monkeypatch
+    ):
+        trip, route_id = await _planned(api, session, manager_headers)
+        _use(monkeypatch, _HighSource())
+        refused = await _approve(api, trip.id, route_id, manager_headers)
+        assert refused.status_code == 422, refused.text
+        assert refused.json()["error"]["code"] == "ROUTE_REVIEW_BASIS_NOT_AUTHORIZABLE"
+        assert await _authorizations(route_id) == []
+
+    async def test_a_driver_cannot_approve(
+        self, api: AsyncClient, session: AsyncSession, manager_headers: dict
+    ):
+        trip, route_id = await _planned(api, session, manager_headers)
+        driver = await _headers(api, session, UserRole.DRIVER)
+        refused = await _approve(api, trip.id, route_id, driver)
+        assert refused.status_code == 403, refused.text
+        assert await _authorizations(route_id) == []
+
+    async def test_a_double_click_makes_one_authorization_and_one_selection(
+        self, api: AsyncClient, session: AsyncSession, manager_headers: dict
+    ):
+        trip, route_id = await _planned(api, session, manager_headers)
+        first, second = await asyncio.gather(
+            _approve(api, trip.id, route_id, manager_headers),
+            _approve(api, trip.id, route_id, manager_headers),
+        )
+        codes = sorted([first.status_code, second.status_code])
+        assert codes == [200, 422], f"{first.status_code} {second.status_code}"
+        rows = await _authorizations(route_id)
+        assert len(rows) == 1 and rows[0].consumed_at is not None
+        assert str(await _selected_route_id(trip.id)) == route_id
+
+    async def test_a_superseded_route_cannot_be_approved(
+        self, api: AsyncClient, session: AsyncSession, manager_headers: dict
+    ):
+        from app.db import session as db_session
+
+        trip, route_id = await _planned(api, session, manager_headers)
+        async with db_session.get_sessionmaker()() as writer:
+            row = (
+                await writer.execute(
+                    select(TripRoute).where(TripRoute.id == uuid.UUID(route_id))
+                )
+            ).scalar_one()
+            row.state = RouteState.SUPERSEDED
+            await writer.commit()
+
+        refused = await _approve(api, trip.id, route_id, manager_headers)
+        assert refused.status_code == 422, refused.text
+        assert refused.json()["error"]["code"] == "ROUTE_SUPERSEDED"
+        assert await _authorizations(route_id) == [], "a refusal must store nothing"
+
+
+class TestManagerApprovalOfAReroute:
+    """The same acceptance for a moving truck, through the reroute contract."""
+
+    async def _moving(self, api, session, headers):
+        driver, user = await factories.make_driver(session)
+        truck = await factories.make_truck(session)
+        assignment = await factories.make_assignment(session, driver, truck, verified=True)
+        trip = await factories.make_trip(session, driver, truck, assignment=assignment, stops=2)
+        planned = await api.post(f"/api/trips/{trip.id}/routes/recalculate", headers=headers)
+        assert planned.status_code == 201, planned.text
+        routes = (
+            await session.execute(select(TripRoute).where(TripRoute.trip_id == trip.id))
+        ).scalars().all()
+        primary = next(r for r in routes if r.kind is RouteKind.PRIMARY)
+        backup = next(r for r in routes if r.kind is RouteKind.EMERGENCY_BACKUP)
+        # Evidence is UNKNOWN on every corridor here, so even the first
+        # selection goes through the manager's approval.
+        assert (await _approve(api, trip.id, primary.id, headers)).status_code == 200
+        driver_headers = await auth_headers(api, user.phone, factories.TEST_PASSWORD)
+        started = await api.post("/api/driver/me/trip/start", headers=driver_headers, json={})
+        assert started.status_code == 200, started.text
+        return trip, primary, backup
+
+    async def test_approving_with_from_route_reroutes_and_records_it(
+        self, api: AsyncClient, session: AsyncSession, manager_headers: dict
+    ):
+        trip, primary, backup = await self._moving(api, session, manager_headers)
+        ok = await _approve(
+            api, trip.id, backup.id, manager_headers,
+            {**APPROVAL, "from_route_id": str(primary.id)},
+        )
+        assert ok.status_code == 200, ok.text
+        assert ok.json()["route"]["id"] == str(backup.id)
+        assert str(await _selected_route_id(trip.id)) == str(backup.id)
+
+        async with __import__("app.db.session", fromlist=["x"]).get_sessionmaker()() as fresh:
+            event = (
+                await fresh.execute(
+                    select(TripEvent).where(
+                        TripEvent.trip_id == trip.id,
+                        TripEvent.kind == TripEventKind.ROUTE_CHANGED,
+                    )
+                )
+            ).scalar_one()
+        assert event.payload["to_route_id"] == str(backup.id)
+        spent = await _authorizations(str(backup.id))
+        assert len(spent) == 1 and spent[0].consumed_at is not None
+
+    async def test_a_stale_screen_cannot_reroute_and_stores_nothing(
+        self, api: AsyncClient, session: AsyncSession, manager_headers: dict
+    ):
+        trip, primary, backup = await self._moving(api, session, manager_headers)
+        stale = await _approve(
+            api, trip.id, backup.id, manager_headers,
+            {**APPROVAL, "from_route_id": str(uuid.uuid4())},  # a road the trip left
+        )
+        assert stale.status_code == 409, stale.text
+        assert stale.json()["error"]["code"] == "ROUTE_SUPERSEDED"
+        assert str(await _selected_route_id(trip.id)) == str(primary.id)
+        assert await _authorizations(str(backup.id)) == []

@@ -119,19 +119,25 @@ never the control.
 | Emergencies | full | view, resolve | **respond to own only** | — |
 | Audit logs | read | read scoped | none | none |
 
-**AUTHORISED_REVIEWER exists to separate two decisions (LS-11).** Accepting that a
-corridor's hazard evidence is incomplete, and acting on that acceptance, are
-different acts. The role holds `route:review_authorize` and NOT `route:select`;
-MANAGER holds the reverse. Neither can complete the flow alone.
+**AUTHORISED_REVIEWER is an optional second-level reviewer (LS-11; policy
+revised 18 Sep 2026).** The MANAGER is the operational authority: `POST
+…/routes/{id}/approve` (`route:select`) records the manager's acceptance of
+incomplete evidence — rationale and an explicit "incomplete is not SAFE"
+acknowledgement required — and selects the route in one audited transaction.
+The reviewer role holds `route:review_authorize` and NOT `route:select`, and
+can pre-issue an authorisation a manager then spends; it is not required for a
+dispatch. Hard blocks (verified closure, NOT_ASSESSED, HIGH hazard, superseded
+route, endpoint mismatch, out-of-region) are refused for every role, including
+ADMIN.
 
 It also does NOT hold `fleet:location_read`: judging hazard evidence on a
 corridor does not require knowing where any driver is, and location is the most
 sensitive data the system holds (section 3).
 
-ADMIN holds both permissions through `ALL_PERMISSIONS`, so the separation cannot
-rest on the role sets alone — `reviewer_user_id != actor.id` is enforced in the
-consumption statement itself, and the test that proves it uses an ADMIN
-deliberately.
+Two-person control is NOT enforced at consumption any more: the person who
+accepts the evidence may act on it. It was one WHERE clause
+(`reviewer_user_id != actor.id` in `route_review.claim`) and returns as one if
+a fleet wants it.
 
 Two rules that carry most of the weight:
 

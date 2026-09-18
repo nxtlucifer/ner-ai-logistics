@@ -1,5 +1,11 @@
 /**
- * The authorised reviewer's screen.
+ * The authorised reviewer's screen - OPTIONAL, second-level.
+ *
+ * Since 2026-09-18 the manager approves a REVIEW REQUIRED route from the
+ * trip's own route panel ("Review & approve route") and no reviewer sign-in
+ * is needed for a dispatch. This page stays for audit (what was accepted, by
+ * whom, and why) and for a fleet that wants a separate reviewer to pre-issue
+ * an authorisation the manager then spends.
  *
  * WHAT A REVIEWER IS BEING ASKED
  *
@@ -183,7 +189,9 @@ export default function ReviewPage() {
           hazard evidence</strong> for one dispatch. It does not mark the road
           checked, and the route continues to report its evidence as missing
           afterwards. A road an authority has closed cannot be authorised by
-          anyone.
+          anyone. Managers approve routes from the trip itself (Trips ›
+          Review &amp; approve route); this page is the optional second-level
+          review and the record of what was accepted.
         </p>
       </div>
 
@@ -233,8 +241,9 @@ export default function ReviewPage() {
               {live.map((route) => {
                 const assessed = byRoute.get(route.id)
                 const held = authorizations[route.id] ?? null
+                const spent = held !== null && held.consumed_at !== null
                 const expired =
-                  held !== null && new Date(held.expires_at) <= new Date()
+                  held !== null && !spent && new Date(held.expires_at) <= new Date()
                 const reviewable = assessed?.eligibility === 'REQUIRES_REVIEW'
                 const text = rationale[route.id] ?? ''
                 const busy = busyRoute === route.id
@@ -284,31 +293,39 @@ export default function ReviewPage() {
                     {held ? (
                       <div className="mt-3 rounded border border-warning/40 bg-warning-strong/10 p-2">
                         <p className="text-[11px] font-semibold text-warning">
-                          {expired
-                            ? 'Authorisation expired — a fresh review is needed'
-                            : 'Hazard data incomplete — authorized for this selection'}
+                          {spent
+                            ? `Accepted and used for the selection that stands — by ${held.reviewer_name ?? 'a reviewer'}${held.reviewer_role ? ` (${held.reviewer_role.toLowerCase().replace(/_/g, ' ')})` : ''}`
+                            : expired
+                              ? 'Authorisation expired — a fresh review is needed'
+                              : 'Hazard data incomplete — authorized for this selection'}
                         </p>
                         <Field label="Basis" value={held.basis.replace(/_/g, ' ')} />
-                        <Field
-                          label="Expires"
-                          value={new Date(held.expires_at).toLocaleString()}
-                        />
+                        {spent ? (
+                          <Field label="Used" value={new Date(held.consumed_at as string).toLocaleString()} />
+                        ) : (
+                          <Field
+                            label="Expires"
+                            value={new Date(held.expires_at).toLocaleString()}
+                          />
+                        )}
                         <Field label="Rationale" value={held.rationale} />
-                        <div className="mt-2">
-                          <Button
-                            variant="secondary"
-                            busy={busy}
-                            disabled={busy || revokeBlocked !== null}
-                            title={revokeBlocked ?? undefined}
-                            onClick={() => void revoke(route.id, held.id)}
-                          >
-                            {busy ? 'Revoking…' : 'Revoke'}
-                          </Button>
-                        </div>
+                        {!spent && mayAuthorize ? (
+                          <div className="mt-2">
+                            <Button
+                              variant="secondary"
+                              busy={busy}
+                              disabled={busy || revokeBlocked !== null}
+                              title={revokeBlocked ?? undefined}
+                              onClick={() => void revoke(route.id, held.id)}
+                            >
+                              {busy ? 'Revoking…' : 'Revoke'}
+                            </Button>
+                          </div>
+                        ) : null}
                       </div>
                     ) : reviewable && !mayAuthorize ? (
                       <p className="mt-3 text-[11px] text-warning">
-                        Only an authorised reviewer can accept this. Ask one to sign in and open this trip under Review; then check conditions again on the trip.
+                        Approve this from the trip itself: Trips › open the trip › Review &amp; approve route. This page only pre-issues an authorisation for a separate reviewer.
                       </p>
                     ) : reviewable ? (
                       <div className="mt-3 space-y-2">

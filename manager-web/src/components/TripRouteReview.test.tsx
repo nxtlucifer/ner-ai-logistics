@@ -5,8 +5,9 @@
  * inventory is configured, and UNKNOWN is not SAFE), so a manager who was
  * shown a greyed "Use this route" had a button that could never work and no
  * way forward from the panel. The control now names the way forward:
- * SELECTABLE offers the selection, REVIEW_REQUIRED opens the review for this
- * trip, BLOCKED says so, and a refusal from the server is shown and re-read.
+ * SELECTABLE offers the selection, REVIEW_REQUIRED opens the manager's own
+ * decision panel (reason + acknowledgement, then one approve-and-select
+ * call), BLOCKED says so, and a refusal from the server is shown and re-read.
  */
 
 // @vitest-environment jsdom
@@ -27,7 +28,16 @@ beforeEach(() => {
   vi.spyOn(api, 'listRoutes').mockResolvedValue([route])
   vi.spyOn(api, 'reviewAuthorization').mockResolvedValue(null)
   vi.spyOn(api, 'selectRoute').mockResolvedValue({ ...route, is_current: true })
+  vi.spyOn(api, 'approveRoute').mockResolvedValue({ route: { ...route, is_current: true }, authorization: spent })
 })
+const spent: ReviewAuthorization = { id: 'auth-m', trip_id: 'trip', route_id: 'road', basis: 'HAZARD_DATA_UNKNOWN', rationale: 'Depot confirms the road is open this morning', reviewer_user_id: 'u-m', reviewer_name: 'Demo Manager', reviewer_role: 'MANAGER', issued_at: new Date().toISOString(), expires_at: new Date(Date.now() + 1_800_000).toISOString(), consumed_at: new Date().toISOString(), revoked_at: null, policy_version: 'v1', evidence_version: 'v1', evidence_snapshot: {} }
+const RATIONALE = 'Depot confirms the road is open this morning'
+async function decide(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole('button', { name: 'Review & approve route' }))
+  await screen.findByRole('dialog', { name: 'Manager decision' })
+  await user.type(screen.getByRole('textbox'), RATIONALE)
+  await user.click(screen.getByRole('checkbox'))
+}
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 function assess(eligibility: RouteEligibility) {
   return vi.spyOn(api, 'routeRecommendation').mockResolvedValue({ recommended_route_id: null, baseline_route_id: 'road', comparable: false, reason_codes: [], tradeoff: null, unavailable_inputs: ['landslide'], margin_points: 0, version: 'test', candidates: [{ route_id: 'road', kind: 'PRIMARY', distance_km: 305.4, estimated_duration_min: 230, eligibility, risk: { score: 10, band: 'LOW', unavailable: ['landslide'], reason_codes: [] } }] })
@@ -45,16 +55,68 @@ it('before conditions are checked, selection is offered shut, with the reason on
   expect(use.title).toMatch(/check current conditions/i)
 })
 
-it('REQUIRES_REVIEW without authority: no Use this route; Open review leads to this trip, and says why', async () => {
+it('REQUIRES_REVIEW without authority: no Use this route; Review & approve route is offered, and says why', async () => {
   assess('REQUIRES_REVIEW')
   const user = userEvent.setup()
   show()
   await check(user)
   await screen.findByText('REQUIRES REVIEW')
   expect(screen.queryByRole('button', { name: 'Use this route' })).toBeNull()
-  expect(screen.getByRole('link', { name: 'Open review' }).getAttribute('href')).toBe('/review?trip=trip')
-  expect(screen.getByText(/safety review required before this route can be selected/i)).toBeDefined()
+  expect(screen.queryByRole('link', { name: 'Open review' })).toBeNull()
+  expect(button('Review & approve route').disabled).toBe(false)
+  expect(screen.getByText(/review required\. hazard evidence is incomplete/i)).toBeDefined()
   expect(api.selectRoute).not.toHaveBeenCalled()
+})
+
+it('the manager decision needs a reason AND the acknowledgement before it can approve', async () => {
+  assess('REQUIRES_REVIEW')
+  const user = userEvent.setup()
+  show()
+  await check(user)
+  await user.click(await screen.findByRole('button', { name: 'Review & approve route' }))
+  await screen.findByRole('dialog', { name: 'Manager decision' })
+  expect(screen.getByText(/landslide incidents \(required\)/i).nextElementSibling?.textContent).toBe('UNAVAILABLE')
+  const approve = button('Approve & use route')
+  expect(approve.disabled).toBe(true)
+  await user.type(screen.getByRole('textbox'), RATIONALE)
+  expect(approve.disabled).toBe(true) // reason alone is not enough
+  await user.click(screen.getByRole('checkbox'))
+  expect(approve.disabled).toBe(false)
+  await user.click(button('Cancel'))
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(api.approveRoute).not.toHaveBeenCalled()
+})
+
+it('Approve & use route records once even on a double click, then shows the route assigned and who approved it', async () => {
+  assess('REQUIRES_REVIEW')
+  const changed = vi.fn()
+  const user = userEvent.setup()
+  show(changed)
+  await check(user)
+  await decide(user)
+  vi.mocked(api.listRoutes).mockResolvedValue([{ ...route, is_current: true }])
+  vi.mocked(api.reviewAuthorization).mockResolvedValue(spent)
+  await user.dblClick(button('Approve & use route'))
+  await screen.findByRole('button', { name: 'Route assigned' })
+  expect(api.approveRoute).toHaveBeenCalledExactlyOnceWith('trip', 'road', RATIONALE)
+  expect(api.selectRoute).not.toHaveBeenCalled()
+  expect(changed).toHaveBeenCalledTimes(1)
+  expect(screen.getByTestId('approved-by').textContent).toMatch(/Approved by Demo Manager \(manager\)/)
+  expect(screen.queryByRole('dialog')).toBeNull()
+})
+
+it('an approval the server refuses (a closure appeared) is shown in the panel and the control becomes Route blocked', async () => {
+  assess('REQUIRES_REVIEW')
+  const user = userEvent.setup()
+  show()
+  await check(user)
+  await decide(user)
+  vi.mocked(api.approveRoute).mockRejectedValue(new ApiError(422, { error: { code: 'ROUTE_REJECTED_ACTIVE_HAZARD', message: 'That route is blocked by an active hazard. A closed road cannot be authorised by anyone.' } }, 'refused'))
+  assess('REJECTED') // what the server now says when asked again
+  await user.click(button('Approve & use route'))
+  await screen.findByRole('button', { name: 'Route blocked' })
+  expect(screen.getByText(/closed road cannot be authorised/i)).toBeDefined()
+  expect(screen.queryByRole('dialog')).toBeNull()
 })
 
 it('REJECTED: the control reads Route blocked, disabled, with the specific reason', async () => {
@@ -76,7 +138,7 @@ it('NOT_ASSESSED: no direct selection, the reason stays on the control', async (
   await check(user)
   await screen.findByText('NOT ASSESSED')
   expect(button('Use this route').disabled).toBe(true)
-  expect(button('Use this route').title).toMatch(/check current conditions/i)
+  expect(button('Use this route').title).toMatch(/could not run.*fault to fix/i)
 })
 
 it('REQUIRES_REVIEW with a live authorisation is selectable and spends that authorisation', async () => {
@@ -116,7 +178,7 @@ it('a refusal at selection time is shown, and the panel re-reads eligibility so 
   vi.mocked(api.selectRoute).mockRejectedValue(new ApiError(409, { error: { code: 'ROUTE_SELECTION_REQUIRES_REVIEW', message: 'This route needs review before it can be selected: required safety evidence is missing or elevated.' } }, 'refused'))
   assess('REQUIRES_REVIEW') // what the server now says when asked again
   await user.click(button('Use this route'))
-  await screen.findByRole('link', { name: 'Open review' })
+  await screen.findByRole('button', { name: 'Review & approve route' })
   expect(screen.getByText(/needs review before it can be selected/i)).toBeDefined()
   expect(screen.queryByRole('button', { name: 'Use this route' })).toBeNull()
 })
@@ -141,7 +203,7 @@ it('a conditions check that times out is shown beside the control, and Try again
   expect(alert.closest('.bg-soft')).not.toBeNull() // inside the decision block, next to the control
   expect(button('Use this route').disabled).toBe(true)
   await user.click(screen.getByRole('button', { name: 'Try again' }))
-  await screen.findByRole('link', { name: 'Open review' })
+  await screen.findByRole('button', { name: 'Review & approve route' })
   expect(reco).toHaveBeenCalledTimes(2)
   expect(api.getTrip).toHaveBeenCalledTimes(1) // retried as a check, not as a reload
 })

@@ -340,6 +340,8 @@ export default function FleetPage() {
   // Review authorisations held against this trip's candidates, by route id.
   // Fetched only after an assessment has run, and only for the routes that
   // actually need one - a plain read, no weather cost.
+  // The REVIEW REQUIRED card whose decision panel is open.
+  const [approvingId, setApprovingId] = useState<string | null>(null)
   const [reviewAuths, setReviewAuths] = useState<
     Record<string, ReviewAuthorization | null>
   >({})
@@ -540,13 +542,20 @@ export default function FleetPage() {
    * is why the choice of endpoint is made here rather than by picking the one
    * that is simpler to call.
    */
-  async function chooseRoute(routeId: string, authorizationId?: string) {
+  async function chooseRoute(routeId: string, authorizationId?: string, rationale?: string) {
     if (!selectedTripId || choosingId !== null) return
     const tripId = selectedTripId
     setChoosingId(routeId)
     setChooseError(null)
     try {
-      if (inTransit && currentRoute) {
+      if (rationale !== undefined) {
+        // The manager's own approval of a REVIEW REQUIRED route: recorded and
+        // applied in one server transaction. For a moving trip it is a reroute
+        // FROM the road on screen, with the reroute contract's 409 if that road
+        // changed meanwhile.
+        await api.approveRoute(tripId, routeId, rationale, inTransit && currentRoute ? currentRoute.id : undefined)
+        setApprovingId(null)
+      } else if (inTransit && currentRoute) {
         await api.acceptReroute(tripId, currentRoute.id, routeId, authorizationId)
       } else {
         // A draft - or a moving trip that has no current route, a data gap
@@ -1286,7 +1295,6 @@ export default function FleetPage() {
 
                   {cards.length > 0 ? (
                     <RouteCandidateCards
-                      tripId={selectedTripId ?? ''}
                       candidates={cards}
                       recommendedRouteId={recommendedId}
                       inTransit={inTransit}
@@ -1295,9 +1303,13 @@ export default function FleetPage() {
                       previewId={previewId}
                       onPreview={setPreviewId}
                       onChoose={(id, authorizationId) => void chooseRoute(id, authorizationId)}
+                      approvingId={approvingId}
+                      onApproving={(id) => { setChooseError(null); setApprovingId(id) }}
+                      onApprove={(id, rationale) => void chooseRoute(id, undefined, rationale)}
+                      approveError={approvingId !== null ? chooseErrorHere : null}
                     />
                   ) : null}
-                  {chooseErrorHere ? (
+                  {chooseErrorHere && approvingId === null ? (
                     <ErrorState error={chooseErrorHere} />
                   ) : null}
 

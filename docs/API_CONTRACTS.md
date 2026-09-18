@@ -469,8 +469,9 @@ person.
 | POST | `/api/trips/{id}/routes/recalculate` | `route:plan` | **implemented** (P7) |
 | POST | `/api/trips/{id}/routes/{route_id}/select` | `route:select` | **implemented** (P7) |
 | POST | `/api/routes/preview` | M A | planned — candidates without a trip |
-| GET | `/api/trips/{id}/routes/{route_id}/review-authorization` | `route:read` | **implemented** (LS-11) — the live authorisation, or null |
-| POST | `/api/trips/{id}/routes/{route_id}/review-authorization` | `route:review_authorize` | **implemented** (LS-11) — authorise ONE selection |
+| POST | `/api/trips/{id}/routes/{route_id}/approve` | `route:select` | **implemented** (18 Sep 2026) — manager accepts incomplete evidence AND selects, one transaction; body `{rationale ≥20, acknowledged_incomplete_evidence: true, from_route_id?}`; `from_route_id` makes it a reroute of a moving trip |
+| GET | `/api/trips/{id}/routes/{route_id}/review-authorization` | `route:read` | **implemented** (LS-11) — the live authorisation, else the one spent for the standing selection, else null; carries `reviewer_name`/`reviewer_role` |
+| POST | `/api/trips/{id}/routes/{route_id}/review-authorization` | `route:review_authorize` | **implemented** (LS-11) — OPTIONAL second-level path: authorise ONE selection for a manager to spend |
 | DELETE | `/api/trips/{id}/routes/{route_id}/review-authorization/{auth_id}` | `route:review_authorize` | **implemented** (LS-11) — revoke an unspent one |
 | GET | `/api/trips/{id}/routes/{route_id}/risk` | `route:read` | **implemented** (P8) — deterministic route risk V1 |
 | GET | `/api/trips/{id}/routes/recommendation` | `route:read` | **implemented** — Explainable Route Recommendation V1 |
@@ -634,9 +635,16 @@ accepted incomplete evidence at a particular time — never that the road was
 checked. UI wording must reflect that: "Hazard data incomplete — authorized for
 this selection", never "safe" or "verified".
 
-Two-person control: `AUTHORISED_REVIEWER` holds `route:review_authorize` and
-deliberately NOT `route:select`. ADMIN holds both through `ALL_PERMISSIONS`, so
-`reviewer_user_id != consumer` is ALSO enforced explicitly at consumption.
+Who decides (policy 18 Sep 2026): the **MANAGER** is the operational authority.
+`POST …/approve` (`route:select`) issues the authorisation, spends it and
+selects the route in one transaction; a refusal stores nothing. What the
+manager may accept is exactly what a reviewer may: assessed
+`HAZARD_DATA_UNKNOWN` only. REJECTED (closure), NOT_ASSESSED, HIGH, a
+superseded route, an endpoint mismatch and an out-of-region road are refused
+for every role. `AUTHORISED_REVIEWER` (`route:review_authorize`, no
+`route:select`) remains as an optional pre-issue path; two-person control is
+no longer enforced at consumption (it was one WHERE clause, `reviewer_user_id
+!= consumer`, and can return as one).
 
 ### Route recommendation (`GET /api/trips/{id}/routes/recommendation`)
 

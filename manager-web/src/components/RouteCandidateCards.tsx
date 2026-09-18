@@ -16,17 +16,17 @@
  * the server is disabled with that same sentence as its title. "Use this
  * route, then an error" is the failure this exists to remove.
  *
- * REVIEW REQUIRED is the one state with a way forward that is not a click
- * here: an authorised reviewer must accept the incomplete evidence under
- * Review. So the card offers THAT - "Open review", landing on this trip -
- * rather than a greyed "Use this route" that can never work. On the hosted
- * deployment, with no landslide inventory configured, every corridor starts
- * in this state; the dead grey button was the whole panel for a manager.
+ * REVIEW REQUIRED is the manager's own decision. The card offers "Review &
+ * approve route", which opens the decision panel: what evidence is missing,
+ * a required reason, an explicit acknowledgement that incomplete is not SAFE,
+ * then one click that records the approval and applies the route. On the
+ * hosted deployment, with no landslide inventory configured, every corridor
+ * starts in this state; a greyed "Use this route" that can never work is the
+ * failure this exists to remove. BLOCKED stays blocked for everyone.
  */
 
-import { Link } from 'react-router-dom'
-
-import { Button, LINK_BUTTON, StatusPill } from './ui'
+import { Button, StatusPill } from './ui'
+import { RouteApprovalDialog } from './RouteApprovalDialog'
 import type { ReviewAuthorization, RouteComparison, TripRoute } from '../api/client'
 import { translateReasonCodes } from '../i18n/reasonCodes'
 
@@ -65,9 +65,9 @@ export function candidateMessage(c: Candidate, state: CandidateState, inTransit:
         ? 'Authorised for one selection by a reviewer. The hazard evidence is still incomplete — this records who accepted that, not that the road was checked.'
         : 'Eligible under the checks that ran. Not a safety guarantee.'
     case 'REVIEW_REQUIRED':
-      return 'Safety review required before this route can be selected — hazard evidence is incomplete or elevated. An authorised reviewer must accept it under Review; check conditions again afterwards.'
+      return 'Review required — hazard evidence is incomplete. It does not prove the road is unsafe, but it is not enough to call it verified. Review it and decide.'
     case 'BLOCKED':
-      return 'Blocked by an active hazard. This road cannot be used.'
+      return 'Blocked by an active hazard. This road cannot be used, and nobody can override that.'
     case 'STALE':
       return 'Selected route is no longer current — an earlier re-plan retired it while the trip was following it. Choose another route to change road.'
     case 'NOT_CHECKED':
@@ -83,8 +83,6 @@ function minutes(m: number | null): string {
 }
 
 export interface RouteCandidateCardsProps {
-  /** For the review link: a reviewer lands on this trip, not on a list. */
-  tripId: string
   candidates: Candidate[]
   /** From the comparison rule. Null when nothing was compared. */
   recommendedRouteId: string | null
@@ -98,10 +96,15 @@ export interface RouteCandidateCardsProps {
   previewId: string | null
   onPreview: (routeId: string | null) => void
   onChoose: (routeId: string, authorizationId?: string) => void
+  /** Which REVIEW REQUIRED card has its decision panel open, if any. */
+  approvingId: string | null
+  onApproving: (routeId: string | null) => void
+  onApprove: (routeId: string, rationale: string) => void
+  /** The server's refusal of the last approval, shown inside the panel. */
+  approveError?: unknown
 }
 
 export function RouteCandidateCards({
-  tripId,
   candidates,
   recommendedRouteId,
   inTransit,
@@ -110,6 +113,10 @@ export function RouteCandidateCards({
   previewId,
   onPreview,
   onChoose,
+  approvingId,
+  onApproving,
+  onApprove,
+  approveError = null,
 }: RouteCandidateCardsProps) {
   const n = candidates.length
   // Labels come from the figures, never from a fixed slot. A unique minimum
@@ -209,7 +216,11 @@ export function RouteCandidateCards({
 
               <div className="mt-2 flex flex-wrap gap-2">
                 {state === 'REVIEW_REQUIRED' ? (
-                  <Link to={`/review?trip=${tripId}`} className={LINK_BUTTON}>Open review</Link>
+                  approvingId === r.id ? null : (
+                    <Button variant="secondary" disabled={choosingId !== null} onClick={() => onApproving(r.id)}>
+                      Review & approve route
+                    </Button>
+                  )
                 ) : state !== 'SELECTED' && state !== 'STALE' ? (
                   <Button
                     busy={busy}
@@ -224,6 +235,19 @@ export function RouteCandidateCards({
                   {previewId === r.id ? 'Shown on map' : 'Show on map'}
                 </Button>
               </div>
+              {state === 'REVIEW_REQUIRED' && approvingId === r.id && c.assessed ? (
+                <div className="mt-2">
+                  <RouteApprovalDialog
+                    risk={c.assessed.risk}
+                    reasons={translateReasonCodes(c.assessed.risk.reason_codes, 'en')}
+                    busy={busy}
+                    error={approveError}
+                    rerouting={rerouting}
+                    onCancel={() => onApproving(null)}
+                    onApprove={(rationale) => onApprove(r.id, rationale)}
+                  />
+                </div>
+              ) : null}
             </li>
           )
         })}

@@ -13,7 +13,7 @@ import math
 import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel, Field
@@ -859,9 +859,12 @@ class ReviewAuthorizationRead(ReadModel):
     #: The assessment as the reviewer saw it. Incomplete evidence, shown as
     #: incomplete.
     evidence_snapshot: dict
+    #: Who accepted the evidence, for the screen that says "approved by".
+    reviewer_name: str | None = None
+    reviewer_role: str | None = None
 
 
-def _review_read(row) -> ReviewAuthorizationRead:
+def _review_read(row, reviewer: User | None = None) -> ReviewAuthorizationRead:
     return ReviewAuthorizationRead(
         id=row.id,
         trip_id=row.trip_id,
@@ -876,7 +879,31 @@ def _review_read(row) -> ReviewAuthorizationRead:
         policy_version=row.policy_version,
         evidence_version=row.evidence_version,
         evidence_snapshot=row.evidence_snapshot,
+        reviewer_name=reviewer.display_name if reviewer else None,
+        reviewer_role=reviewer.role.value if reviewer else None,
     )
+
+
+class RouteApprovalRequest(APIModel):
+    """A manager accepting incomplete evidence and selecting the route, at once.
+
+    `rationale` is the record of why. `acknowledged_incomplete_evidence` must
+    be literally true: the client shows "Incomplete evidence is not the same
+    as SAFE" and the server refuses a request that did not tick it. Everything
+    bound to the authorisation is computed server-side, as for a reviewer.
+    """
+
+    rationale: Annotated[str, Field(min_length=20, max_length=2000)]
+    acknowledged_incomplete_evidence: Literal[True]
+    #: Present when the trip is under way: the route on screen when the
+    #: manager decided. Makes this a reroute, with the reroute contract's
+    #: timeline event and its 409 on a stale screen.
+    from_route_id: uuid.UUID | None = None
+
+
+class RouteApprovalRead(ReadModel):
+    route: TripRouteRead
+    authorization: ReviewAuthorizationRead
 
 
 @trips_router.get(
@@ -895,8 +922,65 @@ async def get_review_authorization(
     never having been reviewed."""
     await trip_service.get(db, trip_id)
     await route_service.ensure_belongs_to_trip(db, trip_id, route_id)
+    # Live first; otherwise the one spent for the selection that stands, so a
+    # reload still shows who accepted the evidence.
     row = await review_service.live_for_route(db, trip_id, route_id)
-    return _review_read(row) if row is not None else None
+    if row is None:
+        row = await review_service.consumed_for_route(db, trip_id, route_id)
+    if row is None:
+        return None
+    return _review_read(row, await db.get(User, row.reviewer_user_id))
+
+
+@trips_router.post(
+    "/{trip_id}/routes/{route_id}/approve",
+    response_model=RouteApprovalRead,
+    summary="Manager accepts incomplete hazard evidence and selects the route",
+)
+async def approve_and_select_route(
+    trip_id: uuid.UUID,
+    route_id: uuid.UUID,
+    payload: RouteApprovalRequest,
+    db: DbSession,
+    actor: Annotated[User, Depends(require_permission(perm.ROUTE_SELECT))],
+    ip: ClientIp,
+) -> RouteApprovalRead:
+    """The manager's path for a REQUIRES_REVIEW route. One transaction.
+
+    Refuses 422 exactly where a reviewer would be refused: REJECTED (a closed
+    road cannot be approved by anyone), NOT_ASSESSED (a fault to fix), already
+    ELIGIBLE (nothing to approve), HIGH hazard (not delegable under the
+    policy), a superseded route, or evidence that changed under the lock. A
+    refusal stores nothing.
+
+    Approving does NOT change the assessment. The route still reports its
+    evidence as incomplete afterwards; what is recorded is who accepted that.
+    """
+    await trip_service.get(db, trip_id)
+    await route_service.ensure_belongs_to_trip(db, trip_id, route_id)
+
+    decision, assessment = (
+        await route_risk_service.eligibility_and_evidence_for_route(db, route_id)
+    )
+    route_state = await route_service.state_of(db, route_id)
+    authorization, route = await review_service.approve_and_select(
+        db,
+        trip_id,
+        route_id,
+        actor=actor,
+        rationale=payload.rationale,
+        decision=decision,
+        assessment=assessment,
+        route_state=route_state,
+        ip=ip,
+        from_route_id=payload.from_route_id,
+    )
+    return RouteApprovalRead(
+        route=_route_read(
+            route, await route_service.geometry_wkt(db, route.id), current_route_id=route.id
+        ),
+        authorization=_review_read(authorization, actor),
+    )
 
 
 @trips_router.post(

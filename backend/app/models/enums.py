@@ -30,13 +30,10 @@ class UserRole(_StrEnum):
     ADMIN = "ADMIN"
     MANAGER = "MANAGER"
     DRIVER = "DRIVER"
-    #: Authorises a REQUIRES_REVIEW route so one selection may proceed (LS-11).
-    #:
-    #: A separate role rather than a manager attribute, and deliberately
-    #: WITHOUT `route:select`: the person who accepts a hazard risk must not be
-    #: the person who then acts on it. Keeping the two permissions in different
-    #: roles makes that separation structural instead of a check somebody can
-    #: delete. See app/core/permissions.py.
+    #: OPTIONAL second-level review: issues a standalone authorisation for one
+    #: selection of a REQUIRES_REVIEW route (LS-11), without `route:select`.
+    #: Not required for the normal flow - a MANAGER approves and selects in
+    #: one step. See app/core/permissions.py and app/services/route_review.py.
     AUTHORISED_REVIEWER = "AUTHORISED_REVIEWER"
 
 

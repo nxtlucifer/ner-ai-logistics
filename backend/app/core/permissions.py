@@ -53,16 +53,14 @@ TRIP_CLOSE: Final = "trip:close"
 ROUTE_READ: Final = "route:read"
 ROUTE_PLAN: Final = "route:plan"
 ROUTE_SELECT: Final = "route:select"
-#: Authorise ONE selection of a REQUIRES_REVIEW route (LS-11).
+#: Issue a standalone authorisation for ONE selection of a REQUIRES_REVIEW
+#: route (LS-11), to be spent later by whoever holds ROUTE_SELECT.
 #:
-#: Separate from ROUTE_SELECT on purpose. Accepting a hazard risk and acting on
-#: it are different decisions, and holding both in one role would make
-#: two-person control impossible to express. AUTHORISED_REVIEWER has this and
-#: NOT ROUTE_SELECT; MANAGER has ROUTE_SELECT and NOT this.
-#:
-#: ADMIN receives it through ALL_PERMISSIONS, so an admin does hold both. The
-#: reviewer-is-not-the-selector rule is therefore ALSO enforced explicitly at
-#: consumption time and is not left resting on the role split alone.
+#: AUTHORISED_REVIEWER has this and NOT ROUTE_SELECT; MANAGER has ROUTE_SELECT
+#: and NOT this. Since 2026-09-18 the manager does not need it: the
+#: `/approve` endpoint (ROUTE_SELECT) accepts the evidence and selects the
+#: route in one audited transaction. The reviewer path is optional, kept for
+#: audit and a future second-level workflow.
 ROUTE_REVIEW_AUTHORIZE: Final = "route:review_authorize"
 
 # Driver-side execution. "own" is an object-level qualifier a permission string

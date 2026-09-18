@@ -121,8 +121,13 @@ async def accept(
     actor: User,
     ip: str | None = None,
     authorization_id: uuid.UUID | None = None,
+    evidence: tuple | None = None,
 ) -> tuple[Trip, TripRoute]:
     """Move a moving trip onto a different route, because a person said to.
+
+    `evidence` is an `(EligibilityDecision, LandslideAssessment | None)` pair a
+    caller already gathered for THIS target in this request, so the hazard
+    fan-out is not paid twice. Omitted, it is computed here.
 
     One transaction: the route change, the demotion of the route it left, the
     trip's `selected_route_id`, the timeline event and the audit row all land
@@ -155,7 +160,7 @@ async def accept(
     # manager's client cannot assert that a route is clear.
     from app.services import route_risk as route_risk_service
 
-    eligibility, assessment = (
+    eligibility, assessment = evidence or (
         await route_risk_service.eligibility_and_evidence_for_route(db, to_route_id)
     )
     # Refused HERE, not later inside apply_selection. `accept` locks the trip
