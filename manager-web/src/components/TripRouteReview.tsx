@@ -374,6 +374,9 @@ export default function TripRouteReview({ trip, onChanged }: { trip: Trip; onCha
         {can('route:select') && editable ? (
           route.is_current ? <Button disabled>Route assigned</Button>
           : needsReview ? (approving ? null : <Button variant="secondary" disabled={busy !== null} onClick={() => { setError(null); setApproving(true) }}>Review & approve route</Button>)
+          // No control until conditions were checked: "Check conditions &
+          // review" above is the only way forward, not a greyed button.
+          : !eligible || eligible.eligibility === 'NOT_ASSESSED' ? null
           : <Button disabled={busy !== null || !selectable} busy={busy === 'select'} title={selectable ? undefined : verdict} onClick={() => void run('select', async () => {
             if (!selectable) return
             try {

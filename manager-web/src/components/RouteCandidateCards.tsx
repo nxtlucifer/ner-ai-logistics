@@ -221,7 +221,8 @@ export function RouteCandidateCards({
                       Review & approve route
                     </Button>
                   )
-                ) : state !== 'SELECTED' && state !== 'STALE' ? (
+                ) : state === 'NOT_CHECKED' ? null // "Check route conditions" above is the way forward, not a greyed button
+                : state !== 'SELECTED' && state !== 'STALE' ? (
                   <Button
                     busy={busy}
                     disabled={!actionable || (choosingId !== null && !busy)}

@@ -1034,11 +1034,10 @@ describe('FleetPage', () => {
       await user.click(screen.getByRole('button', { name: /check route conditions/i }))
     }
 
-    it('offers a way to select a planned route, disabled with the reason until conditions are checked', async () => {
+    it('offers no Use this route until conditions are checked - the card says why and Check route conditions is the way forward', async () => {
       const user = await openWith([PROPOSED])
-      const button = screen.getByRole('button', { name: /use this route/i })
-      expect(button.hasAttribute('disabled')).toBe(true)
-      expect(button.title).toMatch(/route evidence is incomplete/i)
+      expect(screen.queryByRole('button', { name: /use this route/i })).toBeNull()
+      expect(screen.getByText(/route evidence is incomplete/i)).toBeDefined()
       expect(screen.getByText('NOT CHECKED')).toBeDefined()
       expect(screen.getByText(/1 distinct road route available/i)).toBeDefined()
 

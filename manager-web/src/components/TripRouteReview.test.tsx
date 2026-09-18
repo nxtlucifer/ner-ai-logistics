@@ -48,11 +48,11 @@ async function check(user: ReturnType<typeof userEvent.setup>) {
 }
 const button = (name: string) => screen.getByRole('button', { name }) as HTMLButtonElement
 
-it('before conditions are checked, selection is offered shut, with the reason on the control', async () => {
+it('before conditions are checked there is no Use this route at all - Check conditions is the only way forward', async () => {
   show()
-  const use = (await screen.findByRole('button', { name: 'Use this route' })) as HTMLButtonElement
-  expect(use.disabled).toBe(true)
-  expect(use.title).toMatch(/check current conditions/i)
+  await screen.findByRole('button', { name: 'Check conditions & review' })
+  expect(screen.queryByRole('button', { name: 'Use this route' })).toBeNull()
+  expect(screen.getByText(/check current conditions before selecting/i)).toBeDefined()
 })
 
 it('REQUIRES_REVIEW without authority: no Use this route; Review & approve route is offered, and says why', async () => {
@@ -137,8 +137,9 @@ it('NOT_ASSESSED: no direct selection, the reason stays on the control', async (
   show()
   await check(user)
   await screen.findByText('NOT ASSESSED')
-  expect(button('Use this route').disabled).toBe(true)
-  expect(button('Use this route').title).toMatch(/could not run.*fault to fix/i)
+  expect(screen.queryByRole('button', { name: 'Use this route' })).toBeNull()
+  expect(screen.getByText(/could not run.*fault to fix/i)).toBeDefined()
+  expect(button('Check conditions & review').disabled).toBe(false)
 })
 
 it('REQUIRES_REVIEW with a live authorisation is selectable and spends that authorisation', async () => {
@@ -201,7 +202,7 @@ it('a conditions check that times out is shown beside the control, and Try again
   const alert = await screen.findByRole('alert')
   expect(alert.textContent).toMatch(/took too long/i)
   expect(alert.closest('.bg-soft')).not.toBeNull() // inside the decision block, next to the control
-  expect(button('Use this route').disabled).toBe(true)
+  expect(screen.queryByRole('button', { name: 'Use this route' })).toBeNull()
   await user.click(screen.getByRole('button', { name: 'Try again' }))
   await screen.findByRole('button', { name: 'Review & approve route' })
   expect(reco).toHaveBeenCalledTimes(2)
