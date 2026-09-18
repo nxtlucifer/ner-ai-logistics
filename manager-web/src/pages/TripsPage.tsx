@@ -15,9 +15,9 @@
  * dispatchable merely because it exists.
  */
 
-import { useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { api, type Assignment, type Driver, type Trip, type TripDetail, type Truck, unavailableReason } from '../api/client'
+import { api, type Assignment, type Driver, type Trip, type TripDetail, type TripQuery, type Truck, unavailableReason } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
 import {
   Button,
@@ -35,12 +35,35 @@ import AddressPicker, {
   type EndpointValue,
 } from '../components/AddressPicker'
 import { endpointPoint, pairedTruckId, straightLineKm, validatePlan } from './planValidation'
+import JourneyHistory from '../components/JourneyHistory'
+import {
+  ALL_LIMIT,
+  EMPTY_FILTERS,
+  TripListControls,
+  activeFilterCount,
+  describeFilters,
+  type PageSize,
+  type TripFilters,
+} from './TripListControls'
+import { downloadCsv, exportRow, printReport, reportHtml } from './tripExport'
 
 /** A driver accepting, starting or delivering must show here without a
  *  reload. Five seconds is the bounded-polling fallback the sync rule allows. */
 const TRIPS_POLL_MS = 5_000
 
 const NO_ROUTE_REASON = 'Select a route in the trip review first — a draft is not dispatchable without one.'
+
+export type JourneyAction = '' | 'ADD_STOP' | 'CHANGE_DESTINATION' | 'RETURN_TO_DEPOT' | 'HOLD' | 'STOP_TRIP'
+
+/** What a manager may change, and in which trip states the server allows it.
+ *  Nothing here is offered for a state the backend would refuse. */
+export const JOURNEY_ACTIONS: { value: Exclude<JourneyAction, ''>; label: string; hint: string; states: string[] }[] = [
+  { value: 'ADD_STOP', label: 'Add a stop', hint: 'A new stop on the way. Served stops keep their place.', states: ['ACTIVE', 'DELAYED'] },
+  { value: 'CHANGE_DESTINATION', label: 'Change destination', hint: 'The cargo goes somewhere else; the pending delivery is skipped.', states: ['ACTIVE', 'DELAYED'] },
+  { value: 'RETURN_TO_DEPOT', label: 'Return to depot', hint: 'Back to where the cargo was loaded.', states: ['ACTIVE', 'DELAYED'] },
+  { value: 'HOLD', label: 'Hold driver', hint: 'The truck waits for instruction. This is not a cancellation.', states: ['ACTIVE', 'DELAYED'] },
+  { value: 'STOP_TRIP', label: 'Stop / cancel trip', hint: 'Ends the job. With cargo onboard, say what happens to it.', states: ['DRAFT', 'ASSIGNED', 'VERIFICATION_PENDING', 'ACTIVE', 'DELAYED'] },
+]
 
 /** Open work first, history after: a dispatcher scans for what needs a hand. */
 const STATUS_RANK: Record<string, number> = { DRAFT: 0, ASSIGNED: 1, VERIFICATION_PENDING: 1, ACTIVE: 2, DELAYED: 2, DELIVERED: 3, CLOSED: 4, CANCELLED: 5 }
@@ -71,12 +94,70 @@ function attention(trip: Trip): { text: string; tone: string } {
 export default function TripsPage() {
   const { can } = useAuth()
 
-  const trips = useResource(() => api.listTrips({ limit: 50 }), [], 'trips:50', TRIPS_POLL_MS)
+  // FILTERS AND PAGING ARE THE SERVER'S. This used to read the newest 50 and
+  // narrow them in the browser, so a trip older than those 50 could not be
+  // reached, searched or exported at all.
+  const [filters, setFilters] = useState<TripFilters>(EMPTY_FILTERS)
+  const [pageSize, setPageSize] = useState<PageSize>(20)
+  // A cursor per page already visited, so Previous is an exact walk back
+  // rather than a guess. Index 0 is the first page, which has no cursor.
+  const [cursors, setCursors] = useState<(string | undefined)[]>([undefined])
+  const [page, setPage] = useState(0)
+
+  const query = useMemo<TripQuery>(() => ({
+    limit: pageSize === 'ALL' ? 100 : pageSize,
+    trip_status: filters.status || undefined,
+    driver_id: filters.driverId || undefined,
+    truck_id: filters.truckId || undefined,
+    search: filters.search.trim() || undefined,
+    open_only: filters.scope === 'OPEN',
+  }), [pageSize, filters.status, filters.driverId, filters.truckId, filters.search, filters.scope])
+
+  const cursor = cursors[page]
+  const key = `trips:${JSON.stringify(query)}:${cursor ?? ''}`
+  const trips = useResource(
+    async () => {
+      const first = await api.listTrips({ ...query, cursor })
+      if (pageSize !== 'ALL') return first
+      // "All" walks the server's pages to a stated ceiling rather than
+      // pretending one request can return everything.
+      const items = [...first.items]
+      let next = first.next_cursor
+      while (next && items.length < ALL_LIMIT) {
+        const more = await api.listTrips({ ...query, cursor: next })
+        items.push(...more.items)
+        next = more.next_cursor
+      }
+      return { ...first, items: items.slice(0, ALL_LIMIT), next_cursor: null }
+    },
+    [key],
+    key,
+    TRIPS_POLL_MS,
+  )
+
+  // A filter change starts the walk again: a cursor belongs to the query it
+  // came from, and reusing one across queries silently skips rows.
+  const applyFilters = useCallback((next: TripFilters) => {
+    setFilters(next); setCursors([undefined]); setPage(0)
+  }, [])
+  const applyPageSize = useCallback((size: PageSize) => {
+    setPageSize(size); setCursors([undefined]); setPage(0)
+  }, [])
+  useEffect(() => {
+    // The page we are on stopped existing (rows were filtered out under us).
+    if (page > 0 && trips.data && trips.data.items.length === 0) setPage(0)
+  }, [trips.data, page])
   // A reviewer holds trip:read only: the planner's reference lists are not
   // requested for them (a 403 is not an error a reviewer should ever see).
   const drivers = useResource(() => (can('driver:read') ? api.listDrivers({ limit: 100 }) : Promise.resolve({ items: [] as Driver[], next_cursor: null })), [], can('driver:read') ? 'drivers:100' : undefined)
   const trucks = useResource(() => (can('truck:read') ? api.listTrucks({ limit: 100 }) : Promise.resolve({ items: [] as Truck[], next_cursor: null })), [], can('truck:read') ? 'trucks:100' : undefined)
   const assignments = useResource(() => (can('assignment:read') ? api.listAssignments({ activeOnly: true }) : Promise.resolve([] as Assignment[])), [], can('assignment:read') ? 'assignments:active' : undefined)
+
+  const driverName = (id: string) =>
+    drivers.data?.items.find((d) => d.id === id)?.full_name ?? id.slice(0, 8)
+  const truckReg = (id: string) =>
+    trucks.data?.items.find((t) => t.id === id)?.registration_number ??
+    id.slice(0, 8)
 
   const [reviewTrip, setReviewTrip] = useState<Trip | null>(null)
   const draftAttempt = useRef<{ intent: string; stamp: string } | null>(null)
@@ -100,19 +181,36 @@ export default function TripsPage() {
   const [stopReason, setStopReason] = useState('')
   const [stopDisposition, setStopDisposition] = useState('')
   const [stopDestination, setStopDestination] = useState<EndpointValue>(EMPTY_ENDPOINT)
+  // ONE entry point for everything a manager does to a moving trip, instead of
+  // five buttons in the row. The chosen action decides which server call runs;
+  // every one of them is a capability the backend already enforces.
+  const [journeyAction, setJourneyAction] = useState<JourneyAction>('')
+  const [stopPlacement, setStopPlacement] = useState<'NEXT' | 'BEFORE_FINAL'>('NEXT')
+  const [newStop, setNewStop] = useState<EndpointValue>(EMPTY_ENDPOINT)
+  const addStop = useMutation((id: string, body: Parameters<typeof api.addStop>[1]) => api.addStop(id, body))
+  const addStopBlocked = unavailableReason('addStop')
   const cargoLoaded = stopping?.detail?.stops[0]?.status === 'COMPLETED'
   const stopDestinationPoint = endpointPoint(stopDestination)
+  const newStopPoint = endpointPoint(newStop)
+  const reasonRequired = cargoLoaded || journeyAction !== '' && journeyAction !== 'STOP_TRIP'
   const stopBlocker =
-    cargoLoaded && stopReason.trim().length < 10
-      ? 'Give a reason of at least 10 characters — cargo is already on the truck.'
-      : cargoLoaded && !stopDisposition
-        ? 'Say what happens to the cargo.'
-        : stopDisposition === 'NEW_DESTINATION' && (!stopDestinationPoint || !stopDestination.address.trim())
-          ? 'Confirm the new destination.'
-          : null
+    journeyAction === ''
+      ? 'Choose what to change.'
+      : reasonRequired && stopReason.trim().length < 10
+        ? 'Give a reason of at least 10 characters — it is shown to the driver and kept in the audit trail.'
+        : journeyAction === 'ADD_STOP' && (!newStopPoint || !newStop.address.trim())
+          ? 'Confirm the new stop location.'
+          : journeyAction === 'ADD_STOP' && addStopBlocked !== null
+            ? addStopBlocked
+            : journeyAction === 'STOP_TRIP' && cargoLoaded && !stopDisposition
+              ? 'Say what happens to the cargo.'
+              : journeyAction === 'CHANGE_DESTINATION' && (!stopDestinationPoint || !stopDestination.address.trim())
+                ? 'Confirm the new destination.'
+                : null
   function openStop(trip: Trip) {
     setStopping({ trip, detail: null, failed: false })
     setStopReason(''); setStopDisposition(''); setStopDestination(EMPTY_ENDPOINT)
+    setJourneyAction(''); setStopPlacement('NEXT'); setNewStop(EMPTY_ENDPOINT)
     api.getTrip(trip.id).then(
       (detail) => setStopping((s) => (s && s.trip.id === trip.id ? { ...s, detail } : s)),
       () => setStopping((s) => (s && s.trip.id === trip.id ? { ...s, failed: true } : s)),
@@ -120,15 +218,104 @@ export default function TripsPage() {
   }
   async function submitStop() {
     if (!stopping || stopBlocker) return
+    const trip = stopping.trip
+    if (journeyAction === 'ADD_STOP') {
+      if (!newStopPoint) return
+      const { data } = await run(trip.id, () =>
+        addStop.submit(trip.id, {
+          location: newStopPoint,
+          address: newStop.address.trim(),
+          placement: stopPlacement,
+          reason: stopReason.trim(),
+        }),
+      )
+      if (data) setStopping(null)
+      return
+    }
+    const disposition =
+      journeyAction === 'HOLD' ? 'HOLD_FOR_INSTRUCTION'
+      : journeyAction === 'RETURN_TO_DEPOT' ? 'RETURN_TO_DEPOT'
+      : journeyAction === 'CHANGE_DESTINATION' ? 'NEW_DESTINATION'
+      : stopDisposition
     const body: Parameters<typeof api.cancelTrip>[1] = { reason: stopReason.trim() || undefined }
-    if (stopDisposition) body.disposition = stopDisposition
-    if (stopDisposition === 'NEW_DESTINATION' && stopDestinationPoint) {
+    if (disposition) body.disposition = disposition
+    if (disposition === 'NEW_DESTINATION' && stopDestinationPoint) {
       body.destination = stopDestinationPoint
       body.destination_address = stopDestination.address.trim()
     }
-    const { data } = await run(stopping.trip.id, () => cancelTrip.submit(stopping.trip.id, body))
+    const { data } = await run(trip.id, () => cancelTrip.submit(trip.id, body))
     if (data) setStopping(null)
   }
+  // Attention is derived from status + route, which the server does not
+  // index, so it narrows THIS page and the controls say exactly that.
+  const visibleTrips = useMemo(
+    () =>
+      [...(trips.data?.items ?? [])]
+        .filter((t) => !filters.attention || attention(t).text === filters.attention)
+        .sort(openFirst),
+    [trips.data, filters.attention],
+  )
+
+  const [exporting, setExporting] = useState(false)
+  const [exportNote, setExportNote] = useState<string | null>(null)
+
+  /**
+   * The rows an export writes: EVERY row the filters match, fetched from the
+   * server, not the page on screen. The note says so before and after, so
+   * "Export CSV" can never quietly mean "export these twenty".
+   */
+  const exportRows = useCallback(async () => {
+    const items: Trip[] = []
+    let next: string | undefined
+    do {
+      const page = await api.listTrips({ ...query, limit: 100, cursor: next })
+      items.push(...page.items)
+      next = page.next_cursor ?? undefined
+    } while (next && items.length < ALL_LIMIT)
+    const capped = items.length >= ALL_LIMIT
+    const rows = items
+      .filter((t) => !filters.attention || attention(t).text === filters.attention)
+      .map((t) =>
+        exportRow(t, {
+          driver: driverName(t.driver_id),
+          truck: truckReg(t.truck_id),
+          attention: attention(t).text,
+        }),
+      )
+    return { rows, capped }
+  }, [query, filters.attention])
+
+  async function runExport(kind: 'CSV' | 'PDF') {
+    if (exporting) return
+    setExporting(true)
+    setExportNote(null)
+    try {
+      const { rows, capped } = await exportRows()
+      const described = describeFilters(filters, { driver: driverName, truck: truckReg })
+      const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')
+      if (kind === 'CSV') {
+        downloadCsv(rows, `rasta-trips-${stamp}.csv`)
+        setExportNote(
+          `Exported ${rows.length} row${rows.length === 1 ? '' : 's'} (${described}) as CSV — opens in Excel.` +
+            (capped ? ` Capped at ${ALL_LIMIT}; narrow the filters for a complete set.` : ''),
+        )
+      } else {
+        const opened = printReport(
+          reportHtml(rows, { title: 'Trip list', filters: described, generated: new Date().toLocaleString() }),
+        )
+        setExportNote(
+          opened
+            ? `Report opened for ${rows.length} row${rows.length === 1 ? '' : 's'} (${described}). Choose "Save as PDF" in the print dialog.`
+            : 'The report window was blocked by the browser. Allow pop-ups for this site and try again.',
+        )
+      }
+    } catch (error) {
+      setExportNote(`Export failed: ${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const closeTrip = useMutation((id: string) => api.closeTrip(id))
   const cancelBlocked = unavailableReason('cancelTrip')
   const closeBlocked = unavailableReason('closeTrip')
@@ -165,12 +352,6 @@ export default function TripsPage() {
       },
     })
   })
-
-  const driverName = (id: string) =>
-    drivers.data?.items.find((d) => d.id === id)?.full_name ?? id.slice(0, 8)
-  const truckReg = (id: string) =>
-    trucks.data?.items.find((t) => t.id === id)?.registration_number ??
-    id.slice(0, 8)
 
   const referencesReady =
     drivers.status === 'success' && trucks.status === 'success' && assignments.status === 'success'
@@ -402,15 +583,45 @@ export default function TripsPage() {
 
       <div className="dispatch-review">{reviewTrip ? <TripRouteReview key={reviewTrip.id} trip={reviewTrip} onChanged={trips.reload} /> : <Card title="Trip review"><EmptyState title="Every journey starts with a plan" description="Create a draft on the left, or choose Review route from the trips below. Plan the road, check its conditions and select the route here before dispatch." /></Card>}</div>
       </div>
-      <Card title="Trips" action={<span className="text-xs text-muted">Open trips first, then history</span>}>
+      <Card
+        title={filters.scope === 'OPEN' ? 'Open trips' : 'Trip history'}
+        action={<span className="text-xs text-muted">{filters.scope === 'OPEN' ? 'Everything still being worked' : 'Delivered, closed and cancelled — read-only'}</span>}
+      >
+        <div className="mb-3">
+          <TripListControls
+            filters={filters}
+            onFilters={applyFilters}
+            drivers={drivers.data?.items ?? []}
+            trucks={trucks.data?.items ?? []}
+            pageSize={pageSize}
+            onPageSize={applyPageSize}
+            page={page + 1}
+            total={trips.data?.total ?? null}
+            shown={visibleTrips.length}
+            canPrevious={page > 0}
+            canNext={Boolean(trips.data?.next_cursor)}
+            onPrevious={() => setPage((n) => Math.max(0, n - 1))}
+            onNext={() => {
+              const next = trips.data?.next_cursor
+              if (!next) return
+              setCursors((all) => (all[page + 1] === next ? all : [...all.slice(0, page + 1), next]))
+              setPage((n) => n + 1)
+            }}
+            busy={trips.status === 'loading'}
+            onExportCsv={() => void runExport('CSV')}
+            onExportPdf={() => void runExport('PDF')}
+            exporting={exporting}
+            exportNote={exportNote}
+          />
+        </div>
         {trips.status === 'loading' ? (
           <LoadingState label="Loading trips…" />
         ) : trips.status === 'error' ? (
           <ErrorState error={trips.error} onRetry={trips.reload} />
-        ) : trips.data && trips.data.items.length === 0 ? (
+        ) : visibleTrips.length === 0 ? (
           <EmptyState
-            title="No trips yet"
-            description="Plan one above to get started."
+            title={activeFilterCount(filters) > 0 ? 'No trip matches these filters' : filters.scope === 'OPEN' ? 'No open trips' : 'No trips in history yet'}
+            description={activeFilterCount(filters) > 0 ? 'Clear the filters to see the rest of the fleet.' : filters.scope === 'OPEN' ? 'Plan one above to get started.' : 'Delivered and closed trips appear here.'}
           />
         ) : (
           <div className="overflow-x-auto">
@@ -435,7 +646,7 @@ export default function TripsPage() {
                 </tr>
               </thead>
               <tbody>
-                {[...(trips.data?.items ?? [])].sort(openFirst).map((trip) => {
+                {visibleTrips.map((trip) => {
                   const note = attention(trip)
                   const open = trip.status === 'DRAFT' ? 'Review route' : ['ASSIGNED', 'VERIFICATION_PENDING', 'ACTIVE', 'DELAYED'].includes(trip.status) ? 'Open' : 'View'
                   const busyElsewhere = actingOn !== null && actingOn !== trip.id
@@ -490,7 +701,7 @@ export default function TripsPage() {
                           trip.status,
                         ) && can('trip:cancel') ? (
                           <Button
-                            variant="danger"
+                            variant={trip.status === 'ACTIVE' || trip.status === 'DELAYED' ? 'secondary' : 'danger'}
                             className="min-h-9 px-2 py-1 text-xs"
                             busy={actingOn === trip.id && cancelTrip.isSubmitting}
                             disabled={cancelBlocked !== null || busyElsewhere}
@@ -499,12 +710,14 @@ export default function TripsPage() {
                               // A started trip may have cargo on board: the
                               // dialog asks what happens to it. A draft or an
                               // undispatched job just ends.
+                              // Everything a manager does to a moving trip goes
+                              // through one dialog; a draft just ends.
                               if (trip.status === 'ACTIVE' || trip.status === 'DELAYED') { openStop(trip); return }
                               if (!window.confirm(`Cancel ${trip.trip_code}?`)) return
                               void run(trip.id, () => cancelTrip.submit(trip.id))
                             }}
                           >
-                            {trip.status === 'ACTIVE' || trip.status === 'DELAYED' ? 'Stop / change' : 'Cancel'}
+                            {trip.status === 'ACTIVE' || trip.status === 'DELAYED' ? 'Change journey' : 'Cancel'}
                           </Button>
                         ) : null}
                       </div>
@@ -519,9 +732,9 @@ export default function TripsPage() {
       </Card>
 
       {stopping ? (
-        <div role="dialog" aria-modal="true" aria-label={`Stop or change ${stopping.trip.trip_code}`} className="fixed inset-0 z-50 flex items-center justify-center bg-canvas/80 p-4">
-          <div className="w-full max-w-lg space-y-3 rounded-xl border border-line bg-surface p-5 shadow-2xl">
-            <h2 className="text-base font-semibold text-ink">Stop or change {stopping.trip.trip_code}</h2>
+        <div role="dialog" aria-modal="true" aria-label={`Change journey ${stopping.trip.trip_code}`} className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-canvas/80 p-4">
+          <div className="my-auto w-full max-w-lg space-y-3 rounded-xl border border-line bg-surface p-5 shadow-2xl">
+            <h2 className="text-base font-semibold text-ink">Change journey · {stopping.trip.trip_code}</h2>
             {/* The one fact that changes what is required. Stated in words, from the server. */}
             <p className="text-xs text-muted" data-testid="stop-cargo-state">
               {stopping.detail === null && !stopping.failed
@@ -532,8 +745,43 @@ export default function TripsPage() {
                     ? 'Could not read the pickup state. The server will still refuse a bare cancellation if cargo is on board.'
                     : 'Pickup not completed yet. The trip can be cancelled; the driver is told and released.'}
             </p>
-            <Field label="Reason" name="stop_reason" value={stopReason} onChange={setStopReason} required={cargoLoaded} hint="Shown to the driver and kept in the audit trail." />
-            {cargoLoaded || stopping.failed ? (
+            {/* One chooser, not five buttons in the table row. Only actions the
+                server actually supports are offered. */}
+            <fieldset className="space-y-1" data-testid="journey-actions">
+              <legend className="text-xs font-medium text-ink">What are you changing?</legend>
+              {JOURNEY_ACTIONS.filter((a) => a.states.includes(stopping.trip.status)).map((a) => (
+                <label key={a.value} className="flex items-start gap-2 text-[12.5px] text-ink">
+                  <input
+                    type="radio"
+                    name="journey_action"
+                    className="mt-0.5"
+                    checked={journeyAction === a.value}
+                    onChange={() => setJourneyAction(a.value)}
+                  />
+                  <span><span className="font-semibold">{a.label}</span><span className="block text-[11.5px] text-muted">{a.hint}</span></span>
+                </label>
+              ))}
+              {/* Changing the ROAD is a different decision: it needs the hazard
+                  evidence, so it happens where that evidence is shown. */}
+              <p className="pt-1 text-[11.5px] text-muted">
+                To change the <strong>road</strong> rather than the journey, use Fleet → the trip → Route: plan alternatives, check conditions and approve one there, where the evidence is.
+              </p>
+            </fieldset>
+            <Field label="Reason" name="stop_reason" value={stopReason} onChange={setStopReason} required={reasonRequired} hint="Shown to the driver and kept in the audit trail." />
+            {journeyAction === 'ADD_STOP' ? (
+              <>
+                <AddressPicker label="New stop" name="new_stop" value={newStop} onChange={setNewStop} placeholder="Search address or paste Maps link" />
+                <label className="block">
+                  <span className="text-xs font-medium text-ink">Where in the journey</span>
+                  <select value={stopPlacement} onChange={(e) => setStopPlacement(e.target.value as 'NEXT' | 'BEFORE_FINAL')} className="mt-1 w-full rounded-[var(--radius-control)] border border-outline bg-surface px-3 py-2 text-sm text-ink" aria-label="Stop placement">
+                    <option value="NEXT">Next — before anything else still to do</option>
+                    <option value="BEFORE_FINAL">Before the final delivery</option>
+                  </select>
+                </label>
+                <p className="text-[11px] text-muted">Stops the driver has already served are not renumbered, and the truck keeps its current road until you approve a route for the new plan.</p>
+              </>
+            ) : null}
+            {journeyAction === 'STOP_TRIP' && (cargoLoaded || stopping.failed) ? (
               <label className="block">
                 <span className="text-xs font-medium text-ink">What happens to the cargo<span className="ml-0.5 text-danger">*</span></span>
                 <select value={stopDisposition} onChange={(e) => setStopDisposition(e.target.value)} className="mt-1 w-full rounded-[var(--radius-control)] border border-outline bg-surface px-3 py-2 text-sm text-ink" aria-label="Cargo disposition">
@@ -546,18 +794,27 @@ export default function TripsPage() {
                 </select>
               </label>
             ) : null}
-            {stopDisposition === 'NEW_DESTINATION' ? (
+            {journeyAction === 'CHANGE_DESTINATION' ? (
               <AddressPicker label="New destination" name="stop_destination" value={stopDestination} onChange={setStopDestination} placeholder="Search address or paste Maps link" />
             ) : null}
-            {stopDisposition === 'RETURN_TO_DEPOT' || stopDisposition === 'NEW_DESTINATION' ? (
+            {journeyAction === 'CHANGE_DESTINATION' || journeyAction === 'RETURN_TO_DEPOT' ? (
               <p className="text-[11px] text-muted">The driver keeps the current road until you select a route for the new destination in Fleet → Route options.</p>
             ) : null}
             {cancelTrip.error ? <ErrorState error={cancelTrip.error} /> : null}
+            {addStop.error ? <ErrorState error={addStop.error} /> : null}
             <div className="flex flex-wrap items-center justify-end gap-2">
               {stopBlocker ? <span className="mr-auto text-xs text-warning" role="status" data-testid="stop-blocker">{stopBlocker}</span> : null}
-              <Button variant="secondary" onClick={() => setStopping(null)}>Keep trip</Button>
-              <Button variant="danger" busy={cancelTrip.isSubmitting} disabled={stopBlocker !== null || cancelTrip.isSubmitting} title={stopBlocker ?? undefined} onClick={() => void submitStop()}>
-                {stopDisposition && stopDisposition !== 'CARGO_UNLOADED' ? 'Apply' : 'Cancel trip'}
+              <Button variant="secondary" onClick={() => setStopping(null)}>Close</Button>
+              <Button
+                variant={journeyAction === 'STOP_TRIP' ? 'danger' : 'primary'}
+                busy={cancelTrip.isSubmitting || addStop.isSubmitting}
+                disabled={stopBlocker !== null || cancelTrip.isSubmitting || addStop.isSubmitting}
+                title={stopBlocker ?? undefined}
+                onClick={() => void submitStop()}
+              >
+                {journeyAction === 'ADD_STOP' ? 'Add stop'
+                  : journeyAction === 'STOP_TRIP' ? (cargoLoaded && stopDisposition && stopDisposition !== 'CARGO_UNLOADED' ? 'Apply' : 'Stop trip')
+                  : 'Apply'}
               </Button>
             </div>
           </div>

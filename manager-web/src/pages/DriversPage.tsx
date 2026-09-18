@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { ApiError, api, type Driver, unavailableReason } from '../api/client'
+import { api, type Driver, fieldErrors as fieldErrorsOf, unavailableReason } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
 import AuthImage, { initials } from '../components/AuthImage'
 import AssignTruckDialog from '../components/AssignTruckDialog'
@@ -76,17 +76,7 @@ export default function DriversPage() {
     }
     // Surface 422 details against the fields that caused them. Read the error
     // from the return value, not from state: setState is asynchronous.
-    if (error instanceof ApiError && error.code === 'VALIDATION_ERROR') {
-      const errors: Record<string, string> = {}
-      const details = error.details as {
-        errors?: { loc?: unknown[]; msg?: string }[]
-      }
-      for (const item of details.errors ?? []) {
-        const field = String(item.loc?.[item.loc.length - 1] ?? '')
-        if (field) errors[field] = item.msg ?? 'Invalid value'
-      }
-      setFieldErrors(errors)
-    }
+    setFieldErrors(fieldErrorsOf(error))
   }
 
   const canCreate = can('driver:create')
@@ -150,7 +140,7 @@ export default function DriversPage() {
               value={form.phone}
               onChange={(v) => setForm({ ...form, phone: v })}
               required
-              hint="Used to sign in to the driver app"
+              hint="10-digit mobile number, used to sign in to the driver app"
               error={fieldErrors.phone}
             />
             <Field

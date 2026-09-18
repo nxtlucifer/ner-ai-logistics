@@ -15,7 +15,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiError, NetworkError, api, refreshSession, setAccessToken } from './client'
+import { ApiError, NetworkError, api, fieldErrors, refreshSession, setAccessToken } from './client'
 
 /** Minimal Web Locks stand-in that actually serialises, so the test is real. */
 function installLockManager() {
@@ -247,5 +247,25 @@ describe('planRoute', () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(url).toMatch(/\/api\/trips\/trip-1\/routes\/recalculate\?detailed=true$/)
     expect(init.method).toBe('POST')
+  })
+})
+
+describe('fieldErrors', () => {
+  it('keys a 422 by field and words a pattern mismatch for a person, not a regex', () => {
+    const err = new ApiError(422, {
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Request failed validation.',
+        details: {
+          errors: [
+            { loc: ['body', 'phone'], msg: "String should match pattern '^\+?[0-9]{10,15}$'", type: 'string_pattern_mismatch' },
+            { loc: ['body', 'full_name'], msg: 'String should have at least 2 characters', type: 'string_too_short' },
+          ],
+        },
+      },
+    }, 'x')
+    expect(fieldErrors(err)).toEqual({ phone: 'Not in the expected format', full_name: 'String should have at least 2 characters' })
+    expect(fieldErrors(new ApiError(409, { error: { code: 'CONFLICT', message: 'busy' } }, 'x'))).toEqual({})
+    expect(fieldErrors(new Error('network'))).toEqual({})
   })
 })

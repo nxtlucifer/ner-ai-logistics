@@ -3,6 +3,7 @@ import { api, type ReviewAuthorization, type RouteRecommendation, type RouteRisk
 import { useAuth } from '../auth/AuthProvider'
 import { Button, Card, EmptyState, ErrorState, LoadingState, StatusPill } from './ui'
 import { RouteApprovalDialog } from './RouteApprovalDialog'
+import JourneyHistory from './JourneyHistory'
 import { factorLabels, translateReasonCodes } from '../i18n/reasonCodes'
 
 const FleetMap = lazy(() => import('./FleetMap'))
@@ -182,6 +183,7 @@ export default function TripRouteReview({ trip, onChanged }: { trip: Trip; onCha
   const [error, setError] = useState<{ name: string; error: unknown } | null>(null)
   // The manager's decision panel for a REVIEW REQUIRED route.
   const [approving, setApproving] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const active = useRef(true)
   const locked = useRef(false)
 
@@ -406,6 +408,19 @@ export default function TripRouteReview({ trip, onChanged }: { trip: Trip; onCha
           />
         ) : null}
       </div> : null}
+      {/* What has already happened to this trip, from the records the server
+          writes. Last, because it is context rather than an action. */}
+      <details
+        className="mt-4 rounded-xl border border-line bg-surface p-3"
+        data-testid="journey-history-panel"
+        onToggle={(e) => setHistoryOpen((e.currentTarget as HTMLDetailsElement).open)}
+      >
+        <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-[0.13em] text-muted">Journey history</summary>
+        {/* Fetched when it is opened, not when the panel renders: this is
+            context a manager asks for, and an unasked request is one more
+            thing that can fail behind a closed section. */}
+        <div className="mt-2">{historyOpen ? <JourneyHistory tripId={trip.id} /> : null}</div>
+      </details>
     </>}
   </Card>
 }

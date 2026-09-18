@@ -156,6 +156,7 @@ export const UNAVAILABLE_OPERATIONS: Readonly<Record<string, string>> = {
   deactivateDriver: 'Deactivating drivers is not available on the hosted service yet.',
   supportSession: 'View as driver needs the API service.',
   approveRoute: 'Approving a route needs the API service.',
+  addStop: 'Adding a stop mid-trip needs the API service.',
   createTruck: 'Adding trucks is not available on the hosted service yet.',
   updateTruck: 'Editing trucks is not available on the hosted service yet.',
   retireTruck: 'Retiring trucks is not available on the hosted service yet.',
@@ -743,6 +744,10 @@ export const supabaseManagerApi = {
 
   approveRoute: (_tripId: string, _routeId: string, _rationale: string, _fromRouteId?: string): Promise<never> =>
     notMigrated('approveRoute'),
+
+  tripEvents: async (_tripId: string, _limit?: number): Promise<never[]> => [],
+
+  addStop: (_tripId: string, _body: unknown): Promise<never> => notMigrated('addStop'),
 
   /**
    * Accessibility assessment, from the hosted intelligence plane.

@@ -822,13 +822,15 @@ export default function TripScreen({
           <>
             <Banner
               tone="warn"
-              title={t('Manager changed this trip')}
-              detail={`${t('Cargo is already onboard')}. ${
+              title={t('Journey updated by your manager')}
+              detail={`${
                 trip.pending_instruction.instruction === 'RETURN_TO_DEPOT'
                   ? t('Return to depot')
                   : trip.pending_instruction.instruction === 'NEW_DESTINATION'
                     ? `${t('New destination')}: ${trip.pending_instruction.new_destination ?? ''}`
-                    : t('Hold for instruction')
+                    : trip.pending_instruction.instruction === 'ADD_STOP'
+                      ? t('A stop was added to your journey. Open Trip to see the order of stops.')
+                      : t('Hold for instruction')
               }${trip.pending_instruction.reason ? ` — ${trip.pending_instruction.reason}` : ''}`}
             />
             <Button

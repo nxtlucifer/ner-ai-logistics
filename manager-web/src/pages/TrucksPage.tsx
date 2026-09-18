@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 
 import AssignTruckDialog from '../components/AssignTruckDialog'
 
-import { ApiError, api, type Truck, unavailableReason } from '../api/client'
+import { api, type Truck, fieldErrors as fieldErrorsOf, unavailableReason } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
 import AuthImage from '../components/AuthImage'
 import {
@@ -93,17 +93,7 @@ export default function TrucksPage() {
     // Read the error from the return value, not from state: setState is
     // asynchronous, so create.error would still hold the previous value here
     // and this mapping would silently never run.
-    if (error instanceof ApiError && error.code === 'VALIDATION_ERROR') {
-      const errors: Record<string, string> = {}
-      const details = error.details as {
-        errors?: { loc?: unknown[]; msg?: string }[]
-      }
-      for (const item of details.errors ?? []) {
-        const field = String(item.loc?.[item.loc.length - 1] ?? '')
-        if (field) errors[field] = item.msg ?? 'Invalid value'
-      }
-      setFieldErrors(errors)
-    }
+    setFieldErrors(fieldErrorsOf(error))
   }
 
   // Asked once, used by every control below. A button whose backend has no

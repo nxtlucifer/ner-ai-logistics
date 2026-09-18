@@ -12,7 +12,7 @@
 
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -120,9 +120,11 @@ describe('TripsPage', () => {
     await screen.findByText('TRP-ALPHA')
 
     // A started trip is stopped through the dialog, never a bare confirm.
-    await user.click(screen.getByRole('button', { name: /stop \/ change/i }))
+    await user.click(screen.getByRole('button', { name: /change journey/i }))
     await screen.findByText(/pickup not completed yet/i)
-    await user.click(screen.getByRole('button', { name: /^cancel trip$/i }))
+    // One dialog, one chosen action - not five buttons in the table row.
+    await user.click(screen.getByRole('radio', { name: /stop \/ cancel trip/i }))
+    await user.click(screen.getByRole('button', { name: /^stop trip$/i }))
 
     // The manager must be told. Before this was fixed the button simply
     // stopped spinning and the row was unchanged.
@@ -141,11 +143,13 @@ describe('TripsPage', () => {
 
     render(<TripsPage />)
     await screen.findByText('TRP-ALPHA')
-    await user.click(screen.getByRole('button', { name: /stop \/ change/i }))
+    await user.click(screen.getByRole('button', { name: /change journey/i }))
     await screen.findByText(/cargo is on the truck/i)
 
     // Nothing to press until both facts are given - and the reason is on screen.
-    const submit = () => screen.getByRole('button', { name: /^cancel trip$|^apply$/i }) as HTMLButtonElement
+    const submit = () => screen.getByRole('button', { name: /^stop trip$|^apply$/i }) as HTMLButtonElement
+    expect(screen.getByTestId('stop-blocker').textContent).toMatch(/choose what to change/i)
+    await user.click(screen.getByRole('radio', { name: /stop \/ cancel trip/i }))
     expect(submit().disabled).toBe(true)
     expect(screen.getByTestId('stop-blocker').textContent).toMatch(/reason of at least 10 characters/i)
     await user.type(screen.getByLabelText(/^reason/i), 'Customer asked us to wait at the junction')
@@ -215,9 +219,9 @@ describe('TripsPage', () => {
 
     render(<TripsPage />)
 
-    const option = (await screen.findByRole('option', {
-      name: /Locked Out/,
-    })) as HTMLOptionElement
+    // The planner's picker, not the filter bar's: both list the same drivers.
+    const planner = await screen.findByRole('combobox', { name: /^driver/i })
+    const option = within(planner).getByRole('option', { name: /Locked Out/ }) as HTMLOptionElement
     expect(option.disabled).toBe(true)
     expect(option.textContent).toContain('login inactive')
   })
@@ -281,11 +285,11 @@ describe('TripsPage', () => {
     }), '94.2037')
 
     await user.selectOptions(
-      screen.getByRole('combobox', { name: /driver/i }),
+      screen.getByRole('combobox', { name: /^driver/i }),
       '22222222-2222-4222-8222-222222222222',
     )
     await user.selectOptions(
-      screen.getByRole('combobox', { name: /truck/i }),
+      screen.getByRole('combobox', { name: /^truck/i }),
       '33333333-3333-4333-8333-333333333333',
     )
     await user.click(screen.getByRole('button', { name: /create draft trip/i }))
@@ -343,11 +347,11 @@ describe('TripsPage', () => {
     await user.type(screen.getByLabelText(/pickup address/i), 'Depot, Guwahati')
     await user.type(screen.getByLabelText(/destination address/i), 'Yard, Jorhat')
     await user.selectOptions(
-      screen.getByRole('combobox', { name: /driver/i }),
+      screen.getByRole('combobox', { name: /^driver/i }),
       '22222222-2222-4222-8222-222222222222',
     )
     // Picking the driver filled their paired truck; the truck select agrees.
-    expect((screen.getByRole('combobox', { name: /truck/i }) as HTMLSelectElement).value).toBe('33333333-3333-4333-8333-333333333333')
+    expect((screen.getByRole('combobox', { name: /^truck/i }) as HTMLSelectElement).value).toBe('33333333-3333-4333-8333-333333333333')
 
     // Typed text is not a location: the button stays disabled and says why.
     const create = screen.getByRole('button', { name: /create draft trip/i }) as HTMLButtonElement
@@ -367,7 +371,7 @@ describe('TripsPage', () => {
     const dispatch = screen.getByRole('button', { name: /dispatch/i }) as HTMLButtonElement
     expect(dispatch.disabled).toBe(true)
     expect(dispatch.title).toMatch(/select a route/i)
-    expect(screen.getByText(/needs a route/i)).toBeDefined()
+    expect(within(screen.getByRole('table')).getByText(/needs a route/i)).toBeDefined()
   })
 
   it('a route selected in the review panel moves the row from Not selected to Selected and opens Dispatch', async () => {
@@ -399,7 +403,7 @@ describe('TripsPage', () => {
     await user.click(use)
 
     await screen.findByText('Selected')
-    expect(screen.getByText(/ready to dispatch/i)).toBeDefined()
+    expect(within(screen.getByRole('table')).getByText(/ready to dispatch/i)).toBeDefined()
     await waitFor(() => expect((screen.getByRole('button', { name: /^dispatch$/i }) as HTMLButtonElement).disabled).toBe(false))
     expect(api.selectRoute).toHaveBeenCalledTimes(1)
   })
@@ -422,5 +426,109 @@ describe('TripsPage', () => {
     await waitFor(() => {
       expect(screen.getByText(/not currently assigned to that truck/i)).toBeDefined()
     })
+  })
+})
+
+/**
+ * Finding a trip, and adding a stop to one already moving.
+ *
+ * The defect these close: the list was the newest 50, narrowed in the browser,
+ * so an older trip could not be reached, searched or exported - and a manager
+ * with a truck on the road had no way to change the journey except to cancel.
+ */
+describe('TripsPage list controls', () => {
+  const page = (items: Trip[], total: number, next: string | null = null) => ({ items, next_cursor: next, total })
+
+  beforeEach(() => {
+    vi.spyOn(api, 'listDrivers').mockResolvedValue({ items: [], next_cursor: null })
+    vi.spyOn(api, 'listTrucks').mockResolvedValue({ items: [], next_cursor: null })
+    vi.spyOn(api, 'listAssignments').mockResolvedValue([])
+    vi.stubGlobal('confirm', () => true)
+  })
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it('asks the SERVER for the filter, not the browser', async () => {
+    const list = vi.spyOn(api, 'listTrips').mockResolvedValue(page([trip()], 1))
+    const user = userEvent.setup()
+    render(<MemoryRouter><TripsPage /></MemoryRouter>)
+    await screen.findByText('TRP-ALPHA')
+    await waitFor(() => expect(list).toHaveBeenCalled())
+    // Twenty a page by default, open trips only, nothing else assumed.
+    expect(list.mock.calls[0][0]).toMatchObject({ limit: 20, open_only: true })
+
+    list.mockClear()
+    await user.type(screen.getByRole('textbox', { name: /search trips/i }), 'ALPHA')
+    await waitFor(() => expect(list.mock.calls.at(-1)?.[0]).toMatchObject({ search: 'ALPHA' }))
+
+    await user.selectOptions(screen.getByRole('combobox', { name: /filter by status/i }), 'ACTIVE')
+    await waitFor(() => expect(list.mock.calls.at(-1)?.[0]).toMatchObject({ trip_status: 'ACTIVE' }))
+
+    // History is its own list, and it asks for the other half of the fleet.
+    await user.click(screen.getByRole('tab', { name: /history/i }))
+    await waitFor(() => expect(list.mock.calls.at(-1)?.[0]).toMatchObject({ open_only: false }))
+  })
+
+  it('pages with the server cursor and says which page of how many', async () => {
+    const list = vi.spyOn(api, 'listTrips').mockImplementation(async (params) =>
+      params?.cursor
+        ? page([trip({ id: 't2', trip_code: 'TRP-BETA' })], 40)
+        : page([trip()], 40, 'cursor-2'),
+    )
+    const user = userEvent.setup()
+    render(<MemoryRouter><TripsPage /></MemoryRouter>)
+    await screen.findByText('TRP-ALPHA')
+    expect(screen.getByTestId('trip-count').textContent).toMatch(/of 40 matching · page 1 of 2/)
+
+    await user.click(screen.getByRole('button', { name: /^next$/i }))
+    await screen.findByText('TRP-BETA')
+    expect(list.mock.calls.at(-1)?.[0]).toMatchObject({ cursor: 'cursor-2' })
+
+    await user.click(screen.getByRole('button', { name: /^previous$/i }))
+    await screen.findByText('TRP-ALPHA')
+  })
+
+  it('exports every row the filter matches, not the page on screen, and says so', async () => {
+    vi.spyOn(api, 'listTrips').mockImplementation(async (params) =>
+      params?.limit === 100 ? page([trip(), trip({ id: 't2', trip_code: 'TRP-BETA' })], 2) : page([trip()], 2, 'c2'),
+    )
+    const clicked: HTMLAnchorElement[] = []
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { clicked.push(this) })
+    URL.createObjectURL = vi.fn(() => 'blob:x')
+    URL.revokeObjectURL = vi.fn()
+    const user = userEvent.setup()
+    render(<MemoryRouter><TripsPage /></MemoryRouter>)
+    await screen.findByText('TRP-ALPHA')
+
+    await user.click(screen.getByRole('button', { name: /export csv/i }))
+    await waitFor(() => expect(screen.getByTestId('export-note').textContent).toMatch(/Exported 2 rows/))
+    expect(screen.getByTestId('export-note').textContent).toMatch(/Open trips/)
+    expect(clicked.at(-1)?.download).toMatch(/^rasta-trips-.*\.csv$/)
+  })
+
+  it('offers Add a stop only for a trip that is under way, and sends the confirmed point', async () => {
+    vi.spyOn(api, 'listTrips').mockResolvedValue(page([trip({ status: 'ACTIVE', selected_route_id: 'r1' })], 1))
+    vi.spyOn(api, 'getTrip').mockResolvedValue({
+      ...trip({ status: 'ACTIVE' }),
+      stops: [{ id: 's1', sequence: 0, kind: 'PICKUP', status: 'COMPLETED', name: 'Guwahati', address: 'Guwahati Depot', planned_arrival_at: null, actual_arrival_at: null, actual_departure_at: null }],
+      shipment: { id: 's', reference_code: 'SHP', client_name: 'Traders', total_weight_kg: '1000', priority: 'NORMAL' },
+    } as never)
+    const add = vi.spyOn(api, 'addStop').mockResolvedValue({} as never)
+    const user = userEvent.setup()
+    render(<MemoryRouter><TripsPage /></MemoryRouter>)
+    await screen.findByText('TRP-ALPHA')
+
+    await user.click(screen.getByRole('button', { name: /change journey/i }))
+    await screen.findByTestId('journey-actions')
+    await user.click(screen.getByRole('radio', { name: /add a stop/i }))
+    // Nothing to press until the reason and a confirmed point are both given.
+    const submit = () => screen.getByRole('button', { name: /^add stop$/i }) as HTMLButtonElement
+    expect(submit().disabled).toBe(true)
+    await user.type(screen.getByLabelText(/^reason/i), 'Consignee asked for a drop at the weighbridge')
+    expect(screen.getByTestId('stop-blocker').textContent).toMatch(/confirm the new stop location/i)
+    expect(add).not.toHaveBeenCalled()
   })
 })

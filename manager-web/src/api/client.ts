@@ -57,6 +57,24 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * A 422 VALIDATION_ERROR's per-field messages, keyed by field name, for a form
+ * to show beside the input that caused each one. Empty for any other error.
+ * A pattern mismatch is worded for a person: Pydantic's own text quotes the
+ * regular expression, which is not something an operator should be reading.
+ */
+export function fieldErrors(error: unknown): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (!(error instanceof ApiError) || error.code !== 'VALIDATION_ERROR') return out
+  const details = error.details as { errors?: { loc?: unknown[]; msg?: string; type?: string }[] }
+  for (const item of details.errors ?? []) {
+    const field = String(item.loc?.[item.loc.length - 1] ?? '')
+    if (!field) continue
+    out[field] = item.type === 'string_pattern_mismatch' ? 'Not in the expected format' : (item.msg ?? 'Invalid value')
+  }
+  return out
+}
+
 export class NetworkError extends Error {
   /** True when the request was abandoned because the backend took too long. */
   readonly timedOut: boolean
@@ -421,9 +439,39 @@ export interface DriverDocumentStatus {
   file_url: string | null
 }
 
+/** What a trip list can be narrowed by. Every one of these is applied by the
+ *  SERVER: the console used to read the newest 50 and filter in the browser,
+ *  so an older trip could not be reached at all. */
+export interface TripQuery {
+  limit?: number
+  cursor?: string
+  trip_status?: string
+  driver_id?: string
+  truck_id?: string
+  /** Trip code or client name, case-insensitive. */
+  search?: string
+  /** true: still being worked. false: history (delivered, closed, cancelled). */
+  open_only?: boolean
+}
+
+/** One line of a trip's journey history. Written by the operation it
+ *  describes - nothing here is inferred. */
+export interface TripEvent {
+  id: number
+  kind: string
+  description: string | null
+  occurred_at: string
+  actor_name: string | null
+  instruction: string | null
+  reason: string | null
+  acknowledged: boolean
+}
+
 export interface Page<T> {
   items: T[]
   next_cursor: string | null
+  /** How many rows match the filter, not how many are on this page. */
+  total?: number | null
 }
 
 // --- Trips, shipments and fleet location ----------------------------------
@@ -1114,8 +1162,29 @@ export const restApi = {
   createShipment: (body: ShipmentCreate) =>
     request<Shipment>('/api/shipments', { method: 'POST', body }),
 
-  listTrips: (params: { limit?: number; trip_status?: string } = {}) =>
-    request<Page<Trip>>(`/api/trips${toQuery(params)}`),
+  listTrips: (params: TripQuery = {}) =>
+    request<Page<Trip>>(`/api/trips${toQuery(params as Record<string, unknown>)}`),
+  /** The trip's timeline, oldest first. Read-only. */
+  tripEvents: (tripId: string, limit = 100) =>
+    request<TripEvent[]>(`/api/trips/${tripId}/events?limit=${limit}`),
+  /**
+   * Add a stop to a trip that is already under way.
+   *
+   * The location must be confirmed - coordinates AND an address. The route is
+   * NOT changed by this: the truck keeps its road until a manager plans and
+   * approves one for the new stop list.
+   */
+  addStop: (
+    tripId: string,
+    body: {
+      location: { lat: number; lon: number }
+      address: string
+      name?: string | null
+      kind?: string
+      placement: 'NEXT' | 'BEFORE_FINAL'
+      reason: string
+    },
+  ) => request<TripDetail>(`/api/trips/${tripId}/stops`, { method: 'POST', body }),
   getTrip: (id: string) => request<TripDetail>(`/api/trips/${id}`),
   createTrip: (body: {
     trip_code: string

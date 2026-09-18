@@ -160,12 +160,14 @@ function Shell() {
             path="/fleet"
             element={<Guarded permission="fleet:location_read" home={home}><FleetPage /></Guarded>}
           />
-          <Route path="/trips" element={<TripsPage />} />
-          <Route path="/drivers" element={<DriversPage />} />
-          <Route path="/trucks" element={<TrucksPage />} />
-          <Route path="/assignments" element={<AssignmentsPage />} />
+          <Route path="/trips" element={<Guarded permission="trip:read" home={home}><TripsPage /></Guarded>} />
+          <Route path="/drivers" element={<Guarded permission="driver:read" home={home}><DriversPage /></Guarded>} />
+          <Route path="/trucks" element={<Guarded permission="truck:read" home={home}><TrucksPage /></Guarded>} />
+          <Route path="/assignments" element={<Guarded permission="assignment:read" home={home}><AssignmentsPage /></Guarded>} />
           <Route path="/system" element={<SystemPage />} />
-          <Route path="/review" element={<ReviewPage />} />
+          {/* Review is readable by any role that can read routes (a manager sees
+              the audit trail); the authorise form inside is gated on its own. */}
+          <Route path="/review" element={<Guarded permission="route:read" home={home}><ReviewPage /></Guarded>} />
           {/* Land on the first screen this role can actually USE, not always
               /fleet. An authorised reviewer holds neither fleet:location_read
               nor route:select, so sending them to Fleet would render a page
