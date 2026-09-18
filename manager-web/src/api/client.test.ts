@@ -269,3 +269,22 @@ describe('fieldErrors', () => {
     expect(fieldErrors(new Error('network'))).toEqual({})
   })
 })
+
+/**
+ * `toQuery` omits false so optional flags can be left out. `open_only=false`
+ * is not an absent flag - it is the HISTORY half of the fleet, and dropping it
+ * made the History tab list every trip including drafts (found on hosted).
+ */
+it('sends open_only=false, because history is a value and not an omitted flag', async () => {
+  // A fresh Response per call: a body can only be read once.
+  const fetchMock = vi.fn(async () =>
+    new Response(JSON.stringify({ items: [], next_cursor: null, total: 0 }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+  await api.listTrips({ open_only: false, limit: 20 })
+  expect(String(fetchMock.mock.calls[0][0])).toContain('open_only=false')
+  await api.listTrips({ open_only: true })
+  expect(String(fetchMock.mock.calls[1][0])).toContain('open_only=true')
+  await api.listTrips({ limit: 20 })
+  expect(String(fetchMock.mock.calls[2][0])).not.toContain('open_only')
+})

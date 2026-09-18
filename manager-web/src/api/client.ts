@@ -1162,8 +1162,16 @@ export const restApi = {
   createShipment: (body: ShipmentCreate) =>
     request<Shipment>('/api/shipments', { method: 'POST', body }),
 
-  listTrips: (params: TripQuery = {}) =>
-    request<Page<Trip>>(`/api/trips${toQuery(params as Record<string, unknown>)}`),
+  listTrips: ({ open_only, ...params }: TripQuery = {}) =>
+    request<Page<Trip>>(
+      `/api/trips${toQuery({
+        ...params,
+        // `toQuery` drops false (it is how optional flags like activeOnly are
+        // omitted), and open_only=false is the HISTORY half of the fleet - a
+        // real value, not an absent one. Sent as a string so it survives.
+        ...(open_only === undefined ? {} : { open_only: open_only ? 'true' : 'false' }),
+      } as Record<string, unknown>)}`,
+    ),
   /** The trip's timeline, oldest first. Read-only. */
   tripEvents: (tripId: string, limit = 100) =>
     request<TripEvent[]>(`/api/trips/${tripId}/events?limit=${limit}`),

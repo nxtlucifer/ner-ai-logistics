@@ -52,16 +52,23 @@ export function historyLines(events: TripEvent[]): {
   detail: string | null
   ack: 'WAITING' | 'DONE' | null
 }[] {
-  return events.map((e) => ({
-    id: e.id,
-    time: new Date(e.occurred_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    title:
-      (e.instruction ? INSTRUCTION[e.instruction] ?? e.instruction.replaceAll('_', ' ') : null) ??
-      LABEL[e.kind] ??
-      e.kind.replaceAll('_', ' '),
-    detail: e.reason ?? e.description,
-    ack: e.instruction ? (e.acknowledged ? 'DONE' : 'WAITING') : null,
-  }))
+  return events.map((e) => {
+    // An ACCEPTED event carries the instruction it acknowledges, so naming it
+    // after that instruction would print "Stop added ... awaiting driver
+    // acknowledgement" ON the acknowledgement itself. It is the driver's line,
+    // and it is titled as one.
+    const isAck = e.kind === 'ACCEPTED'
+    return {
+      id: e.id,
+      time: new Date(e.occurred_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      title:
+        (!isAck && e.instruction ? INSTRUCTION[e.instruction] ?? e.instruction.replaceAll('_', ' ') : null) ??
+        LABEL[e.kind] ??
+        e.kind.replaceAll('_', ' '),
+      detail: e.reason ?? e.description,
+      ack: !isAck && e.instruction ? (e.acknowledged ? ('DONE' as const) : ('WAITING' as const)) : null,
+    }
+  })
 }
 
 export default function JourneyHistory({ tripId }: { tripId: string }) {
