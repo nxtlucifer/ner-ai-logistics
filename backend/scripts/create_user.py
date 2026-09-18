@@ -33,7 +33,11 @@ from app.db.session import dispose_engine, get_sessionmaker  # noqa: E402
 from app.models.enums import UserRole  # noqa: E402
 from app.models.identity import User  # noqa: E402
 
-MIN_PASSWORD_LENGTH = 12
+#: Eight, matching the minimum POST /api/drivers enforces for a driver's
+#: initial password. It was 12 here, so a team could give one person a manager
+#: sign-in and a driver sign-in and have the manager one refused for a password
+#: the API had already accepted. One floor, applied to both (18 Sep 2026).
+MIN_PASSWORD_LENGTH = 8
 
 
 async def main(email: str, role: UserRole, display_name: str, password: str) -> int:
