@@ -239,7 +239,9 @@ export default function TripRouteReview({ trip, onChanged }: { trip: Trip; onCha
         ? 'Eligible under the checks that ran. This is not a safety guarantee.'
         : eligible?.eligibility === 'NOT_ASSESSED'
           ? 'The hazard check could not run. This is a fault to fix, not a risk to accept.'
-          : 'Check current conditions before selecting a route.'
+          : route?.is_current
+            ? 'Assigned route. Check conditions again if time has passed since it was approved.'
+            : 'Check current conditions before selecting a route.'
 
   async function assess() {
     const result = await api.routeRecommendation(trip.id)

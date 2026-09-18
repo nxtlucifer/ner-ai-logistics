@@ -1814,3 +1814,76 @@ PHYSICAL_PHONE (route summary changed on the phone).
 
 Judge reset + check: READY. Bridges stopped, lock released, phone location
 restored, phone on its Trip tab (Bipul Das, no active trip).
+
+## 18. Manager is the route authority (18 Sep 2026) - review, acknowledge and approve in one step
+
+**Why.** The hosted demo forced Manager -> Open review -> sign out -> reviewer
+sign-in -> authorise -> sign out -> manager sign-in -> Use this route for every
+trip, because every hosted corridor is REQUIRES_REVIEW (no landslide inventory;
+UNKNOWN is not SAFE). Two accounts in front of a judge explained nothing that
+one accountable decision could not.
+
+**What changed (f98dd58).** `POST /api/trips/{id}/routes/{route_id}/approve`
+(`route:select`) with `{rationale >= 20 chars, acknowledged_incomplete_evidence:
+true, from_route_id?}`: `route_review.approve_and_select` issues the
+authorisation, `apply_selection` spends it under the trip lock against the
+live evidence, the route is selected, and one commit lands all of it - a
+refusal anywhere stores nothing (tested: closed road, HIGH, superseded route,
+stale reroute screen). `from_route_id` routes the same acceptance through
+`reroute.accept` for a moving trip (timeline event, 409 on a stale screen,
+driver push). What may be accepted did not move: assessed HAZARD_DATA_UNKNOWN
+only; REJECTED / NOT_ASSESSED / HIGH / SUPERSEDED / endpoint mismatch / out of
+region are refused for every role including ADMIN. The two-person WHERE clause
+in `claim` (`reviewer_user_id != actor.id`) is removed - one line to restore.
+`GET .../review-authorization` now falls back to the authorisation spent for
+the standing selection and carries `reviewer_name` / `reviewer_role`.
+
+Manager web: `RouteApprovalDialog` (evidence status per source - AVAILABLE /
+PARTIAL / STALE / UNKNOWN / UNAVAILABLE - why review is required, official
+alerts on the corridor, rationale, the "incomplete evidence is not the same as
+SAFE" checkbox, Cancel / Approve & use route). Trips panel: REQUIRES_REVIEW ->
+"Review & approve route"; after approval "Route assigned" + "Approved by
+<name> (manager) · time · rationale", also after a reload. Fleet cards: the
+same panel; for a moving trip the button reads "Approve & reroute". Review
+page: optional second-level review; a spent authorisation shows who used it;
+a manager is pointed back to the trip.
+
+**Tests.** Backend 1182 passed / 5 skipped (10 new: approve; no rationale / no
+acknowledgement -> 422; closed road -> 422 nothing stored; HIGH -> 422;
+driver -> 403; double click -> one row, one selection; superseded -> 422;
+eligible needs no approval; reroute approve records ROUTE_CHANGED; stale
+screen -> 409 nothing stored). Manager 228 passed (decision panel gating,
+double click, server refusal -> Route blocked, Fleet card approval). Typecheck
+and `vite build --mode remote-demo` clean.
+
+**Hosted human verify.** Real Chromium window (visible, native metrics - the device-metrics
+override is now skipped for non-headless launches in `cdp.mjs`), one manager
+session, `.runtime/rehearsal/manager_authority_verify.mjs`, 18 Sep 12:32-12:34
+IST, hosted manager + hosted API after the Docker deploy landed (the API deploy
+took ~75 min after the push; the static site was live in ~2). Trip
+TRP-D865C7C7: Create draft trip (Guwahati -> Shillong from Maps links, RASTA
+Demo Driver + AS86QQ7606, 1000 kg) -> POST /api/trips/plan 201 -> Plan route
+-> Check conditions & review -> REQUIRES REVIEW, no "Use this route", no
+"Open review", "Review & approve route" enabled -> decision panel: Evidence
+status 4 of 7 available (Landslide incidents (required) UNAVAILABLE, Landslide
+history STALE, Weather / Terrain / River levels / Official alerts AVAILABLE,
+Fleet traffic UNKNOWN), seven "why review is required" lines, approve shut
+until BOTH the rationale and the acknowledgement are given -> ONE
+POST .../approve 200 (no /select) -> "Route assigned" + "Approved by Demo
+Manager (manager) · 12:33:48 PM · <rationale>" -> Dispatch enabled on the
+row ("Selected · Ready to dispatch") -> reload -> still assigned, approval
+still shown, Dispatch still enabled. Exactly one sign-in for the whole flow;
+no sign-out, no reviewer. No page exceptions. 19/19 flow checks. Both verify
+drafts cancelled from their own rows afterwards (window.confirm accepted via
+CDP). Screenshots: `.runtime/evidence/manager-authority/01-08` (a JUDGE list
+is visible in some; no coordinates). `judge.sh reset` now records the manager
+approval ("manager approval 200 MANAGER") with the reviewer path as fallback;
+`judge.sh check` RESULT READY (JUDGE-EFAFCC).
+
+**Skipped, deliberately.** No new column for the approver's role: it is in the
+audit reason and the read model derives it from `users.role`. The Fleet card
+does not show "Approved by" (the Trips panel does). Reviewer nav entry stays
+gated to `route:review_authorize`, so a manager reaches `/review` only by URL.
+The reroute approval ("Approve & reroute", from_route_id) is covered by two
+API tests and the Fleet-card unit test, not by a hosted moving-truck run.
+
