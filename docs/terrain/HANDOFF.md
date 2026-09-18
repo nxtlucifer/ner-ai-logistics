@@ -1971,3 +1971,96 @@ keeps the truck moving - including moving it back onto the road - replaces the
 row the manager just assessed. Freeze the fix (`window.__paused = true`) once
 the proposal exists: that is what a driver awaiting instruction does, and it
 is the only state that keeps one proposal stable.
+
+## 20. Mid-trip manager control, trip filters, history and exports (18 Sep 2026)
+
+**What a manager could not do before.** Once a truck was moving, the only
+control on the row was "Stop / change" - there was no way to add a stop, and
+the trip list was the newest 50 narrowed in the browser, so an older trip
+could not be reached, searched or exported at all. The timeline the server
+had been writing since P7 had no reader.
+
+**Backend (24986f0, 4d44503 earlier).**
+`POST /api/trips/{id}/stops` adds an operational stop to a trip under way.
+It inserts among the stops still PENDING - `NEXT` (before anything else left
+to do) or `BEFORE_FINAL` - and never renumbers one the driver has served; the
+gap is opened in two UPDATE statements because `uq_trip_stops_sequence` is not
+deferrable and a row-by-row bump collides with itself. Refuses a trip not in
+transit, an unconfirmed or out-of-region point, a point within
+`MIN_STOP_SEPARATION_M` (200 m) of a stop the trip already has, a trip with no
+pending stops, and a reason under 10 characters. **The route is not touched**:
+the truck keeps its road until a manager plans and approves one through the
+route path, where the hazard evidence and the governance live. The change
+reaches the cab as an instruction that must be acknowledged, reusing the
+existing `requires_ack` / `acknowledges` timeline mechanism rather than adding
+an enum value (PR #1 still holds migration 0013).
+
+`GET /api/trips/{id}/events` is the journey history - oldest first, with the
+actor's display name and, for an instruction, the reason and whether the
+driver acknowledged it. No coordinates and no payload passthrough.
+
+`GET /api/trips` gained `driver_id`, `truck_id`, `search` (trip code or client
+name, ILIKE) and `open_only`, plus a `total` count over the same filters.
+
+**Manager web (985db6d, 5dcc608).** One entry point for a moving trip:
+"Change journey" opens a chooser - add a stop, change destination, return to
+depot, hold the driver, stop the trip - and only the actions the trip's state
+allows are offered. Changing the ROAD stays in Fleet -> Route, where its
+evidence is, and the dialog says so. Trips: search / status / attention /
+driver / truck filters, Open trips and History as two lists, 20 a page with
+50/100/All, Previous/Next over the server's cursors, "page N of M" from the
+server's count. Export CSV (Blob, RFC 4180 quoting, CRLF + BOM so Excel opens
+it correctly) and Export PDF (a print-ready report; the browser's own "Save as
+PDF" writes the file) - **no new dependency**, nothing called `.xlsx` that is
+not one, and both write every row the filter matches with a note saying how
+many and which filters. Journey history is a read-only panel on the trip
+review, fetched when opened.
+
+**Driver app.** The instruction banner names an added stop and reads "Journey
+updated by your manager", with the four translations.
+
+**Two defects the hosted run found, both fixed (5dcc608).** `toQuery` drops
+`false` - which is how optional flags are omitted - so `open_only=false` never
+reached the server and the History tab listed every trip including drafts,
+with Dispatch and Cancel on them. And an ACCEPTED event carries the
+instruction it acknowledges, so the driver's own acknowledgement was titled
+"Stop added ... awaiting driver acknowledgement". Both have regression tests.
+
+**Hosted verification (18 Sep, 17:22-17:28 IST, JUDGE-71EC42, 32/33).** One
+manager session in a real Chromium, the driver on the driver web with
+SIMULATED GPS; the physical phone was not used and no real position was read.
+Trips opened on Open trips, 20 a page, "8 shown of 8 matching · page 1 of 1"
+from the server's count -> search asked the SERVER (`search=`) and narrowed to
+one row -> Clear filters restored it -> rows-per-page sent `limit=50` (a
+server limit, not a client slice) -> Show all walked the server's pages ->
+History was its own server list, every row DELIVERED/CLOSED/CANCELLED and
+carrying only `View` - no Dispatch, no Cancel, no Change journey -> an older
+trip (JUDGE-0B282F, CLOSED) was reachable there, where 106 rows now exist that
+the newest-50 list could never show -> Export CSV wrote 106 rows with a header
+and nothing sensitive, and said "Exported 106 rows (History) as CSV" -> Export
+PDF built "RASTA AI — Trip list · Generated … · History · 106 rows" with a
+real table. The ACTIVE trip's row offered exactly two controls, Open and
+Change journey -> the dialog offered only what the server supports for that
+state -> Add stop stayed shut until BOTH a reason and a confirmed point were
+given -> ONE POST …/stops 201 on a double press -> the cab read "Journey
+updated by your manager" with the reason -> Acknowledge cleared it
+(`pending_instruction: null` server-side) -> the journey history showed "Stop
+added by Demo Manager · driver acknowledged" with the reason, no coordinates.
+Zero horizontal overflow at 768/1024/1366/1920, one sign-in, no sign-out, no
+reviewer, no uncaught exceptions, no unexpected network failures.
+
+The one FAIL was my harness: the driver-banner assertion allowed 6 s while the
+driver screen re-reads its trip on a longer cycle. The server showed
+`pending_instruction: null` and the instruction event `acknowledged: true`,
+and the previous run passed the same check in the UI. The wait now polls.
+
+Backend 1199 passed / 5 skipped, manager 246, driver 624, typecheck and
+remote-demo build clean. `judge.sh reset` + `check`: RESULT READY
+(JUDGE-19E220 DRAFT, driver and truck AVAILABLE).
+
+**Skipped, deliberately.** No XLSX writer and no PDF library: the stack has
+neither, and one would be a dependency and a supply-chain risk for a table.
+No new event subsystem - the timeline endpoint only reads what was already
+written. No stop reordering or arbitrary index insertion. `MANAGER_INSTRUCTION`
+is still carried on `ROUTE_CHANGED` / `DELAY_DETECTED` payloads rather than a
+new enum value.
