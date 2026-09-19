@@ -509,6 +509,48 @@ describe('TripsPage list controls', () => {
     expect(clicked.at(-1)?.download).toMatch(/^rasta-trips-.*\.csv$/)
   })
 
+  /**
+   * The export names people, not identifiers.
+   *
+   * `driverName`/`truckReg` read the two fleet lists, and the export callback
+   * used to close over them without listing them as dependencies. Press Export
+   * before those lists arrive - which is exactly what happens on a cold page -
+   * and the driver column said "b16a6c05".
+   */
+  it('names the driver and the truck in the export, never an id fragment', async () => {
+    vi.spyOn(api, 'listTrips').mockResolvedValue(page([trip()], 1))
+    vi.spyOn(api, 'listDrivers').mockResolvedValue({
+      items: [{
+        id: '22222222-2222-4222-8222-222222222222',
+        user_id: 'u1', full_name: 'Bipul Das', phone: '9435012345',
+        photo_url: null, licence_number: 'AS-1234', licence_expiry: '2030-01-01',
+        status: 'AVAILABLE', login_is_active: true, created_at: new Date().toISOString(),
+      }] as never,
+      next_cursor: null,
+    })
+    vi.spyOn(api, 'listTrucks').mockResolvedValue({
+      items: [{
+        id: '33333333-3333-4333-8333-333333333333',
+        registration_number: 'AS01AB1234', capacity_kg: '9000', status: 'AVAILABLE',
+        photo_url: null, created_at: new Date().toISOString(),
+      }] as never,
+      next_cursor: null,
+    })
+    let csv = ''
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    URL.createObjectURL = vi.fn((blob: Blob) => { void (blob as Blob & { text(): Promise<string> }).text().then((t) => { csv = t }); return 'blob:x' })
+    URL.revokeObjectURL = vi.fn()
+    const user = userEvent.setup()
+    render(<MemoryRouter><TripsPage /></MemoryRouter>)
+    await screen.findByText('TRP-ALPHA')
+
+    await user.click(screen.getByRole('button', { name: /export csv/i }))
+    await waitFor(() => expect(csv).toMatch(/TRP-ALPHA/))
+    expect(csv).toMatch(/Bipul Das/)
+    expect(csv).toMatch(/AS01AB1234/)
+    expect(csv).not.toMatch(/22222222|33333333/)
+  })
+
   it('offers Add a stop only for a trip that is under way, and sends the confirmed point', async () => {
     vi.spyOn(api, 'listTrips').mockResolvedValue(page([trip({ status: 'ACTIVE', selected_route_id: 'r1' })], 1))
     vi.spyOn(api, 'getTrip').mockResolvedValue({

@@ -296,7 +296,10 @@ export default function TripsPage() {
         }),
       )
     return { rows, capped }
-  }, [query, filters.attention])
+    // The two fleet lists are dependencies, not incidentals: without them
+    // `driverName`/`truckReg` fall back to an id fragment, and an export run
+    // before they load names the driver "b16a6c05".
+  }, [query, filters.attention, drivers.data, trucks.data])
 
   async function runExport(kind: 'CSV' | 'PDF') {
     if (exporting) return
