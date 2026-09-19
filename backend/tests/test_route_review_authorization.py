@@ -714,6 +714,43 @@ class TestManagerApproval:
         assert await _authorizations(route_id) == [], "a refusal must store nothing"
 
 
+class TestTheRouteChangePushHoldsNoConnection:
+    """select and approve read the trip BEFORE their commit, so the ROUTE_CHANGED
+    push to the driver runs with the request's connection back in the pool."""
+
+    @pytest.mark.parametrize("action", ["select", "approve"])
+    async def test_the_push_runs_with_no_connection_held(
+        self, api: AsyncClient, session: AsyncSession, manager_headers: dict,
+        monkeypatch, action: str,
+    ):
+        from app.db import session as db_session
+        from app.models.identity import Driver
+        from app.services import notify
+
+        trip, route_id = await _planned(api, session, manager_headers)  # ASSIGNED: under way
+        (await session.get(Driver, trip.driver_id)).push_token = "ExponentPushToken[test]"
+        await session.commit()
+        if action == "select":
+            _use(monkeypatch, _ClearSource())
+        pool = db_session.get_engine().pool
+        during: list[int] = []
+
+        async def deliver(*_args) -> str:  # noqa: ANN002
+            during.append(pool.checkedout())
+            return "SENT"
+
+        monkeypatch.setattr(notify, "configured", lambda: True)
+        monkeypatch.setattr(notify, "_deliver", deliver)
+        baseline = pool.checkedout()
+        ok = await api.post(
+            f"/api/trips/{trip.id}/routes/{route_id}/{action}",
+            headers=manager_headers,
+            json=APPROVAL if action == "approve" else None,
+        )
+        assert ok.status_code == 200, ok.text
+        assert during == [baseline], "the push held the request's pooled connection"
+
+
 class TestManagerApprovalOfAReroute:
     """The same acceptance for a moving truck, through the reroute contract."""
 

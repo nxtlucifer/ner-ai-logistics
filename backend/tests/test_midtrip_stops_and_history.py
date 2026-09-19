@@ -3,7 +3,7 @@
 WHAT THESE DEFEND
 
   * a stop the driver already served is never renumbered or rewritten
-  * a stop cannot be added to a trip that is not under way, is out of region,
+  * a stop cannot be added to a trip that is not under way, is outside India,
     is unconfirmed, or sits on top of a stop the trip already has
   * the change reaches the cab as an instruction that must be acknowledged,
     and "seen" is a record rather than an assumption
@@ -26,12 +26,16 @@ from app.services import trips as trip_service
 from tests import factories
 from tests.conftest import auth_headers
 
-pytestmark = pytest.mark.requires_db
+# Country acceptance fails closed without an India boundary; the synthetic
+# one is loaded for every test here (tests/geo_fixtures.py).
+pytestmark = [pytest.mark.requires_db, pytest.mark.usefixtures("fixture_india")]
 
-# Guwahati -> Shillong corridor; all inside the service region.
+# Guwahati -> Shillong corridor.
 ON_THE_WAY = {"lat": 25.9, "lon": 91.87}
 NEAR_PICKUP = {"lat": 26.1446, "lon": 91.7363}  # ~15 m from the pickup stop
-OUT_OF_REGION = {"lat": 23.02, "lon": 72.57}  # Ahmedabad
+#: Inside the synthetic neighbour country cut out of the fixture India
+#: (tests/geo_fixtures.py). Ahmedabad used to stand here; it is India.
+OUT_OF_REGION = {"lat": 16.0, "lon": 86.5}
 REASON = "Consignee asked for a second drop on the way; confirmed by phone."
 
 
@@ -168,7 +172,7 @@ class TestAddStop:
         "over,code",
         [
             ({"reason": "too short"}, "CHANGE_REASON_REQUIRED"),
-            ({"location": OUT_OF_REGION}, "OUTSIDE_SERVICE_REGION"),
+            ({"location": OUT_OF_REGION}, "OUTSIDE_SUPPORTED_COUNTRY"),
             ({"location": NEAR_PICKUP}, "STOP_TOO_CLOSE"),
         ],
     )
@@ -272,7 +276,8 @@ class TestTripFilters:
     ):
         """The defect this closes: the console read the newest 50 and filtered
         in the browser, so an older trip could not be reached at all."""
-        old, _, _ = await _trip(session, status=TripStatus.DELIVERED)
+        old, _, _ = await _trip(session, status=TripStatus.CLOSED)
+        delivered, _, _ = await _trip(session, status=TripStatus.DELIVERED)
         for _ in range(3):
             await _trip(session)
 
@@ -289,10 +294,14 @@ class TestTripFilters:
         history = await api.get("/api/trips?open_only=false&limit=100", headers=manager_headers)
         codes = [t["trip_code"] for t in history.json()["items"]]
         assert old.trip_code in codes
-        assert all(t["status"] in ("DELIVERED", "CLOSED", "CANCELLED") for t in history.json()["items"])
+        assert all(t["status"] in ("CLOSED", "CANCELLED") for t in history.json()["items"])
 
         open_page = await api.get("/api/trips?open_only=true&limit=100", headers=manager_headers)
-        assert old.trip_code not in [t["trip_code"] for t in open_page.json()["items"]]
+        open_codes = [t["trip_code"] for t in open_page.json()["items"]]
+        assert old.trip_code not in open_codes
+        # Delivered still holds its driver and truck until a manager closes
+        # it, so it is open work: hiding it in history hid the Close button.
+        assert delivered.trip_code in open_codes
 
     async def test_a_listed_trip_says_who_and_where_without_a_second_request(
         self, api: AsyncClient, session: AsyncSession, manager_headers: dict

@@ -43,6 +43,7 @@ configure_event_loop_policy()
 
 from sqlalchemy import text  # noqa: E402
 
+from app.core.disposable import assert_disposable
 from app.core.config import get_settings  # noqa: E402
 from app.db.session import dispose_engine, get_sessionmaker  # noqa: E402
 from tests import db_target  # noqa: E402
@@ -196,6 +197,10 @@ async def tidy_test_data(db) -> None:
 
 
 async def main(reset: bool, tidy: bool, trip_code: str | None) -> int:
+    # A fixture loader may only write to a database somebody is
+    # prepared to lose. Checked FIRST: a guard after the first
+    # insert has prevented nothing.
+    assert_disposable("demo_scenario.py")
     settings = get_settings()
     try:
         db_target.enforce(settings.effective_database_url, context="demo scenario")

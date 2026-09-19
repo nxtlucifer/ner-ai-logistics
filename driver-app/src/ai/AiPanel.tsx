@@ -19,7 +19,6 @@ import { useState } from 'react'
 import {
   ActivityIndicator,
   Pressable,
-  StyleSheet,
   Text,
   TextInput,
   View,
@@ -117,7 +116,7 @@ export default function AiPanel({
         value={draft}
         onChangeText={setDraft}
         placeholder={placeholder}
-        placeholderTextColor={COLORS.muted}
+        placeholderTextColor={COLORS.textMuted}
         multiline
         style={styles.input}
         accessibilityLabel={placeholder}
@@ -135,7 +134,7 @@ export default function AiPanel({
           ]}
           testID="ai-ask"
         >
-          <Text style={[styles.buttonLabel, { color: COLORS.onAccent }]}>{t(busy ? 'Answering…' : 'Ask')}</Text>
+          <Text style={[styles.buttonLabel, { color: COLORS.onPrimary }]}>{t(busy ? 'Answering…' : 'Ask')}</Text>
         </Pressable>
 
         {/* Cancel exists because a local model on a laptop can take half a
@@ -234,22 +233,22 @@ const useStyles = makeStyles((COLORS) => ({
     width: 7,
     height: 7,
     borderRadius: 4,
-    backgroundColor: COLORS.warn,
+    backgroundColor: COLORS.warning,
   },
   offlineLabel: {
-    color: COLORS.warn,
+    color: COLORS.warning,
     fontSize: 12,
     fontWeight: '700',
   },
   offlineReason: {
-    color: COLORS.faint,
+    color: COLORS.textFaint,
     fontSize: 11,
     lineHeight: 15,
     marginTop: 2,
   },
-  model: { color: COLORS.muted, fontSize: 12 },
+  model: { color: COLORS.textMuted, fontSize: 12 },
   statusTitle: { color: COLORS.text, fontSize: 15, fontWeight: '700' },
-  status: { color: COLORS.muted, fontSize: 13, lineHeight: 18 },
+  status: { color: COLORS.textMuted, fontSize: 13, lineHeight: 18 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
     minHeight: TOUCH_TARGET,
@@ -276,20 +275,20 @@ const useStyles = makeStyles((COLORS) => ({
     justifyContent: 'center',
     paddingHorizontal: 18,
     borderRadius: 8,
-    backgroundColor: COLORS.accent,
+    backgroundColor: COLORS.primary,
   },
   buttonQuiet: { backgroundColor: 'transparent', borderWidth: 1, borderColor: COLORS.border },
   buttonOff: { opacity: 0.45 },
   buttonLabel: { color: COLORS.text, fontSize: 15, fontWeight: '700' },
   error: { gap: 8 },
-  errorText: { color: COLORS.warn, fontSize: 13, lineHeight: 18 },
+  errorText: { color: COLORS.warning, fontSize: 13, lineHeight: 18 },
   answer: { gap: 4, marginTop: 4 },
   generatedLabel: {
-    color: COLORS.warn,
+    color: COLORS.warning,
     fontSize: 11,
     fontWeight: '700',
     textTransform: 'uppercase',
   },
   answerText: { color: COLORS.text, fontSize: 16, lineHeight: 23 },
-  factsAt: { color: COLORS.muted, fontSize: 12 },
+  factsAt: { color: COLORS.textMuted, fontSize: 12 },
 }))

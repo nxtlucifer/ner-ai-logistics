@@ -1,0 +1,1696 @@
+{
+ "base": "http://127.0.0.1:8010",
+ "tag": "136C48",
+ "ran_at": "2026-09-19T09:53:29",
+ "passed": 56,
+ "total": 56,
+ "results": [
+  {
+   "name": "health",
+   "method": "GET",
+   "path": "/health",
+   "purpose": "Liveness",
+   "auth": "none",
+   "request": null,
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 19,
+   "response": {
+    "status": "ok"
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "ready",
+   "method": "GET",
+   "path": "/ready",
+   "purpose": "Readiness: DB + PostGIS reachable",
+   "auth": "none",
+   "request": null,
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 17,
+   "response": {
+    "status": "ready",
+    "provider": "local",
+    "checks": {
+     "database": {
+      "ok": true,
+      "detail": "PostgreSQL 18.2"
+     },
+     "postgis": {
+      "ok": true,
+      "detail": "3.6 USE_GEOS=1 USE_PROJ=1 USE_STATS=1"
+     }
+    }
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "login wrong password",
+   "method": "POST",
+   "path": "/api/auth/login",
+   "purpose": "Bad credential rejected",
+   "auth": "none",
+   "request": {
+    "identifier": "demo.manager@fleet.example",
+    "password": "<redacted>"
+   },
+   "expected": 401,
+   "actual": 401,
+   "error_code": "UNAUTHENTICATED",
+   "ms": 76,
+   "response": {
+    "error": {
+     "code": "UNAUTHENTICATED",
+     "message": "Invalid credentials.",
+     "details": {},
+     "request_id": "215abb95-3316-4eaa-ac8a-bb3260d3f12c"
+    }
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "login too-short password (validation)",
+   "method": "POST",
+   "path": "/api/auth/login",
+   "purpose": "Schema validation",
+   "auth": "none",
+   "request": {
+    "identifier": "demo.manager@fleet.example",
+    "password": "<redacted>"
+   },
+   "expected": 422,
+   "actual": 422,
+   "error_code": "VALIDATION_ERROR",
+   "ms": 13,
+   "response": {
+    "error": {
+     "code": "VALIDATION_ERROR",
+     "message": "Request failed validation.",
+     "details": {
+      "errors": [
+       {
+        "loc": [
+         "body",
+         "password"
+        ],
+        "msg": "String should have at least 8 characters",
+        "type": "string_too_short"
+       }
+      ]
+     },
+     "request_id": "0f73ced9-584e-4aa0-a798-210ba19b00e6"
+    }
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "manager login",
+   "method": "POST",
+   "path": "/api/auth/login",
+   "purpose": "Manager sign-in (JWT + refresh)",
+   "auth": "none",
+   "request": {
+    "identifier": "demo.manager@fleet.example",
+    "password": "<redacted>",
+    "client": "mobile"
+   },
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 74,
+   "response": {
+    "access_token": "<redacted>",
+    "refresh_token": "<redacted>",
+    "token_type": "bearer",
+    "expires_at": "2026-09-19T04:38:28.182347Z",
+    "user": {
+     "id": "a6f6861f-4f0a-471f-aa9d-6836209ae04e",
+     "role": "MANAGER",
+     "display_name": "Demo Manager",
+     "email": "demo.manager@fleet.example",
+     "phone": null
+    }
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "auth/me",
+   "method": "GET",
+   "path": "/api/auth/me",
+   "purpose": "Current principal + role",
+   "auth": "JWT",
+   "request": null,
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 16,
+   "response": {
+    "user": {
+     "id": "a6f6861f-4f0a-471f-aa9d-6836209ae04e",
+     "role": "MANAGER",
+     "display_name": "Demo Manager",
+     "email": "demo.manager@fleet.example",
+     "phone": null
+    },
+    "permissions": [
+     "assignment:create",
+     "assignment:end",
+     "assignment:read",
+     "..."
+    ]
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "drivers without token",
+   "method": "GET",
+   "path": "/api/drivers",
+   "purpose": "Unauthenticated -> 401",
+   "auth": "none",
+   "request": null,
+   "expected": 401,
+   "actual": 401,
+   "error_code": "UNAUTHENTICATED",
+   "ms": 13,
+   "response": {
+    "error": {
+     "code": "UNAUTHENTICATED",
+     "message": "Authentication required.",
+     "details": {},
+     "request_id": "a2acf7fd-6161-44be-a0a3-00b6ce229d5e"
+    }
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "drivers with garbage token",
+   "method": "GET",
+   "path": "/api/drivers",
+   "purpose": "Invalid token -> 401",
+   "auth": "bad JWT",
+   "request": null,
+   "expected": 401,
+   "actual": 401,
+   "error_code": "UNAUTHENTICATED",
+   "ms": 1,
+   "response": {
+    "error": {
+     "code": "UNAUTHENTICATED",
+     "message": "Invalid or expired token.",
+     "details": {},
+     "request_id": "c6d3118f-a536-40f8-b7b5-bf43bf351fbc"
+    }
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "driver create - invalid phone (422)",
+   "method": "POST",
+   "path": "/api/drivers",
+   "purpose": "Validation error shape",
+   "auth": "manager driver:create",
+   "request": {
+    "full_name": "Day2 Test Driver 136C48",
+    "initial_password": "<redacted>",
+    "phone": "12",
+    "licence_number": "AS01D2136C48",
+    "licence_expiry": "2028-08-19",
+    "licence_class": "HMV"
+   },
+   "expected": 422,
+   "actual": 422,
+   "error_code": "VALIDATION_ERROR",
+   "ms": 15,
+   "response": {
+    "error": {
+     "code": "VALIDATION_ERROR",
+     "message": "Request failed validation.",
+     "details": {
+      "errors": [
+       {
+        "loc": [
+         "body",
+         "phone"
+        ],
+        "msg": "String should match pattern '^\\+?[0-9]{10,15}$'",
+        "type": "string_pattern_mismatch"
+       }
+      ]
+     },
+     "request_id": "8b6b6e06-7351-481c-b020-774e5b69f85c"
+    }
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "driver create",
+   "method": "POST",
+   "path": "/api/drivers",
+   "purpose": "CREATE users + drivers (one transaction)",
+   "auth": "manager driver:create",
+   "request": {
+    "full_name": "Day2 Test Driver 136C48",
+    "initial_password": "<redacted>",
+    "phone": "9789791808",
+    "licence_number": "AS01D2136C48",
+    "licence_expiry": "2028-08-19",
+    "licence_class": "HMV"
+   },
+   "expected": 201,
+   "actual": 201,
+   "error_code": null,
+   "ms": 67,
+   "response": {
+    "id": "3004e822-8b52-4f91-bc4f-88326c477ff7",
+    "user_id": "8728ab47-50ab-4f86-8e32-84bdc4367cd6",
+    "full_name": "Day2 Test Driver 136C48",
+    "phone": "9789791808",
+    "photo_url": null,
+    "licence_number": "AS01D2136C48",
+    "licence_expiry": "2028-08-19",
+    "status": "AVAILABLE",
+    "login_is_active": true,
+    "created_at": "2026-09-19T09:53:28.250423+05:30"
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "driver create - duplicate licence (409)",
+   "method": "POST",
+   "path": "/api/drivers",
+   "purpose": "Unique constraint surfaces as 409",
+   "auth": "manager",
+   "request": {
+    "full_name": "Day2 Test Driver 136C48",
+    "initial_password": "<redacted>",
+    "phone": "9789791815",
+    "licence_number": "AS01D2136C48",
+    "licence_expiry": "2028-08-19",
+    "licence_class": "HMV"
+   },
+   "expected": 409,
+   "actual": 409,
+   "error_code": "LICENCE_EXISTS",
+   "ms": 5,
+   "response": {
+    "error": {
+     "code": "LICENCE_EXISTS",
+     "message": "A driver with that licence number already exists.",
+     "details": {},
+     "request_id": "6060eebc-f5b4-48f3-8832-6b5f7b66d704"
+    }
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "driver read",
+   "method": "GET",
+   "path": "/api/drivers/3004e822-8b52-4f91-bc4f-88326c477ff7",
+   "purpose": "READ one",
+   "auth": "manager driver:read",
+   "request": null,
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 20,
+   "response": {
+    "id": "3004e822-8b52-4f91-bc4f-88326c477ff7",
+    "user_id": "8728ab47-50ab-4f86-8e32-84bdc4367cd6",
+    "full_name": "Day2 Test Driver 136C48",
+    "phone": "9789791808",
+    "photo_url": null,
+    "licence_number": "AS01D2136C48",
+    "licence_expiry": "2028-08-19",
+    "status": "AVAILABLE",
+    "login_is_active": true,
+    "created_at": "2026-09-19T09:53:28.250423+05:30"
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "driver list (search)",
+   "method": "GET",
+   "path": "/api/drivers?search=136C48&page_size=5",
+   "purpose": "READ list, filtered",
+   "auth": "manager driver:read",
+   "request": null,
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 16,
+   "response": {
+    "items": 1,
+    "first": {
+     "id": "3004e822-8b52-4f91-bc4f-88326c477ff7",
+     "user_id": "8728ab47-50ab-4f86-8e32-84bdc4367cd6",
+     "full_name": "Day2 Test Driver 136C48",
+     "phone": "9789791808",
+     "photo_url": null,
+     "licence_number": "AS01D2136C48",
+     "licence_expiry": "2028-08-19",
+     "status": "AVAILABLE",
+     "login_is_active": true,
+     "created_at": "2026-09-19T09:53:28.250423+05:30"
+    },
+    "keys": [
+     "items",
+     "next_cursor"
+    ]
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "driver update",
+   "method": "PATCH",
+   "path": "/api/drivers/3004e822-8b52-4f91-bc4f-88326c477ff7",
+   "purpose": "UPDATE (partial)",
+   "auth": "manager driver:update",
+   "request": {
+    "licence_class": "HGMV",
+    "emergency_contact_name": "Day2 Contact"
+   },
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 18,
+   "response": {
+    "id": "3004e822-8b52-4f91-bc4f-88326c477ff7",
+    "user_id": "8728ab47-50ab-4f86-8e32-84bdc4367cd6",
+    "full_name": "Day2 Test Driver 136C48",
+    "phone": "9789791808",
+    "photo_url": null,
+    "licence_number": "AS01D2136C48",
+    "licence_expiry": "2028-08-19",
+    "status": "AVAILABLE",
+    "login_is_active": true,
+    "created_at": "2026-09-19T09:53:28.250423+05:30"
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "driver read 404",
+   "method": "GET",
+   "path": "/api/drivers/0c7b513c-0cdc-4ff5-a069-11123ccd9604",
+   "purpose": "Unknown id -> 404",
+   "auth": "manager",
+   "request": null,
+   "expected": 404,
+   "actual": 404,
+   "error_code": "NOT_FOUND",
+   "ms": 27,
+   "response": {
+    "error": {
+     "code": "NOT_FOUND",
+     "message": "Driver not found.",
+     "details": {},
+     "request_id": "193a131d-4d29-467e-84bd-7483e395611d"
+    }
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "truck create - bad capacity (422)",
+   "method": "POST",
+   "path": "/api/trucks",
+   "purpose": "Validation",
+   "auth": "manager truck:create",
+   "request": {
+    "registration_number": "AS01D7808",
+    "max_capacity_kg": "-5",
+    "truck_type": "Container",
+    "make": "Tata",
+    "model": "LPT 1109",
+    "manufacture_year": 2021
+   },
+   "expected": 422,
+   "actual": 422,
+   "error_code": "VALIDATION_ERROR",
+   "ms": 14,
+   "response": {
+    "error": {
+     "code": "VALIDATION_ERROR",
+     "message": "Request failed validation.",
+     "details": {
+      "errors": [
+       {
+        "loc": [
+         "body",
+         "max_capacity_kg"
+        ],
+        "msg": "Input should be greater than 0",
+        "type": "greater_than"
+       }
+      ]
+     },
+     "request_id": "28fd62b3-a6ee-4ccd-8996-8c521dc213cd"
+    }
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "truck create",
+   "method": "POST",
+   "path": "/api/trucks",
+   "purpose": "CREATE trucks",
+   "auth": "manager truck:create",
+   "request": {
+    "registration_number": "AS01D7808",
+    "max_capacity_kg": "9000",
+    "truck_type": "Container",
+    "make": "Tata",
+    "model": "LPT 1109",
+    "manufacture_year": 2021
+   },
+   "expected": 201,
+   "actual": 201,
+   "error_code": null,
+   "ms": 21,
+   "response": {
+    "id": "64e2b4be-61af-4882-b8be-c5eaa787471b",
+    "registration_number": "AS01D7808",
+    "photo_url": null,
+    "truck_type": "Container",
+    "make": "Tata",
+    "model": "LPT 1109",
+    "max_capacity_kg": "9000.00",
+    "current_load_kg": "0.00",
+    "status": "AVAILABLE",
+    "baseline_mileage_kmpl": null,
+    "created_at": "2026-09-19T09:53:28.420721+05:30"
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "truck create - duplicate registration (409)",
+   "method": "POST",
+   "path": "/api/trucks",
+   "purpose": "Unique registration -> 409",
+   "auth": "manager",
+   "request": {
+    "registration_number": "AS01D7808",
+    "max_capacity_kg": "9000",
+    "truck_type": "Container",
+    "make": "Tata",
+    "model": "LPT 1109",
+    "manufacture_year": 2021
+   },
+   "expected": 409,
+   "actual": 409,
+   "error_code": "REGISTRATION_EXISTS",
+   "ms": 2,
+   "response": {
+    "error": {
+     "code": "REGISTRATION_EXISTS",
+     "message": "A truck with that registration number already exists.",
+     "details": {},
+     "request_id": "5d1131c1-786b-4a80-8b80-b62eec34c1c8"
+    }
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "truck read",
+   "method": "GET",
+   "path": "/api/trucks/64e2b4be-61af-4882-b8be-c5eaa787471b",
+   "purpose": "READ one",
+   "auth": "manager truck:read",
+   "request": null,
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 23,
+   "response": {
+    "id": "64e2b4be-61af-4882-b8be-c5eaa787471b",
+    "registration_number": "AS01D7808",
+    "photo_url": null,
+    "truck_type": "Container",
+    "make": "Tata",
+    "model": "LPT 1109",
+    "max_capacity_kg": "9000.00",
+    "current_load_kg": "0.00",
+    "status": "AVAILABLE",
+    "baseline_mileage_kmpl": null,
+    "created_at": "2026-09-19T09:53:28.420721+05:30"
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "truck update",
+   "method": "PATCH",
+   "path": "/api/trucks/64e2b4be-61af-4882-b8be-c5eaa787471b",
+   "purpose": "UPDATE",
+   "auth": "manager truck:update",
+   "request": {
+    "model": "LPT 1109 EX",
+    "odometer_km": "12000.5"
+   },
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 20,
+   "response": {
+    "id": "64e2b4be-61af-4882-b8be-c5eaa787471b",
+    "registration_number": "AS01D7808",
+    "photo_url": null,
+    "truck_type": "Container",
+    "make": "Tata",
+    "model": "LPT 1109 EX",
+    "max_capacity_kg": "9000.00",
+    "current_load_kg": "0.00",
+    "status": "AVAILABLE",
+    "baseline_mileage_kmpl": null,
+    "created_at": "2026-09-19T09:53:28.420721+05:30"
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "truck list",
+   "method": "GET",
+   "path": "/api/trucks?page_size=3",
+   "purpose": "READ list (cursor paging)",
+   "auth": "manager truck:read",
+   "request": null,
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 27,
+   "response": {
+    "items": 5,
+    "keys": [
+     "items",
+     "next_cursor"
+    ]
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "assignment create",
+   "method": "POST",
+   "path": "/api/assignments",
+   "purpose": "CREATE driver<->truck pairing",
+   "auth": "manager assignment:create",
+   "request": {
+    "driver_id": "3004e822-8b52-4f91-bc4f-88326c477ff7",
+    "truck_id": "64e2b4be-61af-4882-b8be-c5eaa787471b"
+   },
+   "expected": 201,
+   "actual": 201,
+   "error_code": null,
+   "ms": 21,
+   "response": {
+    "id": "70d1abe4-65bc-4e08-b34e-c0608f557ba2",
+    "driver_id": "3004e822-8b52-4f91-bc4f-88326c477ff7",
+    "truck_id": "64e2b4be-61af-4882-b8be-c5eaa787471b",
+    "status": "ACTIVE",
+    "assigned_at": "2026-09-19T09:53:28.516707+05:30",
+    "verified_at": null,
+    "mismatch_flagged": false,
+    "ended_at": null,
+    "verification_source": null,
+    "verification_photo_url": null,
+    "reported_registration": null
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "assignment create - driver already paired (409)",
+   "method": "POST",
+   "path": "/api/assignments",
+   "purpose": "One open pairing per driver/truck",
+   "auth": "manager",
+   "request": {
+    "driver_id": "3004e822-8b52-4f91-bc4f-88326c477ff7",
+    "truck_id": "64e2b4be-61af-4882-b8be-c5eaa787471b"
+   },
+   "expected": 409,
+   "actual": 409,
+   "error_code": "ASSIGNMENT_UNCHANGED",
+   "ms": 26,
+   "response": {
+    "error": {
+     "code": "ASSIGNMENT_UNCHANGED",
+     "message": "Driver is already assigned to this truck.",
+     "details": {
+      "assignment_id": "70d1abe4-65bc-4e08-b34e-c0608f557ba2"
+     },
+     "request_id": "a4b57d5a-89f6-4e03-90c6-baeec6ad9aad"
+    }
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "assignment read",
+   "method": "GET",
+   "path": "/api/assignments/70d1abe4-65bc-4e08-b34e-c0608f557ba2",
+   "purpose": "READ one",
+   "auth": "manager assignment:read",
+   "request": null,
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 3,
+   "response": {
+    "id": "70d1abe4-65bc-4e08-b34e-c0608f557ba2",
+    "driver_id": "3004e822-8b52-4f91-bc4f-88326c477ff7",
+    "truck_id": "64e2b4be-61af-4882-b8be-c5eaa787471b",
+    "status": "ACTIVE",
+    "assigned_at": "2026-09-19T09:53:28.516707+05:30",
+    "verified_at": null,
+    "mismatch_flagged": false,
+    "ended_at": null,
+    "verification_source": null,
+    "verification_photo_url": null,
+    "reported_registration": null
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "assignment verify-manual",
+   "method": "POST",
+   "path": "/api/assignments/70d1abe4-65bc-4e08-b34e-c0608f557ba2/verify-manual",
+   "purpose": "UPDATE: manager verifies truck by hand",
+   "auth": "manager assignment:review",
+   "request": {
+    "reported_registration": "AS01D7808",
+    "note": "Day 2 API evidence - manual verification"
+   },
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 7,
+   "response": {
+    "id": "70d1abe4-65bc-4e08-b34e-c0608f557ba2",
+    "driver_id": "3004e822-8b52-4f91-bc4f-88326c477ff7",
+    "truck_id": "64e2b4be-61af-4882-b8be-c5eaa787471b",
+    "status": "ACTIVE",
+    "assigned_at": "2026-09-19T09:53:28.516707+05:30",
+    "verified_at": "2026-09-19T09:53:28.554961+05:30",
+    "mismatch_flagged": false,
+    "ended_at": null,
+    "verification_source": "MANAGER_MANUAL",
+    "verification_photo_url": null,
+    "reported_registration": "AS01D7808"
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "trip plan - destination outside NE region (422)",
+   "method": "POST",
+   "path": "/api/trips/plan",
+   "purpose": "Service-region gate",
+   "auth": "manager trip:create",
+   "request": {
+    "shipment": {
+     "reference_code": "DAY2-136C48-X",
+     "client_name": "Day 2 Evidence Client",
+     "pickup_address": "Guwahati Depot, Assam",
+     "pickup": {
+      "lat": 26.1445,
+      "lon": 91.7362
+     },
+     "destination_address": "Shillong Depot, Meghalaya",
+     "destination": {
+      "lat": 23.0225,
+      "lon": 72.5714
+     },
+     "priority": "NORMAL",
+     "cargo_items": [
+      {
+       "cargo_type": "General",
+       "cargo_name": "Rice bags",
+       "weight_kg": "1200",
+       "quantity": 1
+      }
+     ]
+    },
+    "trip": {
+     "trip_code": "D2T-136C48-X",
+     "truck_id": "64e2b4be-61af-4882-b8be-c5eaa787471b",
+     "driver_id": "3004e822-8b52-4f91-bc4f-88326c477ff7",
+     "stops": [
+      {
+       "sequence": 0,
+       "kind": "PICKUP",
+       "location": {
+        "lat": 26.1445,
+        "lon": 91.7362
+       },
+       "name": "Guwahati Depot"
+      },
+      {
+       "sequence": 1,
+       "kind": "DROPOFF",
+       "location": {
+        "lat": 25.5788,
+        "lon": 91.8933
+       },
+       "name": "Shillong Depot"
+      }
+     ]
+    }
+   },
+   "expected": 422,
+   "actual": 422,
+   "error_code": "VALIDATION_ERROR",
+   "ms": 17,
+   "response": {
+    "error": {
+     "code": "VALIDATION_ERROR",
+     "message": "Request failed validation.",
+     "details": {
+      "errors": [
+       {
+        "loc": [
+         "body",
+         "shipment"
+        ],
+        "msg": "Value error, destination (23.0225, 72.5714) is outside the North-East service region (Assam, Arunachal Pradesh, Manipur, Meghalaya, Mizoram, Nagaland, Sikkim, Tripura)",
+        "type": "value_error"
+       }
+      ]
+     },
+     "request_id": "a52b1594-ef71-40a3-a89f-def77aeb87fc"
+    }
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "trip plan - cargo over truck capacity (422)",
+   "method": "POST",
+   "path": "/api/trips/plan",
+   "purpose": "Capacity gate; shipment NOT left behind (atomic)",
+   "auth": "manager trip:create",
+   "request": {
+    "shipment": {
+     "reference_code": "DAY2-136C48-H",
+     "client_name": "Day 2 Evidence Client",
+     "pickup_address": "Guwahati Depot, Assam",
+     "pickup": {
+      "lat": 26.1445,
+      "lon": 91.7362
+     },
+     "destination_address": "Shillong Depot, Meghalaya",
+     "destination": {
+      "lat": 25.5788,
+      "lon": 91.8933
+     },
+     "priority": "NORMAL",
+     "cargo_items": [
+      {
+       "cargo_type": "General",
+       "cargo_name": "Rice bags",
+       "weight_kg": "20000",
+       "quantity": 1
+      }
+     ]
+    },
+    "trip": {
+     "trip_code": "D2T-136C48-H",
+     "truck_id": "64e2b4be-61af-4882-b8be-c5eaa787471b",
+     "driver_id": "3004e822-8b52-4f91-bc4f-88326c477ff7",
+     "stops": [
+      {
+       "sequence": 0,
+       "kind": "PICKUP",
+       "location": {
+        "lat": 26.1445,
+        "lon": 91.7362
+       },
+       "name": "Guwahati Depot"
+      },
+      {
+       "sequence": 1,
+       "kind": "DROPOFF",
+       "location": {
+        "lat": 25.5788,
+        "lon": 91.8933
+       },
+       "name": "Shillong Depot"
+      }
+     ]
+    }
+   },
+   "expected": 422,
+   "actual": 422,
+   "error_code": "CAPACITY_EXCEEDED",
+   "ms": 8,
+   "response": {
+    "error": {
+     "code": "CAPACITY_EXCEEDED",
+     "message": "Shipment weight exceeds the truck's capacity.",
+     "details": {
+      "shipment_weight_kg": "20000.00",
+      "truck_capacity_kg": "9000.00"
+     },
+     "request_id": "766e8481-16dd-4226-a6e7-798157a3acee"
+    }
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "trip plan (shipment+trip atomic)",
+   "method": "POST",
+   "path": "/api/trips/plan",
+   "purpose": "CREATE shipments+cargo_items+trips+trip_stops in one transaction",
+   "auth": "manager trip:create",
+   "request": {
+    "shipment": {
+     "reference_code": "DAY2-136C48",
+     "client_name": "Day 2 Evidence Client",
+     "pickup_address": "Guwahati Depot, Assam",
+     "pickup": {
+      "lat": 26.1445,
+      "lon": 91.7362
+     },
+     "destination_address": "Shillong Depot, Meghalaya",
+     "destination": {
+      "lat": 25.5788,
+      "lon": 91.8933
+     },
+     "priority": "NORMAL",
+     "cargo_items": [
+      {
+       "cargo_type": "General",
+       "cargo_name": "Rice bags",
+       "weight_kg": "1200",
+       "quantity": 1
+      }
+     ]
+    },
+    "trip": {
+     "trip_code": "D2T-136C48",
+     "truck_id": "64e2b4be-61af-4882-b8be-c5eaa787471b",
+     "driver_id": "3004e822-8b52-4f91-bc4f-88326c477ff7",
+     "stops": [
+      {
+       "sequence": 0,
+       "kind": "PICKUP",
+       "location": {
+        "lat": 26.1445,
+        "lon": 91.7362
+       },
+       "name": "Guwahati Depot"
+      },
+      {
+       "sequence": 1,
+       "kind": "DROPOFF",
+       "location": {
+        "lat": 25.5788,
+        "lon": 91.8933
+       },
+       "name": "Shillong Depot"
+      }
+     ]
+    }
+   },
+   "expected": 201,
+   "actual": 201,
+   "error_code": null,
+   "ms": 13,
+   "response": {
+    "id": "f01df784-92b3-4aa9-b39e-9babc06cac10",
+    "trip_code": "D2T-136C48",
+    "shipment_id": "3263e5ce-56e9-46ab-a233-94f6a4c74fdb",
+    "client_name": null,
+    "origin": null,
+    "destination": null,
+    "truck_id": "64e2b4be-61af-4882-b8be-c5eaa787471b",
+    "driver_id": "3004e822-8b52-4f91-bc4f-88326c477ff7",
+    "status": "DRAFT",
+    "selected_route_id": null,
+    "dispatched_at": null,
+    "started_at": null,
+    "delivered_at": null,
+    "planned_eta": null,
+    "current_eta": null,
+    "delay_minutes": null,
+    "created_at": "2026-09-19T09:53:28.587600+05:30"
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "shipment list",
+   "method": "GET",
+   "path": "/api/shipments?page_size=3",
+   "purpose": "READ shipments",
+   "auth": "manager shipment:read",
+   "request": null,
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 4,
+   "response": {
+    "items": 25,
+    "keys": [
+     "items",
+     "next_cursor"
+    ]
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "trip read",
+   "method": "GET",
+   "path": "/api/trips/f01df784-92b3-4aa9-b39e-9babc06cac10",
+   "purpose": "READ one (with shipment summary + stops)",
+   "auth": "manager trip:read",
+   "request": null,
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 4,
+   "response": {
+    "id": "f01df784-92b3-4aa9-b39e-9babc06cac10",
+    "trip_code": "D2T-136C48",
+    "shipment_id": "3263e5ce-56e9-46ab-a233-94f6a4c74fdb",
+    "client_name": null,
+    "origin": null,
+    "destination": null,
+    "truck_id": "64e2b4be-61af-4882-b8be-c5eaa787471b",
+    "driver_id": "3004e822-8b52-4f91-bc4f-88326c477ff7",
+    "status": "DRAFT",
+    "selected_route_id": null,
+    "dispatched_at": null,
+    "started_at": null,
+    "delivered_at": null,
+    "planned_eta": null,
+    "current_eta": null,
+    "delay_minutes": null,
+    "created_at": "2026-09-19T09:53:28.587600+05:30",
+    "stops": [
+     {
+      "id": "5d6be524-7906-40b2-a243-fbb945ef4775",
+      "sequence": 0,
+      "kind": "PICKUP",
+      "status": "PENDING",
+      "name": "Guwahati Depot",
+      "address": null,
+      "planned_arrival_at": null,
+      "actual_arrival_at": null,
+      "actual_departure_at": null
+     },
+     {
+      "id": "7216d214-46ca-4294-82df-2e9a63db02e2",
+      "sequence": 1,
+      "kind": "DROPOFF",
+      "status": "PENDING",
+      "name": "Shillong Depot",
+      "address": null,
+      "planned_arrival_at": null,
+      "actual_arrival_at": null,
+      "actual_departure_at": null
+     }
+    ],
+    "shipment": {
+     "id": "3263e5ce-56e9-46ab-a233-94f6a4c74fdb",
+     "reference_code": "DAY2-136C48",
+     "client_name": "Day 2 Evidence Client",
+     "total_weight_kg": "1200.00",
+     "priority": "NORMAL"
+    },
+    "pending_instruction": null
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "trip list (server filters)",
+   "method": "GET",
+   "path": "/api/trips?search=D2T-136C48&limit=5",
+   "purpose": "READ list with search + total",
+   "auth": "manager trip:read",
+   "request": null,
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 3,
+   "response": {
+    "items": 1,
+    "total": 1,
+    "keys": [
+     "items",
+     "next_cursor",
+     "total"
+    ]
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "trip dispatch without route (422)",
+   "method": "POST",
+   "path": "/api/trips/f01df784-92b3-4aa9-b39e-9babc06cac10/dispatch",
+   "purpose": "Route-selection gate: no dispatch without a selected route",
+   "auth": "manager trip:dispatch",
+   "request": null,
+   "expected": 422,
+   "actual": 422,
+   "error_code": "ROUTE_SELECTION_REQUIRED",
+   "ms": 5,
+   "response": {
+    "error": {
+     "code": "ROUTE_SELECTION_REQUIRED",
+     "message": "Select a route in the trip review before dispatching. A draft is not dispatchable without one.",
+     "details": {},
+     "request_id": "6cc323ca-1462-4ec2-ab91-1e33f6a92564"
+    }
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "routes list (none yet)",
+   "method": "GET",
+   "path": "/api/trips/f01df784-92b3-4aa9-b39e-9babc06cac10/routes",
+   "purpose": "READ trip_routes",
+   "auth": "manager route:read",
+   "request": null,
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 3,
+   "response": {
+    "count": 0
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "trip cancel (state transition)",
+   "method": "POST",
+   "path": "/api/trips/f01df784-92b3-4aa9-b39e-9babc06cac10/cancel",
+   "purpose": "DRAFT -> CANCELLED, audited",
+   "auth": "manager trip:cancel",
+   "request": {
+    "reason": "Day 2 API evidence run - cancelling test trip"
+   },
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 24,
+   "response": {
+    "id": "f01df784-92b3-4aa9-b39e-9babc06cac10",
+    "trip_code": "D2T-136C48",
+    "shipment_id": "3263e5ce-56e9-46ab-a233-94f6a4c74fdb",
+    "client_name": null,
+    "origin": null,
+    "destination": null,
+    "truck_id": "64e2b4be-61af-4882-b8be-c5eaa787471b",
+    "driver_id": "3004e822-8b52-4f91-bc4f-88326c477ff7",
+    "status": "CANCELLED",
+    "selected_route_id": null,
+    "dispatched_at": null,
+    "started_at": null,
+    "delivered_at": null,
+    "planned_eta": null,
+    "current_eta": null,
+    "delay_minutes": null,
+    "created_at": "2026-09-19T09:53:28.587600+05:30"
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "trip cancel again (409)",
+   "method": "POST",
+   "path": "/api/trips/f01df784-92b3-4aa9-b39e-9babc06cac10/cancel",
+   "purpose": "Invalid transition -> 409",
+   "auth": "manager",
+   "request": {
+    "reason": "Day 2 API evidence run - second cancel"
+   },
+   "expected": 409,
+   "actual": 409,
+   "error_code": "ILLEGAL_TRIP_TRANSITION",
+   "ms": 26,
+   "response": {
+    "error": {
+     "code": "ILLEGAL_TRIP_TRANSITION",
+     "message": "Illegal trip transition CANCELLED -> CANCELLED. Allowed from CANCELLED: none (terminal state)",
+     "details": {
+      "current": "CANCELLED",
+      "requested": "CANCELLED"
+     },
+     "request_id": "b65b791b-c66b-4da2-bb6e-67397c86102f"
+    }
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "trip events (journey history)",
+   "method": "GET",
+   "path": "/api/trips/f01df784-92b3-4aa9-b39e-9babc06cac10/events?limit=20",
+   "purpose": "READ trip_events",
+   "auth": "manager trip:read",
+   "request": null,
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 15,
+   "response": {
+    "items": 2,
+    "sample": [
+     {
+      "id": 6127,
+      "kind": "CREATED",
+      "description": "trip D2T-136C48 created for shipment DAY2-136C48",
+      "occurred_at": "2026-09-19T09:53:28.595936+05:30",
+      "actor_name": "Demo Manager",
+      "instruction": null,
+      "reason": null,
+      "acknowledged": false
+     },
+     {
+      "id": 6128,
+      "kind": "CANCELLED",
+      "description": "Day 2 API evidence run - cancelling test trip",
+      "occurred_at": "2026-09-19T09:53:28.641600+05:30",
+      "actor_name": "Demo Manager",
+      "instruction": null,
+      "reason": "Day 2 API evidence run - cancelling test trip",
+      "acknowledged": false
+     }
+    ]
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "driver login (phone)",
+   "method": "POST",
+   "path": "/api/auth/login",
+   "purpose": "Driver sign-in",
+   "auth": "none",
+   "request": {
+    "identifier": "9789791808",
+    "password": "<redacted>",
+    "client": "mobile"
+   },
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 72,
+   "response": {
+    "access_token": "<redacted>",
+    "refresh_token": "<redacted>",
+    "token_type": "bearer",
+    "expires_at": "2026-09-19T04:38:28.754355Z",
+    "user": {
+     "id": "8728ab47-50ab-4f86-8e32-84bdc4367cd6",
+     "role": "DRIVER",
+     "display_name": "Day2 Test Driver 136C48",
+     "email": null,
+     "phone": "9789791808"
+    }
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "driver /me",
+   "method": "GET",
+   "path": "/api/driver/me",
+   "purpose": "READ own profile",
+   "auth": "driver",
+   "request": null,
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 20,
+   "response": {
+    "id": "3004e822-8b52-4f91-bc4f-88326c477ff7",
+    "full_name": "Day2 Test Driver 136C48",
+    "phone": "9789791808",
+    "licence_number": "AS01D2136C48",
+    "licence_expiry": "2028-08-19",
+    "status": "AVAILABLE"
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "driver /me/assignment",
+   "method": "GET",
+   "path": "/api/driver/me/assignment",
+   "purpose": "READ own assignment",
+   "auth": "driver",
+   "request": null,
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 15,
+   "response": {
+    "id": "70d1abe4-65bc-4e08-b34e-c0608f557ba2",
+    "status": "ACTIVE",
+    "assigned_at": "2026-09-19T09:53:28.516707+05:30",
+    "verified_at": "2026-09-19T09:53:28.554961+05:30",
+    "mismatch_flagged": false,
+    "verification_photo_url": null,
+    "verification_source": "MANAGER_MANUAL",
+    "truck": {
+     "id": "64e2b4be-61af-4882-b8be-c5eaa787471b",
+     "registration_number": "AS01D7808",
+     "truck_type": "Container",
+     "make": "Tata",
+     "model": "LPT 1109 EX",
+     "max_capacity_kg": "9000.00",
+     "status": "AVAILABLE"
+    }
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "driver /me/trip (none active)",
+   "method": "GET",
+   "path": "/api/driver/me/trip",
+   "purpose": "READ own trip",
+   "auth": "driver",
+   "request": null,
+   "expected": [
+    200,
+    404
+   ],
+   "actual": 200,
+   "error_code": null,
+   "ms": 14,
+   "response": null,
+   "result": "PASS"
+  },
+  {
+   "name": "driver lists drivers -> scoped to self only",
+   "method": "GET",
+   "path": "/api/drivers",
+   "purpose": "driver:read is object-scoped: a driver sees one row (own)",
+   "auth": "driver driver:read",
+   "request": null,
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 15,
+   "response": {
+    "items": 1,
+    "only_self": true
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "driver forbidden: create driver (403)",
+   "method": "POST",
+   "path": "/api/drivers",
+   "purpose": "Wrong role -> 403",
+   "auth": "driver",
+   "request": {
+    "full_name": "Day2 Test Driver 136C48",
+    "initial_password": "<redacted>",
+    "phone": "9789791808",
+    "licence_number": "AS01D2136C48",
+    "licence_expiry": "2028-08-19",
+    "licence_class": "HMV"
+   },
+   "expected": 403,
+   "actual": 403,
+   "error_code": "FORBIDDEN",
+   "ms": 13,
+   "response": {
+    "error": {
+     "code": "FORBIDDEN",
+     "message": "You do not have permission to perform this action.",
+     "details": {
+      "required_permission": "driver:create"
+     },
+     "request_id": "ac6dd1e8-d179-4496-8711-36330189b221"
+    }
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "driver forbidden: read another driver (404, no existence leak)",
+   "method": "GET",
+   "path": "/api/drivers/a6f6861f-4f0a-471f-aa9d-6836209ae04e",
+   "purpose": "Other driver hidden",
+   "auth": "driver",
+   "request": null,
+   "expected": [
+    403,
+    404
+   ],
+   "actual": 404,
+   "error_code": "NOT_FOUND",
+   "ms": 16,
+   "response": {
+    "error": {
+     "code": "NOT_FOUND",
+     "message": "Driver not found.",
+     "details": {},
+     "request_id": "40f131a2-dbac-4a12-9927-d61c912633d3"
+    }
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "driver forbidden: fleet/active (403)",
+   "method": "GET",
+   "path": "/api/fleet/active",
+   "purpose": "Location read needs fleet:location_read",
+   "auth": "driver",
+   "request": null,
+   "expected": 403,
+   "actual": 403,
+   "error_code": "FORBIDDEN",
+   "ms": 14,
+   "response": {
+    "error": {
+     "code": "FORBIDDEN",
+     "message": "You do not have permission to perform this action.",
+     "details": {
+      "required_permission": "fleet:location_read"
+     },
+     "request_id": "0d06eb0c-d873-497f-a686-fc4757ef86cf"
+    }
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "driver GPS - malformed fix (422)",
+   "method": "POST",
+   "path": "/api/driver/me/location",
+   "purpose": "Server decides trip/driver/truck; fix must carry location{lat,lon}+recorded_at",
+   "auth": "driver location:submit_own",
+   "request": {
+    "fixes": [
+     {
+      "device_fix_id": "c5693da1a095401c9f6c562d08ba19a8",
+      "lat": 26.14,
+      "lon": 91.73
+     }
+    ]
+   },
+   "expected": 422,
+   "actual": 422,
+   "error_code": "VALIDATION_ERROR",
+   "ms": 16,
+   "response": {
+    "error": {
+     "code": "VALIDATION_ERROR",
+     "message": "Request failed validation.",
+     "details": {
+      "errors": [
+       {
+        "loc": [
+         "body",
+         "fixes",
+         0,
+         "..."
+        ],
+        "msg": "Field required",
+        "type": "missing"
+       },
+       {
+        "loc": [
+         "body",
+         "fixes",
+         0,
+         "..."
+        ],
+        "msg": "Field required",
+        "type": "missing"
+       },
+       {
+        "loc": [
+         "body",
+         "fixes",
+         0,
+         "..."
+        ],
+        "msg": "Extra inputs are not permitted",
+        "type": "extra_forbidden"
+       },
+       "..."
+      ]
+     },
+     "request_id": "5c02bbd9-ec95-4866-904d-ac34ac8a8107"
+    }
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "driver GPS without active trip (404)",
+   "method": "POST",
+   "path": "/api/driver/me/location",
+   "purpose": "Telemetry refused when the driver has no trip to report for",
+   "auth": "driver location:submit_own",
+   "request": {
+    "fixes": [
+     {
+      "device_fix_id": "6264b4b1-d5d7-4b63-b640-b7167e083fcb",
+      "location": {
+       "lat": 26.14,
+       "lon": 91.73
+      },
+      "recorded_at": "2026-09-19T06:00:00Z",
+      "speed_kmph": 0
+     }
+    ]
+   },
+   "expected": [
+    404,
+    409
+   ],
+   "actual": 404,
+   "error_code": "NOT_FOUND",
+   "ms": 16,
+   "response": {
+    "error": {
+     "code": "NOT_FOUND",
+     "message": "You have no trip to send location for.",
+     "details": {},
+     "request_id": "6234b123-f38c-4f71-83d2-97fb05231304"
+    }
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "driver refresh (mobile)",
+   "method": "POST",
+   "path": "/api/auth/refresh",
+   "purpose": "Rotate tokens",
+   "auth": "refresh token",
+   "request": {
+    "refresh_token": "<redacted>",
+    "client": "mobile"
+   },
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 18,
+   "response": {
+    "access_token": "<redacted>",
+    "refresh_token": "<redacted>",
+    "token_type": "bearer",
+    "expires_at": "2026-09-19T04:38:28.917616Z",
+    "user": {
+     "id": "8728ab47-50ab-4f86-8e32-84bdc4367cd6",
+     "role": "DRIVER",
+     "display_name": "Day2 Test Driver 136C48",
+     "email": null,
+     "phone": "9789791808"
+    }
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "driver refresh reuse (401)",
+   "method": "POST",
+   "path": "/api/auth/refresh",
+   "purpose": "Reused refresh token revoked (family)",
+   "auth": "stale refresh",
+   "request": {
+    "refresh_token": "<redacted>",
+    "client": "mobile"
+   },
+   "expected": 401,
+   "actual": 401,
+   "error_code": "UNAUTHENTICATED",
+   "ms": 30,
+   "response": {
+    "error": {
+     "code": "UNAUTHENTICATED",
+     "message": "Invalid refresh token.",
+     "details": {},
+     "request_id": "7fa60411-fde3-4098-88fb-3c8d194099fd"
+    }
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "fleet/active",
+   "method": "GET",
+   "path": "/api/fleet/active",
+   "purpose": "Trips on the road (PostGIS last fix)",
+   "auth": "manager fleet:location_read",
+   "request": null,
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 28,
+   "response": {
+    "items": 4
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "emergencies/active",
+   "method": "GET",
+   "path": "/api/emergencies/active",
+   "purpose": "Open emergencies",
+   "auth": "manager emergency:read",
+   "request": null,
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 14,
+   "response": {
+    "items": 0
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "system/providers",
+   "method": "GET",
+   "path": "/api/system/providers",
+   "purpose": "Provider health + intelligence inventory",
+   "auth": "JWT",
+   "request": null,
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 13,
+   "response": {
+    "keys": [
+     "intelligence",
+     "providers"
+    ]
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "assignment end",
+   "method": "POST",
+   "path": "/api/assignments/70d1abe4-65bc-4e08-b34e-c0608f557ba2/end",
+   "purpose": "State transition: ACTIVE -> ENDED",
+   "auth": "manager assignment:end",
+   "request": {
+    "reason": "Day 2 evidence teardown"
+   },
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 18,
+   "response": {
+    "id": "70d1abe4-65bc-4e08-b34e-c0608f557ba2",
+    "driver_id": "3004e822-8b52-4f91-bc4f-88326c477ff7",
+    "truck_id": "64e2b4be-61af-4882-b8be-c5eaa787471b",
+    "status": "ENDED",
+    "assigned_at": "2026-09-19T09:53:28.516707+05:30",
+    "verified_at": "2026-09-19T09:53:28.554961+05:30",
+    "mismatch_flagged": false,
+    "ended_at": "2026-09-19T09:53:29.024349+05:30",
+    "verification_source": "MANAGER_MANUAL",
+    "verification_photo_url": null,
+    "reported_registration": "AS01D7808"
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "truck retire (soft delete)",
+   "method": "POST",
+   "path": "/api/trucks/64e2b4be-61af-4882-b8be-c5eaa787471b/retire",
+   "purpose": "DELETE = retire (deleted_at set, history kept)",
+   "auth": "manager truck:retire",
+   "request": {
+    "reason": "Day 2 evidence teardown"
+   },
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 29,
+   "response": {
+    "id": "64e2b4be-61af-4882-b8be-c5eaa787471b",
+    "registration_number": "AS01D7808",
+    "photo_url": null,
+    "truck_type": "Container",
+    "make": "Tata",
+    "model": "LPT 1109 EX",
+    "max_capacity_kg": "9000.00",
+    "current_load_kg": "0.00",
+    "status": "RETIRED",
+    "baseline_mileage_kmpl": null,
+    "created_at": "2026-09-19T09:53:28.420721+05:30"
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "driver deactivate (soft delete)",
+   "method": "POST",
+   "path": "/api/drivers/3004e822-8b52-4f91-bc4f-88326c477ff7/deactivate",
+   "purpose": "DELETE = deactivate (login disabled, rows kept)",
+   "auth": "manager driver:deactivate",
+   "request": {
+    "reason": "Day 2 evidence teardown"
+   },
+   "expected": 200,
+   "actual": 200,
+   "error_code": null,
+   "ms": 34,
+   "response": {
+    "id": "3004e822-8b52-4f91-bc4f-88326c477ff7",
+    "user_id": "8728ab47-50ab-4f86-8e32-84bdc4367cd6",
+    "full_name": "Day2 Test Driver 136C48",
+    "phone": "9789791808",
+    "photo_url": null,
+    "licence_number": "AS01D2136C48",
+    "licence_expiry": "2028-08-19",
+    "status": "SUSPENDED",
+    "login_is_active": false,
+    "created_at": "2026-09-19T09:53:28.250423+05:30"
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "driver token after deactivation (401)",
+   "method": "GET",
+   "path": "/api/driver/me",
+   "purpose": "Deactivated login refused",
+   "auth": "driver",
+   "request": null,
+   "expected": [
+    401,
+    403
+   ],
+   "actual": 401,
+   "error_code": "UNAUTHENTICATED",
+   "ms": 1,
+   "response": {
+    "error": {
+     "code": "UNAUTHENTICATED",
+     "message": "Account is disabled.",
+     "details": {},
+     "request_id": "7c6e8df2-b7e6-4e32-8248-fa9a75bb8d0d"
+    }
+   },
+   "result": "PASS"
+  },
+  {
+   "name": "manager logout",
+   "method": "POST",
+   "path": "/api/auth/logout",
+   "purpose": "Revoke session",
+   "auth": "JWT",
+   "request": {
+    "refresh_token": "<redacted>"
+   },
+   "expected": 204,
+   "actual": 204,
+   "error_code": null,
+   "ms": 22,
+   "response": null,
+   "result": "PASS"
+  }
+ ]
+}

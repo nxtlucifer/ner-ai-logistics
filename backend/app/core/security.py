@@ -10,6 +10,7 @@ TokenVerifier interface in app/auth/verifier.py so a Supabase Auth JWKS verifier
 can replace the local one without touching call sites.
 """
 
+import asyncio
 import hashlib
 import secrets
 import uuid
@@ -34,6 +35,12 @@ JWT_ALGORITHM: Final[str] = "HS256"
 
 ACCESS_TOKEN_TYPE: Final[str] = "access"
 
+#: Argon2 is ~45 ms of CPU and 64 MiB per call. Run inline it froze every
+#: other request on the worker for each login; so it runs in a thread, two at
+#: a time, which also caps hashing memory at ~128 MiB under a login burst.
+#: Callers hand their pooled DB connection back BEFORE awaiting a slot.
+_argon2_slots = asyncio.Semaphore(2)
+
 
 def hash_password(password: str) -> str:
     return _hasher.hash(password)
@@ -50,6 +57,16 @@ def verify_password(password: str, password_hash: str) -> bool:
         return True
     except (VerifyMismatchError, InvalidHashError, Exception):
         return False
+
+
+async def hash_password_async(password: str) -> str:
+    async with _argon2_slots:
+        return await asyncio.to_thread(hash_password, password)
+
+
+async def verify_password_async(password: str, password_hash: str) -> bool:
+    async with _argon2_slots:
+        return await asyncio.to_thread(verify_password, password, password_hash)
 
 
 def needs_rehash(password_hash: str) -> bool:

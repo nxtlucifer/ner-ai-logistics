@@ -272,6 +272,10 @@ def _load() -> tuple[list[Place], PlaceSource, BoundingBox, dict]:
             min_lon=box["west"],
             max_lat=box["north"],
             max_lon=box["east"],
+            # Coverage, not a query. The eight states span ~7.6 x 9.6
+            # degrees, which the query cap would reject. See
+            # BoundingBox.is_extent.
+            is_extent=True,
         ),
         counts,
     )

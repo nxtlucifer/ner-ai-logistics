@@ -20,11 +20,14 @@ export interface Connectivity {
 }
 
 const PROBE_MS = 5_000
+/** A probe the backend accepts and never answers must not stop the probing. */
+const PROBE_TIMEOUT_MS = 10_000
 
 let state: Connectivity = { online: true, lastOkAt: null }
 const listeners = new Set<() => void>()
 let probe: ReturnType<typeof setInterval> | undefined
 let probeUrl = ''
+let probing = false
 
 function emit(next: Connectivity) {
   state = next
@@ -44,11 +47,17 @@ export function markOffline(healthUrl: string) {
   if (state.online) emit({ ...state, online: false })
   if (!probe && typeof setInterval === 'function') {
     probe = setInterval(() => {
-      fetch(probeUrl, { cache: 'no-store' })
+      // One probe at a time: a slow answer must not stack a request per tick.
+      if (probing) return
+      probing = true
+      fetch(probeUrl, { cache: 'no-store', signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
         .then((r) => {
           if (r.ok) markOnline()
         })
         .catch(() => {})
+        .finally(() => {
+          probing = false
+        })
     }, PROBE_MS)
   }
 }

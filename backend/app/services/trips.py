@@ -27,29 +27,36 @@ from geoalchemy2 import Geometry, WKTElement
 from sqlalchemy import cast, func, or_, select
 from sqlalchemy import update as sa_update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.errors import BusinessRuleError, ConflictError, NotFoundError
 from app.domain.trip_state import IllegalTripTransition, assert_transition
 from app.models.enums import (
     AssignmentStatus,
     AuditAction,
     DriverStatus,
+    NotificationKind,
+    RouteKind,
     RouteState,
     TripEventKind,
     TripStatus,
     TripStopKind,
     TripStopStatus,
+    TruckDocumentType,
     TruckStatus,
+    UserRole,
 )
-from app.models.fleet import DriverTruckAssignment, Truck
+from app.models.fleet import DriverTruckAssignment, Truck, TruckDocument
 from app.models.identity import Driver, User
 from app.models.operations import Shipment, Trip, TripEvent, TripRoute, TripStop
 from app.domain.routing import Coordinate as RouteCoordinate
 from app.domain.routing import parse_wkt_point
 from app.schemas.common import Coordinate
-from app.schemas.domain import ShipmentCreate, TripCreate, TripPlanTrip, in_service_region
-from app.services import audit, notify, shipments
+from app.schemas.domain import ShipmentCreate, TripCreate, TripPlanTrip
+from app.core import scope
+from app.services import audit, geo_classify, notifications, notify, shipments
 from app.services.pagination import (
     build_page,
     clamp_limit,
@@ -153,7 +160,27 @@ def transition(trip: Trip, target: TripStatus) -> None:
     trip.status = target
 
 
-async def load_for_update(db: AsyncSession, trip_id: uuid.UUID) -> Trip:
+async def _assert_in_scope(db: AsyncSession, trip: Trip, actor: User | None) -> None:
+    """A STATE/DISTRICT manager may only reach trips their scope covers.
+
+    The same predicate the list uses (`scope.trip_scope_clause`), evaluated
+    for this one row, so the list and the single read cannot disagree - which
+    is the IDOR shape the scope tests exist to catch. Out of scope is 404, not
+    403, so the id space is not an oracle. Every other role is untouched.
+    """
+    if actor is None or not scope.is_scoped(actor):
+        return
+    clause = scope.trip_scope_clause(actor)
+    visible = (
+        await db.execute(select(Trip.id).where(Trip.id == trip.id, clause))
+    ).scalar_one_or_none()
+    if visible is None:
+        raise NotFoundError("Trip not found.")
+
+
+async def load_for_update(
+    db: AsyncSession, trip_id: uuid.UUID, *, actor: User | None = None
+) -> Trip:
     """Load a trip with a row lock.
 
     Every mutating path takes this. Without it, two requests both read the same
@@ -182,18 +209,22 @@ async def load_for_update(db: AsyncSession, trip_id: uuid.UUID) -> Trip:
     ).scalar_one_or_none()
     if trip is None:
         raise NotFoundError("Trip not found.")
+    await _assert_in_scope(db, trip, actor)
     return trip
 
 
 # --- Reads ----------------------------------------------------------------
 
 
-async def get(db: AsyncSession, trip_id: uuid.UUID) -> Trip:
+async def get(
+    db: AsyncSession, trip_id: uuid.UUID, *, actor: User | None = None
+) -> Trip:
     trip = (
         await db.execute(select(Trip).where(Trip.id == trip_id))
     ).scalar_one_or_none()
     if trip is None:
         raise NotFoundError("Trip not found.")
+    await _assert_in_scope(db, trip, actor)
     return trip
 
 
@@ -217,8 +248,10 @@ async def stops_for(db: AsyncSession, trip_id: uuid.UUID) -> list[TripStop]:
 
 
 #: Trips nobody is working any more. The console shows these as history:
-#: read-only rows, no dispatch or cancel control.
-HISTORY_STATUSES = (TripStatus.DELIVERED, TripStatus.CLOSED, TripStatus.CANCELLED)
+#: read-only rows, no dispatch or cancel control. DELIVERED is NOT here: it
+#: still holds its driver and truck until a manager closes it (see
+#: RESOURCE_BLOCKING_STATUSES), so it is open work with a Close button.
+HISTORY_STATUSES = (TripStatus.CLOSED, TripStatus.CANCELLED)
 
 #: A trip in one of these states OWNS its driver and truck: planning them into
 #: a second trip would promise the same person and the same vehicle to two
@@ -227,10 +260,20 @@ HISTORY_STATUSES = (TripStatus.DELIVERED, TripStatus.CLOSED, TripStatus.CANCELLE
 #: Derived from the lifecycle, not guessed. DRAFT is included because a draft
 #: is a commitment a dispatcher has already made on paper - it is the state the
 #: console shows as "ready to dispatch", and the screenshot that prompted this
-#: had one pair sitting on several drafts at once. DELIVERED is included
-#: because `release_resources` runs on CLOSE, not on delivery: until someone
-#: closes the job the truck is still standing at the consignee. CLOSED and
-#: CANCELLED release, which is exactly where `release_resources` is called.
+#: had one pair sitting on several drafts at once.
+#:
+#: DELIVERED IS INCLUDED, AND THE COMMENT THAT USED TO EXPLAIN WHY WAS LYING.
+#:
+#: It said "`release_resources` runs on CLOSE, not on delivery". That is the
+#: right rule - the truck is still standing at the consignee until someone
+#: settles the job - and it is what `test_resource_reservation` asserts. But
+#: it was not what the code did. `complete_delivery` called
+#: `release_resources` at DELIVERED and `close()` called it nowhere, so the
+#: driver and truck flipped to AVAILABLE the moment the driver finished while
+#: this list went on holding them. Every screen said free; the planner said
+#: taken. A dispatcher met a conflict nothing on screen could explain.
+#:
+#: The release now happens where the rule always said it did: in `close()`.
 RESOURCE_BLOCKING_STATUSES = (
     TripStatus.DRAFT,
     TripStatus.ASSIGNED,
@@ -304,7 +347,9 @@ async def _assert_resources_free(
         )
 
 
-def _trip_filters(stmt, *, status, driver_id, truck_id, search, open_only):
+def _trip_filters(stmt, *, status, driver_id, truck_id, search, open_only, actor=None):
+    if actor is not None and scope.is_scoped(actor):
+        stmt = stmt.where(scope.trip_scope_clause(actor))
     """Every filter in one place, so the page query and the count query can
     never disagree about what the page is a page OF."""
     if status is not None:
@@ -345,6 +390,7 @@ async def list_trips(
     search: str | None = None,
     open_only: bool | None = None,
     with_total: bool = False,
+    actor: User | None = None,
 ):
     """A filtered page of trips, newest first.
 
@@ -364,7 +410,7 @@ async def list_trips(
         select(Trip, Shipment.client_name, Shipment.pickup_address, Shipment.destination_address)
         .outerjoin(Shipment, Shipment.id == Trip.shipment_id),
         status=status, driver_id=driver_id, truck_id=truck_id,
-        search=search, open_only=open_only,
+        search=search, open_only=open_only, actor=actor,
     )
     if cursor:
         stmt = stmt.where(
@@ -386,7 +432,7 @@ async def list_trips(
         await db.execute(
             _trip_filters(
                 select(func.count(Trip.id)), status=status, driver_id=driver_id,
-                truck_id=truck_id, search=search, open_only=open_only,
+                truck_id=truck_id, search=search, open_only=open_only, actor=actor,
             )
         )
     ).scalar_one()
@@ -400,12 +446,14 @@ async def events_for(
 
     Read-only, and it invents nothing: every row was written by the operation
     it describes. The join is to `users` so a screen can say "by Demo Manager"
-    without a second round trip per row.
+    without a second round trip per row. A driver is named from the driver
+    record, as every other screen names them, not from their login.
     """
     rows = (
         await db.execute(
-            select(TripEvent, User.display_name)
+            select(TripEvent, func.coalesce(Driver.full_name, User.display_name))
             .outerjoin(User, User.id == TripEvent.actor_user_id)
+            .outerjoin(Driver, Driver.user_id == User.id)
             .where(TripEvent.trip_id == trip_id)
             .order_by(TripEvent.occurred_at.asc(), TripEvent.id.asc())
             .limit(limit)
@@ -787,6 +835,60 @@ async def _assert_dispatchable_route(db: AsyncSession, trip: Trip) -> None:
         )
 
 
+async def _assert_compliant(db: AsyncSession, driver: Driver) -> None:
+    """Refuse a NEW dispatch to a driver whose onboarding window has closed.
+
+    Placed on the dispatch path only. A trip already under way is never
+    touched: a truck on a hill road is not made safer by having its job
+    cancelled at the roadside, and an expiry that strands people is an
+    expiry somebody switches off.
+
+    Insurance is the TRUCK's, read from the driver's current assignment -
+    a driver without a truck has no insurance to be missing, and dispatch
+    already refuses that case for its own reasons.
+    """
+    from app.domain import driver_compliance
+
+    has_insurance = (
+        await db.execute(
+            select(TruckDocument.id)
+            .join(DriverTruckAssignment, DriverTruckAssignment.truck_id == TruckDocument.truck_id)
+            .where(
+                DriverTruckAssignment.driver_id == driver.id,
+                DriverTruckAssignment.status == AssignmentStatus.ACTIVE,
+                TruckDocument.doc_type == TruckDocumentType.INSURANCE,
+                or_(
+                    TruckDocument.expires_on.is_(None),
+                    TruckDocument.expires_on >= date.today(),
+                ),
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none() is not None
+
+    verdict = driver_compliance.assess(
+        licence_expiry=driver.licence_expiry,
+        emergency_contact_name=driver.emergency_contact_name,
+        emergency_contact_phone=driver.emergency_contact_phone,
+        has_insurance=has_insurance,
+        joined_on=driver.date_of_joining,
+        grace_days=get_settings().DRIVER_COMPLIANCE_GRACE_DAYS,
+    )
+    if verdict.dispatchable:
+        return
+    raise BusinessRuleError(
+        f"{driver.full_name} is missing "
+        + " and ".join(m.replace("_", " ") for m in verdict.missing)
+        + f". The onboarding window closed on {verdict.due_on}.",
+        code="DRIVER_COMPLIANCE_OVERDUE",
+        details={
+            "missing": list(verdict.missing),
+            "due_on": verdict.due_on.isoformat() if verdict.due_on else None,
+            "state": verdict.state.value,
+        },
+    )
+
+
 async def dispatch(
     db: AsyncSession, trip_id: uuid.UUID, *, actor: User, ip: str | None = None
 ) -> Trip:
@@ -823,7 +925,7 @@ async def dispatch(
     # Locks the users row (FOR UPDATE OF users) and refuses an inactive login.
     driver = await _load_driver(db, driver_id)
 
-    trip = await load_for_update(db, trip_id)
+    trip = await load_for_update(db, trip_id, actor=actor)
     before = audit.snapshot(trip, AUDITED_FIELDS)
     truck = await _load_truck(db, trip.truck_id)
     shipment = await shipments.get(db, trip.shipment_id)
@@ -843,6 +945,7 @@ async def dispatch(
         )
 
     await _assert_dispatchable_route(db, trip)
+    await _assert_compliant(db, driver)
 
     transition(trip, TripStatus.ASSIGNED)
     trip.assignment_id = assignment.id
@@ -867,6 +970,14 @@ async def dispatch(
         reason="dispatched",
         ip_address=ip,
     )
+
+    # The two district managers either end of the corridor, and the state
+    # managers when it crosses a border. INSIDE the transaction, deliberately:
+    # a dispatch that rolls back must not leave four people believing a truck
+    # left. This is the opposite trade from the push below, and for the
+    # opposite reason - a row is the notification, a push is only a nudge.
+    await _notify_dispatch(db, trip, shipment, driver=driver, truck=truck)
+
     await db.commit()
     # After the commit: a trip that is assigned is assigned whether or not the
     # phone hears about it now; the push must never roll a dispatch back.
@@ -878,6 +989,103 @@ async def dispatch(
     await db.commit()
     await db.refresh(trip)
     return trip
+
+
+async def _notify_dispatch(
+    db: AsyncSession, trip: Trip, shipment: Shipment, *, driver: Driver, truck: Truck
+) -> None:
+    """Tell each district what it needs to hear, which is not the same thing.
+
+    The origin's manager is told a truck LEFT. The destination's is told one
+    is COMING - which is the fact that changes what they do today, and the
+    reason this is not one broadcast with one wording.
+    """
+    people = await notifications.recipients_for_trip(db, trip)
+    if not people:
+        return
+    common = {
+        "trip_code": trip.trip_code,
+        "driver_name": driver.full_name,
+        "truck": truck.registration_number,
+        "origin": shipment.pickup_address,
+        "destination": shipment.destination_address,
+    }
+    incoming = [
+        u
+        for u in people
+        if u.role is UserRole.DISTRICT_MANAGER
+        and u.district_id == shipment.destination_district_id
+    ]
+    others = [u for u in people if u not in incoming]
+    await notifications.notify(
+        db,
+        recipients=incoming,
+        kind=NotificationKind.INCOMING_TRIP,
+        dedupe_key=f"dispatch:{trip.id}",
+        trip_id=trip.id,
+        payload=common,
+    )
+    await notifications.notify(
+        db,
+        recipients=others,
+        kind=NotificationKind.TRIP_DISPATCHED,
+        dedupe_key=f"dispatch:{trip.id}",
+        trip_id=trip.id,
+        payload=common,
+    )
+
+
+async def announce_delay(
+    db: AsyncSession, trip: Trip, *, reason: str, actor_name: str | None = None
+) -> None:
+    """Tell the districts either end that this load is not coming when it was.
+
+    WHY IT IS ITS OWN FUNCTION
+
+    There is one place a trip becomes DELAYED today. There will be more -
+    a delay detector, a driver report - and each of them would otherwise
+    invent its own wording and its own recipient list. One function, called
+    from wherever the transition happens.
+
+    ETA HONESTY
+
+    `planned_eta` is sent when it exists, because "was due at 14:00" is the
+    fact a receiving district plans around. `current_eta` is sent ONLY when
+    the system actually holds one: a delay notice carrying a made-up new
+    arrival is worse than one that admits it does not know yet, because the
+    consignee will staff the dock for it.
+
+    DEDUPED PER DAY
+
+    A hold that is applied, lifted and applied again is news twice. A
+    provider refresh that re-reports the same hold within the same day is
+    not, and the dedupe key says so.
+    """
+    people = await notifications.recipients_for_trip(db, trip)
+    if not people:
+        return
+    driver = await db.get(Driver, trip.driver_id)
+    truck = await db.get(Truck, trip.truck_id)
+    now = datetime.now(UTC)
+    await notifications.notify(
+        db,
+        recipients=people,
+        kind=NotificationKind.TRIP_DELAYED,
+        dedupe_key=f"delayed:{trip.id}:{now.date().isoformat()}",
+        trip_id=trip.id,
+        payload={
+            "trip_code": trip.trip_code,
+            "driver_name": driver.full_name if driver else None,
+            "truck": truck.registration_number if truck else None,
+            "reason": reason,
+            "held_by": actor_name,
+            # Absent rather than guessed. A null here reads as "not known";
+            # a fabricated time reads as a promise.
+            "planned_eta": trip.planned_eta.isoformat() if trip.planned_eta else None,
+            "current_eta": trip.current_eta.isoformat() if trip.current_eta else None,
+            "at": now.isoformat(),
+        },
+    )
 
 
 #: What happens to cargo that is already on the truck when a manager stops or
@@ -901,6 +1109,71 @@ async def cargo_loaded(db: AsyncSession, trip_id: uuid.UUID) -> bool:
     stops = await stops_for(db, trip_id)
     pickup = next((s for s in stops if s.kind is TripStopKind.PICKUP), stops[0] if stops else None)
     return pickup is not None and pickup.status is TripStopStatus.COMPLETED
+
+
+async def proposed_reroutes(
+    db: AsyncSession, trip_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, dict]:
+    """trip id -> the road its driver asked for that no manager has taken yet.
+
+    `POST /api/driver/me/trip/reroute` stores a PROPOSED EMERGENCY_BACKUP and
+    tells nobody; this is how the manager learns of it. No column records who
+    planned a route (that would be a migration), so it is read from what exists:
+    a PROPOSED EMERGENCY_BACKUP on a trip under way, planned after the route the
+    trip is on, whose CREATE audit row was written by the trip's own driver (a
+    manager's re-plan can store a backup too - that is not the driver asking)
+    and which was never selected (a road taken and later left is demoted back
+    to PROPOSED - a decision already made, not a pending ask).
+
+    One statement for any number of trips; both EXISTS use ix_audit_logs_entity.
+    Newest per trip wins, though `routes.plan` leaves at most one anyway.
+    """
+    from app.models.audit import AuditLog
+    from app.services.driver_trips import IN_PROGRESS_STATUSES
+
+    if not trip_ids:
+        return {}
+    current = aliased(TripRoute)
+
+    def audited(action: AuditAction, *extra):
+        return (
+            select(AuditLog.id)
+            .where(
+                AuditLog.entity_type == "trip_routes",
+                AuditLog.entity_id == TripRoute.id,
+                AuditLog.action == action,
+                *extra,
+            )
+            .correlate(TripRoute, Driver)
+            .exists()
+        )
+
+    rows = (
+        await db.execute(
+            select(TripRoute.trip_id, TripRoute.id, TripRoute.created_at, TripRoute.distance_km)
+            .join(Trip, Trip.id == TripRoute.trip_id)
+            .join(current, current.id == Trip.selected_route_id)
+            .join(Driver, Driver.id == Trip.driver_id)
+            .where(
+                TripRoute.trip_id.in_(trip_ids),
+                Trip.status.in_(IN_PROGRESS_STATUSES),
+                TripRoute.state == RouteState.PROPOSED,
+                TripRoute.kind == RouteKind.EMERGENCY_BACKUP,
+                TripRoute.created_at > current.created_at,
+                audited(AuditAction.CREATE, AuditLog.actor_user_id == Driver.user_id),
+                ~audited(AuditAction.STATUS_CHANGE),
+            )
+            .order_by(TripRoute.created_at.desc())
+        )
+    ).all()
+    out: dict[uuid.UUID, dict] = {}
+    for trip_id, route_id, proposed_at, distance_km in rows:
+        out.setdefault(trip_id, {
+            "route_id": route_id,
+            "proposed_at": proposed_at,
+            "distance_km": float(distance_km) if distance_km is not None else None,
+        })
+    return out
 
 
 async def pending_instruction(db: AsyncSession, trip_id: uuid.UUID) -> dict | None:
@@ -952,7 +1225,7 @@ async def _redirect_cargo(
 
     RETURN_TO_DEPOT goes back to the pickup stop's own location - where the
     cargo was loaded is the one place known to accept it. NEW_DESTINATION needs
-    a confirmed, in-region point. Neither touches the current route: the
+    a confirmed point inside India (app/services/geo_classify.py). Neither touches the current route: the
     driver keeps the road they are on until the manager selects a candidate
     for the new destination through the reroute path.
     """
@@ -972,12 +1245,11 @@ async def _redirect_cargo(
                 "NEW_DESTINATION needs a confirmed destination (address and coordinates).",
                 code="LOCATION_CONFIRMATION_REQUIRED",
             )
-        if not in_service_region(destination):
-            raise BusinessRuleError(
-                f"The new destination ({destination.lat:.4f}, {destination.lon:.4f}) is "
-                "outside the North-East service region.",
-                code="OUTSIDE_SERVICE_REGION",
-            )
+        # 422 OUTSIDE_SUPPORTED_COUNTRY, or 503 GEOGRAPHY_UNAVAILABLE with no
+        # India boundary loaded. India-wide: leaving the NER is not refused.
+        await geo_classify.require_point_in_india(
+            db, destination.lat, destination.lon, "destination"
+        )
         name = "New delivery"
     for s in stops:
         if s.kind is TripStopKind.DROPOFF and s.status is TripStopStatus.PENDING:
@@ -1032,7 +1304,7 @@ async def add_stop(
     acknowledged - the same mechanism a destination change uses - so "the cab
     was told" is a record rather than an assumption.
     """
-    trip = await load_for_update(db, trip_id)
+    trip = await load_for_update(db, trip_id, actor=actor)
     before = audit.snapshot(trip, AUDITED_FIELDS)
 
     if trip.status not in (TripStatus.ACTIVE, TripStatus.DELAYED, TripStatus.INCIDENT):
@@ -1064,12 +1336,9 @@ async def add_stop(
             "A new stop needs a confirmed location (address and coordinates).",
             code="LOCATION_CONFIRMATION_REQUIRED",
         )
-    if not in_service_region(destination):
-        raise BusinessRuleError(
-            f"That point ({destination.lat:.4f}, {destination.lon:.4f}) is outside "
-            "the North-East service region.",
-            code="OUTSIDE_SERVICE_REGION",
-        )
+    await geo_classify.require_point_in_india(
+        db, destination.lat, destination.lon, "location"
+    )
 
     stops = await stops_for(db, trip.id)
     if not stops:
@@ -1208,9 +1477,13 @@ async def cancel(
     the instruction in its payload, and the driver is notified through the
     real notification path. Nothing about a loaded truck changes silently.
     """
-    trip = await load_for_update(db, trip_id)
+    trip = await load_for_update(db, trip_id, actor=actor)
     before = audit.snapshot(trip, AUDITED_FIELDS)
     reason_text = (reason or "").strip()
+    # The driver's push, sent only after the commit, as dispatch does: a
+    # cancel that rolls back must not tell the phone it happened, and the
+    # trip lock is not held across a push timeout.
+    push: dict | None = None
     loaded = trip.status in (TripStatus.ACTIVE, TripStatus.DELAYED, TripStatus.INCIDENT) and await cargo_loaded(db, trip.id)
 
     if loaded:
@@ -1247,10 +1520,16 @@ async def cancel(
                 payload={"instruction": disposition, "reason": reason_text, "requires_ack": True},
             )
             await db.flush()
-            await notify.send(
-                db, driver_id=trip.driver_id, event="HOLD_AND_REVIEW", trip_id=trip.id,
+            push = dict(
+                driver_id=trip.driver_id, event="HOLD_AND_REVIEW", trip_id=trip.id,
                 title="Hold - instruction from your manager", body=reason_text,
                 fingerprint=f"hold:{trip.id}:{event.id}", data={"event_id": event.id},
+            )
+            # The districts either end plan around this load. Inside the
+            # transaction, like every other notification: a hold that rolls
+            # back must not leave them believing the truck stopped.
+            await announce_delay(
+                db, trip, reason=reason_text, actor_name=actor.display_name
             )
         elif disposition in ("RETURN_TO_DEPOT", "NEW_DESTINATION"):
             previous_address, new_address = await _redirect_cargo(
@@ -1269,8 +1548,8 @@ async def cancel(
                 },
             )
             await db.flush()
-            await notify.send(
-                db, driver_id=trip.driver_id, event="CRITICAL_ROUTE_CHANGE", trip_id=trip.id,
+            push = dict(
+                driver_id=trip.driver_id, event="CRITICAL_ROUTE_CHANGE", trip_id=trip.id,
                 title="Destination changed by your manager", body=f"{new_address}. {reason_text}",
                 fingerprint=f"redirect:{trip.id}:{event.id}", data={"event_id": event.id},
             )
@@ -1282,8 +1561,8 @@ async def cancel(
                 db, trip, kind=TripEventKind.CANCELLED, description=reason_text,
                 actor_user_id=actor.id, payload={"disposition": disposition, "reason": reason_text},
             )
-            await notify.send(
-                db, driver_id=trip.driver_id, event="TRIP_CANCELLED", trip_id=trip.id,
+            push = dict(
+                driver_id=trip.driver_id, event="TRIP_CANCELLED", trip_id=trip.id,
                 title="Trip cancelled by your manager", body=reason_text,
                 fingerprint=f"cancel:{trip.id}",
             )
@@ -1292,6 +1571,8 @@ async def cancel(
             actor_user_id=actor.id, before=before, after=audit.snapshot(trip, AUDITED_FIELDS),
             reason=f"{disposition}: {reason_text}", ip_address=ip,
         )
+        await db.commit()
+        await notify.send(db, **push)
         await db.commit()
         await db.refresh(trip)
         if disposition in ("RETURN_TO_DEPOT", "NEW_DESTINATION"):
@@ -1328,8 +1609,8 @@ async def cancel(
         payload={"reason": reason_text or None, "before_pickup": True},
     )
     if had_driver:
-        await notify.send(
-            db, driver_id=trip.driver_id, event="TRIP_CANCELLED", trip_id=trip.id,
+        push = dict(
+            driver_id=trip.driver_id, event="TRIP_CANCELLED", trip_id=trip.id,
             title="Trip cancelled by your manager",
             body=reason_text or "No pickup required. You are available for the next assignment.",
             fingerprint=f"cancel:{trip.id}",
@@ -1346,6 +1627,9 @@ async def cancel(
         ip_address=ip,
     )
     await db.commit()
+    if push:
+        await notify.send(db, **push)
+        await db.commit()
     await db.refresh(trip)
     return trip
 
@@ -1354,11 +1638,16 @@ async def close(
     db: AsyncSession, trip_id: uuid.UUID, *, actor: User, ip: str | None = None
 ) -> Trip:
     """DELIVERED -> CLOSED. Settlement is done; the trip is history."""
-    trip = await load_for_update(db, trip_id)
+    trip = await load_for_update(db, trip_id, actor=actor)
     before = audit.snapshot(trip, AUDITED_FIELDS)
 
     transition(trip, TripStatus.CLOSED)
     trip.closed_at = datetime.now(UTC)
+    # THE release point, and the only one on this path. Settlement is what
+    # frees the pair - which is what the lifecycle, the reservation rule and
+    # the console's own "Close to release the truck" have always said, and
+    # what the code did not do until now.
+    await release_resources(db, trip)
 
     await db.flush()
     await record_event(

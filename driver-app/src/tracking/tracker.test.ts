@@ -17,6 +17,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { LocationAdapter, Sample, Subscription } from './adapter'
 import {
+  BACKLOG_BATCH_SIZE,
   BACKOFF_BASE_MS,
   BACKOFF_MAX_MS,
   LocationTracker,
@@ -86,6 +87,8 @@ function makeAdapter(
 interface Harness {
   tracker: LocationTracker
   uploads: GpsFix[][]
+  /** Size of EVERY upload attempt, failed ones included. */
+  attempts: number[]
   setClock: (ms: number) => void
   advance: (ms: number) => void
   failNext: (outcome: UploadOutcome, times?: number) => void
@@ -96,6 +99,7 @@ function makeTracker(
   config: Partial<TrackerConfig> = {},
 ): Harness {
   const uploads: GpsFix[][] = []
+  const attempts: number[] = []
   let clock = 0
   let failures: UploadOutcome[] = []
   let counter = 0
@@ -104,6 +108,7 @@ function makeTracker(
     {
       adapter: device.adapter,
       upload: async (fixes) => {
+        attempts.push(fixes.length)
         const failure = failures.shift()
         if (failure) throw failure
         uploads.push(fixes)
@@ -118,6 +123,7 @@ function makeTracker(
   return {
     tracker,
     uploads,
+    attempts,
     setClock: (ms) => {
       clock = ms
     },
@@ -294,7 +300,69 @@ describe('upload', () => {
     await harness.tracker.flush()
 
     expect(harness.uploads).toHaveLength(1)
-    expect(harness.uploads[0]).toHaveLength(2)
+    // Past batchSize the backlog goes in one request, not two (FE-10).
+    expect(harness.uploads[0]).toHaveLength(4)
+  })
+
+  it('drains a dead-zone backlog in large batches, capped well under the server limit (FE-10)', async () => {
+    const device = makeAdapter()
+    const harness = makeTracker(device, { batchSize: 6, queueLimit: 500 })
+    await harness.tracker.start()
+
+    for (let n = 0; n < 250; n += 1) {
+      device.emit(sample({ timestamp: n * 20_000, lat: GUWAHATI.lat + n * 0.01 }))
+    }
+    await harness.tracker.flush()
+
+    expect(harness.uploads[0]).toHaveLength(BACKLOG_BATCH_SIZE)
+    expect(harness.uploads[0][0].device_fix_id).toBe('fix-1') // oldest first, chronological
+    expect(harness.tracker.getState().queueDepth).toBe(250 - BACKLOG_BATCH_SIZE)
+  })
+
+  it('halves the backlog batch after a timeout, down to batchSize, and doubles it back on success', async () => {
+    const device = makeAdapter()
+    const harness = makeTracker(device, { batchSize: 6, queueLimit: 500 })
+    await harness.tracker.start()
+    for (let n = 0; n < 400; n += 1) {
+      device.emit(sample({ timestamp: n * 20_000, lat: GUWAHATI.lat + n * 0.01 }))
+    }
+    const TIMEOUT: UploadOutcome = { ...RETRYABLE, timedOut: true }
+    harness.failNext(TIMEOUT, 5) // 100 -> 50 -> 25 -> 12 -> 6 -> 6
+    for (let n = 0; n < 5; n += 1) {
+      harness.setClock(harness.tracker.retryAt)
+      await harness.tracker.flush()
+    }
+    harness.setClock(harness.tracker.retryAt)
+    for (let n = 0; n < 6; n += 1) await harness.tracker.flush()
+    expect(harness.uploads[0][0].device_fix_id).toBe('fix-1') // nothing lost or reordered
+    expect(harness.attempts).toEqual([100, 50, 25, 12, 6, 6, 12, 24, 48, 96, BACKLOG_BATCH_SIZE])
+
+    harness.failNext(RETRYABLE) // no signal at all is not a slow link
+    await harness.tracker.flush()
+    harness.setClock(harness.tracker.retryAt)
+    await harness.tracker.flush()
+    expect(harness.attempts.slice(-2)).toEqual([BACKLOG_BATCH_SIZE, BACKLOG_BATCH_SIZE])
+    expect(harness.uploads.flat().map((f) => f.device_fix_id)).toEqual(
+      Array.from({ length: 6 + 12 + 24 + 48 + 96 + 100 + 100 }, (_, i) => `fix-${i + 1}`),
+    )
+  })
+
+  it('a failed batch put back on a full queue drops the OLDEST, never the newest', async () => {
+    const device = makeAdapter()
+    const harness = makeTracker(device) // batchSize 3, queueLimit 5
+    await harness.tracker.start()
+    const emit = (n: number) => device.emit(sample({ timestamp: n * 20_000, lat: GUWAHATI.lat + n * 0.01 }))
+
+    for (let n = 0; n < 3; n += 1) emit(n) // fix-1..3 go out
+    harness.failNext(RETRYABLE)
+    const inFlight = harness.tracker.flush()
+    for (let n = 3; n < 8; n += 1) emit(n) // fix-4..8 arrive meanwhile
+    await inFlight
+
+    harness.advance(BACKOFF_MAX_MS)
+    await harness.tracker.flush()
+    expect(harness.uploads[0].map((f) => f.device_fix_id)).toEqual(['fix-4', 'fix-5', 'fix-6', 'fix-7', 'fix-8'])
+    expect(harness.tracker.getState().droppedCount).toBe(3)
   })
 
   it('keeps a failed batch queued so no position is lost', async () => {

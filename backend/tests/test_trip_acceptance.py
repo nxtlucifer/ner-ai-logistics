@@ -347,3 +347,31 @@ async def test_a_failed_event_write_rolls_back_the_acceptance(
         assert fresh.driver_accepted_at is None
         assert fresh.driver_accepted_by is None
         assert await _accepted_events(check, trip_id) == 0
+
+
+async def test_the_manager_sees_the_acceptance_on_the_list_and_the_detail(
+    api: AsyncClient, session: AsyncSession
+) -> None:
+    """E2E-D4. After the driver accepts, the dispatcher's row must be able to
+    say so, rather than keep reading 'Awaiting driver' until the start."""
+    from app.models.enums import UserRole
+
+    _, user, _, _, trip = await _crew(session)
+    manager = await factories.make_user(session, role=UserRole.MANAGER)
+    mh = await auth_headers(api, manager.email, factories.TEST_PASSWORD)
+
+    async def seen() -> tuple:
+        page = await api.get(f"/api/trips?search={trip.trip_code}", headers=mh)
+        [row] = [t for t in page.json()["items"] if t["id"] == str(trip.id)]
+        detail = (await api.get(f"/api/trips/{trip.id}", headers=mh)).json()
+        return row["driver_accepted_at"], detail["driver_accepted_at"]
+
+    assert await seen() == (None, None)
+
+    accepted = await api.post(
+        "/api/driver/me/trip/accept", json={}, headers=await _headers(api, user)
+    )
+    assert accepted.status_code == 200
+    at = accepted.json()["driver_accepted_at"]
+    assert at is not None
+    assert await seen() == (at, at)

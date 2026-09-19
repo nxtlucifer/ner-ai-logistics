@@ -6,8 +6,9 @@ Implements docs/SECURITY.md section 1.
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Final
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -17,10 +18,10 @@ from app.core.security import (
     generate_refresh_token,
     hash_password,
     hash_refresh_token,
-    verify_password,
+    verify_password_async,
 )
 from app.models.auth import RefreshToken
-from app.models.enums import AuditAction
+from app.models.enums import AuditAction, UserRole
 from app.models.identity import User
 from app.services import audit
 
@@ -31,6 +32,20 @@ logger = logging.getLogger(__name__)
 # "wrong password" is comparable. Without it, login latency alone enumerates
 # valid phone numbers - and driver identifiers are phone numbers.
 _DUMMY_HASH = hash_password("timing-equalisation-placeholder")
+
+
+def _indian_mobile_forms(identifier: str) -> set[str]:
+    """The stored spellings of one Indian mobile number, or nothing."""
+    if "@" in identifier:
+        return set()
+    digits = "".join(c for c in identifier if c.isdigit())
+    if len(digits) == 12 and digits.startswith("91"):
+        digits = digits[2:]
+    elif len(digits) == 11 and digits.startswith("0"):
+        digits = digits[1:]
+    if len(digits) != 10:
+        return set()
+    return {digits, "+91" + digits, "91" + digits, "0" + digits}
 
 
 class AuthResult:
@@ -74,6 +89,55 @@ async def _issue(
     return AuthResult(user, access_token, expires_at, raw_refresh)
 
 
+#: Which roles may sign in to each workspace.
+#:
+#: ADMIN reaches all three: it is the technical superuser and locking it out
+#: of a console during an incident helps nobody. MANAGER - the pre-existing
+#: fleet-wide role - is treated as regional, which is what it has always
+#: been in practice.
+WORKSPACE_ROLES: Final[dict[str, frozenset[UserRole]]] = {
+    "NORTH_EAST": frozenset(
+        {UserRole.ADMIN, UserRole.MANAGER, UserRole.NORTH_EAST_MANAGER}
+    ),
+    "STATE": frozenset(
+        {UserRole.ADMIN, UserRole.NORTH_EAST_MANAGER, UserRole.STATE_MANAGER}
+    ),
+    "DISTRICT": frozenset(
+        {UserRole.ADMIN, UserRole.NORTH_EAST_MANAGER, UserRole.DISTRICT_MANAGER}
+    ),
+}
+
+
+def _workspace_matches(
+    user: User,
+    workspace: str,
+    state_id: uuid.UUID | None,
+    district_id: uuid.UUID | None,
+) -> bool:
+    """Does the console the caller asked for match the account they hold?
+
+    A hint, verified. The account is the authority throughout: this function
+    can only ever REFUSE a sign-in, never widen one, so a client that lies
+    about its workspace gets less access rather than more.
+
+    A scoped manager must also have picked their own patch. Someone who
+    reaches for another state's console with a valid password is either
+    confused or probing, and both get the same generic refusal.
+    """
+    if workspace not in WORKSPACE_ROLES:
+        return False
+    if user.role not in WORKSPACE_ROLES[workspace]:
+        return False
+    if user.role is UserRole.STATE_MANAGER:
+        return state_id is None or state_id == user.state_id
+    if user.role is UserRole.DISTRICT_MANAGER:
+        if district_id is not None and district_id != user.district_id:
+            return False
+        return state_id is None or state_id == user.state_id
+    # Unscoped roles may open any console; there is nothing to mismatch.
+    return True
+
+
 async def login(
     db: AsyncSession,
     *,
@@ -81,6 +145,9 @@ async def login(
     password: str,
     user_agent: str | None = None,
     ip_address: str | None = None,
+    workspace: str | None = None,
+    workspace_state_id: uuid.UUID | None = None,
+    workspace_district_id: uuid.UUID | None = None,
 ) -> AuthResult:
     """Authenticate by email (managers) or phone (drivers).
 
@@ -88,20 +155,32 @@ async def login(
     endpoint cannot be used to discover which accounts exist.
     """
     normalised = identifier.strip()
-    user = (
+    # Compared, never matched as a LIKE pattern: "%%%" used to hit every
+    # account and turn a 401 into a 503. The phone variants cover the one
+    # number written as 98..., +9198... or 098...; the app sends ten digits.
+    phones = {normalised} | _indian_mobile_forms(normalised)
+    rows = (
         await db.execute(
             select(User).where(
                 or_(
-                    User.email.isnot(None) & (User.email.ilike(normalised)),
-                    User.phone == normalised,
+                    func.lower(User.email) == normalised.lower(),
+                    User.phone.in_(phones),
                 )
             )
         )
-    ).scalar_one_or_none()
+    ).scalars().all()
+    exact = [u for u in rows if u.phone == normalised or (u.email or "").lower() == normalised.lower()]
+    # An exact match wins; otherwise exactly one variant, never a guess.
+    candidates = exact or rows
+    user = candidates[0] if len(candidates) == 1 else None
 
     # Always run a verification, even with no user, to equalise timing.
     stored_hash = user.password_hash if user is not None else _DUMMY_HASH
-    password_ok = verify_password(password, stored_hash)
+    # End the read transaction first, so the pooled connection goes back
+    # before this login queues for an Argon2 slot. expire_on_commit=False
+    # keeps `user` loaded; the writes below open a fresh transaction.
+    await db.commit()
+    password_ok = await verify_password_async(password, stored_hash)
 
     if user is None or not password_ok:
         await audit.record(
@@ -130,6 +209,24 @@ async def login(
         )
         await db.commit()
         raise AuthenticationError("Account is disabled.")
+
+    if workspace is not None and not _workspace_matches(
+        user, workspace, workspace_state_id, workspace_district_id
+    ):
+        # The SAME error as a wrong password, deliberately. A distinct
+        # message ("wrong state") would let anyone with a list of addresses
+        # discover which state each one manages, one guess at a time.
+        await audit.record(
+            db,
+            action=AuditAction.LOGIN_FAILED,
+            entity_type="users",
+            entity_id=user.id,
+            actor_user_id=user.id,
+            reason=f"workspace mismatch: asked for {workspace}",
+            ip_address=ip_address,
+        )
+        await db.commit()
+        raise AuthenticationError("Invalid credentials.")
 
     result = await _issue(db, user, user_agent=user_agent, ip_address=ip_address)
     user.last_login_at = datetime.now(UTC)
@@ -224,6 +321,22 @@ async def _revoke_family(
     await db.execute(
         update(RefreshToken)
         .where(RefreshToken.family_id == family_id, RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=datetime.now(UTC), revoked_reason=reason)
+    )
+
+
+async def revoke_all_for_user(
+    db: AsyncSession, user_id: uuid.UUID, *, reason: str = "password changed"
+) -> None:
+    """End every session this account has.
+
+    A password change that leaves old refresh tokens alive has changed
+    nothing for whoever already holds one - which is precisely the case the
+    change is being made for.
+    """
+    await db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
         .values(revoked_at=datetime.now(UTC), revoked_reason=reason)
     )
 

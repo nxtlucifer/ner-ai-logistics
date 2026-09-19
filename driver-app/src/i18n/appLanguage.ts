@@ -103,7 +103,6 @@ export type TranslationKey =
   | 'login_pin_label'
   | 'login_pin_placeholder'
   | 'login_submit'
-  | 'login_forgot'
   | 'login_submitting'
   // Buttons
   | 'btn_sign_out'
@@ -170,7 +169,6 @@ const EN: Record<TranslationKey, string> = {
     login_pin_placeholder: 'Enter your password',
     login_submit: 'Sign In',
     login_submitting: 'Signing in…',
-    login_forgot: 'Forgot password?',
 
     btn_sign_out: 'Sign Out',
     btn_start_trip: 'Start Trip',
@@ -239,7 +237,6 @@ export const TRANSLATIONS: Record<AppLanguage, Partial<Record<TranslationKey, st
     login_pin_placeholder: 'अपना सुरक्षा पिन दर्ज करें',
     login_submit: 'वाहन में साइन इन करें',
     login_submitting: 'साइन इन हो रहा है…',
-    login_forgot: 'पासवर्ड भूल गए?',
 
     btn_sign_out: 'साइन आउट',
     btn_start_trip: 'ट्रिप शुरू करें',
@@ -306,7 +303,6 @@ export const TRANSLATIONS: Record<AppLanguage, Partial<Record<TranslationKey, st
     login_pin_placeholder: 'તમારો સુરક્ષા પિન દાખલ કરો',
     login_submit: 'વાહનમાં સાઇન ઇન કરો',
     login_submitting: 'સાઇન ઇન થઈ રહ્યું છે…',
-    login_forgot: 'પાસવર્ડ ભૂલી ગયા?',
 
     btn_sign_out: 'સાઇન આઉટ',
     btn_start_trip: 'ટ્રિપ શરૂ કરો',
@@ -373,7 +369,6 @@ export const TRANSLATIONS: Record<AppLanguage, Partial<Record<TranslationKey, st
     login_pin_placeholder: 'আপোনাৰ সুৰক্ষা পিন দিয়ক',
     login_submit: 'বাহনত ছাইন ইন কৰক',
     login_submitting: 'ছাইন ইন হৈ আছে…',
-    login_forgot: 'পাছৱৰ্ড পাহৰিছে?',
 
     btn_sign_out: 'ছাইন আউট',
     btn_start_trip: 'ট্ৰিপ আৰম্ভ কৰক',
@@ -440,7 +435,6 @@ export const TRANSLATIONS: Record<AppLanguage, Partial<Record<TranslationKey, st
     login_pin_placeholder: 'আপনার নিরাপত্তা পিন লিখুন',
     login_submit: 'গাড়িতে সাইন ইন করুন',
     login_submitting: 'সাইন ইন হচ্ছে…',
-    login_forgot: 'পাসওয়ার্ড ভুলে গেছেন?',
 
     btn_sign_out: 'সাইন আউট',
     btn_start_trip: 'ট্রিপ শুরু করুন',

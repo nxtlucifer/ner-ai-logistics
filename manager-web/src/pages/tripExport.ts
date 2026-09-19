@@ -18,7 +18,7 @@
  * coordinates, no phone numbers.
  */
 
-import type { Trip } from '../api/client'
+import type { ProposedReroute, Trip, TripStatus } from '../api/client'
 
 export interface ExportRow {
   trip_code: string
@@ -52,6 +52,53 @@ export const EXPORT_COLUMNS: [keyof ExportRow, string][] = [
 
 const when = (iso: string | null | undefined): string =>
   iso ? new Date(iso).toLocaleString() : ''
+
+/** A driver's reroute request, in the words every list uses (E2E-R2). */
+export const REROUTE_ASKED = 'Driver asked for a new road'
+
+/**
+ * Whether a driver's reroute request is waiting for a manager. Only while the
+ * trip is under way (the only time a driver can ask): a proposal still on a
+ * delivered or stopped trip asks nothing of anyone.
+ */
+export function awaitingReroute(status: TripStatus, proposal: ProposedReroute | null | undefined): boolean {
+  return !!proposal && (status === 'ACTIVE' || status === 'DELAYED')
+}
+
+/** What a manager should look at for a trip in this state, in one phrase. */
+export function attention(trip: Trip): { text: string; tone: string } {
+  // Ahead of "On the road" and "Delayed": the truck is off its planned road
+  // and the next move is the manager's. A warning, never success - nothing
+  // has been decided yet.
+  if (awaitingReroute(trip.status, trip.proposed_reroute)) return { text: REROUTE_ASKED, tone: 'text-warning' }
+  // A trip under way with no road selected: planning it is the manager's
+  // move, the same rule as Overview's "Awaiting a decision" (A3-02).
+  if ((trip.status === 'ACTIVE' || trip.status === 'DELAYED') && !trip.selected_route_id) return { text: 'Needs a route', tone: 'text-warning' }
+  switch (trip.status) {
+    case 'DRAFT':
+      return trip.selected_route_id
+        ? { text: 'Ready to dispatch', tone: 'text-ok' }
+        : { text: 'Needs a route', tone: 'text-warning' }
+    case 'ASSIGNED':
+      // Once the driver has acknowledged, the next move is the start, not
+      // the driver's answer (E2E-D4).
+      return trip.driver_accepted_at
+        ? { text: 'Accepted — awaiting start', tone: 'text-muted' }
+        : { text: 'Awaiting driver', tone: 'text-muted' }
+    case 'VERIFICATION_PENDING':
+      return { text: 'Truck check pending', tone: 'text-warning' }
+    case 'ACTIVE':
+      return { text: 'On the road', tone: 'text-route' }
+    case 'DELAYED':
+      return { text: 'Delayed', tone: 'text-warning' }
+    case 'INCIDENT':
+      return { text: 'Incident open', tone: 'text-danger' }
+    case 'DELIVERED':
+      return { text: 'Close to release the truck', tone: 'text-muted' }
+    default:
+      return { text: '—', tone: 'text-muted' }
+  }
+}
 
 /**
  * A field the system HAS but this record does not.

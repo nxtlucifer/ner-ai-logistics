@@ -43,9 +43,10 @@ import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
+import { useTheme } from '../theme-context'
 import { boundsOf } from './geo'
 import { routeCameraKey } from './routeDisplay'
-import { ARROW_STYLE, HILLSHADE_ATTRIBUTION, HILLSHADE_URL, sceneLayers, type SceneLayer } from './scene'
+import { ARROW_STYLE, HILLSHADE_ATTRIBUTION, HILLSHADE_URL, MAP_COLOURS, leafletDarkCss, sceneLayers, type SceneLayer } from './scene'
 import type { DriverRouteMapProps } from './types'
 
 /** Assam, so a map with no route still opens somewhere meaningful. */
@@ -56,6 +57,22 @@ const NER_ZOOM = 6
 
 /** Colours and tooltips live in `scene.ts`, shared with the phone. */
 
+/**
+ * DARK IS A CLASS, NOT A NEW MAP. The wrapper div (which React owns - Leaflet
+ * owns the inner one and rewrites its classes) gets `rasta-map-dark`, and one
+ * stylesheet, added once, filters the tile pane and recolours Leaflet's
+ * chrome. A theme switch therefore keeps the map, its camera and its loaded
+ * tiles, and requests nothing.
+ */
+const DARK_CLASS = 'rasta-map-dark'
+function ensureDarkCss() {
+  if (document.getElementById(DARK_CLASS)) return
+  const style = document.createElement('style')
+  style.id = DARK_CLASS
+  style.textContent = leafletDarkCss('.' + DARK_CLASS)
+  document.head.appendChild(style)
+}
+
 const CONTROL_STYLE = {
   position: 'absolute' as const,
   // 40 here rather than the driver-app's 48 floor: these sit ON the map, and
@@ -64,12 +81,33 @@ const CONTROL_STYLE = {
   minHeight: 48,
   padding: '0 14px',
   borderRadius: 8,
-  border: '1px solid #D5DEDA',
-  background: '#FFFFFF',
-  color: '#101820',
   font: '600 13px Inter, system-ui, sans-serif',
   // Above Leaflet's own panes, which sit at 400-700.
   zIndex: 800,
+}
+
+/** The platform's reduced-motion setting, read at each camera move so a
+ *  change applies at once. The screens' own jumps are already unanimated. */
+function reduceMotion(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+}
+
+/**
+ * Where the route goes when framed: clear of the screen's overlays, above the
+ * bottom-left box or beside it, whichever draws the road larger. A candidate
+ * that leaves under 40 px of map is dropped; with neither, the plain margin.
+ */
+function framing(instance: L.Map, bounds: L.LatLngBounds, frame: DriverRouteMapProps['frame']): L.FitBoundsOptions {
+  if (!frame) return { padding: [40, 40] }
+  const gap = 12
+  const above = { paddingTopLeft: L.point(gap, frame.top), paddingBottomRight: L.point(frame.right, frame.obstacle.height + gap) }
+  const beside = { paddingTopLeft: L.point(frame.obstacle.width + gap, frame.top), paddingBottomRight: L.point(frame.right, gap) }
+  const size = instance.getSize()
+  const room = (o: typeof above) => o.paddingTopLeft.add(o.paddingBottomRight)
+  const usable = [above, beside].filter((o) => room(o).x < size.x - 40 && room(o).y < size.y - 40)
+  if (usable.length === 0) return { padding: [40, 40] }
+  const zoom = (o: typeof above) => instance.getBoundsZoom(bounds, false, room(o))
+  return usable.reduce((best, o) => (zoom(o) > zoom(best) ? o : best))
 }
 
 export default function DriverRouteMap({
@@ -94,10 +132,16 @@ export default function DriverRouteMap({
   onSelectPlace,
   onViewportChange,
   onFollowChange,
+  onAttributionHeight,
+  autoFollow = true,
+  frame,
   cameraTrigger,
   cameraMode,
   testID,
 }: DriverRouteMapProps) {
+  const { mode, colors } = useTheme()
+  const mc = MAP_COLOURS[mode]
+  const control = { ...CONTROL_STYLE, border: `1px solid ${mc.controlBorder}`, background: mc.control, color: mc.controlText }
   const holder = useRef<HTMLDivElement | null>(null)
   const map = useRef<L.Map | null>(null)
   /** Everything redrawn from props, kept together so it can be cleared as one. */
@@ -105,11 +149,14 @@ export default function DriverRouteMap({
   const [tileError, setTileError] = useState(false)
   const [following, setFollowing] = useState(false)
   useEffect(() => { onFollowChange?.(following) }, [following, onFollowChange])
+  const attributionRef = useRef(onAttributionHeight)
+  attributionRef.current = onAttributionHeight
 
   // Construct once. A map rebuilt on every prop change loses the camera the
   // driver just set, which is the difference between a map and a slideshow.
   useEffect(() => {
     if (holder.current === null || map.current !== null) return
+    ensureDarkCss()
 
     const instance = L.map(holder.current, {
       center: NER_CENTRE,
@@ -135,8 +182,16 @@ export default function DriverRouteMap({
 
     const pauseFollow = () => setFollowing(false)
     instance.on('dragstart', pauseFollow)
-    const resize = new ResizeObserver(() => instance.invalidateSize({ pan: false }))
-    resize.observe(holder.current)
+    // The same observer watches the attribution line: larger text (or the
+    // relief credit) wraps it, and the screen's overlays must clear it.
+    const box = holder.current
+    const attribution = instance.attributionControl?.getContainer()
+    const resize = new ResizeObserver(() => {
+      instance.invalidateSize({ pan: false })
+      if (attribution) attributionRef.current?.(Math.max(0, Math.ceil(box.getBoundingClientRect().bottom - attribution.getBoundingClientRect().top)))
+    })
+    resize.observe(box)
+    if (attribution) resize.observe(attribution)
     map.current = instance
     return () => {
       resize.disconnect()
@@ -150,7 +205,9 @@ export default function DriverRouteMap({
   // removes only itself: a hillshade that cannot load is not an error state.
   useEffect(() => {
     const instance = map.current
-    if (instance === null || !hillshade || HILLSHADE_URL === null) return
+    // HILLSHADE_URL is always a string now: MapTiler with a key,
+    // OpenTopoMap without one. The null branch it used to need is gone.
+    if (instance === null || !hillshade) return
     const layer = L.tileLayer(HILLSHADE_URL, { maxNativeZoom: 12, maxZoom: 19, opacity: 0.55, attribution: HILLSHADE_ATTRIBUTION })
     layer.on('tileerror', () => layer.remove())
     layer.addTo(instance)
@@ -199,10 +256,19 @@ export default function DriverRouteMap({
       if (s.k === 'line') layer = L.polyline(s.p, { pane, color: s.c, weight: s.w, dashArray: s.d, lineJoin: 'round', lineCap: 'round' })
       else if (s.k === 'circle') layer = L.circle(s.p, { pane, radius: s.r, color: s.c, weight: 1, dashArray: s.d, fillColor: s.c, fillOpacity: 0.15 })
       else if (s.k === 'dot') layer = L.circleMarker(s.p, { pane, radius: s.r, color: s.c, weight: s.w, fillColor: s.f, fillOpacity: s.o })
-      else layer = L.marker(s.p, { pane, icon: L.divIcon({ className: '', html: `<div style="${ARROW_STYLE}transform:rotate(${s.h}deg)"></div>`, iconSize: [22, 22], iconAnchor: [11, 11] }) })
+      // keyboard: false - the heading arrow is redrawn with every fix too, so
+      // it must not be a Tab stop either (CERT-DRV-01). The map container is
+      // the one Tab stop; the controls around it follow.
+      else layer = L.marker(s.p, { pane, keyboard: false, icon: L.divIcon({ className: '', html: `<div style="${ARROW_STYLE}border-bottom-color:${s.c};transform:rotate(${s.h}deg)"></div>`, iconSize: [22, 22], iconAnchor: [11, 11] }) })
       if (s.tip) layer.bindTooltip(safeLabel(s.tip))
       if (s.k === 'dot' && s.id && onSelectPlace) { const id = s.id; layer.on('click', () => { const place = places.find((x) => x.provider_id === id); if (place) onSelectPlace(place) }) }
       layer.addTo(instance)
+      // A tooltip listens for focus on its shape, and Chrome makes an SVG
+      // shape with a focus listener a Tab stop. The live dot is redrawn every
+      // second, so Tab landed on it, the redraw removed it, and focus fell to
+      // <body> for good (CERT-DRV-01). Out of the Tab order; hover and tap
+      // still open the tooltip.
+      if (s.tip) (layer as { getElement?: () => Element | undefined }).getElement?.()?.setAttribute('tabindex', '-1')
       into.push(layer)
     }
   }
@@ -210,19 +276,19 @@ export default function DriverRouteMap({
   useEffect(() => {
     const instance = map.current
     if (instance === null) return
-    const scene = sceneLayers({ points, progressFraction: null, backupPoints, showBackup, terrainSegments, hazards, stops, position: null, positionKind: null, positionSource: null, accuracyM: null, positionAgeSeconds: null, headingDeg: null, places, selectedPlaceId, trafficSegments })
+    const scene = sceneLayers({ points, progressFraction: null, backupPoints, showBackup, terrainSegments, hazards, stops, position: null, positionKind: null, positionSource: null, accuracyM: null, positionAgeSeconds: null, headingDeg: null, places, selectedPlaceId, trafficSegments }, mode)
     redraw(instance, scene.filter((l) => !l.live), drawn.current)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [points, backupPoints, showBackup, stops, places, selectedPlaceId, onSelectPlace, terrainSegments, hazards, trafficSegments])
+  }, [points, backupPoints, showBackup, stops, places, selectedPlaceId, onSelectPlace, terrainSegments, hazards, trafficSegments, mode])
 
   useEffect(() => {
     const instance = map.current
     if (instance === null) return
     if (!instance.getPane('live')) instance.createPane('live').style.zIndex = '450'
-    const scene = sceneLayers({ points, progressFraction, backupPoints: [], showBackup: false, stops: [], position, positionKind, positionSource, accuracyM, positionAgeSeconds, headingDeg, places: [], selectedPlaceId: null })
+    const scene = sceneLayers({ points, progressFraction, backupPoints: [], showBackup: false, stops: [], position, positionKind, positionSource, accuracyM, positionAgeSeconds, headingDeg, places: [], selectedPlaceId: null }, mode)
     redraw(instance, scene.filter((l) => l.live), drawnLive.current, 'live')
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [points, progressFraction, position, positionKind, positionSource, accuracyM, positionAgeSeconds, headingDeg])
+  }, [points, progressFraction, position, positionKind, positionSource, accuracyM, positionAgeSeconds, headingDeg, mode])
 
   // Fit the route ONCE per route, not on every poll. Re-framing the camera
   // every ten seconds is the behaviour `FleetMap` calls out as unreadable.
@@ -239,16 +305,28 @@ export default function DriverRouteMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [points, routeId])
 
+  const frameRef = useRef(frame)
+  frameRef.current = frame
   function fitRoute(animate = true, keepFollowing = false) {
     if (!keepFollowing) setFollowing(false)
     const instance = map.current
     const box = boundsOf(points)
     if (instance === null || box === null) return
-    instance.fitBounds(
-      L.latLngBounds([box.minLat, box.minLon], [box.maxLat, box.maxLon]),
-      { padding: [40, 40], animate },
-    )
+    const bounds = L.latLngBounds([box.minLat, box.minLon], [box.maxLat, box.maxLon])
+    instance.fitBounds(bounds, { ...framing(instance, bounds, frameRef.current), animate: animate && !reduceMotion() })
   }
+
+  // No route to frame: open on the phone's own position, live or last known,
+  // at a road-reading zoom - not on the whole North East with its neighbours'
+  // labels (audit s6 #2, B2D-06). Once per map, so a driver who pans away is
+  // not pulled back; a route that arrives later frames itself.
+  const placed = useRef(false)
+  useEffect(() => {
+    const instance = map.current
+    if (placed.current || instance === null || points.length > 0 || position === null) return
+    placed.current = true
+    instance.setView([position[0], position[1]], FOLLOW_ZOOM, { animate: false })
+  }, [position?.[0], position?.[1], points.length])
 
   // Camera control signals from screen floating buttons
   useEffect(() => {
@@ -258,7 +336,7 @@ export default function DriverRouteMap({
     } else if (cameraMode === 'RECENTER') {
       if (position) {
         setFollowing(positionKind === 'LIVE')
-        map.current?.panTo([position[0], position[1]], { animate: true })
+        map.current?.panTo([position[0], position[1]], { animate: !reduceMotion() })
       }
     }
   }, [cameraTrigger, cameraMode])
@@ -268,28 +346,32 @@ export default function DriverRouteMap({
       // Following means a road-reading zoom, not the region overview the
       // route was framed at: a truck at zoom 8 is a dot on a province.
       const m = map.current
-      if (m) m.setView([position[0], position[1]], Math.max(m.getZoom(), FOLLOW_ZOOM), { animate: true })
+      if (m) m.setView([position[0], position[1]], Math.max(m.getZoom(), FOLLOW_ZOOM), { animate: !reduceMotion() })
     } else if (positionKind !== 'LIVE') setFollowing(false)
   }, [following, position?.[0], position?.[1], positionKind])
 
   // Navigation follows the truck from the first LIVE fix, the way a driver
   // expects; a drag hands the camera back (dragstart above) and Re-centre
   // resumes it. Only the transition into LIVE arms it, so a driver who panned
-  // away is not snapped back on every fix.
+  // away is not snapped back on every fix. Not before the trip starts
+  // (`autoFollow` off): the route stays framed whole.
   const wasLive = useRef(false)
   useEffect(() => {
-    const live = positionKind === 'LIVE' && position !== null
+    const live = autoFollow && positionKind === 'LIVE' && position !== null
     if (live && !wasLive.current) setFollowing(true)
     wasLive.current = live
-  }, [positionKind, position !== null])
+  }, [autoFollow, positionKind, position !== null])
   const hasRoute = points.length > 0
 
   return (
     <div
+      className={mode === 'dark' ? DARK_CLASS : undefined}
       style={{ position: 'relative', width: '100%', height: '100%' }}
       data-testid={testID}
     >
-      <div ref={holder} style={{ position: 'absolute', inset: 0 }} />
+      {/* Leaflet makes this focusable (keyboard pan and zoom); a name and a
+          role say what the Tab stop is (CERT-DRV-01). */}
+      <div ref={holder} role="region" aria-label="Map" style={{ position: 'absolute', inset: 0 }} />
 
       {tileError ? (
         <div
@@ -301,9 +383,10 @@ export default function DriverRouteMap({
             bottom: 40,
             padding: '10px 12px',
             borderRadius: 8,
-            background: 'rgba(69,26,3,0.95)',
-            border: '1px solid #78350F',
-            color: '#FDE68A',
+            // Theme tokens (REG-4), not a fixed amber.
+            background: colors.warningSoft,
+            border: `1px solid ${colors.warningBorder}`,
+            color: colors.warning,
             font: '500 13px Inter, system-ui, sans-serif',
             zIndex: 800,
           }}
@@ -320,7 +403,7 @@ export default function DriverRouteMap({
             onClick={() => fitRoute()}
             disabled={!hasRoute}
             style={{
-              ...CONTROL_STYLE,
+              ...control,
               left: 12,
               top: 12,
               cursor: hasRoute ? 'pointer' : 'not-allowed',
@@ -335,7 +418,7 @@ export default function DriverRouteMap({
               type="button"
               onClick={() => { if (!position) return; setFollowing(positionKind === 'LIVE'); map.current?.panTo([position[0], position[1]]) }}
               aria-pressed={following}
-              style={{ ...CONTROL_STYLE, left: 12, top: 68, cursor: 'pointer' }}
+              style={{ ...control, left: 12, top: 68, cursor: 'pointer' }}
             >
               {following ? 'Following location' : positionKind === 'LIVE' ? 'Recenter' : 'Last known fix'}
             </button>

@@ -170,21 +170,48 @@ _SCRIPT: Final = {
 }
 
 
-def in_language(system: str, language: str) -> str:
-    """The same system prompt, with the answer language pinned to the app's.
+#: Said for every mode and every language, English included.
+#:
+#: A driver types whatever comes to hand at the roadside - their mother
+#: tongue, English, or a transliterated mix of both - and the language they
+#: picked in Settings is a statement about what they want to READ, not about
+#: what they will type. Without this, a Hindi question from a driver whose
+#: app is set to Assamese was answered as though the Hindi were noise.
+UNDERSTAND_ANY_INPUT = (
+    "The driver may write in any language or script, including a mix, or in "
+    "their own language written in Latin letters. Understand the question "
+    "whatever language it arrives in. Never ask them to rephrase it in "
+    "another language, and never simply echo it back."
+)
 
-    Translate mode already names its own target and is left alone. English
-    needs no instruction. Everything else gets an explicit script, because a
-    model told "Hindi" alone will happily answer in Latin letters.
+
+def in_language(system: str, language: str) -> str:
+    """Pin the ANSWER to the app's language; accept any INPUT language.
+
+    Two different things, and conflating them was the bug. The output
+    language is a setting the driver chose. The input language is whatever
+    they reached for while standing beside a truck.
+
+    Translate mode names its own target and is left alone entirely. English
+    still gets the input instruction - an Assamese question typed into an
+    English app is the same situation. Non-English answers get an explicit
+    script, because a model told "Hindi" alone will happily answer in Latin
+    letters.
     """
-    if language == "en" or "TRANSLATION_UNAVAILABLE" in system:
+    if "TRANSLATION_UNAVAILABLE" in system:
+        return system
+    system = f"{system}\n\n{UNDERSTAND_ANY_INPUT}"
+    if language == "en":
         return system
     name = DEMO_LANGUAGES.get(language)
     if not name:
         return system
     script = _SCRIPT.get(language)
     suffix = f" ({script})" if script else ""
-    return f"{system}\n\nAnswer ONLY in {name}{suffix}. Keep numbers, units, place names and phone numbers as written."
+    return (
+        f"{system}\n\nAnswer ONLY in {name}{suffix}. "
+        "Keep numbers, units, place names and phone numbers as written."
+    )
 
 
 def translation_prompt(text: str, source: str, target: str) -> str:

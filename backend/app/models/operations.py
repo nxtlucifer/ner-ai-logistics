@@ -113,6 +113,30 @@ class Shipment(TimestampMixin, Base):
         sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
+    # --- Which states and districts this job touches ----------------------
+    #
+    # Resolved by the server when the shipment is created
+    # (app/services/trip_geography.py): the coordinate is reverse-geocoded and
+    # the answer matched EXACTLY to a state, and to a district only when that
+    # district's source is operational (VERIFIED_OFFICIAL or DEMO). Anything
+    # else stays null - "not
+    # known", which a scoped manager does not see - never a neighbour.
+    # `geography_source` says how it was obtained. A database trigger
+    # (migration 0014) keeps a district and its state in agreement.
+    origin_district_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.ForeignKey("districts.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    destination_district_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.ForeignKey("districts.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    origin_state_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.ForeignKey("states.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    destination_state_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.ForeignKey("states.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    geography_source: Mapped[str | None] = mapped_column(sa.String(40), nullable=True)
+
     cargo_items: Mapped[list["CargoItem"]] = relationship(
         back_populates="shipment", cascade="all, delete-orphan", lazy="raise"
     )

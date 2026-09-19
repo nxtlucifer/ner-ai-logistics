@@ -28,7 +28,7 @@ The landslide-hazard model (logistic regression on NASA GLC events + ERA5-Land r
 OSRM (routing), Open-Meteo and MET Norway (weather forecast), NDMA SACHET CAP feed (official warnings, polled), GloFAS (flood context), OpenTopoData / Copernicus DEM (terrain), NASA Global Landslide Catalog 2007–2017 (historical landslide exposure, static, `backend/data/landslides/PROVENANCE.md`), OpenStreetMap via Nominatim / Overpass (places, road attributes), the fleet's own GPS fixes (traffic estimate — never Google traffic).
 
 ## HOW TO RUN
-Hosted (no laptop needed): open the Manager URL below and sign in with a manager account; install the APK on an Android phone and sign in with a driver account. Local: `docs/DEMO.md` (backend `uvicorn app.main:app`, `manager-web` `npm run dev`, `driver-app` `npx expo start`). Tests: backend `pytest` (1138 passed / 5 skipped), driver `npm test` (621), manager `npm test` (170), both `tsc`. Demo accounts are handed over separately, never committed.
+Hosted (no laptop needed): open the Manager URL below and sign in with a manager account; install the APK on an Android phone and sign in with a driver account. Local: `docs/DEMO.md` (backend `python run.py` - not bare uvicorn on Windows, see `backend/run.py`; `manager-web` `npm run dev`; `driver-app` `npx expo start`). Tests (19 Sep 2026): backend `pytest` (1210 passed / 5 skipped), driver `npm test` (624), manager `npm test` (259), both `tsc` clean. Day 2 backend/API/database evidence: `docs/DAY2_TASK1_FINAL_REPORT.md`. Demo accounts are handed over separately, never committed.
 
 ## HOSTED URL
 | | |

@@ -62,22 +62,31 @@ export function terrainAhead(
     : `${word} in ${km(ahead)}, ${km(end - next.start_m)} long`
 }
 
-/**
- * The first recorded landslide site at or after `travelledM` (or on the whole
- * corridor when there is no fix): its along-route position and year.
- */
-export function nextHazard(
+/** A recorded site as the road sees it: how far along the route its nearest
+ *  point is, and how far off the road the site itself lies. */
+export interface HazardSite {
+  at: number
+  year: number | null
+  /** Straight-line metres from the site to the nearest route vertex. */
+  offM: number
+}
+
+/** Within this of the road a recorded site is "here"; beyond it the card
+ *  says how far off the road it is (E2E-R3: sites 2.0-3.6 km away were
+ *  announced as "here"). Project heuristic. */
+export const ON_ROAD_M = 500
+
+/** Every recorded site projected onto the route, in order along it. */
+export function hazardSites(
   points: readonly LatLon[],
   hazards: readonly { latitude: number; longitude: number; year: number | null }[] | null | undefined,
-  travelledM: number | null,
-): { at: number; year: number | null } | null {
-  if (!hazards || hazards.length === 0 || points.length < 2) return null
+): HazardSite[] {
+  if (!hazards || hazards.length === 0 || points.length < 2) return []
   // Cumulative distance per vertex, once.
   const along: number[] = [0]
   for (let i = 1; i < points.length; i += 1) along.push(along[i - 1] + distanceMetres(points[i - 1], points[i]))
 
-  let best: { at: number; year: number | null } | null = null
-  for (const h of hazards) {
+  const sites = hazards.map((h) => {
     let nearest = Number.POSITIVE_INFINITY
     let at = 0
     for (let i = 0; i < points.length; i += 1) {
@@ -87,10 +96,30 @@ export function nextHazard(
         at = along[i]
       }
     }
-    if (travelledM !== null && at < travelledM) continue
-    if (best === null || at < best.at) best = { at, year: h.year }
-  }
-  return best
+    return { at, year: h.year, offM: nearest }
+  })
+  // Stable: two sites at one point keep their inventory order.
+  return sites.sort((a, b) => a.at - b.at)
+}
+
+/**
+ * The first recorded landslide site at or after `travelledM` (or on the whole
+ * corridor when there is no fix): its along-route position, year and
+ * distance off the road.
+ */
+export function nextHazard(
+  points: readonly LatLon[],
+  hazards: readonly { latitude: number; longitude: number; year: number | null }[] | null | undefined,
+  travelledM: number | null,
+): HazardSite | null {
+  return hazardSites(points, hazards).find((s) => travelledM === null || s.at >= travelledM) ?? null
+}
+
+/** "here" only for a site on the road; otherwise where it is, from the road. */
+export function siteWords(site: HazardSite, aheadM: number, distance: (m: number) => string = km): string {
+  const off = site.offM > ON_ROAD_M ? distance(site.offM) : null
+  if (aheadM < 500) return off ? `Recorded landslide site ${off} off the road, near here` : 'Recorded landslide site here'
+  return `Recorded landslide site in ${distance(aheadM)}${off ? `, ${off} off the road` : ''}`
 }
 
 /** The nearest recorded landslide position ahead along the corridor. */
@@ -104,6 +133,5 @@ export function hazardAhead(
   if (best === null) return 'No recorded landslide site ahead'
   const when = best.year ? ` (recorded ${best.year})` : ''
   if (travelledM === null) return `${hazards.length} recorded landslide site${hazards.length === 1 ? '' : 's'} on this corridor${when ? `, earliest at ${km(best.at)}` : ''}`
-  const ahead = best.at - travelledM
-  return ahead < 500 ? `Recorded landslide site here${when}` : `Recorded landslide site in ${km(ahead)}${when}`
+  return `${siteWords(best, best.at - travelledM)}${when}`
 }

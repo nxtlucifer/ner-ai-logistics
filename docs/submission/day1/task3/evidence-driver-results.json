@@ -1,0 +1,37 @@
+{
+  "at": "2026-09-18T10:50:04.913Z",
+  "url": "http://localhost:8123",
+  "results": [
+    {
+      "name": "driver login: wrong password refused with a message",
+      "ok": true,
+      "note": "Incorrect"
+    },
+    {
+      "name": "driver login: session",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "driver: no horizontal overflow at 390",
+      "ok": true,
+      "note": "overflow=0"
+    }
+  ],
+  "console": {
+    "name": "driver",
+    "console": [
+      "warning: [expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect.",
+      "warning: \"shadow*\" style props are deprecated. Use \"boxShadow\".",
+      "warning: props.pointerEvents is deprecated. Use style.pointerEvents"
+    ],
+    "exceptions": [],
+    "network": [
+      "401 /api/auth/login",
+      "404 /api/driver/me/trip/route-risk",
+      "FAILED net::ERR_BLOCKED_BY_ORB Image",
+      "FAILED net::ERR_BLOCKED_BY_ORB Image",
+      "FAILED net::ERR_BLOCKED_BY_ORB Image"
+    ]
+  }
+}

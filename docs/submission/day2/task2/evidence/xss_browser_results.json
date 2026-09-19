@@ -1,0 +1,22 @@
+[
+ {
+  "name": "login: manager session",
+  "ok": true,
+  "note": ""
+ },
+ {
+  "name": "drivers page: payload shown as text, no live handler, no alert",
+  "ok": true,
+  "note": "{\"alerts\":0,\"live\":0,\"shows\":true,\"showsSvg\":false}"
+ },
+ {
+  "name": "trips page: payload shown as text, no live handler, no alert",
+  "ok": true,
+  "note": "{\"alerts\":0,\"live\":0,\"shows\":true,\"showsSvg\":false}"
+ },
+ {
+  "name": "trucks page: no live handler, no alert",
+  "ok": true,
+  "note": "{\"alerts\":0,\"live\":0,\"shows\":true,\"showsSvg\":false}"
+ }
+]

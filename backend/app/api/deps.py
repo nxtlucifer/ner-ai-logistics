@@ -6,6 +6,7 @@ inspect `user.role` themselves - that pattern spreads authorization logic across
 every endpoint, where one missed check is invisible.
 """
 
+import ipaddress
 from collections.abc import Callable
 from typing import Annotated
 
@@ -15,8 +16,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.verifier import InvalidToken, TokenVerifier, get_token_verifier
+from app.core.config import get_settings
 from app.core.errors import AuthenticationError, PermissionDeniedError
 from app.core.permissions import has_permission
+from app.core.rate_limit import client_address
 from app.db.session import get_session
 from app.models.enums import DriverStatus, UserRole
 from app.models.identity import Driver, User
@@ -26,6 +29,13 @@ from app.models.identity import Driver, User
 logger = logging.getLogger(__name__)
 
 _bearer = HTTPBearer(auto_error=False)
+
+#: The only paths a must-reset account may reach. Reading your own principal
+#: is on the list because the client has to learn WHY it is being refused;
+#: signing out is, because being unable to leave would be absurd.
+PASSWORD_RESET_ALLOWED = frozenset(
+    {"/api/auth/password", "/api/auth/me", "/api/auth/logout", "/api/auth/refresh"}
+)
 
 DbSession = Annotated[AsyncSession, Depends(get_session)]
 
@@ -64,6 +74,20 @@ async def get_current_user(
         raise AuthenticationError("Account is disabled.")
 
     request.state.actor_id = user.id
+
+    # An account still holding the temporary password it was created with may
+    # do exactly one thing: change it. Enforced here rather than per-route,
+    # because the failure mode is a route somebody forgets to decorate - and
+    # a handed-over credential that keeps working is the whole risk.
+    # scope["path"], not request.url.path: the latter is rebuilt from the
+    # client-controlled Host header, so "Host: x/api/auth/me?" would pass.
+    if user.must_reset_password and request.scope["path"] not in PASSWORD_RESET_ALLOWED:
+        raise PermissionDeniedError(
+            "This account is still using its temporary password. "
+            "Change it before doing anything else.",
+            code="PASSWORD_RESET_REQUIRED",
+        )
+
     if claims.support_by is not None:
         # Manager support view: the driver's screens, none of the driver's
         # actions. One guard here covers every mutating endpoint at once.
@@ -165,10 +189,19 @@ CurrentDriver = Annotated[Driver, Depends(require_current_driver)]
 async def get_client_ip(request: Request) -> str | None:
     """Best-effort client address for audit records.
 
-    X-Forwarded-For is client-controlled unless a trusted proxy overwrites it,
-    so this is recorded as a hint and never used for an authorization decision.
+    Read the way the login limiter reads it (`client_address`): only the
+    X-Forwarded-For entries TRUSTED_PROXY_HOPS proxies really appended, from
+    the right. The left-most entry is whatever the caller typed, and it was
+    landing in every audit row, LOGIN_FAILED included. Still a hint, and
+    never used for an authorization decision. A non-address is dropped
+    rather than failing the INET column.
     """
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()[:45] or None
-    return request.client.host if request.client else None
+    address = client_address(
+        request.client.host if request.client else None,
+        request.headers.get("x-forwarded-for"),
+        get_settings().TRUSTED_PROXY_HOPS,
+    )
+    try:
+        return str(ipaddress.ip_address(address))
+    except ValueError:
+        return None

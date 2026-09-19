@@ -55,6 +55,13 @@ EVENTS: Final = frozenset({
     "TRIP_ASSIGNED", "REROUTE_APPROVED", "OFFICIAL_WARNING_NEW", "WEATHER_SEVERITY_CHANGED",
     "ROUTE_DANGER_AHEAD", "HOLD_AND_REVIEW", "CRITICAL_ROUTE_CHANGE", "NO_SIGNAL_ZONE_AHEAD",
     "DEMO_SIMULATION", "TRIP_CANCELLED",
+    # A manager set a different road on a trip already under way. Distinct
+    # from REROUTE_APPROVED, which answers a road the DRIVER proposed: the
+    # driver is expecting that one and is not expecting this one.
+    "ROUTE_CHANGED",
+    # The driver asked to stop. Sent to the driver as an acknowledgement that
+    # the request reached somebody, and again when a manager answers it.
+    "EMERGENCY_STOP_ACK", "EMERGENCY_RESOLVED",
 })
 
 
@@ -99,8 +106,14 @@ async def send(
     fingerprint: str | None = None,
     data: dict[str, Any] | None = None,
 ) -> DriverNotification:
-    """Record and (when due and possible) push one notification. Flushes, never commits."""
+    """Record and (when due and possible) push one notification. Flushes, never commits the caller's work."""
     assert event in EVENTS, event
+    # Called after the caller's commit (dispatch, cancel), our reads below are
+    # all this transaction holds; it is ended before the push so the pooled
+    # connection is not held idle-in-transaction through the push timeout.
+    # Caller work, even unflushed (add/modify autobegin), keeps it open: then
+    # nothing commits here.
+    own_txn = not db.in_transaction()
     fp = (fingerprint or f"{event}:{trip_id}")[:200]
     now = datetime.now(UTC)
     cooldown = COOLDOWN_S.get(event, DEFAULT_COOLDOWN_S)
@@ -121,6 +134,8 @@ async def send(
     elif not token:
         delivery = "NO_TOKEN"
     else:
+        if own_txn:
+            await db.commit()
         delivery = await _deliver(token, title, body, {"event": event, "trip_id": str(trip_id) if trip_id else None, **(data or {})})
     return await _row(db, driver_id, trip_id, event, fp, title, body, delivery)
 

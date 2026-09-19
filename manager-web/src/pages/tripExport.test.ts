@@ -89,6 +89,16 @@ describe('the printable report', () => {
     expect(html).toContain('&lt;script&gt;')
   })
 
+  it('escapes an attribute-breaking payload in every column and in the header', () => {
+    // Day 2 Task 2 (SEC-XSS-003): the report is written with document.write,
+    // so a stored payload that survives here runs in the print window.
+    const p = '"><img src=x onerror=alert(1)><svg onload=alert(1)>'
+    const row = exportRow(trip({ trip_code: p, client_name: p, origin: p, destination: p }), { driver: p, truck: p, attention: p })
+    const html = reportHtml([row], { title: p, filters: p, generated: p, note: p })
+    expect(html).not.toMatch(/<img|<svg/)  // every "<" is &lt;, so no tag and no handler attribute exists
+    expect(html.split('&lt;img src=x onerror=alert(1)&gt;').length - 1).toBeGreaterThanOrEqual(11)
+  })
+
   it('reports a blocked pop-up instead of looking like nothing happened', () => {
     expect(printReport('<html></html>', () => null)).toBe(false)
     const w = { document: { write: vi.fn(), close: vi.fn() }, focus: vi.fn(), print: vi.fn() }

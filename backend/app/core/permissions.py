@@ -80,6 +80,17 @@ AUDIT_READ: Final = "audit:read"
 EMERGENCY_READ: Final = "emergency:read"
 EMERGENCY_RESOLVE: Final = "emergency:resolve"
 
+#: Read one's own notification inbox. Every manager role has it; the rows a
+#: caller receives are decided by who the notification was addressed to, not
+#: by this string.
+NOTIFICATION_READ: Final = "notification:read"
+
+#: Create, edit and deactivate MANAGER-family accounts. Held by ADMIN and by
+#: STATE_MANAGER; a State Manager's reach is narrowed to District Managers in
+#: their own state by app/core/scope.may_manage_user, because a permission
+#: string cannot say "in my state".
+MANAGER_ACCOUNT_MANAGE: Final = "manager_account:manage"
+
 ALL_PERMISSIONS: Final[frozenset[str]] = frozenset(
     {
         DRIVER_READ, DRIVER_CREATE, DRIVER_UPDATE, DRIVER_DEACTIVATE, DRIVER_SUPPORT_VIEW,
@@ -94,6 +105,7 @@ ALL_PERMISSIONS: Final[frozenset[str]] = frozenset(
         FLEET_LOCATION_READ,
         AUDIT_READ,
         EMERGENCY_READ, EMERGENCY_RESOLVE,
+        NOTIFICATION_READ, MANAGER_ACCOUNT_MANAGE,
     }
 )
 
@@ -147,6 +159,50 @@ _AUTHORISED_REVIEWER_PERMISSIONS: Final[frozenset[str]] = frozenset(
     }
 )
 
+# A scoped manager runs trips in their area: the narrowing of TRIPS and
+# SHIPMENTS is done by app/core/scope.py, which every list query and every
+# single-row read goes through.
+#
+# What scope cannot narrow is a record with no geography. A driver, a truck
+# and an assignment belong to the fleet, not to a district, so a scoped role
+# holding the MANAGER writes on them could change any of them fleet-wide - a
+# district manager in Assam deactivated a Meghalaya driver. Those writes, the
+# support view and emergency resolution stay with MANAGER, NORTH_EAST_MANAGER
+# and ADMIN. Creating a NEW driver or truck is not a reach into anyone's
+# scope, so it stays.
+_SCOPED_FLEET_WRITES: Final[frozenset[str]] = frozenset(
+    {
+        DRIVER_UPDATE, DRIVER_DEACTIVATE, DRIVER_SUPPORT_VIEW,
+        TRUCK_UPDATE, TRUCK_RETIRE,
+        ASSIGNMENT_CREATE, ASSIGNMENT_END, ASSIGNMENT_REVIEW,
+        EMERGENCY_RESOLVE,
+    }
+)
+
+# What a District Manager does NOT get: MANAGER_ACCOUNT_MANAGE. Only a State
+# Manager (and ADMIN) creates accounts, and only District Manager accounts
+# inside their own state.
+_DISTRICT_MANAGER_PERMISSIONS: Final[frozenset[str]] = (
+    _MANAGER_PERMISSIONS - _SCOPED_FLEET_WRITES
+) | {NOTIFICATION_READ}
+
+_STATE_MANAGER_PERMISSIONS: Final[frozenset[str]] = _DISTRICT_MANAGER_PERMISSIONS | {
+    MANAGER_ACCOUNT_MANAGE,
+}
+
+# The regional operational authority: every MANAGER power over every state,
+# plus the inbox and appointing state and district managers. Built from
+# MANAGER, not from STATE_MANAGER, so the fleet writes above stay here.
+#
+# Note what is ABSENT: DRIVER_READ_SENSITIVE. Seeing the region is not the
+# same as seeing what everyone is paid, and ADMIN remains the only role that
+# does. Keeping them apart is what makes this an operational role rather
+# than a second superuser.
+_NORTH_EAST_MANAGER_PERMISSIONS: Final[frozenset[str]] = _MANAGER_PERMISSIONS | {
+    NOTIFICATION_READ,
+    MANAGER_ACCOUNT_MANAGE,
+}
+
 ROLE_PERMISSIONS: Final[dict[UserRole, frozenset[str]]] = {
     # Admin gets everything, including salary visibility, which MANAGER
     # deliberately does not have.
@@ -154,6 +210,9 @@ ROLE_PERMISSIONS: Final[dict[UserRole, frozenset[str]]] = {
     UserRole.MANAGER: _MANAGER_PERMISSIONS,
     UserRole.DRIVER: _DRIVER_PERMISSIONS,
     UserRole.AUTHORISED_REVIEWER: _AUTHORISED_REVIEWER_PERMISSIONS,
+    UserRole.NORTH_EAST_MANAGER: _NORTH_EAST_MANAGER_PERMISSIONS,
+    UserRole.STATE_MANAGER: _STATE_MANAGER_PERMISSIONS,
+    UserRole.DISTRICT_MANAGER: _DISTRICT_MANAGER_PERMISSIONS,
 }
 
 

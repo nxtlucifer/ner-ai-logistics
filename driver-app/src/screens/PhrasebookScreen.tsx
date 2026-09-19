@@ -20,10 +20,14 @@
  * There is no speech recognition in this build, so there is no control that
  * implies one. A microphone that did nothing would be discovered at exactly
  * the wrong moment.
+ *
+ * LAYOUT (Phase B3): `header` (the Assistant's photo hero, with its way back)
+ * scrolls with the page; the translator card, the listener picker and one card
+ * per category follow on the driver card geometry.
  */
 
-import { useState } from 'react'
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Pressable, ScrollView, Text, View } from 'react-native'
 
 import { resolveLanguage } from '../i18n/language'
 import {
@@ -33,15 +37,15 @@ import {
   phrasebook,
   type PhraseLanguage,
 } from '../phrasebook/phrases'
+import { useKeyboardOpen } from '../components/useKeyboardOpen'
 import { TOUCH_TARGET } from '../theme'
 import { useT } from '../i18n/tx'
-import { makeStyles, useTheme } from '../theme-context'
+import { makeStyles } from '../theme-context'
 import TranslateBox from './TranslateBox'
 
-export default function PhrasebookScreen() {
+export default function PhrasebookScreen({ header }: { header?: ReactNode } = {}) {
   const styles = useStyles()
   const t = useT()
-  const { colors: COLORS } = useTheme()
   // The driver's own language comes from the device, exactly as everywhere
   // else in the app. Only the LISTENER's language is a choice, because only
   // that one is a fact about the person in front of them.
@@ -51,18 +55,44 @@ export default function PhrasebookScreen() {
     // would show two identical columns and look broken.
     mine === 'hi' ? 'as' : 'hi',
   )
+  // With the soft keyboard up, keep the translator's Translate row in view
+  // under the text box: the platform scrolls only the focused box itself into
+  // view, which left Translate one scroll below it (B3D-R03).
+  const keyboardOpen = useKeyboardOpen()
+  const scroll = useRef<ScrollView>(null)
+  const scrollY = useRef(0)
+  const [viewHeight, setViewHeight] = useState(0)
+  const [boxY, setBoxY] = useState(0)
+  const [typingBottom, setTypingBottom] = useState<number | null>(null)
+  useEffect(() => {
+    if (!keyboardOpen || typingBottom === null || !viewHeight) return
+    const bottom = boxY + typingBottom + 12
+    if (bottom > scrollY.current + viewHeight) scroll.current?.scrollTo({ y: bottom - viewHeight, animated: false })
+  }, [keyboardOpen, typingBottom, viewHeight, boxY])
 
   return (
-    <ScrollView contentContainerStyle={styles.content}>
+    <ScrollView
+      ref={scroll}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+      onLayout={(e) => setViewHeight(e.nativeEvent.layout.height)}
+      onScroll={(e) => {
+        scrollY.current = e.nativeEvent.contentOffset.y
+      }}
+      scrollEventThrottle={32}
+    >
+      {header ? <View style={styles.heroBleed}>{header}</View> : null}
       {/* Free typing FIRST, reviewed phrases below. The order says which is
           which: a driver who scrolls past the box lands on sentences that have
           a version and a revision date. */}
-      <TranslateBox />
+      <View onLayout={(e) => setBoxY(e.nativeEvent.layout.y)}>
+        <TranslateBox onTypingBottom={setTypingBottom} />
+      </View>
 
       <Text style={styles.lead}>{t('Find the sentence, then turn the phone round.')}</Text>
 
       <Text style={styles.pickerLabel}>{t('They speak')}</Text>
-      <View style={styles.picker}>
+      <View style={styles.picker} accessibilityRole="radiogroup">
         {LANGUAGES.map((option) => {
           const selected = option.code === theirs
           return (
@@ -71,6 +101,7 @@ export default function PhrasebookScreen() {
               onPress={() => setTheirs(option.code)}
               accessibilityRole="radio"
               accessibilityState={{ selected }}
+              aria-checked={selected}
               accessibilityLabel={`Listener speaks ${option.name}`}
               style={({ pressed }) => [
                 styles.chip,
@@ -88,7 +119,7 @@ export default function PhrasebookScreen() {
 
       {phrasebook(mine, theirs).map((category) => (
         <View key={category.id} style={styles.category}>
-          <Text style={styles.categoryTitle}>{category.title}</Text>
+          <Text style={styles.categoryTitle} accessibilityRole="header">{category.title}</Text>
           {category.phrases.map((phrase) => (
             <View key={phrase.id} style={styles.phrase}>
               <Text style={styles.mine}>{phrase.mine}</Text>
@@ -117,39 +148,51 @@ const useStyles = makeStyles((COLORS) => ({
   // Bounded and centred. These screens are built for a phone, and on the
   // desktop browser they are demonstrated in an unbounded column stretches a
   // sentence across the whole window. Below the maximum it simply fills.
-  content: { padding: 16, paddingBottom: 40,
+  content: { paddingHorizontal: 13, paddingBottom: 40,
     maxWidth: 640,
     width: '100%',
     alignSelf: 'center',
   },
+  // Full-bleed; the translator card rides up over the hero's foot.
+  heroBleed: { marginHorizontal: -13, marginBottom: -14 },
 
-  lead: { color: COLORS.muted, fontSize: 13, marginBottom: 16 },
+  lead: { color: COLORS.textMuted, fontSize: 13, marginBottom: 16, paddingHorizontal: 4 },
 
   pickerLabel: {
-    color: COLORS.faint,
+    color: COLORS.textFaint,
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 0.8,
     textTransform: 'uppercase',
     marginBottom: 8,
+    paddingHorizontal: 4,
   },
   picker: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
+  // 48 dp, and a 3:1 outline (borderStrong) so an unselected chip is still
+  // found as a control; the selected one fills.
   chip: {
-    minHeight: TOUCH_TARGET - 8,
+    minHeight: TOUCH_TARGET - 4,
     justifyContent: 'center',
     paddingHorizontal: 16,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: COLORS.borderStrong,
   },
-  chipActive: { backgroundColor: COLORS.card, borderColor: COLORS.accent },
-  chipLabel: { color: COLORS.muted, fontSize: 15, fontWeight: '600' },
-  chipLabelActive: { color: COLORS.text },
+  chipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  chipLabel: { color: COLORS.textMuted, fontSize: 15, fontWeight: '600' },
+  chipLabelActive: { color: COLORS.onPrimary },
   pressed: { opacity: 0.75 },
 
-  category: { marginBottom: 22 },
+  category: {
+    marginBottom: 10,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
+    padding: 14,
+  },
   categoryTitle: {
-    color: COLORS.muted,
+    color: COLORS.textMuted,
     fontSize: 13,
     fontWeight: '700',
     letterSpacing: 0.8,
@@ -157,17 +200,16 @@ const useStyles = makeStyles((COLORS) => ({
     marginBottom: 10,
   },
 
+  // A row inside the category card, divided by a hairline - not a card in
+  // a card.
   phrase: {
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.card,
-    padding: 14,
-    marginBottom: 8,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
   },
-  mine: { color: COLORS.muted, fontSize: 13, marginBottom: 6 },
+  mine: { color: COLORS.textMuted, fontSize: 13, marginBottom: 6 },
   theirs: { color: COLORS.text, fontSize: 20, fontWeight: '700', lineHeight: 29 },
 
-  provenance: { marginTop: 4, gap: 3 },
-  provenanceText: { color: COLORS.faint, fontSize: 11 },
+  provenance: { marginTop: 4, gap: 3, paddingHorizontal: 4 },
+  provenanceText: { color: COLORS.textFaint, fontSize: 11 },
 }))

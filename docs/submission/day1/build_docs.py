@@ -13,10 +13,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-MD = HERE / "RASTA_AI_SIH2026_DAY1_TASK1_SYSTEM_DESIGN.md"
-DIAGRAMS = HERE / "diagrams"
-OUT_DOCX = HERE / "RASTA_AI_SIH2026_DAY1_TASK1_SYSTEM_DESIGN.docx"
-OUT_PDF = HERE / "RASTA_AI_SIH2026_DAY1_TASK1_SYSTEM_DESIGN.pdf"
+# Another Markdown source may be given on the command line (Day 1 Task 3 uses
+# docs/submission/day1/task3/RASTA_AI_Task_Report.md); outputs sit beside it.
+# --compact: sections flow on (no page break per section), screenshots sit in
+# pairs, tighter spacing - for a report with a page limit.
+COMPACT = "--compact" in sys.argv
+_args = [a for a in sys.argv[1:] if not a.startswith("--")]
+MD = Path(_args[0]).resolve() if _args else HERE / "RASTA_AI_SIH2026_DAY1_TASK1_SYSTEM_DESIGN.md"
+DIAGRAMS = MD.parent / "diagrams"
+OUT_DOCX = MD.with_suffix(".docx")
+OUT_PDF = MD.with_suffix(".pdf")
+FOOTER_TASK = "SIH 2026 · Day 1 Task 1"
+SUBTITLE = "SIH 2026 — Day 1 Task 1"
+SUBTITLE2 = "Problem Understanding, Solution Planning & System Design"
 
 DIAGRAM_CAPTIONS = {
     1: "Figure 1 — High-level architecture (rendered from the Mermaid source in the Markdown edition)",
@@ -25,6 +34,8 @@ DIAGRAM_CAPTIONS = {
 }
 LANDSCAPE_DIAGRAMS = {3}
 LANDSCAPE_MIN_COLUMNS = 5  # tables with this many columns or more go on landscape pages
+if "--compact" in sys.argv:
+    LANDSCAPE_MIN_COLUMNS = 99  # everything portrait: a section switch costs a page each way
 
 # --------------------------------------------------------------------------- parse
 
@@ -67,6 +78,9 @@ def parse(md: str) -> list[Block]:
             if lang == "mermaid":
                 diagram += 1
                 blocks.append(Block("image", index=diagram))
+            elif lang == "flow":
+                # One step per line; rendered as an editable table flowchart.
+                blocks.append(Block("flow", items=[l.strip() for l in body if l.strip()]))
             else:
                 blocks.append(Block("code", "\n".join(body), lang=lang))
             continue
@@ -74,6 +88,13 @@ def parse(md: str) -> list[Block]:
         if m:
             flush_para()
             blocks.append(Block("heading", m.group(2).strip(), level=len(m.group(1))))
+            i += 1
+            continue
+        m = re.match(r"^!\[(.*)\]\((.+)\)\s*$", line)
+        if m:
+            # A screenshot with its caption; the path is relative to the Markdown file.
+            flush_para()
+            blocks.append(Block("image", m.group(1).strip(), lang=m.group(2).strip()))
             i += 1
             continue
         if line.strip() == "---":
@@ -169,6 +190,29 @@ def landscape_plan(body: list[Block]) -> list[bool]:
     return plan
 
 
+def pair_screenshots(body: list[Block]) -> list[Block]:
+    """Two consecutive desktop screenshots become one two-column block."""
+    from PIL import Image as PILImage
+
+    def wide(b: Block) -> bool:
+        if b.kind != "image" or not b.lang:
+            return False
+        iw, ih = PILImage.open(MD.parent / b.lang).size
+        return iw / ih >= 1.55
+
+    out: list[Block] = []
+    i = 0
+    while i < len(body):
+        b = body[i]
+        if wide(b) and i + 1 < len(body) and wide(body[i + 1]):
+            out.append(Block("imagepair", items=[b.lang, body[i + 1].lang], rows=[[b.text, body[i + 1].text]]))
+            i += 2
+        else:
+            out.append(b)
+            i += 1
+    return out
+
+
 def split_front_matter(blocks: list[Block]) -> tuple[list[Block], list[Block]]:
     """Everything before '## Table of contents' is the title page; the markdown
     TOC itself is dropped (both editions generate their own)."""
@@ -197,7 +241,9 @@ def build_docx(front: list[Block], body: list[Block]) -> None:
     doc = Document()
     st = doc.styles
     st["Normal"].font.name = "Calibri"
-    st["Normal"].font.size = Pt(10.5)
+    st["Normal"].font.size = Pt(9.5 if COMPACT else 10.5)
+    if COMPACT:
+        st["Normal"].paragraph_format.space_after = Pt(4)
     for name, size in (("Heading 1", 20), ("Heading 2", 15), ("Heading 3", 12.5), ("Heading 4", 11)):
         st[name].font.name = "Calibri"
         st[name].font.size = Pt(size)
@@ -211,7 +257,7 @@ def build_docx(front: list[Block], body: list[Block]) -> None:
     def add_page_number(section) -> None:
         p = section.footer.paragraphs[0]
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        r = p.add_run("RASTA AI · SIH 2026 · Day 1 Task 1 · Page ")
+        r = p.add_run(f"RASTA AI · {FOOTER_TASK} · Page ")
         r.font.size = Pt(8)
         for tag, text in (("begin", None), (None, "PAGE"), ("end", None)):
             run = p.add_run()
@@ -250,7 +296,7 @@ def build_docx(front: list[Block], body: list[Block]) -> None:
     r.bold = True
     r.font.size = Pt(40)
     r.font.color.rgb = RGBColor(0x14, 0x3D, 0x2E)
-    for line, size in (("SIH 2026 — Day 1 Task 1", 20), ("Problem Understanding, Solution Planning & System Design", 14)):
+    for line, size in ((SUBTITLE, 20), (SUBTITLE2, 14)):
         p = doc.add_paragraph()
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         rr = p.add_run(line)
@@ -300,10 +346,16 @@ def build_docx(front: list[Block], body: list[Block]) -> None:
     uf.set(qn("w:val"), "true")
     settings.append(uf)
     # a plain list too, so the TOC reads even before the field is updated
-    for b in body:
+    for b in body if not COMPACT else []:
         if b.kind == "heading" and b.level == 2:
-            doc.add_paragraph(b.text, style="List Number")
-    doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
+            # The heading text carries its own number ("12. Remaining issues"), so a plain paragraph.
+            lp = doc.add_paragraph(b.text)
+            lp.paragraph_format.space_after = Pt(0)
+            lp.paragraph_format.line_spacing = 1.0
+            for r in lp.runs:
+                r.font.size = Pt(8.5)
+    if not COMPACT:
+        doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
 
     # ---- body
     def new_section(landscape: bool):
@@ -334,7 +386,7 @@ def build_docx(front: list[Block], body: list[Block]) -> None:
             landscape = False
             just_broke = True
         if b.kind == "heading":
-            if b.level == 2 and not first_h2 and not just_broke:
+            if b.level == 2 and not first_h2 and not just_broke and not COMPACT:
                 doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
             first_h2 = False if b.level == 2 else first_h2
             style = {1: "Heading 1", 2: "Heading 1", 3: "Heading 2", 4: "Heading 3"}[b.level]
@@ -380,9 +432,22 @@ def build_docx(front: list[Block], body: list[Block]) -> None:
             tbl = doc.add_table(rows=0, cols=cols)
             tbl.style = "Table Grid"
             size = 9 if cols <= 3 else 8 if cols <= 5 else 7
+            if COMPACT:
+                size = 6.5 if cols >= 7 else size - 0.5
+            # Column widths follow the text: a "Method" column does not need a
+            # seventh of the page. Weighted by the longest cell, floored so a
+            # short column still has room for one word.
+            avail_cm = 25.5 if landscape else 17.0
+            longest = [max((len(r[c]) if c < len(r) else 0) for r in b.rows) for c in range(cols)]
+            weights = [max(6, min(l, 60)) for l in longest]
+            floor_cm = 1.5  # room for "GET/POST" in the smallest table font
+            spare = avail_cm - floor_cm * cols
+            widths = [Cm(floor_cm + spare * w / sum(weights)) for w in weights]
+            tbl.autofit = False
             for n, row in enumerate(b.rows):
                 cells = tbl.add_row().cells
                 for c, text in enumerate(row[:cols]):
+                    cells[c].width = widths[c]
                     par = cells[c].paragraphs[0]
                     add_runs(par, text, size)
                     if n == 0:
@@ -394,13 +459,72 @@ def build_docx(front: list[Block], body: list[Block]) -> None:
                         shd.set(qn("w:fill"), "E3EBE6")
                         tcPr.append(shd)
             doc.add_paragraph()
+        elif b.kind == "flow":
+            # Editable flowchart: one table, a bordered shaded cell per step and
+            # an unbordered arrow cell between steps. Every box is plain text.
+            tbl = doc.add_table(rows=0, cols=1)
+            tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+            for n, step in enumerate(b.items):
+                if n:
+                    ap = tbl.add_row().cells[0].paragraphs[0]
+                    ap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    ar = ap.add_run("\u25BC")
+                    ar.font.size = Pt(9)
+                    ar.font.color.rgb = RGBColor(0x14, 0x3D, 0x2E)
+                    ap.paragraph_format.space_before = ap.paragraph_format.space_after = Pt(0)
+                cell = tbl.add_row().cells[0]
+                cell.width = Cm(15.5)
+                tcPr = cell._tc.get_or_add_tcPr()
+                borders = OxmlElement("w:tcBorders")
+                for side in ("top", "left", "bottom", "right"):
+                    el = OxmlElement(f"w:{side}")
+                    el.set(qn("w:val"), "single")
+                    el.set(qn("w:sz"), "8")
+                    el.set(qn("w:color"), "143D2E")
+                    borders.append(el)
+                tcPr.append(borders)
+                shd = OxmlElement("w:shd")
+                shd.set(qn("w:val"), "clear")
+                shd.set(qn("w:fill"), "EEF4F0")
+                tcPr.append(shd)
+                par = cell.paragraphs[0]
+                par.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                label, _, rest = step.partition(" \u2014 ")
+                r = par.add_run(label)
+                r.bold = True
+                r.font.size = Pt(9.5)
+                if rest:
+                    r.add_break()
+                    r2 = par.add_run(rest)
+                    r2.font.size = Pt(8.5)
+            doc.add_paragraph()
+        elif b.kind == "imagepair":
+            tbl = doc.add_table(rows=1, cols=2)
+            tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+            for c, (path, caption) in enumerate(zip(b.items, b.rows[0])):
+                cell = tbl.rows[0].cells[c]
+                cell.width = Cm(8.5)
+                par = cell.paragraphs[0]
+                par.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                par.add_run().add_picture(str(MD.parent / path), width=Cm(8.2))
+                cap = cell.add_paragraph(caption)
+                cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                for r in cap.runs:
+                    r.italic = True
+                    r.font.size = Pt(8)
+            doc.add_paragraph().paragraph_format.space_after = Pt(0)
         elif b.kind == "image":
-            png = DIAGRAMS / f"diagram-{b.index}.png"
+            png = (MD.parent / b.lang) if b.lang else DIAGRAMS / f"diagram-{b.index}.png"
             if png.exists():
+                from PIL import Image as PILImage
+                iw, ih = PILImage.open(png).size
                 width = Cm(25.5) if landscape else Cm(17.0)
+                if b.lang:  # a screenshot, not a diagram: two desktop shots per page
+                    width = Cm(6.5) if ih / iw > 1.2 else (Cm(15.0) if COMPACT else Cm(14.5))
                 doc.add_picture(str(png), width=width)
                 doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
-                cap = doc.add_paragraph(DIAGRAM_CAPTIONS.get(b.index, f"Figure {b.index}"))
+                doc.paragraphs[-1].paragraph_format.keep_with_next = True  # caption stays with its figure
+                cap = doc.add_paragraph(b.text or DIAGRAM_CAPTIONS.get(b.index, f"Figure {b.index}"))
                 cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
                 for r in cap.runs:
                     r.italic = True
@@ -504,14 +628,14 @@ def build_pdf(front: list[Block], body: list[Block]) -> None:
                 self.notify("TOCEntry", (level, text, self.page, key))
 
     doc = Doc(str(OUT_PDF), pagesize=A4, leftMargin=margin, rightMargin=margin, topMargin=margin, bottomMargin=margin,
-              title="RASTA AI — SIH 2026 Day 1 Task 1 — System Design", author="NER-AI LOGISTICS (Team 17)")
+              title=f"RASTA AI — {SUBTITLE} — {SUBTITLE2}", author="NER-AI LOGISTICS (Team 17)")
 
     def on_page(canv, d):
         canv.saveState()
         w, h = canv._pagesize
         canv.setFont("Body", 7.5)
         canv.setFillColor(colors.HexColor("#555555"))
-        canv.drawString(margin, 0.9 * cm, "RASTA AI · SIH 2026 · Day 1 Task 1 · Problem Understanding, Solution Planning & System Design")
+        canv.drawString(margin, 0.9 * cm, f"RASTA AI · {FOOTER_TASK} · {SUBTITLE2}")
         canv.drawRightString(w - margin, 0.9 * cm, f"Page {d.page}")
         canv.restoreState()
 
@@ -522,8 +646,8 @@ def build_pdf(front: list[Block], body: list[Block]) -> None:
     story: list = []
     # ---- title page
     story += [Spacer(1, 5.5 * cm), Paragraph("RASTA AI", styles["title"]), Spacer(1, 0.4 * cm),
-              Paragraph("SIH 2026 — Day 1 Task 1", styles["sub"]),
-              Paragraph("Problem Understanding, Solution Planning &amp; System Design", styles["sub2"]), Spacer(1, 1.2 * cm)]
+              Paragraph(SUBTITLE, styles["sub"]),
+              Paragraph(SUBTITLE2.replace("&", "&amp;"), styles["sub2"]), Spacer(1, 1.2 * cm)]
     meta = next((b for b in front if b.kind == "table"), None)
     if meta:
         rows = [[Paragraph(markup(r[0], 8.5), styles["cellh"]), Paragraph(markup(r[1] if len(r) > 1 else "", 8.5), styles["cell"])] for r in meta.rows if any(r)]
@@ -540,7 +664,7 @@ def build_pdf(front: list[Block], body: list[Block]) -> None:
     toc = TableOfContents()
     toc.levelStyles = [styles["toc0"], styles["toc1"]]
     toc.dotsMinLevel = 0
-    story += [toc, PageBreak()]
+    story += [toc, PageBreak()] if not COMPACT else [toc, Spacer(1, 12)]
 
     def para_style_for(level: int) -> ParagraphStyle:
         return {1: styles["h1"], 2: styles["h1"], 3: styles["h2"], 4: styles["h3"]}[level]
@@ -602,7 +726,7 @@ def build_pdf(front: list[Block], body: list[Block]) -> None:
             just_broke = True
         avail = avail_l if landscape else avail_p
         if b.kind == "heading":
-            if b.level == 2 and not first_h2 and not just_broke:
+            if b.level == 2 and not first_h2 and not just_broke and not COMPACT:
                 story.append(PageBreak())
             first_h2 = False if b.level == 2 else first_h2
             story.append(Paragraph(markup(b.text, 14), para_style_for(b.level)))
@@ -619,16 +743,39 @@ def build_pdf(front: list[Block], body: list[Block]) -> None:
         elif b.kind == "table":
             story.append(make_table(b, avail))
             story.append(Spacer(1, 6))
+        elif b.kind == "flow":
+            rows = []
+            for n, step in enumerate(b.items):
+                if n:
+                    rows.append([Paragraph("\u25BC", styles["caption"])])
+                label, _, rest = step.partition(" \u2014 ")
+                rows.append([Paragraph(f"<b>{label}</b><br/>{markup(rest, 8.5)}" if rest else f"<b>{label}</b>", styles["cell"])])
+            t = Table(rows, colWidths=[min(avail, 15.5 * cm)], hAlign="CENTER")
+            style = [("ALIGN", (0, 0), (-1, -1), "CENTER"), ("VALIGN", (0, 0), (-1, -1), "MIDDLE")]
+            for i in range(0, len(rows), 2):
+                style += [("BOX", (0, i), (0, i), 0.8, colors.HexColor("#143D2E")), ("BACKGROUND", (0, i), (0, i), colors.HexColor("#EEF4F0"))]
+            t.setStyle(TableStyle(style))
+            story += [t, Spacer(1, 8)]
+        elif b.kind == "imagepair":
+            from PIL import Image as PILImage
+            cells = []
+            for path, caption in zip(b.items, b.rows[0]):
+                iw, ih = PILImage.open(MD.parent / path).size
+                sc = (8.2 * cm) / iw
+                cells.append([Image(str(MD.parent / path), width=iw * sc, height=ih * sc), Paragraph(caption, styles["caption"])])
+            t = Table([cells], colWidths=[8.5 * cm, 8.5 * cm], hAlign="CENTER")
+            t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+            story += [t, Spacer(1, 4)]
         elif b.kind == "image":
-            png = DIAGRAMS / f"diagram-{b.index}.png"
+            png = (MD.parent / b.lang) if b.lang else DIAGRAMS / f"diagram-{b.index}.png"
             if png.exists():
                 from PIL import Image as PILImage
                 iw, ih = PILImage.open(png).size
-                maxw = avail
+                maxw = avail if not b.lang else (6.5 * cm if ih / iw > 1.2 else (15.0 * cm if COMPACT else 14.5 * cm))
                 maxh = (PW if landscape else PH) - 2 * margin - 2.2 * cm
                 scale = min(maxw / iw, maxh / ih)
                 img = Image(str(png), width=iw * scale, height=ih * scale)
-                story.append(KeepTogether([img, Paragraph(DIAGRAM_CAPTIONS.get(b.index, f"Figure {b.index}"), styles["caption"])]))
+                story.append(KeepTogether([img, Paragraph(b.text or DIAGRAM_CAPTIONS.get(b.index, f"Figure {b.index}"), styles["caption"])]))
         elif b.kind == "rule":
             pass
     doc.multiBuild(story)
@@ -637,8 +784,17 @@ def build_pdf(front: list[Block], body: list[Block]) -> None:
 
 if __name__ == "__main__":
     md = MD.read_text(encoding="utf8").replace("\r\n", "\n")
+    m = re.search(r"^## (.+)$", md, re.M)
+    if m:
+        SUBTITLE = m.group(1).strip()
+        FOOTER_TASK = SUBTITLE.replace("\u2014", "\u00b7")
+    m = re.search(r"^### (.+)$", md, re.M)
+    if m:
+        SUBTITLE2 = m.group(1).strip()
     blocks = parse(md)
     front, body = split_front_matter(blocks)
+    if COMPACT:
+        body = pair_screenshots(body)
     print("blocks:", len(blocks), "front:", len(front), "body:", len(body))
     build_docx(front, body)
     build_pdf(front, body)

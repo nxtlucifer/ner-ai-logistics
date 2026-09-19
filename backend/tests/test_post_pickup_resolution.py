@@ -31,11 +31,12 @@ from app.services import routes as route_service
 from tests import factories
 from tests.conftest import auth_headers
 
-pytestmark = pytest.mark.requires_db
+pytestmark = [pytest.mark.requires_db, pytest.mark.usefixtures("fixture_india")]
 
 GUWAHATI = (26.1445, 91.7362)
 SHILLONG = (25.5788, 91.8933)
-AHMEDABAD = (23.0687, 72.6735)
+#: Inside the synthetic neighbour country of tests/geo_fixtures.py.
+FOREIGN = (16.0, 86.5)
 
 
 class _Chain:
@@ -200,16 +201,16 @@ class TestAfterPickup:
         assert [x.kind for x in routes] == [RouteKind.PRIMARY] and routes[0].state.value == "PROPOSED"
         assert chain.calls == 1
 
-    async def test_new_destination_outside_the_region_is_refused(
+    async def test_new_destination_outside_the_country_is_refused(
         self, api: AsyncClient, session: AsyncSession, manager_headers: dict
     ) -> None:
         _, _, _, trip, _ = await _loaded(api, session)
         r = await api.post(f"/api/trips/{trip.id}/cancel", headers=manager_headers, json={
             "reason": "Customer moved the delivery far away", "disposition": "NEW_DESTINATION",
-            "destination": {"lat": AHMEDABAD[0], "lon": AHMEDABAD[1]}, "destination_address": "Ahmedabad",
+            "destination": {"lat": FOREIGN[0], "lon": FOREIGN[1]}, "destination_address": "Across the border",
         })
         assert r.status_code == 422, r.text
-        assert r.json()["error"]["code"] == "OUTSIDE_SERVICE_REGION"
+        assert r.json()["error"]["code"] == "OUTSIDE_SUPPORTED_COUNTRY"
         assert [s.status.value for s in await _stops(session, trip.id)] == ["COMPLETED", "PENDING"]
 
     async def test_cargo_unloaded_closes_the_job_with_the_disposition_on_record(

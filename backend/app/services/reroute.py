@@ -176,7 +176,7 @@ async def accept(
         eligibility, offered_authorization=authorization_id is not None
     )
 
-    trip = await trip_service.load_for_update(db, trip_id)
+    trip = await trip_service.load_for_update(db, trip_id, actor=actor)
 
     if trip.status not in IN_PROGRESS_STATUSES:
         # Rerouting a trip that has not started is ordinary planning, and the

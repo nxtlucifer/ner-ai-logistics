@@ -87,13 +87,18 @@ export default function JourneyHistory({ tripId }: { tripId: string }) {
 
   if (error) return <ErrorState error={error} onRetry={() => setReloads((n) => n + 1)} />
   if (events === null) return <LoadingState label="Loading journey history…" />
-  if (events.length === 0) return <p className="text-xs text-muted">Nothing has happened on this trip yet.</p>
+  if (events.length === 0) return <p className="py-2 text-[13px] text-muted">Nothing has happened on this trip yet.</p>
 
+  // A timeline: the time, a dot on one rule, what happened. The words are
+  // the operation's own; the dot adds nothing a reader needs. The time
+  // column is 80px and never wraps ("01:37 AM" is 58px at 13px); the rule
+  // and the dot sit in the middle of the 24px gap after it.
   return (
-    <ol className="space-y-1.5" data-testid="journey-history">
+    <ol className="relative space-y-3 py-1 before:absolute before:bottom-2 before:left-[91.5px] before:top-2 before:w-px before:bg-line" data-testid="journey-history">
       {historyLines(events).map((line, i) => (
-        <li key={`${line.id}-${i}`} className="flex gap-3 text-[12px] leading-snug">
-          <span className="tnum shrink-0 text-muted">{line.time}</span>
+        <li key={`${line.id}-${i}`} className="relative flex gap-6 text-[13px] leading-snug">
+          <span className="tnum w-20 shrink-0 whitespace-nowrap text-right text-muted">{line.time}</span>
+          <span aria-hidden="true" className="absolute left-[87px] top-1 size-2.5 rounded-full border-2 border-surface bg-outline" />
           <span className="min-w-0">
             <span className="font-semibold text-ink">{line.title}</span>
             {events[i].actor_name ? <span className="text-muted"> by {events[i].actor_name}</span> : null}

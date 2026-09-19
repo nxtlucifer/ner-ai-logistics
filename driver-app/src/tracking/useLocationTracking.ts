@@ -20,7 +20,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 
-import { ApiError, api, type TrackingConfig } from '../api/client'
+import { ApiError, NetworkError, api, type TrackingConfig } from '../api/client'
 import { expoLocationAdapter } from './adapter'
 import { createQueueStore } from './queueStorage'
 import {
@@ -61,12 +61,12 @@ const FLUSH_TICK_MS = 1_000
  * request was malformed. Anything else - a timeout, a 5xx, no signal - is worth
  * keeping and retrying.
  */
-function classifyUploadError(error: unknown): UploadOutcome {
+export function classifyUploadError(error: unknown): UploadOutcome {
   if (error instanceof ApiError) {
     const retryable = error.status >= 500 || error.status === 429
     return { retryable, message: error.message }
   }
-  return { retryable: true, message: 'Cannot reach the server. Retrying.' }
+  return { retryable: true, message: 'Cannot reach the server. Retrying.', timedOut: error instanceof NetworkError && error.timedOut }
 }
 
 export function useLocationTracking(

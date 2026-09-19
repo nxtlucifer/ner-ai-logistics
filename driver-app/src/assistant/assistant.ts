@@ -400,13 +400,19 @@ function answerRouteRisk(ctx: AssistantContext): Answer {
   }
 }
 
+/** packageStore's PACKAGE_FRESH_MS. Copied, not imported: the import rule
+ *  bars a value import from packageStore. assistant.test.ts pins the two equal. */
+export const RISK_FRESH_MS = 6 * 60 * 60 * 1000
+
 function riskFreshness(ctx: AssistantContext, live: boolean, age: number | null): Freshness | null {
   if (age === null) return null
   return {
     ageMinutes: age,
     // A stored snapshot is cached by construction; the live read is not.
     cached: !live,
-    stale: !live && ctx.offlinePackage?.freshness === 'STALE',
+    // The risk's own age too: a fresh package can carry forward an old risk
+    // (useRouteGeometry keeps it when the new assessment timed out).
+    stale: !live && (ctx.offlinePackage?.freshness === 'STALE' || age * 60_000 > RISK_FRESH_MS),
   }
 }
 

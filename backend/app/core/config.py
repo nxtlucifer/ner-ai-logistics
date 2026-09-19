@@ -24,6 +24,7 @@ from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator, model_validator
+from sqlalchemy.engine import make_url
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # The value shipped in .env.example. Refusing it explicitly means copying the
@@ -44,13 +45,26 @@ AuthProvider = Literal["local", "supabase"]
 
 
 def _host_of(url: str) -> str:
-    """Extract the hostname from a SQLAlchemy URL, without its credentials."""
+    """Extract the hostname from a SQLAlchemy URL, without its credentials.
+
+    Parsed by SQLAlchemy, not by `urlsplit`. `urlsplit` follows RFC 3986 and a
+    generated database password does not: one containing a `/`, `?` or `#`
+    ends the authority early and the "hostname" it then returns is part of the
+    credential. That was not hypothetical - the isolated test cluster's
+    password did it, and `_host_of` returned the *username*, which silently
+    disabled the guard that refuses to drop tables on a non-local host.
+    Failing closed meant nothing was damaged, but a security check that
+    mis-reads its input is not a check.
+    """
     try:
-        # urlsplit needs a scheme it recognises; the SQLAlchemy driver suffix
-        # ("+psycopg") is fine here because only the netloc is being read.
-        return (urlsplit(url).hostname or "").lower()
-    except ValueError:
-        return ""
+        return (make_url(url).host or "").lower()
+    except Exception:  # noqa: BLE001 - an unparseable URL is not a known host
+        # Keep the old reading as a last resort rather than returning "" for a
+        # URL shape SQLAlchemy rejects but the driver might still accept.
+        try:
+            return (urlsplit(url).hostname or "").lower()
+        except ValueError:
+            return ""
 
 
 def redact_url(url: str | None) -> str | None:
@@ -92,6 +106,33 @@ class Settings(BaseSettings):
     )
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+
+    # --- Driver onboarding policy ---
+    #
+    # How long a newly added driver may go without an emergency contact and
+    # an insurance document before they stop being dispatchable. A licence
+    # is NOT in this window - it is required to create the driver at all.
+    #
+    # PRODUCT POLICY, NOT LAW. Nothing in the application claims this is a
+    # statutory deadline, and no screen should say one. Configurable because
+    # a fleet of six and a fleet of six hundred answer this differently.
+    DRIVER_COMPLIANCE_GRACE_DAYS: int = 7
+
+    # --- Trusted proxies (SEC-006) ---
+    #
+    # How many reverse proxies sit in front of this service. Each one
+    # APPENDS the address it received from to `X-Forwarded-For`, so with N
+    # trusted hops the real client is the Nth entry from the RIGHT.
+    #
+    # 0 (the default) means "no proxy": the TCP peer is the client, and
+    # `X-Forwarded-For` is ignored entirely. That is the safe default,
+    # because trusting the header when nothing overwrites it lets any
+    # caller mint a new rate-limit identity per request.
+    #
+    # Render terminates TLS and adds exactly one hop, so the hosted service
+    # sets 1. Do not raise this to "be safe": every extra hop is one more
+    # position of the header that a client can forge.
+    TRUSTED_PROXY_HOPS: int = 0
 
     # --- Rate limiting (authentication endpoints only) ---
     #
@@ -167,6 +208,13 @@ class Settings(BaseSettings):
     WEATHER_TIMEOUT_SECONDS: float = 6.0
     #: MET Norway, tried when Open-Meteo answers 429 or is down. Empty = no fallback.
     WEATHER_FALLBACK_URL: str = "https://api.met.no"
+    #: Overall deadline for EACH evidence source in a route assessment
+    #: (`route_risk.evidence_for`), and for each sampled weather point. One
+    #: that runs past it reads NOT_AVAILABLE, the others still score.
+    EVIDENCE_TIMEOUT_SECONDS: float = 8.0
+    #: How long the offline package waits for its risk snapshot before it ships
+    #: the route without one (`risk: null`, RISK_SNAPSHOT_UNAVAILABLE).
+    OFFLINE_RISK_TIMEOUT_SECONDS: float = 4.0
 
     # --- Address search (Google Places API (New)) ---
     #
@@ -280,6 +328,24 @@ class Settings(BaseSettings):
     # --- Fleet Sentinel Scheduler ---
     SENTINEL_SCHEDULER_ENABLED: bool = False
     SENTINEL_SWEEP_INTERVAL_SECONDS: int = 300
+
+    # --- More than one API instance (services/coordination.py) ---
+    #: False = one process owns everything in memory (today's deployment; no
+    #: extra database traffic). True = background loops run on one leased
+    #: leader, the Nominatim pace and the auth rate limits live in Postgres,
+    #: and the demo simulation is forced off (its state is per process).
+    MULTI_INSTANCE: bool = False
+
+    # --- Geography (services/geo_classify.py, migration 0016) ---
+    #: A trip with neither end in the North-East (INDIA_EXTERNAL) is refused
+    #: with 422 NOT_NER_CONNECTED unless this is on. Owner decision 29 Sep 2026:
+    #: off until the product decides to carry such trips.
+    ALLOW_INDIA_EXTERNAL_TRIPS: bool = False
+    #: Distances from the international boundary for an advisory / high-attention
+    #: flag. UNSET until a written policy defines them; nothing reads a None.
+    #: They may only ever raise attention - never move a point into India.
+    BORDER_ADVISORY_DISTANCE_M: float | None = None
+    BORDER_HIGH_ATTENTION_DISTANCE_M: float | None = None
 
     # --- Database provider ---
     DATABASE_PROVIDER: DatabaseProvider = "supabase"

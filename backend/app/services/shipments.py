@@ -23,7 +23,8 @@ from app.models.identity import User
 from app.models.operations import CargoItem, Shipment
 from app.schemas.common import Coordinate
 from app.schemas.domain import ShipmentCreate
-from app.services import audit
+from app.services import audit, geo_classify, trip_geography
+from app.core import scope
 from app.services.pagination import (
     build_page,
     clamp_limit,
@@ -61,10 +62,14 @@ async def get(db: AsyncSession, shipment_id: uuid.UUID) -> Shipment:
 
 
 async def list_shipments(
-    db: AsyncSession, *, limit: int | None = None, cursor: str | None = None
+    db: AsyncSession, *, actor=None, limit: int | None = None, cursor: str | None = None
 ) -> tuple[list[Shipment], str | None]:
     page_size = clamp_limit(limit)
     stmt = select(Shipment)
+    # A STATE/DISTRICT manager sees only the shipments their scope covers; the
+    # same predicate trips use, so the two lists agree (app/core/scope.py).
+    if actor is not None and scope.is_scoped(actor):
+        stmt = stmt.where(scope.shipment_scope_clause(actor))
     if cursor:
         stmt = stmt.where(
             cursor_predicate(Shipment.created_at, Shipment.id, decode_cursor(cursor))
@@ -106,7 +111,28 @@ async def create(
             code="SHIPMENT_EXISTS",
         )
 
+    # Where the job starts and ends, decided on the server
+    # (app/services/trip_geography.py): both ends inside India or 422
+    # OUTSIDE_SUPPORTED_COUNTRY (503 GEOGRAPHY_UNAVAILABLE with no boundary),
+    # then state/district for scope. Unknown stays null.
+    origin, origin_source = await trip_geography.locate(
+        db, payload.pickup.lat, payload.pickup.lon, field="pickup"
+    )
+    dest, dest_source = await trip_geography.locate(
+        db, payload.destination.lat, payload.destination.lon, field="destination"
+    )
+    # India-wide, NER-centred: a PROVEN India-external trip is refused (422
+    # NOT_NER_CONNECTED) unless ALLOW_INDIA_EXTERNAL_TRIPS. Unknown is not.
+    geo_classify.require_ner_connected(origin.is_ner, dest.is_ner)
     shipment = Shipment(
+        origin_state_id=origin.state_id,
+        origin_district_id=origin.district_id,
+        destination_state_id=dest.state_id,
+        destination_district_id=dest.district_id,
+        geography_source=(
+            origin_source if origin_source == dest_source
+            else trip_geography.SOURCE_UNAVAILABLE
+        ),
         reference_code=payload.reference_code,
         client_name=payload.client_name,
         client_contact=payload.client_contact,

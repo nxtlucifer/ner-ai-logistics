@@ -10,7 +10,8 @@
 
 // @vitest-environment jsdom
 
-import { act, renderHook, waitFor } from '@testing-library/react'
+import { StrictMode } from 'react'
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { api, type FleetSnapshot } from '../api/client'
@@ -22,6 +23,7 @@ function snapshot(overrides: Partial<FleetSnapshot> = {}): FleetSnapshot {
     fresh_seconds: 90,
     stale_seconds: 600,
     server_time: new Date().toISOString(),
+  trucks_total: 4,
     ...overrides,
   }
 }
@@ -34,6 +36,9 @@ describe('useFleetPoll', () => {
   })
 
   afterEach(() => {
+    // Globals are off, so Testing Library does not unmount by itself; a hook
+    // left mounted would answer the next test's visibilitychange.
+    cleanup()
     vi.useRealTimers()
     vi.restoreAllMocks()
   })
@@ -51,6 +56,18 @@ describe('useFleetPoll', () => {
       await vi.advanceTimersByTimeAsync(FLEET_POLL_MS + 50)
     })
     expect(fetchFleet).toHaveBeenCalledTimes(2)
+  })
+
+  it('fires twice on mount only under StrictMode, and the first of the two is aborted', async () => {
+    // The "duplicate fleet/active, one canceled" seen on every Fleet mount in
+    // the dev server. main.tsx wraps the app in StrictMode, which mounts,
+    // cleans up and mounts again in development only; the production React
+    // build has no double-invoke path. Without it (above): one request.
+    const fetchFleet = vi.spyOn(api, 'activeFleet').mockResolvedValue(snapshot())
+    const { result } = renderHook(() => useFleetPoll(), { wrapper: StrictMode })
+    await waitFor(() => expect(result.current.isInitialising).toBe(false))
+    expect(fetchFleet).toHaveBeenCalledTimes(2)
+    expect(fetchFleet.mock.calls.map(([signal]) => signal?.aborted)).toEqual([true, false])
   })
 
   it('keeps the last good snapshot when a poll fails', async () => {
@@ -162,6 +179,58 @@ describe('useFleetPoll', () => {
 
     expect(peak).toBe(1)
     expect(result.current.snapshot).not.toBeNull()
+  })
+
+  it('does not poll a hidden tab, and polls at once when it is shown again', async () => {
+    const setVisibility = (v: string) =>
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => v })
+    const fetchFleet = vi.spyOn(api, 'activeFleet').mockResolvedValue(snapshot())
+    try {
+      renderHook(() => useFleetPoll())
+      await waitFor(() => expect(fetchFleet).toHaveBeenCalledTimes(1))
+
+      setVisibility('hidden')
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(FLEET_POLL_MS * 5)
+      })
+      expect(fetchFleet).toHaveBeenCalledTimes(1)
+
+      setVisibility('visible')
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'))
+      })
+      expect(fetchFleet).toHaveBeenCalledTimes(2)
+      // And the healthy cadence resumes, as one loop, not two.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(FLEET_POLL_MS + 50)
+      })
+      expect(fetchFleet).toHaveBeenCalledTimes(3)
+    } finally {
+      setVisibility('visible')
+    }
+  })
+
+  it('a refresh() during an in-flight poll leaves one timer chain, not two', async () => {
+    let answer!: (s: FleetSnapshot) => void
+    const fetchFleet = vi
+      .spyOn(api, 'activeFleet')
+      .mockReturnValueOnce(new Promise((yes) => { answer = yes }))
+      .mockResolvedValue(snapshot())
+
+    const { result } = renderHook(() => useFleetPoll())
+    expect(fetchFleet).toHaveBeenCalledTimes(1)
+    // The refresh finds the first poll still out: it asks nothing, but it
+    // arms a timer - and so does the first poll when it lands.
+    await act(async () => {
+      result.current.refresh()
+      answer(snapshot())
+    })
+    expect(fetchFleet).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(FLEET_POLL_MS * 3 + 50)
+    })
+    expect(fetchFleet).toHaveBeenCalledTimes(4)
   })
 
   it('refresh() asks immediately instead of waiting for the next tick', async () => {

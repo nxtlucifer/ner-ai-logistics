@@ -250,7 +250,14 @@ class TestGpsBatch:
 
 
 class TestServiceRegion:
-    """The server, not only the planner, refuses a journey outside the North-East."""
+    """The schema validates coordinates; WHERE a point may be is the server's
+    PostGIS decision (app/services/geo_classify.py), not a bounding box here.
+
+    The retired box (21.5..29.5 N, 88..97.5 E) refused all of India outside the
+    North-East and admitted parts of Bangladesh. Logistics is India-wide now:
+    Ahmedabad is a valid destination, Dhaka is refused by the service with
+    OUTSIDE_SUPPORTED_COUNTRY (tests/test_geo_classify.py).
+    """
 
     def _payload(self, destination: dict) -> dict:
         return {
@@ -268,12 +275,15 @@ class TestServiceRegion:
     def test_the_canonical_corridor_is_accepted(self) -> None:
         ShipmentCreate.model_validate(self._payload({"lat": 25.5788, "lon": 91.8933}))
 
-    def test_an_ahmedabad_destination_is_refused_and_named(self) -> None:
-        # The TRP-08726C5F shape, refused before a shipment row exists.
-        with pytest.raises(ValidationError, match="destination .* outside the North-East service region"):
-            ShipmentCreate.model_validate(self._payload({"lat": 23.0687, "lon": 72.6735}))
+    def test_an_ahmedabad_destination_is_no_longer_refused_by_the_schema(self) -> None:
+        ShipmentCreate.model_validate(self._payload({"lat": 23.0687, "lon": 72.6735}))
 
-    def test_the_region_matches_the_console(self) -> None:
-        from app.schemas.domain import SERVICE_REGION
+    def test_coordinate_ranges_are_still_enforced(self) -> None:
+        with pytest.raises(ValidationError):
+            ShipmentCreate.model_validate(self._payload({"lat": 91.7362, "lon": 26.1445 + 200}))
 
-        assert SERVICE_REGION == {"south": 21.5, "north": 29.5, "west": 88.0, "east": 97.5}
+    def test_the_bounding_box_is_retired(self) -> None:
+        from app.schemas import domain
+
+        assert not hasattr(domain, "SERVICE_REGION")
+        assert not hasattr(domain, "in_service_region")

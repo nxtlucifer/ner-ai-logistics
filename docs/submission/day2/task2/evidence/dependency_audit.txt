@@ -1,0 +1,31 @@
+### npm audit --omit=dev (manager-web)
+found 0 vulnerabilities
+
+### npm audit (manager-web, all)
+2 moderate severity vulnerabilities
+
+### npm audit --omit=dev (driver-app)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+### npm audit (driver-app, all)
+10 moderate severity vulnerabilities
+### manager-web dev-only advisories
+ - @vitest/mocker moderate dev-only | via ['Vitest: Path Traversal / Arbitrary File Read via @vitest/moc']
+ - vitest moderate  | via ['@vitest/mocker', 'Vitest: Path Traversal / Arbitrary File Read via @vitest/moc']
+### driver-app advisories
+ - @expo/cli moderate | via ['@expo/config', '@expo/config-plugins']
+ - @expo/config moderate | via ['@expo/config-plugins']
+ - @expo/config-plugins moderate | via ['xcode']
+ - @expo/inline-modules moderate | via ['@expo/config-plugins']
+ - @expo/local-build-cache-provider moderate | via ['@expo/config']
+ - @expo/metro-config moderate | via ['@expo/config']
+ - @expo/prebuild-config moderate | via ['@expo/config', '@expo/config-plugins']
+ - expo moderate | via ['@expo/cli', '@expo/config']
+ - uuid moderate | via ['uuid: Missing buffer bounds check in v3/v5/v6 when buf is pr']
+ - xcode moderate | via ['uuid']
+driver-app production-only vulnerability count: {'info': 0, 'low': 0, 'moderate': 10, 'high': 0, 'critical': 0, 'total': 10}

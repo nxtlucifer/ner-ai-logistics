@@ -31,7 +31,7 @@ from typing import Final
 
 
 class PlaceCategory(str, Enum):
-    """The four service kinds the driver map offers.
+    """The service kinds the maps offer.
 
     Deliberately coarse. A finer taxonomy would imply the data supports
     distinctions it does not - `shop=car_repair` does not tell you whether they
@@ -39,6 +39,14 @@ class PlaceCategory(str, Enum):
     for rather than for a tag.
     """
 
+    #: `amenity=fuel` as MAPPED. Says nothing about whether it is open, has
+    #: diesel, or can take a loaded truck off the carriageway.
+    #:
+    #: Added 20 September 2026 with the data behind it. It was deliberately
+    #: absent before: the snapshot held no fuel records, and an empty layer
+    #: would have read as "no petrol stations on this corridor" rather than
+    #: "we did not collect them".
+    FUEL = "FUEL"
     #: Hospitals, police and fire stations as MAPPED. Presence of a hospital
     #: does not establish a staffed emergency department.
     EMERGENCY = "EMERGENCY"
@@ -113,6 +121,16 @@ class BoundingBox:
     min_lon: float
     max_lat: float
     max_lon: float
+    #: Whether the size cap applies.
+    #:
+    #: The cap exists to stop a CALLER asking for a region. The snapshot's
+    #: own COVERAGE extent is not a query - it is a statement about where
+    #: the data is - and the eight North-Eastern states span roughly
+    #: 7.6 x 9.6 degrees. Validating that as though it were a search made
+    #: every lookup inside a covered state report UNAVAILABLE.
+    #:
+    #: Only the loader sets this. Nothing reachable from a request does.
+    is_extent: bool = False
 
     def __post_init__(self) -> None:
         if self.min_lat > self.max_lat or self.min_lon > self.max_lon:
@@ -121,7 +139,7 @@ class BoundingBox:
             raise PlaceQueryError("Latitude out of range.")
         if not (-180 <= self.min_lon <= 180 and -180 <= self.max_lon <= 180):
             raise PlaceQueryError("Longitude out of range.")
-        if (
+        if not self.is_extent and (
             self.max_lat - self.min_lat > MAX_BBOX_DEGREES
             or self.max_lon - self.min_lon > MAX_BBOX_DEGREES
         ):

@@ -114,6 +114,8 @@ export interface UploadOutcome {
   /** True when retrying could plausibly succeed. */
   retryable: boolean
   message: string
+  /** Our request timeout fired: the link is up but too slow for this batch. */
+  timedOut?: boolean
 }
 
 export interface TrackerDeps {
@@ -137,6 +139,17 @@ export interface TrackerDeps {
 
 export const BACKOFF_BASE_MS = 2_000
 export const BACKOFF_MAX_MS = 60_000
+
+/**
+ * Fixes per POST once a backlog has built up (FE-10).
+ *
+ * The server's `batch_size` (6) suits the live cadence; draining a 500-fix
+ * dead-zone queue six at a time is ~84 serial POSTs while the manager's marker
+ * lags. Well under the server's cap of 500 per request (TRACKING_MAX_BATCH in
+ * telemetry_policy.py, and submit_location_batch), so one request stays small
+ * on a weak link.
+ */
+export const BACKLOG_BATCH_SIZE = 100
 
 /** Great-circle distance in metres. */
 export function metresBetween(
@@ -215,6 +228,9 @@ export class LocationTracker {
   private subscription: Subscription | null = null
   private flushing = false
   private failures = 0
+  /** Halved on each timed-out POST (a slow uplink), doubled back (up to
+   *  BACKLOG_BATCH_SIZE) on each success. */
+  private backlogBatch = BACKLOG_BATCH_SIZE
   private nextAttemptAt = 0
   private stopped = true
   private listeners = new Set<(state: TrackerState) => void>()
@@ -457,7 +473,9 @@ export class LocationTracker {
     // Taken off before sending and put BACK on a retryable failure. Leaving
     // them on would let the next tick send the same fixes again; dropping them
     // would lose positions the server never acknowledged.
-    const batch = this.queue.slice(0, this.config.batchSize)
+    // Up to `batchSize` normally; a backlog longer than that goes up to
+    // BACKLOG_BATCH_SIZE at a time, less after a timeout.
+    const batch = this.queue.slice(0, Math.max(this.config.batchSize, this.backlogBatch))
     this.queue = this.queue.slice(batch.length)
     this.emit({ queueDepth: this.queue.length, uploadState: 'sending' })
 
@@ -465,6 +483,8 @@ export class LocationTracker {
       await this.deps.upload(batch)
       this.failures = 0
       this.nextAttemptAt = 0
+      // Not straight to 100: on a slow link that cycles 100 -> 6 through four timeouts.
+      this.backlogBatch = Math.min(BACKLOG_BATCH_SIZE, this.backlogBatch * 2)
       this.emit({
         uploadState: 'ok',
         lastAcceptedAt: new Date(this.deps.now()),
@@ -478,8 +498,17 @@ export class LocationTracker {
       this.persist()
     } catch (error) {
       const outcome = this.deps.classify(error)
+      // A GPRS-class uplink can time out on a large batch forever while a
+      // small one gets through: halve it, down to batchSize.
+      if (outcome.timedOut) this.backlogBatch = Math.max(this.config.batchSize, Math.floor(batch.length / 2))
+      let dropped = this.state.droppedCount
       if (outcome.retryable) {
-        this.queue = [...batch, ...this.queue].slice(0, this.config.queueLimit)
+        // Fixes kept arriving while this was in flight. Past the bound, drop
+        // the OLDEST, exactly as onSample does - never the newest.
+        const merged = [...batch, ...this.queue]
+        const overflow = Math.max(0, merged.length - this.config.queueLimit)
+        this.queue = merged.slice(overflow)
+        dropped += overflow
       }
       // A non-retryable failure means this batch will never be accepted - the
       // trip ended, or the client sent something malformed. Holding it forever
@@ -492,6 +521,7 @@ export class LocationTracker {
         uploadState: 'failing',
         lastError: outcome.message,
         queueDepth: this.queue.length,
+        droppedCount: dropped,
       })
       // The batch went back on (retryable) or was discarded (not), and either
       // way the store must match what is now in memory.

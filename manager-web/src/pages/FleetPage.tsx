@@ -39,6 +39,7 @@ import {
   type Emergency,
   type FleetTrip,
   type Freshness,
+  type PlaceCategory,
   type Position,
   type RerouteAssessment,
   type ReviewAuthorization,
@@ -47,10 +48,14 @@ import {
   type TripRoute,
   type Truck,
 } from '../api/client'
-const FleetMap = lazy(() => import('../components/FleetMap'))
-import { Link } from 'react-router-dom'
+import { asked } from '../staleChunk'
+// Asked for by opening the page: a stale tab reloads even if a prefetch is out.
+const FleetMap = lazy(() => asked(() => import('../components/FleetMap')))
+import { Link, useLocation } from 'react-router-dom'
 import AssignTruckDialog from '../components/AssignTruckDialog'
+import { wrapTab } from '../components/focusTrap'
 import { FleetKpiBar } from '../components/FleetKpiBar'
+import { PoiChips } from '../components/PoiChips'
 import { RouteCandidateCards, type Candidate } from '../components/RouteCandidateCards'
 import { TruckContextDrawer } from '../components/TruckContextDrawer'
 import {
@@ -59,10 +64,36 @@ import {
   EmptyState,
   ErrorState,
   LoadingState,
+  MapLoadBoundary,
   StatusPill,
 } from '../components/ui'
+import { useAuth } from '../auth/AuthProvider'
+import { useEmergencies } from '../hooks/useEmergencies'
 import { useFleetPoll } from '../hooks/useFleetPoll'
+import { maskPhone, maskPhonesIn } from '../utils/phone'
+import { actionClass } from '../components/pageKit'
 import { factorLabels, translateReasonCodes } from '../i18n/reasonCodes'
+import { awaitingReroute, REROUTE_ASKED } from './tripExport'
+
+/** What this map is, and is not, showing.
+ *
+ * The server already restricts a scoped manager to the trips their state or
+ * district is an origin or destination for. A map that does not SAY so reads
+ * as "nothing is moving in the North-East" when the honest statement is
+ * "nothing is moving in yours".
+ */
+function scopeNote(role: string | undefined): string | null {
+  switch (role) {
+    case 'STATE_MANAGER':
+      return 'Trips your state is an origin or a destination for.'
+    case 'DISTRICT_MANAGER':
+      return 'Trips your district is an origin or a destination for.'
+    case 'NORTH_EAST_MANAGER':
+      return 'Every state in the region.'
+    default:
+      return null
+  }
+}
 
 const FRESHNESS_ORDER: Freshness[] = [
   'LIVE',
@@ -147,6 +178,21 @@ function FreshnessPill({ freshness }: { freshness: Freshness }) {
   )
 }
 
+/** A number in the SOS dossier: masked on screen, dialled in full by its
+ *  own button (E2E-R1). The call is the dossier's first action, so it is one
+ *  click from the name, never a number to copy. */
+function PhoneLine({ phone, none, call }: { phone: string | null | undefined; none: string; call: string }) {
+  if (!phone) return <div className="text-xs text-ink/80">Phone: {none}</div>
+  return (
+    <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+      <span className="text-xs text-ink/80">Phone: {maskPhone(phone)}</span>
+      <a href={`tel:${phone}`} className={actionClass()}>
+        {call}
+      </a>
+    </div>
+  )
+}
+
 function Detail({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-4 border-b border-line py-2 last:border-0">
@@ -189,7 +235,7 @@ const EMPTY_SELECTION: Selection = {
 
 function useSelectionDetail(
   row: FleetTrip | null,
-): Selection & { reload: () => void } {
+): Selection & { reload: () => void; refreshRoutes: () => void } {
   const [state, setState] = useState<Selection>(EMPTY_SELECTION)
   const requestId = useRef(0)
   // Bumped after a write, to re-read from the server rather than patching this
@@ -251,7 +297,21 @@ function useSelectionDetail(
     })()
   }, [tripId, driverId, truckId, reloadToken])
 
-  return { ...state, reload: () => setReloadToken((n) => n + 1) }
+  // The road options alone, re-read quietly: a driver's reroute adds one
+  // while the panel is open, and "1 distinct road route" must not stand
+  // until the trip is clicked again (E2E-R2). No loading state, no flicker.
+  const refreshRoutes = useCallback(() => {
+    if (!tripId) return
+    const id = requestId.current
+    api.listRoutes(tripId).then(
+      (routes) => {
+        if (id === requestId.current) setState((s) => (s.trip ? { ...s, routes } : s))
+      },
+      () => {},
+    )
+  }, [tripId])
+
+  return { ...state, reload: () => setReloadToken((n) => n + 1), refreshRoutes }
 }
 
 /** Tab ids and their labels, in the order a dispatcher reads them. */
@@ -263,8 +323,16 @@ const TABS = [
 ] as const
 
 export default function FleetPage() {
+  const { user, can } = useAuth()
   const fleet = useFleetPoll()
-  const [selectedTripId, setSelectedTripId] = useState<string | null>(null)
+  // A marker picked on the Overview map arrives here already selected; a
+  // driver's reroute request on the Trips page arrives on the Route tab.
+  const arrived = useLocation().state as { tripId?: string; tab?: string } | null
+  const arrivedWith = arrived?.tripId ?? null
+  const [selectedTripId, setSelectedTripId] = useState<string | null>(arrivedWith)
+  // The roadside-services layer. Its toggles live in the map card's header,
+  // clear of the map (audit 4: nothing over the lower third of the map).
+  const [placeCategory, setPlaceCategory] = useState<PlaceCategory | null>(null)
   const [filter, setFilter] = useState<Freshness | 'ALL'>('ALL')
   const [search, setSearch] = useState('')
   /**
@@ -281,7 +349,7 @@ export default function FleetPage() {
    * here, one tab away, and the summary and primary actions never move.
    */
   const [tab, setTab] = useState<'overview' | 'route' | 'cargo' | 'activity'>(
-    'overview',
+    arrived?.tab === 'route' ? 'route' : 'overview',
   )
   // Quick action: the same assignment dialog the Drivers and Trucks pages open.
   const [assigning, setAssigning] = useState(false)
@@ -295,6 +363,11 @@ export default function FleetPage() {
     [trips, selectedTripId],
   )
   const detail = useSelectionDetail(selectedRow)
+  // While the Route tab is open, its options follow the fleet poll.
+  const { refreshRoutes } = detail
+  useEffect(() => {
+    if (tab === 'route') refreshRoutes()
+  }, [tab, refreshRoutes, fleet.lastSyncAt])
 
   // Route planning is an explicit action, held separately from the selection
   // read: it calls a third-party provider and writes a row, so it must not
@@ -358,30 +431,40 @@ export default function FleetPage() {
     error: unknown
   } | null>(null)
 
-  // Fleet Sentinel state
-  const [emergencies, setEmergencies] = useState<Emergency[]>([])
+  // Fleet Sentinel state. The list is the shell's single poll (useEmergencies),
+  // so the topbar SOS badge and this banner cannot disagree.
+  const { emergencies, reload: loadEmergencies } = useEmergencies()
   const [selectedEmergency, setSelectedEmergency] = useState<Emergency | null>(null)
+  // Focus goes back to whatever opened the dossier, on every way out of it
+  // (DOSSIER-1, WCAG 2.4.3). After a resolve that button may leave with the
+  // SOS, so the page takes focus instead of <body>.
+  const dossierOpener = useRef<HTMLElement | null>(null)
+  // The button itself, not document.activeElement: a mouse click does not
+  // focus a button in every browser.
+  function openDossier(e: Emergency, opener: HTMLElement) {
+    dossierOpener.current = opener
+    setSelectedEmergency(e)
+  }
+  function closeDossier(resolved = false) {
+    setSelectedEmergency(null)
+    const opener = dossierOpener.current
+    dossierOpener.current = null
+    if (!resolved && opener?.isConnected) opener.focus()
+    else document.getElementById('main-content')?.focus()
+  }
   const [isResolving, setIsResolving] = useState(false)
   const [resolveNote, setResolveNote] = useState('')
   const [isFalseAlarm, setIsFalseAlarm] = useState(false)
   const [resolveError, setResolveError] = useState<string | null>(null)
-
-  const loadEmergencies = useCallback(async () => {
-    try {
-      const data = await api.activeEmergencies()
-      setEmergencies(data)
-    } catch {
-      // Background poll failure is quiet to avoid disrupting fleet view
-    }
-  }, [])
-
-  useEffect(() => {
-    void loadEmergencies()
-    const timer = setInterval(() => {
-      void loadEmergencies()
-    }, 10_000)
-    return () => clearInterval(timer)
-  }, [loadEmergencies])
+  // The server lists newest first, so a driver's SOS can sit behind a newer
+  // Sentinel check. The banner features the most severe; the rest are listed.
+  const featured =
+    emergencies.find((e) => e.briefing_snapshot?.driver_request) ??
+    emergencies.find((e) => e.state === 'SOS_ESCALATED') ??
+    emergencies[0]
+  // An unescalated check has no briefing yet; its trip is on the fleet list.
+  const tripCodeOf = (e: Emergency) =>
+    e.briefing_snapshot?.trip_code ?? trips.find((t) => t.trip_id === e.trip_id)?.trip_code ?? 'Trip'
 
   async function handleResolveEmergency() {
     if (!selectedEmergency || isResolving) return
@@ -389,7 +472,7 @@ export default function FleetPage() {
     setResolveError(null)
     try {
       await api.resolveEmergency(selectedEmergency.id, resolveNote, isFalseAlarm)
-      setSelectedEmergency(null)
+      closeDossier(true)
       setResolveNote('')
       setIsFalseAlarm(false)
       await loadEmergencies()
@@ -568,6 +651,9 @@ export default function FleetPage() {
       // that disagreed would be shown as if confirmed. Success is only
       // rendered after the server has accepted the change.
       detail.reload()
+      // The row's "Driver asked for a new road" comes from the fleet snapshot,
+      // which would keep it until the next poll (FV-E2E-3).
+      fleet.refresh()
       // Any assessment on screen compared a different current route, so it now
       // describes the wrong question. Cleared rather than left looking fresh.
       setAdvisory(null)
@@ -666,6 +752,7 @@ export default function FleetPage() {
       // different road, so every figure in the advisory describes the wrong
       // one. Showing the old proposal beside a "done" message would invite a
       // second click that the server would then refuse.
+      fleet.refresh()
       setAdvisory({ tripId, result: await api.rerouteAssessment(tripId) })
     } catch (error) {
       setAcceptError({ tripId, error })
@@ -678,6 +765,24 @@ export default function FleetPage() {
   // fleet, `selectedRow` resolves to null, and every consumer - panel, map
   // track, detail fetch - already derives from that. Nulling the id as well
   // would only add a render pass.
+
+  /**
+   * Share of the fleet that is out on a job.
+   *
+   * The denominator MUST come from outside the snapshot. The previous
+   * version divided the snapshot's active trips by the snapshot's own
+   * length, and `/api/fleet/active` returns only active trips — so it was
+   * 100% whenever anything was moving and 0% otherwise.
+   *
+   * Null when the server sent no denominator, which it does for a scoped
+   * manager: a truck belongs to the fleet, only a trip has districts, so
+   * "my trucks" is not a set that exists.
+   */
+  const utilisation = useMemo(() => {
+    const total = fleet.snapshot?.trucks_total
+    if (total === null || total === undefined || total === 0) return null
+    return Math.round((trips.length / total) * 100)
+  }, [fleet.snapshot?.trucks_total, trips.length])
 
   const counts = useMemo(() => {
     const out: Record<Freshness, number> = {
@@ -712,39 +817,37 @@ export default function FleetPage() {
   const destination =
     [...stops].reverse().find((s) => s.kind === 'DROPOFF') ?? stops[stops.length - 1]
 
+  const note = scopeNote(user?.role)
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
         <div className="min-w-0">
-          <h1 className="font-display text-[22px] font-bold tracking-tight text-ink">
+          <h1 className="font-display text-2xl font-bold tracking-tight text-ink">
             Fleet command
           </h1>
           <p className="mt-0.5 text-[12.5px] text-muted">
             Trips on the road, with the last position each truck reported.
+            {note ? <span className="text-ink"> {note}</span> : null}
           </p>
         </div>
-        {/* The freshness rule belongs beside the freshness filters, not in the
-            page subtitle where it read as a disclaimer nobody finishes. */}
-        {fleet.snapshot ? (
-          <p className="text-[11.5px] text-muted">
-            Live for{' '}
-            <span className="tnum font-semibold text-ink">
-              {fleet.snapshot.fresh_seconds}s
-            </span>{' '}
-            after the server receives a position
-          </p>
-        ) : null}
-      </div>
 
       {/* QUICK ACTIONS. Shortcuts to the canonical workflows, not copies of
           them: each goes to the one place that action already lives. */}
+      {/* A shortcut the role cannot use is not rendered (audit 11.3 D1, D7):
+          Assign truck is a fleet-wide write that a state or district
+          manager's account is refused. */}
       <div role="group" aria-label="Quick actions" className="flex flex-wrap items-center gap-2" data-testid="quick-actions">
-        <Link to="/trips" className="inline-flex min-h-10 items-center rounded-[var(--radius-control)] bg-primary px-3.5 py-2 text-sm font-semibold text-white hover:bg-primary-hover">
-          + New trip
-        </Link>
-        <Button variant="secondary" onClick={() => setAssigning(true)} title="Pair a driver with a truck - one to one, the driver confirms the truck in the app">
-          Assign truck
-        </Button>
+        {can('trip:create') ? (
+          <Link to="/trips" className="inline-flex min-h-10 items-center rounded-[var(--radius-control)] bg-primary px-3.5 py-2 text-sm font-semibold text-on-primary hover:bg-primary-hover">
+            + New trip
+          </Link>
+        ) : null}
+        {can('assignment:create') ? (
+          <Button variant="secondary" onClick={() => setAssigning(true)} title="Pair a driver with a truck - one to one, the driver confirms the truck in the app">
+            Assign truck
+          </Button>
+        ) : null}
         <Link to="/review" className="inline-flex min-h-10 items-center rounded-[var(--radius-control)] border border-line bg-surface px-3.5 py-2 text-sm font-semibold text-ink hover:bg-soft">
           Review required
         </Link>
@@ -752,7 +855,9 @@ export default function FleetPage() {
           Active trips{fleet.snapshot ? ` · ${fleet.snapshot.trips.length}` : ''}
         </a>
       </div>
+      </div>
       {assigning ? <AssignTruckDialog onClose={() => setAssigning(false)} onChanged={fleet.refresh} /> : null}
+
 
       {/* A failed poll is shown alongside the last good reading, never instead
           of it - one blip must not hide the fleet. */}
@@ -779,10 +884,10 @@ export default function FleetPage() {
       ) : (
         <>
           {/* Fleet Sentinel Safety Alert Banner */}
-          {emergencies.length > 0 && (
+          {featured && (
             <div
               role="alert"
-              className="mb-4 rounded-xl border border-danger-strong bg-danger-subtle/30 p-4 shadow-sm"
+              className="mb-4 rounded-xl border border-danger-strong bg-danger-soft p-4 shadow-sm"
             >
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
@@ -792,31 +897,46 @@ export default function FleetPage() {
                   </span>
                   <div>
                     <div className="flex items-center gap-2">
-                      <h3 className="font-semibold text-danger-strong">
-                        Fleet Sentinel Alert: {emergencies.length} Active {emergencies.length === 1 ? 'Incident' : 'Incidents'}
+                      <h3 className="font-semibold text-danger">
+                        {featured.briefing_snapshot?.driver_request ? 'Driver SOS' : 'Fleet Sentinel Alert'}: {emergencies.length} Active {emergencies.length === 1 ? 'Incident' : 'Incidents'}
                       </h3>
-                      <span className="rounded bg-danger-strong/20 px-1.5 py-0.5 text-xs font-bold text-danger-strong">
-                        {emergencies[0].state.replace(/_/g, ' ')}
+                      <span className="rounded bg-surface px-1.5 py-0.5 text-xs font-bold text-danger">
+                        {featured.state.replace(/_/g, ' ')}
                       </span>
                     </div>
                     <p className="mt-0.5 text-xs text-ink/80">
-                      {emergencies[0].state === 'SOS_ESCALATED'
-                        ? `CRITICAL: ${emergencies[0].briefing_snapshot?.escalation_reason || 'Driver reported NEED_HELP or 30-min check-in expired'}`
-                        : emergencies[0].state === 'DRIVER_CHECK_REQUIRED'
+                      {featured.state === 'SOS_ESCALATED'
+                        ? `CRITICAL: ${featured.briefing_snapshot?.escalation_reason || 'Driver reported NEED_HELP or 30-min check-in expired'}`
+                        : featured.state === 'DRIVER_CHECK_REQUIRED'
                           ? 'Driver stationary for >60min. 30-minute safety check countdown in progress.'
-                          : `Driver responded: ${(emergencies[0].driver_response ?? '').replace(/_/g, ' ')}.`}
+                          : `Driver responded: ${(featured.driver_response ?? '').replace(/_/g, ' ')}.`}
                     </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <Button
                     variant="danger"
-                    onClick={() => setSelectedEmergency(emergencies[0])}
+                    onClick={(ev) => openDossier(featured, ev.currentTarget)}
                   >
                     View Incident Dossier
                   </Button>
                 </div>
               </div>
+              {emergencies.length > 1 && (
+                <ul aria-label="Open incidents" className="mt-3 flex flex-wrap gap-2">
+                  {emergencies.map((e) => (
+                    <li key={e.id}>
+                      <button
+                        type="button"
+                        onClick={(ev) => openDossier(e, ev.currentTarget)}
+                        className="rounded border border-danger-strong bg-surface px-2 py-1 text-xs font-semibold text-danger hover:bg-danger-soft"
+                      >
+                        {tripCodeOf(e)}: {e.briefing_snapshot?.driver_request ? 'Driver SOS' : e.state.replace(/_/g, ' ')}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
 
@@ -828,13 +948,8 @@ export default function FleetPage() {
                 (t) => t.position && (t.freshness === 'LIVE' || t.freshness === 'STALE'),
               ).length
             }
-            fleetUtilizationRatio={
-              trips.length > 0
-                ? trips.filter(
-                    (t) => t.trip_status === 'ACTIVE' || t.trip_status === 'DELAYED',
-                  ).length / trips.length
-                : 0
-            }
+            fleetUtilizationPercent={utilisation}
+            fleetSize={fleet.snapshot?.trucks_total ?? null}
             // Real, and derived from the same counts the filters below show.
             // Replaces a hardcoded `onTimeRate={0.978}` that was rendered as a
             // live SLA figure.
@@ -872,24 +987,58 @@ export default function FleetPage() {
                 onClick={() => setFilter((f) => (f === key ? 'ALL' : key))}
               />
             ))}
+            {/* The freshness rule belongs beside the freshness filters, not in
+                the page subtitle where it read as a disclaimer nobody finishes. */}
+            {fleet.snapshot ? (
+              <p className="ml-auto text-[11.5px] text-muted">
+                Live for{' '}
+                <span className="tnum font-semibold text-ink">
+                  {fleet.snapshot.fresh_seconds}s
+                </span>{' '}
+                after the server receives a position
+              </p>
+            ) : null}
           </div>
 
           <div className="fleet-layout"><div className="fleet-main">
-          <Suspense
-            fallback={
-              <div className="flex h-[460px] items-center justify-center rounded-xl border border-line bg-surface/60">
-                <LoadingState label="Loading map…" />
+          {/* The map card (manager_03): title and the roadside-services
+              toggles in the header, the map inset below with its own
+              controls. Offline, the map chunk may never arrive: the KPIs
+              above and the list below stay, with a message where the map
+              would be. */}
+          <section data-testid="map-card" aria-labelledby="fleet-map-title" className="rounded-[var(--radius-card)] border border-line bg-surface p-4 shadow-[var(--shadow-card)]">
+            <header className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+              <div className="min-w-0">
+                <h2 id="fleet-map-title" className="text-xl font-bold text-ink">Live map</h2>
+                <p className="mt-0.5 text-[13px] text-muted">
+                  {trips.filter((t) => t.position).length} of {trips.length} trucks placed
+                </p>
               </div>
-            }
-          >
-            <FleetMap
-              trips={visible}
-              selectedTripId={selectedTripId}
-              onSelect={select}
-              track={detail.track}
-              plannedRoute={previewRoute?.geometry ?? activeRoute?.geometry}
-            />
-          </Suspense>
+              <PoiChips value={placeCategory} onChange={setPlaceCategory} />
+            </header>
+            <MapLoadBoundary>
+            <Suspense
+              fallback={
+                <div className="flex h-[460px] items-center justify-center rounded-[8px] border border-line bg-soft">
+                  <LoadingState label="Loading map…" />
+                </div>
+              }
+            >
+              <FleetMap
+                trips={visible}
+                selectedTripId={selectedTripId}
+                onSelect={select}
+                track={detail.track}
+                plannedRoute={previewRoute?.geometry ?? activeRoute?.geometry}
+                placeCategory={placeCategory}
+                // Sized from where the map really starts (y457 once the KPI
+                // cards and the card header are above it), so its zoom and
+                // view-mode controls sit inside a 1366x768 or 1600x900 screen.
+                frameClassName="h-[clamp(280px,calc(100dvh-472px),760px)] rounded-[8px]"
+              />
+            </Suspense>
+            </MapLoadBoundary>
+          </section>
 
 
               <div id="on-the-road">
@@ -926,7 +1075,10 @@ export default function FleetPage() {
                     }
                   />
                 ) : (
-                  <div className="overflow-x-auto">
+                  <div className="-mx-1.5 overflow-x-auto px-1.5">
+                    {/* Room for the trip button's focus ring: the scroll box
+                        clipped its left edge (A11Y-8). The negative margin keeps
+                        the table where it was. */}
                     <table className="w-full text-left text-sm">
                       <thead className="text-xs uppercase tracking-wide text-muted">
                         <tr>
@@ -953,6 +1105,24 @@ export default function FleetPage() {
                               <div className="mt-1">
                                 <StatusPill status={trip.trip_status} />
                               </div>
+                              {/* A driver's reroute request (E2E-R2): said in
+                                  words, and one click to the Route tab where
+                                  it is reviewed and accepted. */}
+                              {awaitingReroute(trip.trip_status, trip.proposed_reroute) ? (
+                                <>
+                                  <div id={`reroute-asked-${trip.trip_id}`} className="mt-1 text-[11px] font-semibold text-warning">
+                                    {REROUTE_ASKED}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    aria-describedby={`reroute-asked-${trip.trip_id}`}
+                                    className="min-h-6 text-left text-[11px] font-semibold text-primary underline underline-offset-2"
+                                    onClick={(e) => { e.stopPropagation(); setSelectedTripId(trip.trip_id); setTab('route') }}
+                                  >
+                                    Review new road
+                                  </button>
+                                </>
+                              ) : null}
                             </td>
                             <td className="py-3">
                               <div className="text-ink">{trip.driver_name}</div>
@@ -986,11 +1156,15 @@ export default function FleetPage() {
               </div>
             </div>
 
-            <div className="fleet-detail"><Card title={selectedRow ? selectedRow.trip_code : 'Details'}>
+            {/* `--empty` drops the map-matching min-height. With nothing
+                selected the panel was a 600px blank slab beside a busy map,
+                which reads as a screen that failed to load rather than one
+                waiting for a choice. */}
+            <div className={`fleet-detail${selectedRow ? '' : ' fleet-detail--empty'}`}><Card title={selectedRow ? selectedRow.trip_code : 'Details'}>
               {!selectedRow ? (
                 <EmptyState
                   title="No truck selected"
-                  description="Choose a marker on the map or a row in the list."
+                  description="Pick a marker on the map, or a row in the list, to see that trip's route, driver, truck and GPS freshness here."
                 />
               ) : detail.isLoading ? (
                 <LoadingState label="Loading trip details…" />
@@ -1067,8 +1241,9 @@ export default function FleetPage() {
                     {/* Rendered only when the API actually returned it - the
                         endpoint is permission-gated, so absence is a real
                         answer rather than a blank to fill in. */}
+                    {/* Masked, as on Drivers; "Call Driver" above dials it (E2E-R1). */}
                     {detail.driver?.phone ? (
-                      <Detail label="Phone" value={detail.driver.phone} />
+                      <Detail label="Phone" value={maskPhone(detail.driver.phone)} />
                     ) : null}
                     {detail.driver ? (
                       <Detail
@@ -1542,17 +1717,27 @@ export default function FleetPage() {
               role="dialog"
               aria-modal="true"
               aria-labelledby="dossier-title"
+              // Same promise, same two handlers. See TripsPage.
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') { e.stopPropagation(); closeDossier() }
+                else if (e.key === 'Tab') { e.stopPropagation(); wrapTab(e) }
+              }}
+              // See TripsPage: focus once, not on every render.
+              ref={(node) => {
+                if (!node || node.contains(document.activeElement)) return
+                node.querySelector<HTMLElement>('button, select, input, textarea, a[href]')?.focus()
+              }}
               className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
             >
               <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border border-line bg-surface p-6 shadow-2xl">
                 <div className="flex items-start justify-between border-b border-line pb-4">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="rounded bg-danger/20 px-2 py-0.5 text-xs font-bold text-danger-strong">
+                      <span className="rounded bg-danger/20 px-2 py-0.5 text-xs font-bold text-danger">
                         {selectedEmergency.state.replace(/_/g, ' ')}
                       </span>
                       <h2 id="dossier-title" className="text-lg font-bold text-ink">
-                        Incident Dossier: {selectedEmergency.briefing_snapshot?.trip_code ?? 'Trip'}
+                        {selectedEmergency.briefing_snapshot?.driver_request ? 'Driver SOS' : 'Incident Dossier'}: {tripCodeOf(selectedEmergency)}
                       </h2>
                     </div>
                     <p className="mt-1 text-sm text-muted">
@@ -1561,7 +1746,8 @@ export default function FleetPage() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setSelectedEmergency(null)}
+                    aria-label="Close incident dossier"
+                    onClick={() => closeDossier()}
                     className="rounded-lg p-1 text-muted hover:bg-soft hover:text-ink text-base font-bold"
                   >
                     ✕
@@ -1569,6 +1755,14 @@ export default function FleetPage() {
                 </div>
 
                 <div className="mt-4 space-y-4 text-sm">
+                  {selectedEmergency.briefing_snapshot?.driver_request && (
+                    <div className="rounded-xl border border-danger-strong bg-danger-soft p-4">
+                      <div className="text-xs font-medium text-muted">Driver's request</div>
+                      <div className="font-semibold text-danger">{selectedEmergency.briefing_snapshot.driver_request.category}</div>
+                      <div className="text-xs text-ink">{selectedEmergency.briefing_snapshot.driver_request.reason}</div>
+                    </div>
+                  )}
+
                   {/* Driver & Contact Block */}
                   <div className="grid grid-cols-2 gap-4 rounded-xl border border-line bg-soft/40 p-4">
                     <div>
@@ -1576,18 +1770,14 @@ export default function FleetPage() {
                       <div className="font-semibold text-ink">
                         {selectedEmergency.briefing_snapshot?.driver?.name ?? 'Unknown'}
                       </div>
-                      <div className="text-xs text-ink/80">
-                        Phone: {selectedEmergency.briefing_snapshot?.driver?.phone ?? 'Unavailable'}
-                      </div>
+                      <PhoneLine phone={selectedEmergency.briefing_snapshot?.driver?.phone} none="Unavailable" call="Call driver" />
                     </div>
                     <div>
                       <div className="text-xs font-medium text-muted">Emergency Contact</div>
                       <div className="font-semibold text-ink">
                         {selectedEmergency.briefing_snapshot?.driver?.emergency_contact_name ?? 'None listed'}
                       </div>
-                      <div className="text-xs text-ink/80">
-                        Phone: {selectedEmergency.briefing_snapshot?.driver?.emergency_contact_phone ?? 'None'}
-                      </div>
+                      <PhoneLine phone={selectedEmergency.briefing_snapshot?.driver?.emergency_contact_phone} none="None" call="Call contact" />
                     </div>
                   </div>
 
@@ -1600,16 +1790,25 @@ export default function FleetPage() {
                         {selectedEmergency.briefing_snapshot?.truck?.model ? ` (${selectedEmergency.briefing_snapshot.truck.model})` : ''}
                       </div>
                       <div className="text-xs text-ink/80">
-                        Priority: {selectedEmergency.briefing_snapshot?.cargo?.priority ?? 'STANDARD'} | Weight: {selectedEmergency.briefing_snapshot?.cargo?.weight_kg ?? 'N/A'} kg
+                        Priority: {selectedEmergency.briefing_snapshot?.cargo?.priority ?? 'unknown'} | Weight: {selectedEmergency.briefing_snapshot?.cargo?.weight_kg ?? 'N/A'} kg
                       </div>
                     </div>
                     <div>
                       <div className="text-xs font-medium text-muted">Corridor / Route</div>
                       <div className="font-semibold text-ink">
-                        {selectedEmergency.briefing_snapshot?.corridor?.origin ?? 'Origin'} → {selectedEmergency.briefing_snapshot?.corridor?.destination ?? 'Destination'}
+                        {selectedEmergency.briefing_snapshot?.route?.origin ?? 'Origin unknown'} → {selectedEmergency.briefing_snapshot?.route?.destination ?? 'Destination unknown'}
                       </div>
                       <div className="text-xs text-ink/80">
-                        Stationary for: ~{selectedEmergency.briefing_snapshot?.last_known_location?.minutes_stationary ?? 60} minutes
+                        {/* Only an unanswered check describes a stop that is still being
+                            measured; once the driver answered, Sentinel stops tracking it
+                            (backend sentinel.escalate_driver_sos), so it is not restated. */}
+                        {selectedEmergency.briefing_snapshot == null && selectedEmergency.state === 'DRIVER_CHECK_REQUIRED'
+                          ? `Stationary since: ${new Date(selectedEmergency.stationary_since).toLocaleString()}`
+                          : selectedEmergency.briefing_snapshot == null
+                          ? 'Stationary for: unknown'
+                          : `Stationary for: ${selectedEmergency.briefing_snapshot.location?.stopped_duration_minutes == null
+                            ? 'unknown'
+                            : `~${Math.round(selectedEmergency.briefing_snapshot.location.stopped_duration_minutes)} minutes`}`}
                       </div>
                     </div>
                   </div>
@@ -1618,12 +1817,12 @@ export default function FleetPage() {
                   <div className="rounded-xl border border-line bg-soft/40 p-4">
                     <div className="text-xs font-medium text-muted">Last Known Coordinates</div>
                     <div className="mt-1 font-mono text-xs text-ink">
-                      {selectedEmergency.briefing_snapshot?.last_known_location?.latitude !== undefined
-                        ? `LAT: ${selectedEmergency.briefing_snapshot.last_known_location.latitude.toFixed(6)}, LON: ${selectedEmergency.briefing_snapshot.last_known_location.longitude?.toFixed(6)}`
-                        : 'Coordinates recorded in telemetry'}
+                      {selectedEmergency.briefing_snapshot?.location?.lat != null && selectedEmergency.briefing_snapshot.location.lon != null
+                        ? `LAT: ${selectedEmergency.briefing_snapshot.location.lat.toFixed(6)}, LON: ${selectedEmergency.briefing_snapshot.location.lon.toFixed(6)}`
+                        : 'Position unknown'}
                     </div>
                     <div className="mt-1 text-xs text-muted">
-                      Last fix received: {selectedEmergency.briefing_snapshot?.last_known_location?.fix_at ? new Date(selectedEmergency.briefing_snapshot.last_known_location.fix_at).toLocaleString() : 'N/A'}
+                      Last fix received: {selectedEmergency.briefing_snapshot?.location?.fix_recorded_at ? new Date(selectedEmergency.briefing_snapshot.location.fix_recorded_at).toLocaleString() : 'N/A'}
                     </div>
                   </div>
 
@@ -1631,15 +1830,26 @@ export default function FleetPage() {
                   {selectedEmergency.briefing_snapshot?.suggested_actions && selectedEmergency.briefing_snapshot.suggested_actions.length > 0 && (
                     <div className="rounded-xl border border-line bg-soft/40 p-4">
                       <div className="text-xs font-medium text-muted">Recommended Standard Operating Procedures (SOP)</div>
-                      <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-ink">
+                      {/* No bullet: the server numbers its own steps (E2E-D8). */}
+                      <ul className="mt-2 list-none space-y-1 text-xs text-ink">
                         {selectedEmergency.briefing_snapshot.suggested_actions.map((act, i) => (
-                          <li key={i}>{act}</li>
+                          // The server writes the numbers into the steps; they
+                          // are masked here like everywhere else (E2E-R1).
+                          <li key={i}>
+                            {maskPhonesIn(act, [
+                              selectedEmergency.briefing_snapshot?.driver?.phone,
+                              selectedEmergency.briefing_snapshot?.driver?.emergency_contact_phone,
+                            ])}
+                          </li>
                         ))}
                       </ul>
                     </div>
                   )}
 
-                  {/* Resolution Form */}
+                  {/* Resolution Form. Only for a role the server lets resolve
+                      (audit 11.3 D2): a state or district manager reads the
+                      dossier and is told who can close it. */}
+                  {can('emergency:resolve') ? (
                   <div className="rounded-xl border border-line p-4">
                     <h3 className="font-semibold text-ink">Resolve Incident</h3>
                     {resolveError && (
@@ -1668,7 +1878,7 @@ export default function FleetPage() {
                       </label>
                     </div>
                     <div className="mt-4 flex items-center justify-end gap-3">
-                      <Button variant="secondary" onClick={() => setSelectedEmergency(null)}>
+                      <Button variant="secondary" onClick={() => closeDossier()}>
                         Close
                       </Button>
                       <Button
@@ -1680,6 +1890,17 @@ export default function FleetPage() {
                       </Button>
                     </div>
                   </div>
+                  ) : (
+                    <div className="flex items-center justify-between gap-3 rounded-xl border border-line p-4">
+                      <p className="text-xs text-muted">
+                        Your account can read this incident but not resolve it. A regional or fleet
+                        manager resolves it.
+                      </p>
+                      <Button variant="secondary" onClick={() => closeDossier()}>
+                        Close
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

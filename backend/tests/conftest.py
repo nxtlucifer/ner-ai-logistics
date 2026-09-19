@@ -562,3 +562,48 @@ def clear_hazard_evidence(monkeypatch):
     monkeypatch.setattr(
         _risk, "build_landslide_provider", lambda: _AnsweredNothingFound()
     )
+
+
+@pytest.fixture(autouse=True)
+def _no_reverse_geocoding(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Creating a shipment reverse-geocodes its endpoints. No test may reach
+    Nominatim: by default the lookup is unavailable, so geography stays unknown
+    exactly as before, and tests that need an answer patch one in."""
+    from app.services import geocoding
+
+    async def unavailable(lat: float, lon: float):
+        raise geocoding.GeocodingUnavailable("reverse geocoding is stubbed in tests")
+
+    monkeypatch.setattr(geocoding, "reverse_admin", unavailable)
+
+
+async def _with_fixture_geography(admin: bool) -> AsyncGenerator[None, None]:
+    from tests import geo_fixtures
+
+    async with db_session.get_sessionmaker()() as s:
+        await geo_fixtures.load(s, admin=admin)
+    try:
+        yield
+    finally:
+        async with db_session.get_sessionmaker()() as s:
+            await geo_fixtures.unload(s)
+
+
+@pytest_asyncio.fixture
+async def fixture_india() -> AsyncGenerator[None, None]:
+    """The SYNTHETIC India outline only (tests/geo_fixtures.py).
+
+    Country acceptance fails closed without an India boundary (503
+    GEOGRAPHY_UNAVAILABLE), so any test that creates a shipment or adds a stop
+    needs one. No state geometry: state/district stay on the OSM fallback,
+    which the suite stubs as unavailable - exactly the pre-0016 behaviour.
+    """
+    async for _ in _with_fixture_geography(admin=False):
+        yield
+
+
+@pytest_asyncio.fixture
+async def fixture_geography() -> AsyncGenerator[None, None]:
+    """The synthetic India outline plus synthetic state and district shapes."""
+    async for _ in _with_fixture_geography(admin=True):
+        yield

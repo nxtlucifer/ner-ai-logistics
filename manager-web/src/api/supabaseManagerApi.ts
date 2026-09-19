@@ -951,11 +951,21 @@ export const supabaseManagerApi = {
       })
     }
 
+    // The denominator for utilisation. RLS scopes this read the same way
+    // it scopes every other one, so a caller who may not see the fleet
+    // gets a count of what they may see - or null if the read fails,
+    // never a zero that would render as 0% utilisation.
+    const { count: trucksTotal } = await supabase
+      .from('trucks')
+      .select('id', { count: 'exact', head: true })
+      .neq('status', 'RETIRED')
+
     return {
       trips: fleetTrips,
       fresh_seconds: 30,
       stale_seconds: 120,
       server_time: now.toISOString(),
+      trucks_total: trucksTotal ?? null,
     }
   },
 

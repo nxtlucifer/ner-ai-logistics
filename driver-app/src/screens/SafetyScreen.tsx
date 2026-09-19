@@ -29,12 +29,24 @@
  * They are rendered as cards saying so, in grey, with an action that hands the
  * judgement back to the driver - not hidden, and never green. See
  * `src/safety/riskCards.ts`, where that rule is a test.
+ *
+ * LAYOUT (Phase B2, driver_03): a photo hero with the GPS and theme chips, the
+ * emergency numbers card, the Call 112 card, a Safety tools grid, a photo
+ * banner, then the break card, the guidance list and its provenance. The
+ * tools are audit s7's mapping of the reference's four, each onto a real
+ * function: Your location (the GPS state, opens Navigate - nothing is shared),
+ * Safety guidance, Emergency contact (read-only in My details - nothing is
+ * managed here) and the Driver Assistant. While a trip runs, the stop request
+ * (it lands on the Trip tab's control) and Breaks join them; before that they
+ * are not drawn, so the grid never shows a dead tile. Safety is a tab root, so
+ * its hero has no back arrow; topic detail keeps "All topics".
  */
 
-import { useEffect, useState } from 'react'
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Linking, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native'
 
-import { resolveLanguage } from '../i18n/language'
+import { guidanceIsTranslated, useGuidanceLanguage } from '../i18n/language'
+import { useAppLanguage } from '../i18n/AppLanguageProvider'
 import { assessBreak, formatElapsed, type BreakLevel } from '../safety/breaks'
 import { readLastBreak, recordBreak } from '../safety/breakStore'
 import { useTrip } from '../trip/TripProvider'
@@ -52,9 +64,19 @@ import {
 import AiPanel from '../ai/AiPanel'
 import { useLocalAi } from '../ai/useLocalAi'
 import { TOUCH_TARGET } from '../theme'
-import { Icon } from '../components/icons'
+import { Icon, type IconName } from '../components/icons'
+import { PHOTOS } from '../components/photoCredits'
+import { CoverPhoto, IconDisc, PhotoCredit, ScreenHero, StatusChip, emergencyNumberLook, gradient, useTopInset, type Tone } from '../components/scenic'
+import { useGpsStatus } from '../map/useGpsStatus'
 import { useT } from '../i18n/tx'
 import { makeStyles, useTheme } from '../theme-context'
+
+/** `tel:` opens the dialler; it never places the call. Failure is silent on
+ *  purpose: a device with no dialler (a tablet, the web build) must not crash
+ *  the safety screen, and the number stays on screen to read. */
+function dial(number: string) {
+  void Linking.openURL(`tel:${number}`).catch(() => {})
+}
 
 function Bullets({ items, tone }: { items: string[]; tone?: 'bad' }) {
   const styles = useStyles()
@@ -90,24 +112,31 @@ function Section({
   )
 }
 
-function Detail({ topic, onBack }: { topic: Topic; onBack: () => void }) {
+function Detail({ topic, onBack, status }: { topic: Topic; onBack: () => void; status?: ReactNode }) {
   const styles = useStyles()
   const { colors: COLORS } = useTheme()
   const t = useT()
-  const lang = resolveLanguage()
+  const lang = useGuidanceLanguage()
   const ai = useLocalAi()
+  // No hero here to take the status bar (CERT-DRV-08): the column starts under it.
+  const inset = useTopInset()
 
   return (
-    <ScrollView contentContainerStyle={styles.content}>
-      <Pressable
-        onPress={onBack}
-        accessibilityRole="button"
-        accessibilityLabel="Back to safety topics"
-        style={({ pressed }) => [styles.back, pressed && styles.pressed]}
-      >
-        <Icon name="chevron-left" size={20} color={COLORS.muted} />
-        <Text style={styles.backLabel}>{t('All topics')}</Text>
-      </Pressable>
+    <ScrollView contentContainerStyle={[styles.content, { paddingTop: 16 + inset }]}>
+      {/* The GPS chip rides with the back link: this view has no hero, and
+          GPS state stays on every driver screen. */}
+      <View style={styles.detailTop}>
+        <Pressable
+          onPress={onBack}
+          accessibilityRole="button"
+          accessibilityLabel="Back to safety topics"
+          style={({ pressed }) => [styles.back, pressed && styles.pressed]}
+        >
+          <Icon name="chevron-left" size={20} color={COLORS.textMuted} />
+          <Text style={styles.backLabel}>{t('All topics')}</Text>
+        </Pressable>
+        {status}
+      </View>
 
       <Text style={styles.detailTitle}>{topic.title}</Text>
 
@@ -199,7 +228,7 @@ function TopicButton({ topic, onPress }: { topic: Topic; onPress: () => void }) 
         {/* Text, not only colour: risk must never be conveyed by hue alone. */}
         {topic.emergency ? <Text style={styles.topicTag}>{t('EMERGENCY')}</Text> : null}
       </View>
-      <Icon name="chevron-right" size={20} color={COLORS.faint} />
+      <Icon name="chevron-right" size={20} color={COLORS.textFaint} />
     </Pressable>
   )
 }
@@ -330,63 +359,290 @@ function BreakCard() {
   )
 }
 
-export default function SafetyScreen() {
+/** One Safety tool. A tool that cannot act yet stays on screen with its
+ *  reason and no chevron, and is disabled for touch and screen readers: a
+ *  tile that silently did nothing would be a dead control. */
+function Tool({
+  icon,
+  tone = 'neutral',
+  title,
+  subtitle,
+  onPress,
+  testID,
+}: {
+  icon: IconName
+  tone?: Tone
+  title: string
+  subtitle: string
+  onPress?: () => void
+  testID?: string
+}) {
   const styles = useStyles()
+  const { colors: COLORS } = useTheme()
+  const off = onPress === undefined
+  // Below 400 dp of room one tool per row: two columns left about 85 px for
+  // the words, which broke "Emergenc-y" mid-word and clipped subtitles. Room
+  // is width over font scale, as for Navigate's quick tiles: a 412 dp phone
+  // at 1.3x text cut "Offline guidance and the translator" in two columns.
+  const { width, fontScale } = useWindowDimensions()
+  const narrow = width / (fontScale || 1) < 400
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={off}
+      accessibilityRole="button"
+      accessibilityLabel={`${title}. ${subtitle}`}
+      accessibilityState={{ disabled: off }}
+      // react-native-web reads the aria-* form (see FloatingTabBar).
+      aria-disabled={off}
+      testID={testID}
+      style={({ pressed }) => [styles.tool, narrow && styles.toolNarrow, pressed && !off && styles.pressed]}
+    >
+      <View style={off && styles.toolDiscOff}>
+        <IconDisc icon={icon} tone={tone} size={34} />
+      </View>
+      {/* Dimmed words as well as the disc: a disabled tile must not read as
+          tappable at a glance. textMuted keeps AA for the reason. */}
+      <View style={styles.toolText}>
+        <Text style={[styles.toolTitle, off && styles.toolTitleOff]} numberOfLines={2}>{title}</Text>
+        <Text style={styles.toolSub} numberOfLines={3}>{subtitle}</Text>
+      </View>
+      {off ? null : <Icon name="chevron-right" size={18} color={COLORS.textMuted} />}
+    </Pressable>
+  )
+}
+
+export default function SafetyScreen({
+  onOpenTrip,
+  onOpenNavigate,
+  onOpenDetails,
+  onOpenAssistant,
+}: {
+  /** The Trip tab, at its emergency stop-request control. */
+  onOpenTrip?: () => void
+  /** The Navigate tab: the map with the phone's own position. */
+  onOpenNavigate?: () => void
+  /** My details, where the emergency contact is shown read-only. */
+  onOpenDetails?: () => void
+  onOpenAssistant?: () => void
+}) {
+  const styles = useStyles()
+  const { colors: COLORS } = useTheme()
   const t = useT()
-  const lang = resolveLanguage()
+  const lang = useGuidanceLanguage()
+  const { language: appLanguage, t: tk } = useAppLanguage()
+  const { trip } = useTrip()
+  // One GPS reading for the hero chip and the Your location tool, by the
+  // rule Navigate's map uses, so the two tabs cannot disagree (B2D-07).
+  const gps = useGpsStatus(true)
+  const status = <StatusChip text={gps.text} tone={gps.live ? 'live' : 'off'} />
   const [openId, setOpenId] = useState<string | null>(null)
+  // Below 400 dp the three number tiles stack their disc over the number.
+  const { width: windowW, fontScale } = useWindowDimensions()
+  const narrow = windowW < 400
+  // With large text for the width, the three tiles take a row each
+  // (CERT-DRV-02): at 360 dp and font scale 1.5, "Ambulance" broke mid-word.
+  const stackNumbers = windowW / (fontScale || 1) < 340
+  const scroll = useRef<ScrollView>(null)
+  const anchors = useRef<{ guide?: number; rest?: number }>({})
+  const scrollTo = (key: 'guide' | 'rest') => {
+    const y = anchors.current[key]
+    // Not animated: a jump respects reduced motion and lands at once.
+    if (y !== undefined) scroll.current?.scrollTo({ y: Math.max(0, y - 12), animated: false })
+  }
 
   const topics = topicsFor(lang)
   const open = openId ? topics.find((t) => t.id === openId) : undefined
+  // The stop request is the Trip tab's, and only while a trip runs. The
+  // break timer runs from the server's start time (BreakCard).
+  const inProgress = Boolean(trip?.tracking_expected)
+  const breakRunning = trip?.started_at != null && !Number.isNaN(Date.parse(trip.started_at))
 
-  if (open) return <Detail topic={open} onBack={() => setOpenId(null)} />
+  if (open) return <Detail topic={open} onBack={() => setOpenId(null)} status={status} />
 
   return (
-    <ScrollView contentContainerStyle={styles.content}>
-      {/* First on the screen and reachable without scrolling. Everything else
-          here can wait; this cannot. */}
-      <View style={styles.numbers}>
-        {emergencyNumbers(lang).map((entry) => (
-          <Pressable
-            key={entry.number}
-            onPress={() => {
-              // Failure here is silent on purpose: a device with no dialler
-              // (a tablet, the web build) must not crash the safety screen.
-              // The number is on screen either way, which is the fallback
-              // that actually matters.
-              void Linking.openURL(`tel:${entry.number}`).catch(() => {})
-            }}
-            accessibilityRole="button"
-            accessibilityLabel={`Call ${entry.number}, ${entry.label}`}
-            style={({ pressed }) => [styles.number, pressed && styles.pressed]}
-          >
-            <Text style={styles.numberDigits}>{entry.number}</Text>
-            <Text style={styles.numberLabel}>{entry.label}</Text>
-          </Pressable>
-        ))}
-      </View>
-      <Text style={styles.numbersNote}>
-        {t('Tapping opens your dialler. You still press call.')}
-      </Text>
+    <ScrollView ref={scroll} contentContainerStyle={styles.page}>
+      <ScreenHero
+        photo={PHOTOS.safety}
+        title={tk('nav_safety')}
+        subtitle={t('Emergency numbers and offline guidance')}
+        status={status}
+        themeChip
+        height={244}
+        // Text in flow above the credit (CERT-DRV-03): at a large font scale
+        // the subtitle ran under the credit plate; the hero now grows instead.
+        creditAt="bottom"
+      />
 
-      <BreakCard />
-
-      <View style={styles.block}>
-        <View style={styles.sectionHead}>
-          <View>
-            <Text style={styles.eyebrow}>{t('GUIDANCE')}</Text>
-            <Text style={styles.sectionNote}>{t('Bundled in the app · works offline')}</Text>
+      <View style={styles.cards}>
+        {/* First on the screen and reachable without scrolling. Everything
+            else here can wait; this cannot. */}
+        <View style={styles.card} testID="safety-numbers">
+          <Text style={styles.cardTitle} accessibilityRole="header">{t('Emergency Numbers')}</Text>
+          <Text style={styles.cardSub}>{t('Tapping opens your dialler. You still press call.')}</Text>
+          <View style={[styles.numbers, stackNumbers && styles.numbersStacked]}>
+            {emergencyNumbers(lang).map((entry) => {
+              // 112 reaches everything, so it is the one tile that fills.
+              // Three identical red slabs made the driver read all three
+              // before choosing; this makes the default obvious in the
+              // half-second where that matters.
+              const primary = entry.number === '112'
+              return (
+                <Pressable
+                  key={entry.number}
+                  onPress={() => dial(entry.number)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Call ${entry.number}, ${entry.label}`}
+                  testID={`call-${entry.number}`}
+                  style={({ pressed }) => [styles.number, primary && styles.numberPrimary, pressed && styles.pressed]}
+                >
+                  {/* Disc and number share a line; the label takes the tile's
+                      full width below, so "emergencies" never breaks. */}
+                  <View style={styles.numberHead}>
+                    {primary ? (
+                      <View style={[styles.numberDiscStrong, narrow && styles.numberDiscNarrow]}>
+                        <Icon name="phone" size={16} color={COLORS.onFill} />
+                      </View>
+                    ) : (
+                      <IconDisc {...emergencyNumberLook(entry.number)} size={narrow ? 30 : 34} />
+                    )}
+                    <Text style={[styles.numberDigits, narrow && styles.numberDigitsNarrow, primary && styles.numberDigitsPrimary]}>{entry.number}</Text>
+                  </View>
+                  <Text style={styles.numberLabel} numberOfLines={3}>{entry.label}</Text>
+                </Pressable>
+              )
+            })}
           </View>
         </View>
 
+        <View style={[styles.card, styles.help, narrow && styles.helpNarrow]} testID="safety-help">
+          <View style={styles.helpLead}>
+            <IconDisc icon="phone-call" tone="emergency" size={52} />
+            <View style={styles.helpText}>
+              <Text style={styles.helpTitle}>{t('Need immediate help?')}</Text>
+              <Text style={styles.helpSub}>{t('One number for all emergencies')}</Text>
+            </View>
+          </View>
+          <Pressable
+            onPress={() => dial('112')}
+            accessibilityRole="button"
+            accessibilityLabel="Call 112, all emergencies"
+            testID="call-112-cta"
+            style={({ pressed }) => [styles.callCta, narrow && styles.callCtaNarrow, pressed && styles.pressed]}
+          >
+            <Icon name="phone" size={18} color={COLORS.onFill} />
+            <Text style={styles.callCtaText}>{t('Call 112')}</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.card} testID="safety-tools">
+          <Text style={styles.cardTitle} accessibilityRole="header">{t('Safety Tools')}</Text>
+          <Text style={styles.cardSub}>{t('Help and guidance on this phone')}</Text>
+          <View style={styles.tools}>
+            {/* The reference's Live Location: the GPS state, never a share. */}
+            <Tool
+              icon="map-pin"
+              tone="route"
+              title={t('Your location')}
+              subtitle={gps.text}
+              onPress={onOpenNavigate}
+              testID="tool-location"
+            />
+            <Tool
+              icon="book-open"
+              title={t('Safety guidance')}
+              subtitle={`${topics.length} ${t('topics · works offline')}`}
+              onPress={() => scrollTo('guide')}
+              testID="tool-guidance"
+            />
+            {/* The reference's Emergency Contacts: read-only, one contact. */}
+            <Tool
+              icon="user"
+              tone="emergency"
+              title={t('Emergency contact')}
+              subtitle={t('View in My Details')}
+              onPress={onOpenDetails}
+              testID="tool-contact"
+            />
+            <Tool
+              icon="message-circle"
+              title={t('Driver Assistant')}
+              subtitle={t('Offline guidance and the translator')}
+              onPress={onOpenAssistant}
+              testID="tool-assistant"
+            />
+            {inProgress && onOpenTrip ? (
+              <Tool
+                icon="alert-octagon"
+                tone="emergency"
+                title={t('Emergency stop request')}
+                subtitle={t('Alerts your manager · on the Trip tab')}
+                onPress={onOpenTrip}
+                testID="tool-stop-request"
+              />
+            ) : null}
+            {breakRunning ? (
+              <Tool
+                icon="coffee"
+                tone="caution"
+                title={t('Breaks')}
+                subtitle={t('Record a stop for a break')}
+                onPress={() => scrollTo('rest')}
+                testID="tool-breaks"
+              />
+            ) : null}
+          </View>
+        </View>
+      </View>
+
+      {/* The reference's banner, with a true line in place of its slogan. */}
+      <View style={styles.banner} testID="safety-banner">
+        <CoverPhoto photo={PHOTOS.strip} />
+        <View style={[styles.fill, styles.passThrough, { backgroundColor: COLORS.imageDim }]} />
+        <View
+          style={[
+            styles.fill,
+            styles.passThrough,
+            // The text keeps to the left 60%, inside the full-strength scrim:
+            // past 55% the Light scrim thinned over the pale lake and the end
+            // of the line fell to about 2:1 (B2D-03).
+            gradient(`linear-gradient(90deg, ${COLORS.imageScrim} 0%, ${COLORS.imageScrim} 64%, transparent 100%)`),
+          ]}
+        />
+        <View style={styles.bannerText}>
+          <Text style={styles.bannerTitle}>{t('Stored on this phone')}</Text>
+          <Text style={styles.bannerSub}>{t('Numbers, guidance and your break timer open with no connection.')}</Text>
+        </View>
+        <PhotoCredit photo={PHOTOS.strip} style={styles.bannerCredit} />
+      </View>
+
+      <View onLayout={(e) => { anchors.current.rest = e.nativeEvent.layout.y }} style={styles.pageSection}>
+        <BreakCard />
+      </View>
+
+      <View onLayout={(e) => { anchors.current.guide = e.nativeEvent.layout.y }} style={styles.pageSection} testID="safety-guidance">
+        <Text style={styles.cardTitle} accessibilityRole="header">{t('Safety Guidance')}</Text>
+        <Text style={styles.sectionNote}>{t('Bundled in the app · works offline')}</Text>
+
         <Text style={styles.disclaimer}>{disclaimer(lang)}</Text>
+        {/* ISSUE 12. The guidance now follows the language the driver
+            CHOSE, not the one the phone was sold with. Where no reviewed
+            translation exists it says so, in their language, rather than
+            quietly serving English and letting them assume it is theirs.
+            Machine-translating a head-injury instruction is not the
+            alternative. */}
+        {guidanceIsTranslated(appLanguage) ? null : (
+          <Text style={styles.disclaimer}>
+            {t('This guidance is reviewed in English, Hindi and Assamese only. It is shown in English because no reviewed translation exists for your language yet.')}
+          </Text>
+        )}
 
         {topics.map((topic) => (
           <TopicButton key={topic.id} topic={topic} onPress={() => setOpenId(topic.id)} />
         ))}
       </View>
 
-      <View style={styles.provenance}>
+      <View style={[styles.pageSection, styles.provenance]}>
         {/* Version and sources on screen, not only in the file. A guide whose
             vintage is invisible is one nobody notices has gone stale. */}
         <Text style={styles.provenanceText}>
@@ -403,9 +659,7 @@ export default function SafetyScreen() {
 }
 
 const useStyles = makeStyles((COLORS) => ({
-  // Bounded and centred. These screens are built for a phone, and on the
-  // desktop browser they are demonstrated in an unbounded column stretches a
-  // sentence across the whole window. Below the maximum it simply fills.
+  // The topic detail keeps the bounded column it had.
   content: {
     padding: 16,
     paddingBottom: 40,
@@ -413,189 +667,145 @@ const useStyles = makeStyles((COLORS) => ({
     width: '100%',
     alignSelf: 'center',
   },
+  page: { paddingBottom: 28, backgroundColor: COLORS.bg },
+  fill: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+  passThrough: { pointerEvents: 'none' },
+  pressed: { opacity: 0.75 },
 
-  /** One section. The rhythm between them is what makes the two halves of
-   *  this screen read as two halves rather than one long list. */
-  block: { marginBottom: 28 },
-  sectionHead: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 10,
+  /* --- driver_03 cards: 94% of the width (13 dp gutters), radius 14 ---- */
+  // Rides up over the hero's rounded foot, as the reference's first card.
+  cards: { marginTop: -26, paddingHorizontal: 13, gap: 8 },
+  card: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
+    padding: 12,
   },
+  cardTitle: { color: COLORS.text, fontSize: 15, fontWeight: '800' },
+  cardSub: { color: COLORS.textMuted, fontSize: 12, lineHeight: 17, marginTop: 1, marginBottom: 8 },
+
+  numbers: { flexDirection: 'row', gap: 8 },
+  numbersStacked: { flexDirection: 'column' },
+  number: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 60,
+    gap: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surfaceRaised,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+  },
+  numberHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  numberPrimary: { backgroundColor: COLORS.dangerSoft, borderColor: COLORS.dangerBorder },
+  numberDiscStrong: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: COLORS.dangerStrong,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  numberDiscNarrow: { width: 30, height: 30, borderRadius: 15 },
+  // 18 against the reference's 15: the one figure a driver must read at a
+  // glance. Recorded as a cab-legibility decision in the mismatch log.
+  numberDigits: { flexShrink: 1, color: COLORS.text, fontSize: 18, fontWeight: '800' },
+  numberDigitsNarrow: { fontSize: 17 },
+  numberDigitsPrimary: { color: COLORS.danger },
+  numberLabel: { color: COLORS.textMuted, fontSize: 12, lineHeight: 15 },
+
+  help: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  helpNarrow: { flexDirection: 'column', alignItems: 'stretch' },
+  helpLead: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  helpText: { flex: 1, minWidth: 0 },
+  helpTitle: { color: COLORS.text, fontSize: 15, fontWeight: '800' },
+  helpSub: { color: COLORS.textMuted, fontSize: 13, lineHeight: 18, marginTop: 2 },
+  // Red, not the reference's forest: this dials an emergency number, and red
+  // is the one hue this app keeps for emergencies.
+  callCta: {
+    minHeight: TOUCH_TARGET,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 18,
+    borderRadius: 12,
+    backgroundColor: COLORS.dangerStrong,
+  },
+  callCtaNarrow: { alignSelf: 'stretch' },
+  callCtaText: { color: COLORS.onFill, fontSize: 16, fontWeight: '800' },
+
+  tools: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  tool: {
+    flexGrow: 1,
+    flexBasis: '46%',
+    minHeight: 64,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surfaceRaised,
+    paddingVertical: 8,
+    paddingLeft: 8,
+    paddingRight: 6,
+  },
+  toolNarrow: { flexBasis: '100%', minHeight: 56 },
+  toolDiscOff: { opacity: 0.55 },
+  toolText: { flex: 1, minWidth: 0 },
+  // 12 against the reference's 10: the smallest bold label in this app.
+  toolTitle: { color: COLORS.text, fontSize: 12, fontWeight: '700' },
+  toolTitleOff: { color: COLORS.textMuted },
+  toolSub: { color: COLORS.textMuted, fontSize: 12, lineHeight: 16, marginTop: 2 },
+
+  /* --- Banner: driver_03's 824 x 177 device px strip, radius 12 -------- */
+  // Grows with its text; the bottom strip is the credit's, so a long line in
+  // any language never runs under it.
+  banner: {
+    minHeight: 104,
+    marginTop: 12,
+    marginHorizontal: 19,
+    paddingTop: 14,
+    paddingBottom: 34,
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: COLORS.surfaceSoft,
+  },
+  bannerText: { paddingHorizontal: 16, maxWidth: '60%' },
+  bannerTitle: { color: COLORS.onPhoto, fontSize: 17, fontWeight: '800' },
+  bannerSub: { color: COLORS.onPhoto, fontSize: 13, lineHeight: 18, marginTop: 2 },
+  bannerCredit: { position: 'absolute', right: 8, bottom: -12 },
+
+  /* --- Kept below the reference composition --------------------------- */
+  pageSection: { paddingHorizontal: 16, marginTop: 20 },
   eyebrow: {
-    color: COLORS.muted,
+    color: COLORS.textMuted,
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 1.1,
-  },
-  sectionNote: { color: COLORS.faint, fontSize: 12, marginTop: 3 },
-  recheck: {
-    minHeight: 40,
-    justifyContent: 'center',
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.card,
-  },
-  recheckLabel: { color: COLORS.text, fontSize: 13, fontWeight: '700' },
-
-  numbers: { flexDirection: 'row', gap: 8 },
-  number: {
-    flex: 1,
-    minHeight: TOUCH_TARGET + 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: COLORS.badBorder,
-    backgroundColor: COLORS.badBg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 6,
-    paddingVertical: 10,
-  },
-  numberDigits: { color: COLORS.bad, fontSize: 24, fontWeight: '800' },
-  numberLabel: { color: COLORS.muted, fontSize: 11, textAlign: 'center', marginTop: 3 },
-  numbersNote: { color: COLORS.faint, fontSize: 12, marginTop: 8, marginBottom: 28 },
-
-  /* --- Route conditions -------------------------------------------------- */
-
-  summary: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.card,
-    padding: 18,
-    marginBottom: 10,
-  },
-  summaryHead: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 12,
-  },
-  summaryBandBox: { flexShrink: 1 },
-  summaryBand: { color: COLORS.text, fontSize: 30, fontWeight: '800', letterSpacing: -0.5 },
-  summaryScore: { color: COLORS.muted, fontSize: 13, marginTop: 2 },
-  summaryCount: { alignItems: 'flex-end' },
-  summaryCountValue: { color: COLORS.text, fontSize: 22, fontWeight: '800' },
-  summaryCountLabel: {
-    color: COLORS.faint,
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.9,
-    marginTop: 2,
-  },
-  summaryTitle: { color: COLORS.text, fontSize: 18, fontWeight: '800', marginBottom: 6 },
-  summaryDetail: { color: COLORS.muted, fontSize: 14, lineHeight: 20 },
-  summaryAge: { color: COLORS.faint, fontSize: 12, marginTop: 8 },
-  staleBanner: {
-    marginTop: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: COLORS.warnBorder,
-    backgroundColor: COLORS.warnBg,
-    padding: 12,
-  },
-  staleTitle: { color: COLORS.warn, fontSize: 11, fontWeight: '800', letterSpacing: 0.9 },
-  staleDetail: { color: COLORS.text, fontSize: 13, lineHeight: 18, marginTop: 4 },
-  reasons: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: COLORS.border,
-    gap: 4,
-  },
-  reason: { color: COLORS.text, fontSize: 14, lineHeight: 20 },
-
-  factor: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.card,
-    padding: 16,
     marginBottom: 8,
   },
-  // Only the two bands that change what a driver should do get a tinted
-  // surface. Tinting all five would spend the alarm on the ordinary case.
-  factorWarn: { borderColor: COLORS.warnBorder, backgroundColor: COLORS.warnBg },
-  factorBad: { borderColor: COLORS.badBorder, backgroundColor: COLORS.badBg },
-  factorHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  factorTitle: { color: COLORS.text, fontSize: 17, fontWeight: '700', flexShrink: 1 },
-  factorState: {
-    color: COLORS.faint,
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.9,
-    marginTop: 8,
-  },
-  factorWhy: { color: COLORS.text, fontSize: 15, lineHeight: 21, marginTop: 4 },
-
-  factorMeta: {
-    marginTop: 12,
-    paddingTop: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: COLORS.border,
-    gap: 4,
-  },
-  metaRow: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
-  metaLabel: {
-    color: COLORS.faint,
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    width: 78,
-  },
-  metaValue: { color: COLORS.muted, fontSize: 13, lineHeight: 18, flex: 1 },
-
-  factorActionLabel: {
-    color: COLORS.faint,
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.9,
-    marginTop: 12,
-  },
-  factorAction: { color: COLORS.text, fontSize: 15, lineHeight: 21, marginTop: 3 },
-
-  pill: {
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: COLORS.borderStrong,
-    backgroundColor: COLORS.raised,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  // UNKNOWN keeps the neutral pill on purpose: it is neither the reassurance
-  // of green nor the alarm of red, and reaching for either would be this
-  // screen making a claim it has no evidence for.
-  pillOk: { borderColor: COLORS.okBorder, backgroundColor: COLORS.okBg },
-  pillWarn: { borderColor: COLORS.warnBorder, backgroundColor: COLORS.warnBg },
-  pillBad: { borderColor: COLORS.badBorder, backgroundColor: COLORS.badBg },
-  pillText: { color: COLORS.muted, fontSize: 11, fontWeight: '800', letterSpacing: 0.6 },
-  pillTextOk: { color: COLORS.ok },
-  pillTextWarn: { color: COLORS.warn },
-  pillTextBad: { color: COLORS.bad },
+  sectionNote: { color: COLORS.textFaint, fontSize: 12, marginTop: 3, marginBottom: 10 },
 
   /* --- Breaks ------------------------------------------------------------ */
 
+  // BreakCard's own wrapper; the page section supplies the spacing.
+  block: {},
   breakCard: {
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: COLORS.border,
-    backgroundColor: COLORS.card,
+    backgroundColor: COLORS.surface,
     padding: 18,
   },
-  breakWarn: { borderColor: COLORS.warnBorder, backgroundColor: COLORS.warnBg },
-  breakBad: { borderColor: COLORS.badBorder, backgroundColor: COLORS.badBg },
+  breakWarn: { borderColor: COLORS.warningBorder, backgroundColor: COLORS.warningSoft },
+  breakBad: { borderColor: COLORS.dangerBorder, backgroundColor: COLORS.dangerSoft },
   breakHeadline: { color: COLORS.text, fontSize: 15, fontWeight: '700' },
-  warnText: { color: COLORS.warn },
+  warnText: { color: COLORS.warning },
   breakElapsed: {
     color: COLORS.text,
     fontSize: 34,
@@ -603,23 +813,23 @@ const useStyles = makeStyles((COLORS) => ({
     letterSpacing: -0.5,
     marginTop: 4,
   },
-  breakBasis: { color: COLORS.muted, fontSize: 12, lineHeight: 17, marginTop: 2 },
+  breakBasis: { color: COLORS.textMuted, fontSize: 12, lineHeight: 17, marginTop: 2 },
   breakButton: {
     minHeight: TOUCH_TARGET,
     marginTop: 14,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: COLORS.borderStrong,
     alignItems: 'center',
     justifyContent: 'center',
   },
   breakButtonLabel: { color: COLORS.text, fontSize: 16, fontWeight: '700' },
-  breakFailed: { color: COLORS.bad, fontSize: 12, lineHeight: 17, marginTop: 8 },
+  breakFailed: { color: COLORS.danger, fontSize: 12, lineHeight: 17, marginTop: 8 },
 
   /* --- Guidance ---------------------------------------------------------- */
 
   disclaimer: {
-    color: COLORS.faint,
+    color: COLORS.textFaint,
     fontSize: 12,
     lineHeight: 17,
     marginBottom: 12,
@@ -631,28 +841,33 @@ const useStyles = makeStyles((COLORS) => ({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: COLORS.border,
-    backgroundColor: COLORS.card,
+    backgroundColor: COLORS.surface,
     paddingHorizontal: 16,
     paddingVertical: 12,
     marginBottom: 8,
   },
   topicText: { flexShrink: 1 },
-  topicEmergency: { borderColor: COLORS.badBorder, backgroundColor: COLORS.badBg },
+  /* A RED EDGE, NOT A RED FIELD - and now a hairline, not the 2 dp frame.
+     Every one of these topics is an emergency, so filling all of them with
+     dangerSoft made the whole list a wall of red - and a list where everything
+     shouts is a list where nothing does. The card carries the word EMERGENCY
+     in red; the edge only groups them. */
+  topicEmergency: { borderColor: COLORS.dangerBorder },
   topicTitle: { color: COLORS.text, fontSize: 17, fontWeight: '700' },
   topicTag: {
-    color: COLORS.bad,
+    color: COLORS.danger,
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 0.8,
     marginTop: 3,
   },
-  pressed: { opacity: 0.75 },
 
+  detailTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   back: { minHeight: TOUCH_TARGET, flexDirection: 'row', alignItems: 'center', gap: 2 },
-  backLabel: { color: COLORS.muted, fontSize: 16, fontWeight: '600' },
+  backLabel: { color: COLORS.textMuted, fontSize: 16, fontWeight: '600' },
   detailTitle: {
     color: COLORS.text,
     fontSize: 26,
@@ -664,13 +879,13 @@ const useStyles = makeStyles((COLORS) => ({
   emergency: {
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: COLORS.badBorder,
-    backgroundColor: COLORS.badBg,
+    borderColor: COLORS.dangerBorder,
+    backgroundColor: COLORS.dangerSoft,
     padding: 16,
     marginBottom: 18,
   },
   emergencyBanner: {
-    color: COLORS.bad,
+    color: COLORS.danger,
     fontSize: 15,
     fontWeight: '800',
     letterSpacing: 0.6,
@@ -680,14 +895,14 @@ const useStyles = makeStyles((COLORS) => ({
   escalate: {
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: COLORS.warnBorder,
-    backgroundColor: COLORS.warnBg,
+    borderColor: COLORS.warningBorder,
+    backgroundColor: COLORS.warningSoft,
     padding: 16,
     marginTop: 4,
     marginBottom: 18,
   },
   escalateHeading: {
-    color: COLORS.warn,
+    color: COLORS.warning,
     fontSize: 15,
     fontWeight: '800',
     marginBottom: 8,
@@ -695,7 +910,7 @@ const useStyles = makeStyles((COLORS) => ({
 
   section: { marginBottom: 18 },
   sectionHeading: {
-    color: COLORS.muted,
+    color: COLORS.textMuted,
     fontSize: 13,
     fontWeight: '700',
     letterSpacing: 0.8,
@@ -705,10 +920,10 @@ const useStyles = makeStyles((COLORS) => ({
 
   bullets: { gap: 8 },
   bullet: { flexDirection: 'row', gap: 8, paddingRight: 4 },
-  bulletDot: { color: COLORS.muted, fontSize: 16, lineHeight: 23 },
+  bulletDot: { color: COLORS.textMuted, fontSize: 16, lineHeight: 23 },
   bulletText: { color: COLORS.text, fontSize: 16, lineHeight: 23, flex: 1 },
-  badText: { color: COLORS.bad },
+  badText: { color: COLORS.danger },
 
   provenance: { gap: 3 },
-  provenanceText: { color: COLORS.faint, fontSize: 11 },
+  provenanceText: { color: COLORS.textFaint, fontSize: 11 },
 }))

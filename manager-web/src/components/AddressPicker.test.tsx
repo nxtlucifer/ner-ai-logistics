@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { api, type AddressSuggestions, type ResolvedAddress } from '../api/client'
-import AddressPicker, { EMPTY_ENDPOINT, type EndpointValue } from './AddressPicker'
+import AddressPicker, { distinctSuggestions, EMPTY_ENDPOINT, type EndpointValue } from './AddressPicker'
 
 const mapState = vi.hoisted(() => ({
   maps: [] as Array<{
@@ -22,7 +22,7 @@ const mapState = vi.hoisted(() => ({
 
 // WebGL is exercised in the browser; here the map boundary records the point
 // actually requested and exposes click events to the real picker component.
-vi.mock('./FleetMap', () => ({ NER_CENTRE: [92, 26], NER_ZOOM: 6, OSM_STYLE: {} }))
+vi.mock('./mapSetup', () => ({ NER_CENTRE: [92, 26], NER_ZOOM: 6, themedStyle: () => ({}) }))
 vi.mock('maplibre-gl', () => ({
   Map: vi.fn(function (options) {
     const map = {
@@ -84,6 +84,13 @@ async function searchFor(query = 'Test address') {
   await act(() => vi.advanceTimersByTimeAsync(700))
 }
 
+/** The map dialog is lazy (MapLibre stays out of the entry chunk): open it
+ *  and let its module arrive before asserting on it. */
+async function openMap() {
+  fireEvent.click(screen.getByRole('button', { name: 'Choose on map' }))
+  await act(async () => { await import('./MapPointPicker') })
+}
+
 async function startDetails() {
   const pending = deferred<ResolvedAddress>()
   vi.spyOn(api, 'resolveAddress').mockReturnValue(pending.promise)
@@ -103,6 +110,18 @@ afterEach(() => {
   cleanup()
   vi.useRealTimers()
   vi.restoreAllMocks()
+})
+
+describe('distinctSuggestions', () => {
+  it('shows two rows with the same words once, keeping the first (E2E-D7)', () => {
+    const shillong = { primary_text: 'Shillong', secondary_text: 'Mylliem, East Khasi Hills, Meghalaya, 793001, India' }
+    const rows = distinctSuggestions([
+      { place_id: 'node', ...shillong },
+      { place_id: 'relation', ...shillong },
+      { place_id: 'other', primary_text: 'Shillong Peak', secondary_text: 'Meghalaya, India' },
+    ])
+    expect(rows.map((r) => r.place_id)).toEqual(['node', 'other'])
+  })
 })
 
 describe('AddressPicker request ownership', () => {
@@ -202,6 +221,19 @@ describe('AddressPicker request ownership', () => {
     expect(api.resolveAddress).toHaveBeenCalledWith(suggestion.place_id, expect.any(String))
     expect(screen.getByTestId('origin-confirmed').textContent).toContain('From address search')
   })
+
+  it('lets the listbox own options only: no list items, no attribution inside it', async () => {
+    // A listbox may own options; an <li> is a listitem, and a screen reader
+    // counting options must not count the provider credit as one.
+    render(<Harness />)
+    await searchFor()
+    const listbox = screen.getByRole('listbox')
+    for (const child of Array.from(listbox.children)) {
+      expect(child.getAttribute('role')).toBe('none')
+      expect(child.querySelector('[role="option"]')).not.toBeNull()
+    }
+    expect(listbox.textContent).not.toMatch(/OpenStreetMap contributors|Powered by Google/)
+  })
 })
 
 describe('AddressPicker coordinates and map dialog', () => {
@@ -211,26 +243,26 @@ describe('AddressPicker coordinates and map dialog', () => {
     { lat: '91', lon: '92' },
     { lat: '26', lon: '181' },
     { lat: 'not a number', lon: '92' },
-  ])('never presents an incomplete or invalid manual pair as a confirmed location: %j', (coordinates) => {
+  ])('never presents an incomplete or invalid manual pair as a confirmed location: %j', async (coordinates) => {
     render(<Harness initial={{ ...EMPTY_ENDPOINT, ...coordinates, source: 'MANUAL' }} />)
     expect(screen.queryByTestId('origin-confirmed')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Choose on map' }))
+    await openMap()
     expect(mapState.markers[0].setLngLat).not.toHaveBeenCalled()
     expect((screen.getByRole('button', { name: 'Use this point' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it('keeps Google coordinates off the manual OpenStreetMap picker', () => {
+  it('keeps Google coordinates off the manual OpenStreetMap picker', async () => {
     render(<Harness initial={{ address: resolved.address, lat: '26.15', lon: '91.74', source: 'GOOGLE', attribution: 'Google' }} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Choose on map' }))
+    await openMap()
     expect(mapState.markers[0].setLngLat).not.toHaveBeenCalled()
     expect(mapState.maps[0].options.center).toEqual([92, 26])
   })
 
-  it('traps keyboard focus, closes with Escape, restores the trigger and disposes map resources', () => {
+  it('traps keyboard focus, closes with Escape, restores the trigger and disposes map resources', async () => {
     render(<Harness />)
     const trigger = screen.getByRole('button', { name: 'Choose on map' })
     trigger.focus()
-    fireEvent.click(trigger)
+    await openMap()
     const dialog = screen.getByRole('dialog')
     const close = screen.getByRole('button', { name: 'Close' })
     const cancel = screen.getByRole('button', { name: 'Cancel' })
@@ -248,10 +280,10 @@ describe('AddressPicker coordinates and map dialog', () => {
     expect(mapState.markers[0].remove).toHaveBeenCalledOnce()
   })
 
-  it('confirms the point the manager actually clicked and preserves their address', () => {
+  it('confirms the point the manager actually clicked and preserves their address', async () => {
     const onChange = vi.fn()
     render(<Harness initial={{ ...EMPTY_ENDPOINT, address: 'Test loading gate' }} onChange={onChange} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Choose on map' }))
+    await openMap()
     act(() => mapState.maps[0].handlers.click({ lngLat: { lng: 93, lat: 27 } }))
     fireEvent.click(screen.getByRole('button', { name: 'Use this point' }))
     expect(onChange).toHaveBeenLastCalledWith({ address: 'Test loading gate', lat: '27', lon: '93', source: 'MAP', attribution: '© OpenStreetMap contributors' })
@@ -263,7 +295,7 @@ describe('AddressPicker coordinates and map dialog', () => {
     vi.spyOn(api, 'resolveAddress').mockResolvedValue({ place_id: 'osm:27,93', address: 'Nongpoh, Ri-Bhoi, Meghalaya, India', lat: 27, lon: 93, attribution: '© OpenStreetMap contributors' })
     const onChange = vi.fn()
     render(<Harness onChange={onChange} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Choose on map' }))
+    await openMap()
     act(() => mapState.maps[0].handlers.click({ lngLat: { lng: 93, lat: 27 } }))
     fireEvent.click(screen.getByRole('button', { name: 'Use this point' }))
     // Valid immediately - the server refuses a blank address.
@@ -278,14 +310,14 @@ describe('AddressPicker coordinates and map dialog', () => {
     expect(screen.queryByRole('listbox')).toBeNull()
   })
 
-  it('opens the map at a resolved OpenStreetMap search result, but never at a Google one', () => {
+  it('opens the map at a resolved OpenStreetMap search result, but never at a Google one', async () => {
     render(<Harness initial={{ address: 'Shillong, Meghalaya', lat: '25.58', lon: '91.88', source: 'GOOGLE', attribution: '© OpenStreetMap contributors' }} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Choose on map' }))
+    await openMap()
     expect(mapState.maps[0].options.center).toEqual([91.88, 25.58])
     expect(mapState.markers[0].setLngLat).toHaveBeenCalledWith([91.88, 25.58])
   })
 
-  it('drops a confirmed pin when the address text is edited, so words and point never diverge', () => {
+  it('drops a confirmed pin when the address text is edited, so words and point never diverge', async () => {
     const onChange = vi.fn()
     render(<Harness initial={{ address: 'Old gate', lat: '27', lon: '93', source: 'MAP', attribution: '© OpenStreetMap contributors' }} onChange={onChange} />)
     expect(screen.getByTestId('origin-confirmed').textContent).toContain('Old gate')

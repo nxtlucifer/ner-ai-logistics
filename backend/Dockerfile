@@ -50,4 +50,16 @@ ENV API_HOST=0.0.0.0 \
 # Shell form so $PORT expands. One worker: the application holds a small
 # database pool sized for Supabase's session pooler, and multiplying workers
 # multiplies pools.
+#
+# And one worker AND one replica, because correctness state lives in process
+# memory today; a second process would duplicate or split each of these:
+#   - the route-watch loop (and the Sentinel sweep / warnings poll) started in
+#     app/main.py lifespan - every process runs its own, so pushes double
+#   - the login rate limiter (app/api/auth.py) - the budget becomes per process
+#   - the Nominatim 1 req/s throttle (services/geocoding.py) - the policy the
+#     public instance requires would be broken N-fold
+#   - the demo simulation's active scenarios (services/simulation.py)
+#   - per-process caches (geocoding, terrain, flood, regions, provider health)
+#     and the Argon2 slot semaphore (app/core/security.py)
+# Scaling out needs that state moved to Postgres/Redis first.
 CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --workers 1

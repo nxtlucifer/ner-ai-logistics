@@ -42,9 +42,9 @@ from app.models.enums import (
 )
 from app.models.fleet import Truck
 from app.models.identity import Driver, User
-from app.models.enums import TripEventKind
+from app.models.enums import AuditAction, NotificationKind, TripEventKind
 from app.models.operations import Trip, TripEvent, TripStop
-from app.services import audit, trips
+from app.services import audit, notifications, notify, sentinel, trips
 
 AUDITED_FIELDS = trips.AUDITED_FIELDS
 
@@ -549,6 +549,34 @@ async def _mutate_stop(
         reason=f"driver marked stop {target.value.lower()}",
         ip_address=ip,
     )
+
+    # Arrival at the LAST stop is the fact the destination district is
+    # waiting for. Intermediate stops are trip-timeline detail and stay out
+    # of four managers' inboxes - an inbox that reports every fuel stop is
+    # an inbox nobody reads.
+    if target is TripStopStatus.ARRIVED:
+        final = (
+            await db.execute(
+                select(TripStop.id)
+                .where(TripStop.trip_id == trip.id)
+                .order_by(TripStop.sequence.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if final == stop.id:
+            await notifications.notify(
+                db,
+                recipients=await notifications.recipients_for_trip(db, trip),
+                kind=NotificationKind.TRIP_ARRIVED,
+                dedupe_key=f"arrived:{trip.id}",
+                trip_id=trip.id,
+                payload={
+                    "trip_code": trip.trip_code,
+                    "driver_name": driver.full_name,
+                    "stop": stop.name or "",
+                },
+            )
+
     await db.commit()
     await db.refresh(trip)
     await db.refresh(stop)
@@ -656,7 +684,11 @@ async def complete(
     # Server clock, never the device's. A phone with a wrong or manipulated
     # clock must not be able to backdate a delivery.
     trip.delivered_at = datetime.now(UTC)
-    await trips.release_resources(db, trip)
+    # NOT released here. The truck is at the consignee and the job is not
+    # settled; `trips.RESOURCE_BLOCKING_STATUSES` still counts this trip as
+    # holding the pair, and flipping the status columns to AVAILABLE here was
+    # what made every screen disagree with the planner. The manager's Close
+    # releases them - see `trips.close`.
 
     await db.flush()
     await trips.record_event(
@@ -677,6 +709,214 @@ async def complete(
         reason="completed by driver",
         ip_address=ip,
     )
+
+    # Both districts hear that the job is done, INSIDE the transaction: a
+    # delivery that rolls back must not leave four managers believing the
+    # load arrived.
+    await notifications.notify(
+        db,
+        recipients=await notifications.recipients_for_trip(db, trip),
+        kind=NotificationKind.TRIP_DELIVERED,
+        dedupe_key=f"delivered:{trip.id}",
+        trip_id=trip.id,
+        payload={"trip_code": trip.trip_code, "driver_name": driver.full_name},
+    )
+
     await db.commit()
     await db.refresh(trip)
     return trip
+
+#: A reason short enough to be meaningless is worse than none: it trains a
+#: manager to skim the field, and the field is the only thing they have to
+#: act on before they get the driver on the phone.
+MIN_STOP_REASON = 12
+
+#: What the driver says is wrong. Free text still carries the detail; the
+#: category is what lets a manager triage an inbox at a glance.
+STOP_CATEGORIES = (
+    "MEDICAL",
+    "VEHICLE",
+    "ROAD_BLOCKED",
+    "SECURITY",
+    "WEATHER",
+    "PERSONAL",
+    "OTHER",
+)
+
+
+async def request_stop(
+    db: AsyncSession,
+    driver: Driver,
+    user: User,
+    *,
+    request_id: uuid.UUID,
+    reason: str,
+    category: str = "OTHER",
+    lat: float | None = None,
+    lon: float | None = None,
+    fix_at: datetime | None = None,
+    ip: str | None = None,
+) -> Trip:
+    """The driver asks to stop. It is a REQUEST, not a cancellation.
+
+    WHY THE DRIVER CANNOT JUST CANCEL
+
+    A loaded truck with a cancelled job and nobody told is a driver left
+    guessing at a roadside - the exact failure the manager-side disposition
+    rules already exist to prevent. So this writes a record and raises an
+    URGENT notification, and the resolution goes through the manager's
+    existing journey-change governance (hold, return to depot, change
+    destination, cancel with a cargo disposition). There is deliberately no
+    second cancellation path.
+
+    WHY THE TRIP STATE DOES NOT MOVE HERE
+
+    Nothing about the truck has changed yet. Moving the trip to some
+    "requested" state would make the driver's ask look like an outcome, and
+    every later transition would have to know about a state that means
+    "waiting for a human". The request is an event on the timeline and an
+    urgent row in an inbox; the manager's answer is what changes the trip.
+
+    IDEMPOTENT ON `request_id`
+
+    The phone generates it once, when the driver confirms, and reuses it on
+    every retry. A lost response on a hill road must not raise the same
+    emergency twice, and a genuinely second emergency carries a new id.
+
+    IT IS ALSO AN SOS
+
+    The trip's open Emergency goes to SOS_ESCALATED (a new row, or Sentinel's
+    open check escalated), so the console's SOS badge and Fleet's incident
+    dossier - both fed by /api/emergencies/active - show it, and a manager
+    closes it with the usual resolve. See sentinel.escalate_driver_sos.
+    """
+    reason = (reason or "").strip()
+    if len(reason) < MIN_STOP_REASON:
+        raise ConflictError(
+            f"Say what is wrong in at least {MIN_STOP_REASON} characters. "
+            "Your manager sees this before they call you.",
+            code="STOP_REASON_TOO_SHORT",
+        )
+    if category not in STOP_CATEGORIES:
+        category = "OTHER"
+
+    # Emergency, then trip: the lock order of the sweep and of
+    # sentinel.record_driver_check_in. The unlocked read only learns the id.
+    current = await current_trip(db, driver)
+    if current is None:
+        raise NotFoundError("You have no trip to work on right now.")
+    emergency = await sentinel.get_active_emergency(db, current.id, for_update=True)
+    trip = await trips.load_for_update(db, current.id)
+    if trip.driver_id != driver.id:
+        raise ConflictError(
+            "Your trip changed. Reload before continuing.", code="TRIP_SUPERSEDED"
+        )
+    # INCIDENT too: a sweep that escalated an unanswered check just before
+    # this request (it waited on that emergency lock) must not cost the
+    # driver's words, the event and the URGENT alert. The trip stays INCIDENT.
+    if trip.status not in (*IN_PROGRESS_STATUSES, TripStatus.INCIDENT):
+        raise ConflictError(
+            "This trip is not under way.", code="TRIP_NOT_IN_PROGRESS"
+        )
+
+    key = str(request_id)
+    already = (
+        await db.execute(
+            select(TripEvent.id).where(
+                TripEvent.trip_id == trip.id,
+                TripEvent.kind == TripEventKind.INCIDENT_OPENED,
+                TripEvent.payload["request_id"].astext == key,
+            )
+        )
+    ).scalar_one_or_none()
+    if already is not None:
+        return trip
+
+    now = datetime.now(UTC)
+    await trips.record_event(
+        db,
+        trip,
+        kind=TripEventKind.INCIDENT_OPENED,
+        description="driver requested a stop",
+        payload={
+            "request_id": key,
+            "kind": "DRIVER_STOP_REQUEST",
+            "reason": reason,
+            "category": category,
+            "driver_name": driver.full_name,
+            "driver_phone": driver.phone,
+            "requested_at": now.isoformat(),
+            **({"lat": lat, "lon": lon} if lat is not None and lon is not None else {}),
+        },
+        actor_user_id=user.id,
+    )
+    await audit.record(
+        db,
+        action=AuditAction.STATUS_CHANGE,
+        entity_type="trips",
+        entity_id=trip.id,
+        actor_user_id=user.id,
+        before=None,
+        after={"driver_stop_requested": True, "category": category},
+        reason="driver requested an emergency stop",
+        ip_address=ip,
+    )
+    await sentinel.escalate_driver_sos(
+        db,
+        trip,
+        emergency,
+        request_id=key,
+        reason=reason,
+        category=category,
+        lat=lat,
+        lon=lon,
+        now=now,
+        fix_at=fix_at,
+    )
+
+    # The area's managers, and always the regional ones: a trip whose
+    # geography is unknown has no area manager, and an emergency must still
+    # reach a person.
+    scoped = await notifications.recipients_for_trip(db, trip)
+    regional = await notifications.regional_managers(db)
+    people = list({u.id: u for u in (*scoped, *regional)}.values())
+    await notifications.notify(
+        db,
+        recipients=people,
+        kind=NotificationKind.DRIVER_EMERGENCY_STOP,
+        dedupe_key=f"stop-request:{key}",
+        trip_id=trip.id,
+        payload={
+            "trip_code": trip.trip_code,
+            "reason": reason,
+            "category": category,
+            "driver_name": driver.full_name,
+            # The manager's first action is to call. The number belongs in
+            # the payload so the inbox can offer it without another request.
+            "driver_phone": driver.phone,
+        },
+    )
+    await db.commit()
+
+    # After the commit, and best-effort: the request is recorded whether or
+    # not the phone hears the acknowledgement.
+    await notify.send(
+        db,
+        driver_id=driver.id,
+        trip_id=trip.id,
+        event="EMERGENCY_STOP_ACK",
+        title="Request sent",
+        # Only claim an alert that was sent.
+        body=(
+            "Your manager has been alerted and can see your reason. Stay safe; they will call."
+            if people
+            else "Your request is recorded on the trip, but no manager inbox covers it yet. "
+            "Call your manager - or 112 if you are in danger."
+        ),
+        fingerprint=f"EMERGENCY_STOP_ACK:{key}",
+        data={"screen": "trip"},
+    )
+    await db.commit()
+    await db.refresh(trip)
+    return trip
+

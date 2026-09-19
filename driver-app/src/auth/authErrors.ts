@@ -70,12 +70,31 @@ export function categorizeAuthError(error: unknown): UserFacingError {
     }
   }
   if (error instanceof Error && error.name === 'NetworkError') {
-    const aborted = /abort/i.test(error.message)
-    return aborted
+    // `timedOut` is set by the client when ITS timer fired. Do not test the
+    // message: React Native rejects an aborted fetch with "Network request
+    // failed", identical to a real failure, so the old `/abort/i` check
+    // never matched and every slow server was blamed on the driver's Wi-Fi.
+    // TWO signals, because neither alone covers both runtimes.
+    //
+    // `timedOut` is set by the client when its own timer fired, and is the
+    // only reliable signal on React Native: RN rejects an aborted fetch
+    // with "Network request failed", word for word identical to a real
+    // failure, so the message test below silently never matched on a
+    // phone - which is how a 23 s cold start came to be reported to the
+    // driver as a broken Wi-Fi connection.
+    //
+    // The message test still earns its place on web, where an abort
+    // surfaces as a DOMException whose text does say so, and where a
+    // NetworkError may be constructed without the flag.
+    const timedOut =
+      (error as { timedOut?: boolean }).timedOut === true ||
+      /abort/i.test(error.message)
+    return timedOut
       ? {
           code: 'TIMEOUT',
-          title: 'Service not responding',
-          detail: 'Reached the network but the service did not answer in time. Try again.',
+          title: 'Server is waking up',
+          detail:
+            'Your connection is fine. The service was idle and is starting — this can take up to a minute. Try again.',
         }
       : {
           code: 'NETWORK',

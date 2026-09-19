@@ -52,6 +52,60 @@ class TestLogin:
         assert r.status_code == 200
         assert r.json()["user"]["role"] == "DRIVER"
 
+    async def test_driver_phone_matches_in_any_indian_form(
+        self, api: AsyncClient, session: AsyncSession
+    ) -> None:
+        """The driver app always sends the canonical ten digits. A phone that
+        was stored as +91..., or typed with +91 at the login, is the same
+        number and must sign the driver in - it used to be a silent lockout."""
+        ten = factories.unique_phone()
+        await factories.make_user(session, role=UserRole.DRIVER, phone="+91" + ten)
+        r = await api.post(
+            "/api/auth/login",
+            json={"identifier": ten, "password": factories.TEST_PASSWORD},
+        )
+        assert r.status_code == 200
+
+        driver, user = await factories.make_driver(session)
+        r = await api.post(
+            "/api/auth/login",
+            json={"identifier": "+91" + user.phone, "password": factories.TEST_PASSWORD},
+        )
+        assert r.status_code == 200
+
+    async def test_an_ambiguous_phone_is_refused_not_guessed(
+        self, api: AsyncClient, session: AsyncSession
+    ) -> None:
+        """Two accounts hold the same number, neither in the exact form typed:
+        refuse with the ordinary failure rather than sign in whichever came
+        first. An exact match still wins."""
+        ten = factories.unique_phone()
+        await factories.make_user(session, role=UserRole.DRIVER, phone="+91" + ten)
+        await factories.make_user(session, role=UserRole.DRIVER, phone="91" + ten)
+        r = await api.post(
+            "/api/auth/login",
+            json={"identifier": ten, "password": factories.TEST_PASSWORD},
+        )
+        assert r.status_code == 401
+        r = await api.post(
+            "/api/auth/login",
+            json={"identifier": "+91" + ten, "password": factories.TEST_PASSWORD},
+        )
+        assert r.status_code == 200
+
+    async def test_email_wildcards_are_literal(
+        self, api: AsyncClient, session: AsyncSession
+    ) -> None:
+        """The identifier is compared, never used as a LIKE pattern: "%" must
+        not match every account (a 500 on many, a pattern login on one)."""
+        user = await factories.make_user(session)
+        for pattern in ("%%%", user.email[:4] + "%", user.email.replace("@", "_", 1)):
+            r = await api.post(
+                "/api/auth/login",
+                json={"identifier": pattern, "password": factories.TEST_PASSWORD},
+            )
+            assert r.status_code == 401, pattern
+
     async def test_wrong_password_rejected(
         self, api: AsyncClient, session: AsyncSession
     ) -> None:
@@ -486,5 +540,20 @@ class TestMe:
     ) -> None:
         user = await factories.make_user(session)
         headers = await auth_headers(api, user.email, factories.TEST_PASSWORD)
+        body = (await api.get("/api/auth/me", headers=headers)).json()
         text = (await api.get("/api/auth/me", headers=headers)).text
-        assert "password" not in text.lower()
+
+        # The hash itself, the plaintext, and any field that could carry
+        # either. Checked by NAME rather than by searching the body for the
+        # word "password": `must_reset_password` is a legitimate boolean the
+        # client needs, and a substring test would have to be weakened every
+        # time a field is honestly named - which is how a real leak
+        # eventually gets waved through.
+        assert "password_hash" not in text
+        assert factories.TEST_PASSWORD not in text
+        assert user.password_hash not in text
+        assert "$argon2" not in text
+        assert set(body["user"]) == {
+            "id", "role", "display_name", "email", "phone",
+            "state_id", "district_id", "must_reset_password",
+        }

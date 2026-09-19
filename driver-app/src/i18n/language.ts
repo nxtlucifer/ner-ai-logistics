@@ -21,6 +21,8 @@
  * not a code change.
  */
 
+import { useAppLanguage } from './AppLanguageProvider'
+import { isAppLanguage, type AppLanguage } from './appLanguage'
 import { LANGUAGES, type Language } from './reasonCodes'
 
 const FALLBACK: Language = 'en'
@@ -78,4 +80,46 @@ export function resolveLanguage(override?: string | null): Language {
 let appLanguage: string | null = null
 export function setResolvedLanguage(tag: string | null): void {
   appLanguage = tag ?? deviceLanguage()
+}
+
+/**
+ * The chosen app language, for code that runs OUTSIDE a component.
+ *
+ * A notification raised from an effect has no hook to call, and that is
+ * exactly how two push messages ended up permanently English while every
+ * label around them translated. This returns the same value
+ * `useAppLanguage()` would, or `'en'` before the provider has mounted.
+ */
+export function currentAppLanguage(): AppLanguage {
+  return isAppLanguage(appLanguage) ? appLanguage : 'en'
+}
+
+/**
+ * The language the SAFETY GUIDE should be read in.
+ *
+ * WHY THIS IS NOT `resolveLanguage()`
+ *
+ * `resolveLanguage` reads the DEVICE locale. A driver who picks Assamese in
+ * the app on a phone the shop set to English was still shown English
+ * first-aid guidance, because nothing connected the choice they made to the
+ * catalogue. That is the bug: the setting appeared to work - every label
+ * changed - while the one screen where language matters most ignored it.
+ *
+ * WHY IT STILL FALLS BACK
+ *
+ * The reviewed guide exists in three languages. The app offers twenty-two,
+ * honestly labelled DRAFT or FALLBACK_ENGLISH, because a machine-translated
+ * instruction about a head injury is worse than one in a language the
+ * reader has to work at. So a driver who picks Tamil gets English guidance
+ * and `guidanceIsTranslated()` says so on screen - it is not left to be
+ * discovered.
+ */
+export function useGuidanceLanguage(): Language {
+  const { language } = useAppLanguage()
+  return matchLanguage(language)
+}
+
+/** Whether the reviewed guide exists in the driver's chosen language. */
+export function guidanceIsTranslated(chosen: string): boolean {
+  return (LANGUAGES as readonly string[]).includes(chosen)
 }

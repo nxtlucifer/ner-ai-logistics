@@ -1,0 +1,15 @@
+........................................................................ [ 63%]
+........................................................................ [ 69%]
+........................................................................ [ 74%]
+........................................................................ [ 80%]
+........................................................................ [ 86%]
+........................................................................ [ 92%]
+........................................................................ [ 97%]
+...........................                                              [100%]
+=========================== short test summary info ===========================
+SKIPPED [1] tests\test_event_loop.py:30: non-Windows behaviour
+SKIPPED [1] tests\test_migrations.py:109: Destructive: downgrades to base and drops every table. Set RUN_DESTRUCTIVE_MIGRATION_TESTS=1 to run.
+SKIPPED [1] tests\test_migrations.py:122: Destructive: downgrades to base and drops every table. Set RUN_DESTRUCTIVE_MIGRATION_TESTS=1 to run.
+SKIPPED [1] tests\test_migrations.py:142: Destructive: downgrades to base and drops every table. Set RUN_DESTRUCTIVE_MIGRATION_TESTS=1 to run.
+SKIPPED [1] tests\test_migrations.py:149: Destructive: downgrades to base and drops every table. Set RUN_DESTRUCTIVE_MIGRATION_TESTS=1 to run.
+1246 passed, 5 skipped in 216.80s (0:03:36)

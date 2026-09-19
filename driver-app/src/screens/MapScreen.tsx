@@ -23,6 +23,19 @@
  * work is the moment everything else has failed.
  *
  * PLACES ARE SEARCHED ON DEMAND, NEVER POLLED. See `usePlaces`.
+ *
+ * LAYOUT (Phase B2, driver_02): a short photo hero (GPS and theme chips), the
+ * roadside-services search as the search field, the map in a framed card
+ * (back, SOS, layers, re-centre, route overview; the route summary over its
+ * foot), one CTA that is the real next step, then the quick actions (Fuel,
+ * lay-bys, tyres, Request help), Route information tiles, the Personal Route
+ * AI card, the details panel and a photo strip. The reference is the idle
+ * state: while a trip runs the maneuver card moves into the map card and the
+ * ETA row replaces the quick actions. Accept and Start stay on the Trip tab
+ * with their gates; the CTA routes there rather than copying them. Before the
+ * trip starts the camera frames the whole route clear of the summary (the
+ * reference's overview); it follows the truck only while guiding, or with no
+ * route to frame.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -37,23 +50,24 @@ import {
   useWindowDimensions,
 } from 'react-native'
 
-import { SafeAreaView } from 'react-native-safe-area-context'
 import { api, type Place, type PlaceCategory, type RerouteProposed, type SearchAnchor } from '../api/client'
 import { useRouteRisk } from '../hooks/useRouteRisk'
 import { hazardAhead, terrainAhead } from '../map/ahead'
 import { factorTitle } from '../safety/riskCards'
 import { Banner, Button, Loading, errorMessage } from '../components/ui'
 import { resolveLanguage } from '../i18n/language'
+import { useAppLanguage } from '../i18n/AppLanguageProvider'
+import { translateReasonCode } from '../i18n/reasonCodes'
 import { emergencyNumbers } from '../safety/guide'
 import DriverRouteMap from '../map/DriverRouteMap'
 import { type LatLon } from '../map/geo'
 import { useRouteGeometry } from '../map/useRouteGeometry'
 import { useNavigationPackage } from '../map/useNavigationPackage'
-import { guidanceHold, upcomingManeuver, maneuverIcon, formatTurnDistance, instructionFor, type GuidanceHold } from '../map/maneuvers'
+import { guidanceHold, upcomingManeuver, maneuverIcon, formatTurnDistance, instructionFor, toldManeuvers, type GuidanceHold } from '../map/maneuvers'
 import { navState, ON_ROUTE, projectOntoRoute, shouldRequestReroute, trackOffRoute, type NavState, type OffRouteTrack, type RerouteMark } from '../map/navState'
 import { routeAiCard } from '../navigation/routeAi'
 import { useBrowsePosition } from '../tracking/useBrowsePosition'
-import { locationChip } from '../map/locationLabel'
+import { judgeFix } from '../map/locationLabel'
 import type { LocationSource } from '../tracking/source'
 import { HILLSHADE_URL } from '../map/scene'
 import { settledPosition } from '../tracking/speed'
@@ -67,9 +81,11 @@ import { usePlaces } from '../places/usePlaces'
 import { formatDistanceKm } from './progressFormat'
 import { TOUCH_TARGET } from '../theme'
 import { makeStyles, useTheme } from '../theme-context'
-import { AudioIcon, FitRouteIcon, Icon, RecenterIcon } from '../components/icons'
+import { FitRouteIcon, Icon, RecenterIcon, type IconName } from '../components/icons'
+import { PHOTOS } from '../components/photoCredits'
+import { CoverPhoto, PhotoCredit, ScreenHero, StatusChip, gradient } from '../components/scenic'
 import { useTrip } from '../trip/TripProvider'
-import { useAuth } from '../auth/AuthProvider'
+import { rerouteJustApproved } from '../trip/tripNotices'
 
 /** The fleet-traffic fact on the card: state, share of road, and its age. */
 function trafficLine(t: { status: string; coverage: number; newest_age_seconds: number | null; vehicle_count: number }): string {
@@ -89,11 +105,18 @@ function relativeTime(iso: string | null): string {
 }
 
 const CATEGORY_LABELS: { id: PlaceCategory; label: string }[] = [
+  // Fuel first: it is the one a truck runs out of.
+  { id: 'FUEL', label: 'Fuel' },
   { id: 'EMERGENCY', label: 'Emergency' },
   { id: 'TYRES', label: 'Puncture & tyres' },
   { id: 'HOTEL', label: 'Hotels' },
   { id: 'REST', label: 'Lay-bys & rest' },
 ]
+
+/** Trips whose guidance the driver has followed in this session. Outside the
+ *  screen, which remounts on every tab switch: it said "Start guidance" again
+ *  after a visit to Safety (B2D-17). Memory only - nothing is stored. */
+const FOLLOWED_TRIPS = new Set<string>()
 
 /** The nav-state chip, as words a driver reads rather than the machine name. */
 const NAV_WORDS: Record<string, string> = {
@@ -101,6 +124,9 @@ const NAV_WORDS: Record<string, string> = {
 }
 
 type Mode = 'NEAR_ME' | 'ALONG_ROUTE' | 'THIS_AREA'
+
+/** "Shillong, Mylliem, East Khasi Hills, ..." -> "Shillong": the place a driver says. */
+const placeName = (address: string) => address.split(',')[0].trim() || address
 
 const MODE_LABELS: { id: Mode; label: string }[] = [
   { id: 'NEAR_ME', label: 'Near me' },
@@ -253,25 +279,29 @@ function MapControl({
   label,
   children,
   active = false,
-  primary = false,
+  disabled = false,
 }: {
-  onPress: () => void
+  onPress?: () => void
   label: string
   children: ReactNode
   active?: boolean
-  primary?: boolean
+  /** Waiting on a precondition it names in its label (no GPS fix yet). */
+  disabled?: boolean
 }) {
   const styles = useStyles()
   return (
     <Pressable
       onPress={onPress}
+      disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ selected: active }}
+      accessibilityState={{ selected: active, disabled }}
+      aria-pressed={active}
+      aria-disabled={disabled}
       style={({ pressed }) => [
         styles.floatingCircleBtn,
-        primary && styles.recenterCircleBtn,
         active && styles.floatingCircleBtnActive,
+        disabled && styles.floatingCircleBtnOff,
         pressed && styles.floatingCircleBtnPressed,
       ]}
     >
@@ -291,36 +321,34 @@ function Row({ label, value }: { label: string; value: string }) {
   )
 }
 
-export default function MapScreen({ onBack }: { onBack: () => void }) {
+export default function MapScreen({
+  onBack,
+  onCheckTruck,
+}: {
+  /** The Trip tab: accept, start and every gate on them live there. */
+  onBack: () => void
+  /** The Trip tab's truck check, when the start gate names it. */
+  onCheckTruck?: () => void
+}) {
   const styles = useStyles()
   const { colors: COLORS } = useTheme()
-  // On a short screen (320x640) the five-button rail climbed into the top
-  // bar. Scaled from its bottom-right corner it clears the SOS button.
-  const shortScreen = useWindowDimensions().height < 700
-  const { trip, tracking, loadedAt, isStale } = useTrip()
+  const { trip, tracking, loadedAt, isStale, gpsHeld, rerouteApproved } = useTrip()
   const t = useT()
+  const { t: tk } = useAppLanguage()
   // NO TRIP IS NOT NO MAP. The tracker uploads position only while the server
   // says a trip is in progress; outside that the map still needs to know
   // where the phone is, so a second, upload-free watch takes over. One watch
-  // at a time: browse is off exactly when the tracker is expected.
-  const browse = useBrowsePosition(!trip?.tracking_expected)
-  const fix = trip?.tracking_expected ? tracking.lastPosition : browse.lastPosition
-  const locPermission = trip?.tracking_expected ? tracking.permission : browse.permission
-  const locWatching = trip?.tracking_expected ? tracking.isTracking : browse.permission === 'granted'
-  const locRequestPermission = trip?.tracking_expected ? tracking.requestPermission : browse.requestPermission
+  // at a time: browse is off exactly when the tracker owns the GPS - expected
+  // by the server and not held off by a day-old offline seed (`gpsHeld`).
+  const trackerOwnsGps = Boolean(trip?.tracking_expected) && !gpsHeld
+  const browse = useBrowsePosition(!trackerOwnsGps)
+  const fix = trackerOwnsGps ? tracking.lastPosition : browse.lastPosition
+  const locPermission = trackerOwnsGps ? tracking.permission : browse.permission
+  const locWatching = trackerOwnsGps ? tracking.isTracking : browse.permission === 'granted'
+  const locRequestPermission = trackerOwnsGps ? tracking.requestPermission : browse.requestPermission
   /** No selected road: the map is a map, not a navigator. No ETA, no route
    *  decision, no maneuvers - none of those exist yet and none is invented. */
   const browsing = trip === null || trip.selected_route_id === null
-  let driverName = 'Driver'
-  try {
-    const auth = useAuth()
-    if (auth?.driver?.full_name) driverName = auth.driver.full_name
-  } catch {
-    // Graceful fallback when rendered outside AuthProvider (e.g. test harness)
-  }
-  if (driverName === 'Driver' && trip?.driver?.full_name) {
-    driverName = trip.driver.full_name
-  }
   const places = usePlaces(JSON.stringify([trip?.id, trip?.selected_route_id]))
 
   const [category, setCategory] = useState<PlaceCategory | null>(null)
@@ -333,6 +361,8 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
     east: number
   } | null>(null)
   const [showEmergency, setShowEmergency] = useState(false)
+  /** The layers panel on the map card (overlays, voice, traffic, alternative). */
+  const [showLayers, setShowLayers] = useState(false)
   // Muted by DEFAULT. A phone that starts talking the moment a driver opens
   // the map, in a cab with a passenger or at 2am, is a feature they turn off
   // once and never turn on again.
@@ -358,13 +388,14 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
   useEffect(() => {
     const handler = BackHandler.addEventListener('hardwareBackPress', () => {
       if (showEmergency) setShowEmergency(false)
+      else if (showLayers) setShowLayers(false)
       else if (places.selected) places.select(null)
       else if (category) { setCategory(null); places.clear() }
       else onBack()
       return true
     })
     return () => handler.remove()
-  }, [showEmergency, places.selected, category, onBack, places.clear, places.select])
+  }, [showEmergency, showLayers, places.selected, category, onBack, places.clear, places.select])
 
   const selectedRouteId = trip?.selected_route_id ?? null
   const geometry = useRouteGeometry(trip?.id ?? null, selectedRouteId)
@@ -421,10 +452,6 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
    * provider's distance exactly as the server scales it.
    */
   const freshMs = (trip?.tracking.fresh_seconds ?? 60) * 1000
-  const fixAgeMs = fix ? clock.now - fix.at : null
-  const localFresh =
-    fixAgeMs !== null && fixAgeMs >= 0 && fixAgeMs <= freshMs &&
-    locWatching && locPermission === 'granted' && clock.platformPermission !== 'denied'
   /**
    * The badge says GPS, because GPS is what it measures.
    *
@@ -433,15 +460,16 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
    * it read STALE whenever the TRIP POLL failed, which is the same mistake in
    * the other direction: a lost connection with a live receiver showed "GPS
    * STALE" beside a green marker. It now ages the phone's own last fix
-   * (`localFresh`, below); the network has its own chip.
+   * (`localFresh`, from `judgeFix`); the network has its own chip.
    */
-  const chip = locationChip({
+  const { ageMs: fixAgeMs, live: localFresh, chip } = judgeFix({
     permission: locPermission,
+    watching: locWatching,
+    platformPermission: clock.platformPermission,
     fix,
-    kind: !fix || locPermission !== 'granted' ? null : localFresh ? 'LIVE' : 'LAST_KNOWN',
     now: clock.now,
+    freshMs,
   }, t)
-  const isOnline = chip.tone !== 'off'
   const projection = useMemo(
     () => (fix ? projectOntoRoute(geometry.points, [fix.lat, fix.lon]) : null),
     [geometry.points, fix],
@@ -464,9 +492,12 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
 
   // Permission is local and wins; with a fresh local fix the rest is decided
   // here (the server's copy of the fix may not have uploaded yet, which is
-  // exactly the offline case); otherwise the server's view stands.
+  // exactly the offline case). A local fix that has aged out holds the card
+  // too: the chip said "GPS stale" while the card, on the server's freshness,
+  // still read "270 m Turn right" (B2D-10). Only with no local fix at all does
+  // the server's view stand.
   const hold: GuidanceHold =
-    serverHold === 'PERMISSION' ? 'PERMISSION' : localFresh ? (offRoute.off ? 'OFF_ROUTE' : null) : serverHold
+    serverHold === 'PERMISSION' ? 'PERMISSION' : localFresh ? (offRoute.off ? 'OFF_ROUTE' : null) : fix ? 'FIX_STALE' : serverHold
   const guidanceHasPosition = hold === null && travelledM !== null
 
   /**
@@ -513,9 +544,12 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
     follow: following,
   })
 
+  // What the card, the Then line and the voice are told: a roundabout once,
+  // not again as its own exit step (FV-DRV-02).
+  const maneuvers = useMemo(() => toldManeuvers(navigation.maneuvers), [navigation.maneuvers])
   const nextTurn = useMemo(
-    () => upcomingManeuver(navigation.maneuvers, guidanceHasPosition ? travelledM : null),
-    [navigation.maneuvers, travelledM, guidanceHasPosition],
+    () => upcomingManeuver(maneuvers, guidanceHasPosition ? travelledM : null),
+    [maneuvers, travelledM, guidanceHasPosition],
   )
 
   /**
@@ -561,17 +595,17 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
     headingDeg: number | null
   } => {
     if (!fix || locPermission !== 'granted' || clock.platformPermission === 'denied') return { position: null, kind: null, source: null, accuracyM: null, headingDeg: null }
-    const freshMs = (trip?.tracking.fresh_seconds ?? 60) * 1000
     return {
       position: pin,
-      kind: locWatching && clock.now - fix.at >= 0 && clock.now - fix.at <= freshMs ? 'LIVE' : 'LAST_KNOWN',
+      // The chip's judgement, so marker and chip cannot disagree.
+      kind: localFresh ? 'LIVE' : 'LAST_KNOWN',
       source: fix.source ?? null,
       accuracyM: fix.accuracyM,
       // A heading only while the truck moves (speed.ts decides): a parked
       // phone's compass pointed the marker wherever the driver held it.
       headingDeg: fix.headingDeg ?? null,
     }
-  }, [fix, pin, trip?.tracking.fresh_seconds, clock.now, clock.platformPermission, locPermission, locWatching])
+  }, [fix, pin, localFresh, clock.platformPermission, locPermission])
   // The age the map draws is only for the LAST KNOWN tooltip and is coarse on
   // purpose: a value that ticked every five seconds redrew the scene with it.
   const ageForScene = marker.kind === 'LAST_KNOWN' && fix ? Math.max(0, Math.round((clock.now - fix.at) / 30_000) * 30) : null
@@ -700,11 +734,14 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
   // One dropped request is not an outage: a route fetch that failed while
   // the trip poll stays healthy is retried after 10 s, not left on "Try again"
   // until the driver notices (seen on the phone after a manager reroute).
+  // A failed fetch over a saved route leaves error null (the cache stays on
+  // screen), so it counts as failed here too.
+  const geometryFailed = Boolean(geometry.error) || (geometry.source === 'CACHED' && !geometry.isLoading)
   useEffect(() => {
-    if (!geometry.error || isStale) return
+    if (!geometryFailed || isStale) return
     const t = setTimeout(geometry.reload, 10_000)
     return () => clearTimeout(t)
-  }, [geometry.error, geometry.reload, isStale])
+  }, [geometryFailed, geometry.reload, isStale])
 
   const wasStale = useRef(isStale)
   useEffect(() => {
@@ -789,6 +826,8 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
             onSelectPlace={places.select}
             hillshade={showHazards}
             onViewportChange={setViewport}
+            onAttributionHeight={setAttributionH}
+            autoFollow
             cameraTrigger={cameraTrigger}
             cameraMode={cameraMode}
             testID="driver-route-map"
@@ -820,6 +859,9 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
         trafficSegments={showTraffic ? risk?.traffic?.segments ?? [] : []}
         onViewportChange={setViewport}
         onFollowChange={setFollowing}
+        onAttributionHeight={setAttributionH}
+        autoFollow={guiding}
+        frame={frame}
         cameraTrigger={cameraTrigger}
         cameraMode={cameraMode}
         testID="driver-route-map"
@@ -990,10 +1032,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
     void notifyInBackground(`danger:${shownAlert.key}`, `${shownAlert.title} · ${shownAlert.level}`, shownAlert.detail)
   }, [shownAlert?.key])  // eslint-disable-line react-hooks/exhaustive-deps
   const holdDecision = risk?.decision === 'HOLD_AND_REVIEW' || risk?.decision === 'REROUTE_RECOMMENDED'
-  const findStop = () => {
-    setIsSheetExpanded(true)
-    if (category !== 'REST') onPickCategory('REST')
-  }
+  const findStop = () => openCategory('REST')
   const riskStale = riskState === 'STALE'
   const decisionTone =
     ai.decision === 'CONTINUE'
@@ -1011,9 +1050,9 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
    */
   const thenTurn = useMemo(() => {
     if (!nextTurn) return null
-    const i = navigation.maneuvers.indexOf(nextTurn.maneuver)
-    return i >= 0 ? navigation.maneuvers[i + 1] ?? null : null
-  }, [navigation.maneuvers, nextTurn])
+    const i = maneuvers.indexOf(nextTurn.maneuver)
+    return i >= 0 ? maneuvers[i + 1] ?? null : null
+  }, [maneuvers, nextTurn])
 
   /** Arrival clock time from the server's remaining-at-planned-pace, never
    *  from a speed this screen invented. */
@@ -1040,463 +1079,811 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
     }
   })()
 
+  /* --- Phase B2 (driver_02) derived view state ------------------------- */
+
+  /** A started trip on a selected road: the guidance panel replaces the
+   *  quick actions, and the map card grows. */
+  const guiding = !browsing && Boolean(trip?.tracking_expected)
+  const { width: windowW, height: windowH, fontScale } = useWindowDimensions()
+  // Room for the quick cards' chevrons and four tiles in one row. Below it the
+  // chevrons go (at 412 "112 · 108 · 1033" lost 1033 to an ellipsis, B2D-04)
+  // and the tiles take two rows (at 412 "No weather flag" was clamped).
+  // Room is width over font scale: at 450 dp and 1.3x text four tiles in a
+  // row cut "No weather flag" and "Terrain · max grade 17%".
+  const roomy = windowW / (fontScale || 1) >= 440
+  // The four quick actions take a 2 x 2 grid below 400 dp of room, width over
+  // font scale (CERT-DRV-02). Four in a row give each label 60 px at 360 dp,
+  // and "Puncture" needs 55 at scale 1: any larger text broke it mid-word
+  // ("Punctu re", "Reques t" at 1.3). Web reports no font scale, and browser
+  // zoom narrows the width instead, so the width alone decides there.
+  const quickGrid = windowW / (fontScale || 1) < 400
+  // The maneuver card sits between Back and SOS: 204 px wide at 360 dp, and
+  // with the icon beside it the instruction had 128 px. "Keep slight right
+  // onto Bhangagarh Flyover" lost the road name, and at x1.5 the name broke
+  // mid-word (RC-DRV-01). Below 420 dp of room the instruction takes the
+  // card's full width, under the icon and the distance, on up to 4 lines.
+  const narrowCard = windowW / (fontScale || 1) < 420
+  // Where the card ends, so the guiding camera keeps the truck below it
+  // however many lines the instruction took.
+  const [cardBottom, setCardBottom] = useState(0)
+  // Room for the could-not-load card and its two buttons when the route failed.
+  const baseMapHeight = Math.round(Math.min(440, Math.max(geometry.error !== null ? 340 : guiding ? 300 : 236, windowH * (guiding ? 0.4 : 0.3))))
+  // While guiding the map is at least as tall as what floats on it: under
+  // large text at 360 dp the maneuver card, the gauge and the rail outgrew a
+  // 300 px map, the rail ran out of the card, and the summary and gauge sat
+  // on the OpenStreetMap attribution (RC-DRV-01, RC-DRV-09). Measured, so the
+  // normal size keeps its height.
+  const [overlayH, setOverlayH] = useState(0)
+  const [summaryH, setSummaryH] = useState(0)
+  // The rail (right) must end above the attribution strip; the card and the
+  // gauge (left) above the summary, which sits on that strip.
+  // The attribution strip grows with the text (the Android WebView scales
+  // its 9 px line by the font scale), so the room kept for it does too. The
+  // web map also reports what the line really takes: its CSS text grows and
+  // wraps with no font scale to read (RC-DRV-09); 5 px clear above it.
+  const [attributionH, setAttributionH] = useState(0)
+  const attributionStrip = Math.max(Math.round(22 * (fontScale || 1)), attributionH + 5)
+  // Browsing, the left column is the top row alone; the summary must still
+  // fit between it and the attribution once large text lifts it (RC-DRV-09).
+  // At normal size that never grows the map: only guiding counts the rail.
+  const leftBottom = guiding ? Math.max(cardBottom, 48) + 8 + 48 : 48
+  const mapHeight = Math.max(baseMapHeight, 8 + leftBottom + 12 + summaryH + attributionStrip, guiding ? 8 + overlayH + attributionStrip + 4 : 0)
+  // The summary keeps to about 60% of the card (the reference's box is 40%);
+  // the camera frames the route clear of it and of the top row and the rail.
+  const summaryMax = Math.min(260, Math.round((windowW - 26) * 0.62))
+  const frame = useMemo(
+    () => ({ top: guiding ? Math.max(132, cardBottom + 20) : 64, right: 64, obstacle: { width: 8 + summaryMax, height: guiding ? 60 : 112 } }),
+    [guiding, summaryMax, cardBottom],
+  )
+
+  const scroll = useRef<ScrollView>(null)
+  const detailsY = useRef<number | null>(null)
+  const servicesY = useRef(0)
+  const scrollPending = useRef<'top' | 'services' | null>(null)
+  const scrollToDetails = (to: 'top' | 'services') => {
+    if (detailsY.current === null) return
+    scroll.current?.scrollTo({ y: Math.max(0, detailsY.current + (to === 'services' ? servicesY.current : 0) - 12), animated: false })
+  }
+  /** Bring the details panel (evidence, services, trip) into view - at the
+   *  services when the driver asked for services. Not animated: a jump
+   *  respects reduced motion and lands at once. */
+  const showDetails = (to: 'top' | 'services' = 'top') => {
+    setIsSheetExpanded(true)
+    if (detailsY.current !== null) scrollToDetails(to)
+    else scrollPending.current = to
+  }
+  function openCategory(next: PlaceCategory) {
+    showDetails('services')
+    if (category !== next) onPickCategory(next)
+  }
+
+  const hazardsUsable = Boolean(risk?.terrain?.usable || risk?.landslide_history?.events?.length || HILLSHADE_URL !== null)
+  const layerRows: { key: string; label: string; on: boolean; a11y: string; toggle: () => void }[] = [
+    ...(hazardsUsable ? [{ key: 'hazards', label: t('Terrain & landslides'), on: showHazards, a11y: showHazards ? 'Hide terrain and landslide overlays' : 'Show terrain and landslide overlays', toggle: () => setShowHazards((v) => !v) }] : []),
+    ...(voiceUsable ? [{ key: 'voice', label: t('Voice guidance'), on: !muted, a11y: muted ? 'Unmute voice guidance' : 'Mute voice guidance', toggle: () => setMuted((v) => !v) }] : []),
+    ...(trafficKnown ? [{ key: 'traffic', label: t('Fleet traffic'), on: showTraffic, a11y: showTraffic ? 'Hide fleet traffic' : 'Show fleet traffic', toggle: () => setShowTraffic((v) => !v) }] : []),
+    ...(hasAlternative ? [{ key: 'alt', label: t('Alternative route'), on: showAltRoute, a11y: showAltRoute ? 'Hide alternative route' : 'Show alternative route', toggle: () => setShowAltRoute((v) => !v) }] : []),
+  ]
+
+  // "Start" the first time, "Resume" once guidance has been followed on this
+  // trip - even after the screen remounted (FOLLOWED_TRIPS).
+  if (following && guiding && trip) FOLLOWED_TRIPS.add(trip.id)
+  const followedOnce = trip !== null && FOLLOWED_TRIPS.has(trip.id)
+
+  /**
+   * THE ONE NEXT STEP, and only a real one.
+   *
+   * Accept and Start live on the Trip tab with their gates (`can_start`, the
+   * `start_blocked_reason` banner, the in-flight guards); a CTA here routes
+   * there rather than copying them. The truck check is the Trip tab's own
+   * path. While the trip runs, the step is guidance: follow the truck, or
+   * open the route details once it is followed. No trip, no CTA.
+   */
+  const cta: { label: string; icon: IconName; onPress?: () => void; testID: string; note?: string | null } | null = (() => {
+    if (trip === null || ['DELIVERED', 'CLOSED', 'CANCELLED'].includes(trip.status)) return null
+    if (trip.driver_accepted_at == null && !trip.tracking_expected) {
+      return { label: t('Accept on the Trip tab'), icon: 'check-circle', onPress: onBack, testID: 'cta-accept' }
+    }
+    if (trip.status === 'ASSIGNED') {
+      if (trip.can_start) return { label: t('Start the trip on the Trip tab'), icon: 'play', onPress: onBack, testID: 'cta-start' }
+      if (trip.start_blocked_code === 'ASSIGNMENT_NOT_VERIFIED' && onCheckTruck) {
+        return { label: t('Check the truck'), icon: 'clipboard', onPress: onCheckTruck, testID: 'cta-check-truck', note: trip.start_blocked_reason }
+      }
+      return { label: t('Open Trip'), icon: 'truck', onPress: onBack, testID: 'cta-open-trip', note: trip.start_blocked_reason }
+    }
+    if (!guiding) return null
+    if (following && nav === 'FOLLOWING') {
+      return { label: t(isSheetExpanded ? 'Hide route details' : 'Route details'), icon: 'list', onPress: () => (isSheetExpanded ? setIsSheetExpanded(false) : showDetails('top')), testID: 'cta-details' }
+    }
+    if (canRecenter) return { label: t(followedOnce ? 'Resume guidance' : 'Start guidance'), icon: 'navigation', onPress: handleRecenter, testID: 'cta-guidance' }
+    if (locPermission === 'denied') return { label: t('Allow location'), icon: 'map-pin', onPress: locRequestPermission, testID: 'cta-allow-location' }
+    return { label: t('Waiting for a GPS fix'), icon: 'navigation', testID: 'cta-no-fix' }
+  })()
+
+  /** The route summary on the map card: real names, real figures, UNKNOWN
+   *  where the server gave none. Never "safe", never an invented ETA. */
+  // The place before the stop's kind: a stop is named "Pickup" / "Delivery"
+  // and its address is where it is.
+  const origin = geometry.stops[0]?.address ?? geometry.stops[0]?.name ?? null
+  const destination = geometry.stops.at(-1)?.address ?? geometry.stops.at(-1)?.name ?? null
+  const plannedMin = eta.duration !== null ? null : geometry.durationMin
+  const paceText = eta.duration ?? (plannedMin != null ? formatMinutes(plannedMin) : null)
+  const riskLine =
+    riskState === 'LOADING'
+      ? `${t('Route check')}: ASSESSING`
+      : risk
+        // The engine's decision where it made one: the band alone read
+        // "LOW" beside a CAUTION card on the same road.
+        ? `${t('Route check')}: ${risk.decision ? risk.decision.replace(/_/g, ' ') : `${risk.band} risk`}${riskStale ? ' · STALE' : ''}`
+        : `${t('Route check')}: NOT ASSESSED`
+  const summary =
+    trip === null
+      ? { title: t('Browsing the map'), line: t('No active trip · search, terrain and SOS still work'), evidence: null }
+      : selectedRouteId === null
+        ? { title: t('Route not selected'), line: t('Your manager assigns the road first'), evidence: null }
+        : geometry.points.length === 0
+          ? { title: t('Loading the route'), line: t('Turn-by-turn starts once the road has loaded'), evidence: null }
+          : {
+              title: `${origin ?? t('Origin')} → ${destination ?? t('Destination')}`,
+              line: `${eta.distance ?? 'UNKNOWN'} · ${paceText ? `${paceText} ${t('at planned pace')}` : `${t('time')} UNKNOWN`}`,
+              evidence: riskLine,
+            }
+
+  /** Route information tiles, each from the evidence or saying it has none. */
+  const terrainTile = (() => {
+    const terrain = risk?.terrain
+    if (!terrain?.usable) return { value: 'NOT ASSESSED', sub: t('Terrain') }
+    const worst = (['STEEP', 'HILLY', 'ROLLING', 'FLAT'] as const).find((c) => (terrain.class_km[c] ?? 0) > 0)
+    if (!worst) return { value: 'NOT ASSESSED', sub: t('Terrain') }
+    return { value: `${worst} · ${formatDistanceKm(terrain.class_km[worst])}`, sub: `${t('Terrain')} · ${t('max grade')} ${Math.round(terrain.max_grade_pct)}%${riskStale ? ' · STALE' : ''}` }
+  })()
+  const weatherTile = (() => {
+    if (!risk) return { value: riskState === 'LOADING' ? '…' : 'NOT ASSESSED', sub: t('Weather') }
+    if (risk.inputs.weather !== 'AVAILABLE') return { value: 'UNAVAILABLE', sub: t('Weather') }
+    const codes = new Set([...(risk.reason_codes ?? []), ...(risk.decision_reason_codes ?? [])])
+    const flag = WEATHER_CODES.find((c) => codes.has(c))
+    return {
+      value: flag ? translateReasonCode(flag, language) : t('No weather flag'),
+      sub: `${t('Weather')} · ${risk.observations_used} obs${riskStale ? ' · STALE' : ''}`,
+    }
+  })()
+  // While guiding the ETA row directly above states distance and time, so
+  // those two tiles give way to the next stop and the next marked terrain
+  // (B2D-08). Each is real or says it is not known.
+  const nextStop = trip?.stops.find((s) => s.status === 'PENDING' || s.status === 'ARRIVED') ?? null
+  const tiles: { icon: IconName; value: string; sub: string; testID: string }[] = [
+    ...(guiding
+      ? [
+          // The place, not the postal address: two lines of a tile cut it at
+          // "793001, Indi" (AUD2-02). The Trip tab has the address whole.
+          { icon: 'flag' as IconName, value: nextStop ? (nextStop.address ? placeName(nextStop.address) : nextStop.name ?? 'UNKNOWN') : t('None left'), sub: t('Next stop'), testID: 'tile-next-stop' },
+          {
+            icon: 'chevrons-up' as IconName,
+            value: ai.nextTerrain ?? (!risk?.terrain?.usable ? 'NOT ASSESSED' : guidanceHasPosition ? t('None marked ahead') : 'UNKNOWN'),
+            sub: t('Next terrain'),
+            testID: 'tile-next-terrain',
+          },
+        ]
+      : [
+          { icon: 'map' as IconName, value: eta.distance ?? 'UNKNOWN', sub: t(eta.distanceLabel === 'remaining' ? 'Remaining' : 'Distance'), testID: 'tile-distance' },
+          { icon: 'clock' as IconName, value: paceText ?? 'UNKNOWN', sub: t('At planned pace'), testID: 'tile-time' },
+        ]),
+    { icon: 'trending-up', value: terrainTile.value, sub: terrainTile.sub, testID: 'tile-terrain' },
+    { icon: 'cloud-rain', value: weatherTile.value, sub: weatherTile.sub, testID: 'tile-weather' },
+  ]
+
+  // Destination first, so a narrow screen cuts the code, not the place. The
+  // place a driver says ("Shillong"), not the postal address: at 360 dp the
+  // full address was cut at "793001, Indi" (AUD2-02). It stands whole in the
+  // route summary and on the Trip tab.
+  const lastStop = trip?.stops.at(-1)
+  const heroPlace = lastStop?.address ? placeName(lastStop.address) : lastStop?.name
+  const heroSubtitle = trip
+    ? [heroPlace, trip.trip_code].filter(Boolean).join(' · ')
+    : t('Roadside services, terrain and help')
+
+  const speedGauge = (
+    <View style={styles.speedGauge} accessibilityLabel={`${localFresh && fix?.speedKmh != null ? fix.speedKmh : 'No'} km/h`}>
+      <Text style={styles.speedValue}>
+        {localFresh && fix?.speedKmh != null ? fix.speedKmh : '--'}
+      </Text>
+      <Text style={styles.speedUnit}>km/h</Text>
+    </View>
+  )
+
   return (
-    <SafeAreaView style={styles.root}>
-      {/* THE MAP OWNS THE SCREEN. A real flex child, so it reserves its space;
-          everything floating inside is anchored to this box and can never sit
-          under the card or the ETA bar below. */}
-      <View style={styles.mapArea}>
-        <View style={styles.mapCanvasWrapper}>{renderCanvas()}</View>
+    <View style={styles.root}>
+      <ScrollView ref={scroll} contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
+        <ScreenHero
+          photo={PHOTOS.navigate}
+          title={tk('nav_navigate')}
+          subtitle={heroSubtitle}
+          status={<StatusChip text={chip.text} tone={chip.tone === 'off' ? 'off' : chip.tone === 'coarse' ? 'warn' : 'live'} />}
+          themeChip
+          compact
+        />
 
-        {/* TOP: back · next maneuver · emergency. */}
-        <View style={styles.topLayer} pointerEvents="box-none">
-          <View style={styles.topRow}>
-            <Pressable
-              onPress={onBack}
-              accessibilityRole="button"
-              accessibilityLabel="Back to trip"
-              style={styles.roundBtn}
-            >
-              <Icon name="chevron-left" size={26} color={COLORS.text} />
-            </Pressable>
+        {/* The real search on this screen: roadside services along the road,
+            near the truck or in the map area. No free text and no mic -
+            neither exists - so the field opens the category search. */}
+        <Pressable
+          onPress={() => showDetails('services')}
+          accessibilityRole="button"
+          accessibilityLabel="Search roadside services"
+          testID="search-field"
+          style={({ pressed }) => [styles.search, pressed && styles.pressed]}
+        >
+          <Icon name="search" size={20} color={COLORS.textMuted} />
+          <Text style={styles.searchText} numberOfLines={2}>{t('Search roadside services')}</Text>
+          <Icon name="chevron-down" size={18} color={COLORS.textMuted} />
+        </Pressable>
 
-            {selectedRouteId !== null ? (
-              <View style={styles.maneuverCard} testID="maneuver-card">
-                <View style={styles.maneuverMain}>
-                  <View style={styles.maneuverIcon}><Icon name={nextTurn ? maneuverIcon(nextTurn.maneuver) : 'navigation'} size={30} color="#FFFFFF" /></View>
-                  <View style={styles.maneuverText}>
-                    {nextTurn ? (
-                      <>
-                        <Text style={styles.maneuverDistance}>{formatTurnDistance(nextTurn.distanceM)}</Text>
-                        <Text style={styles.maneuverInstruction} numberOfLines={1}>
-                          {instructionFor(nextTurn.maneuver, t)}
-                        </Text>
-                      </>
-                    ) : (
-                      <>
-                        {/* No maneuver means SAY no maneuver: `hold` and
-                            `available` carry the real reason, and an invented
-                            "continue straight" is the one thing this card must
-                            never show. */}
-                        <Text style={styles.maneuverInstruction} numberOfLines={1}>
-                          {t(!navigation.available ? 'Guidance unavailable' : hold !== null ? 'Guidance paused' : 'No further turns')}
-                        </Text>
-                        <Text style={styles.maneuverSub} numberOfLines={hold === 'OFF_ROUTE' ? 3 : 1}>
-                          {hold === 'OFF_ROUTE'
-                            ? offRouteLine
-                            : t(!navigation.available
-                            ? 'Route overview active'
-                            : hold === 'PERMISSION'
-                              ? 'Allow location to start'
-                              : hold === 'NO_FIX'
-                                ? 'Waiting for a GPS fix'
-                                : hold === 'FIX_STALE' || hold === 'CONTACT_LOST'
-                                  ? 'GPS fix is stale'
-                                  : 'Route overview active')}
-                        </Text>
-                      </>
-                    )}
+        {/* THE MAP CARD. A real box of its own, so everything floating inside
+            is anchored to it and can never sit under the cards below. */}
+        <View style={[styles.mapCard, { height: mapHeight }]} testID="map-card">
+          <View style={styles.mapArea}>
+            {/* THE MAP'S OWN CONTROLS, in two rows so nothing overlaps at any
+                height. Top: back, then the next maneuver while guiding (the
+                speed otherwise), then SOS - the emergency action first on
+                the right and independent of everything. Below: the speed
+                while guiding, and the rail: only controls that DO something
+                right now. Voice, traffic and the alternative road live in the
+                layers panel with the overlays. */}
+            <View style={styles.mapOverlay} pointerEvents="box-none" onLayout={(e) => setOverlayH(Math.round(e.nativeEvent.layout.height))}>
+              <View style={styles.mapTopRow} pointerEvents="box-none">
+                <Pressable
+                  onPress={onBack}
+                  accessibilityRole="button"
+                  accessibilityLabel="Back to trip"
+                  style={styles.roundBtn}
+                >
+                  <Icon name="chevron-left" size={24} color={COLORS.text} />
+                </Pressable>
+                {guiding ? (
+                <View
+                  style={[styles.maneuverCard, styles.maneuverInMap]}
+                  testID="maneuver-card"
+                  onLayout={(e) => setCardBottom(Math.round(e.nativeEvent.layout.y + e.nativeEvent.layout.height))}
+                >
+                  <View style={styles.maneuverMain}>
+                    <View style={styles.maneuverIcon}><Icon name={nextTurn ? maneuverIcon(nextTurn.maneuver) : 'navigation'} size={30} color={COLORS.onFill} /></View>
+                    <View style={styles.maneuverText}>
+                      {nextTurn ? (
+                        <>
+                          <Text style={styles.maneuverDistance}>{formatTurnDistance(nextTurn.distanceM)}</Text>
+                          {/* Three lines: two cut the road name ("onto Bha…",
+                              CERT-DRV-05, RC-DRV-01). */}
+                          {narrowCard ? null : (
+                            <Text style={styles.maneuverInstruction} numberOfLines={3} testID="maneuver-instruction">
+                              {instructionFor(nextTurn.maneuver, t)}
+                            </Text>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          {/* No maneuver means SAY no maneuver: `hold` and
+                              `available` carry the real reason, and an invented
+                              "continue straight" is the one thing this card must
+                              never show. */}
+                          {/* Two lines: at 360 dp "Guidance paused" lost its last
+                              letters between back and SOS. */}
+                          {/* While the directions are still on their way this is a
+                              wait, not a failure (RC-DRV-11). */}
+                          <Text style={styles.maneuverInstruction} numberOfLines={2}>
+                            {!navigation.available && navigation.isLoading
+                              ? t('Loading guidance…')
+                              : t(!navigation.available ? 'Guidance unavailable' : hold !== null ? 'Guidance paused' : 'No further turns')}
+                          </Text>
+                          <Text style={styles.maneuverSub} numberOfLines={hold === 'OFF_ROUTE' ? 3 : 1}>
+                            {hold === 'OFF_ROUTE'
+                              ? offRouteLine
+                              : t(!navigation.available
+                              ? 'Route overview active'
+                              : hold === 'PERMISSION'
+                                ? 'Allow location to start'
+                                : hold === 'NO_FIX'
+                                  ? 'Waiting for a GPS fix'
+                                  : hold === 'FIX_STALE' || hold === 'CONTACT_LOST'
+                                    ? 'GPS fix is stale'
+                                    : 'Route overview active')}
+                          </Text>
+                        </>
+                      )}
+                    </View>
                   </View>
-                </View>
-                {thenTurn ? (
-                  <View style={styles.thenRow}>
-                    <Text style={styles.thenText} numberOfLines={1}>
-                      {t('Then')} <Icon name={maneuverIcon(thenTurn)} size={13} color={COLORS.muted} /> {instructionFor(thenTurn, t)}
+                  {nextTurn && narrowCard ? (
+                    <Text style={styles.maneuverInstruction} numberOfLines={4} testID="maneuver-instruction">
+                      {instructionFor(nextTurn.maneuver, t)}
                     </Text>
+                  ) : null}
+                  {thenTurn ? (
+                    <View style={styles.thenRow}>
+                      {/* Wraps like the instruction below 420 dp of room: at
+                          360 under larger text two lines cut the next road's
+                          name (FV-DRV-01). */}
+                      <Text style={styles.thenText} numberOfLines={narrowCard ? 4 : 2} testID="maneuver-then">
+                        {t('Then')} <Icon name={maneuverIcon(thenTurn)} size={13} color={COLORS.onFill} /> {instructionFor(thenTurn, t)}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+                ) : (
+                  <>
+                    {speedGauge}
+                    <View style={styles.flex1} pointerEvents="none" />
+                  </>
+                )}
+                <Pressable
+                  onPress={() => setShowEmergency((v) => !v)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Emergency help"
+                  style={[styles.roundBtn, styles.sosBtn]}
+                  testID="emergency-action"
+                >
+                  <Text style={styles.sosGlyph}>SOS</Text>
+                </Pressable>
+              </View>
+              <View style={styles.mapSecondRow} pointerEvents="box-none">
+                {guiding ? speedGauge : <View />}
+                <View style={styles.rail} pointerEvents="box-none">
+                  {layerRows.length ? (
+                    <MapControl onPress={() => setShowLayers((v) => !v)} label={showLayers ? 'Close map layers' : 'Map layers'} active={showLayers}>
+                      <Icon name="layers" size={20} color={showLayers ? COLORS.onPrimary : COLORS.text} />
+                    </MapControl>
+                  ) : null}
+                  <MapControl
+                    onPress={canRecenter ? handleRecenter : locPermission === 'denied' ? locRequestPermission : undefined}
+                    label={canRecenter ? 'Re-centre the map on the truck' : locPermission === 'denied' ? 'Allow location' : 'Waiting for a GPS position'}
+                    active={following && nav === 'FOLLOWING'}
+                    disabled={!canRecenter && locPermission !== 'denied'}
+                  >
+                    <RecenterIcon color={following && nav === 'FOLLOWING' ? COLORS.onPrimary : canRecenter || locPermission === 'denied' ? COLORS.text : COLORS.textFaint} size={20} />
+                  </MapControl>
+                  {canFitRoute ? (
+                    <MapControl onPress={handleFitRoute} label="Route overview — fit the whole route">
+                      <FitRouteIcon color={COLORS.text} size={20} />
+                    </MapControl>
+                  ) : null}
+                  {showLayers && layerRows.length ? (
+                    <View style={styles.layers} testID="layers-panel">
+                      {layerRows.map((row) => (
+                        <Pressable
+                          key={row.key}
+                          onPress={row.toggle}
+                          accessibilityRole="button"
+                          accessibilityLabel={row.a11y}
+                          accessibilityState={{ selected: row.on }}
+                          aria-pressed={row.on}
+                          style={({ pressed }) => [styles.layerRow, pressed && styles.pressed]}
+                        >
+                          <Text style={styles.layerLabel} numberOfLines={1}>{row.label}</Text>
+                          <Text style={[styles.layerState, row.on && styles.layerStateOn]}>{t(row.on ? 'On' : 'Off')}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+            </View>
+
+            {/* After the controls in the DOM, drawn under them (zIndex): Tab
+                reads Back, SOS and the rail at the map's top before the map
+                and the attribution link at its foot (RC-DRV-06). */}
+            <View style={styles.mapCanvasWrapper}>{renderCanvas()}</View>
+
+            {/* BOTTOM-LEFT: the route summary, over the attribution line. While
+                guiding it is the nav chip and one line - the ETA row carries
+                the figures, and the map needs the room (B2D-05). The chip is
+                guidance state, so it exists only while guiding: "Following"
+                on a trip not yet accepted read as guidance running (B2D-09). */}
+            <View style={[styles.summary, { maxWidth: guiding ? windowW - 26 - 72 : summaryMax, bottom: attributionStrip }, guiding && styles.summaryGuiding]} pointerEvents="none" testID="route-summary" onLayout={(e) => setSummaryH(Math.round(e.nativeEvent.layout.height))}>
+              {guiding ? (
+                <>
+                  <View style={[styles.navChip, (nav === 'OFF_ROUTE' || nav === 'REROUTING') && styles.navChipWarn, (nav === 'GPS_STALE' || nav === 'OFFLINE' || nav === 'IDLE') && styles.navChipOff]} testID="nav-state">
+                    <Text style={[styles.navChipText, (nav === 'OFF_ROUTE' || nav === 'REROUTING') && styles.navChipWarnText]}>{t(NAV_WORDS[nav] ?? nav)}</Text>
                   </View>
-                ) : null}
-              </View>
-            ) : (
-              <View style={styles.maneuverCard}>
-                <Text style={styles.maneuverInstruction}>{trip === null ? t('Browsing the map') : selectedRouteId === null ? t('Route not selected') : t('Loading the route')}</Text>
-                <Text style={styles.maneuverSub} numberOfLines={2}>{trip === null ? t('No active trip · search, terrain and SOS still work') : selectedRouteId === null ? t('Your manager assigns the road first') : t('Turn-by-turn starts once the road has loaded')}</Text>
-              </View>
-            )}
-
-            <Pressable
-              onPress={() => setShowEmergency((v) => !v)}
-              accessibilityRole="button"
-              accessibilityLabel="Emergency help"
-              style={[styles.roundBtn, styles.sosBtn]}
-              testID="emergency-action"
-            >
-              <Text style={styles.sosGlyph}>SOS</Text>
-            </Pressable>
+                  {/* Two lines, never an ellipsis: this is the route verdict
+                      ("Route check: CAUTION" was cut to "Route check: …"
+                      under large text, RC-DRV-02). */}
+                  <Text style={[styles.summaryEvidence, styles.flexShrink]} numberOfLines={2}>{summary.evidence ?? summary.title}</Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.summaryTitle} numberOfLines={2}>{summary.title}</Text>
+                  <Text style={styles.summaryLine} numberOfLines={3}>{summary.line}</Text>
+                  {summary.evidence ? <Text style={styles.summaryEvidence} numberOfLines={1}>{summary.evidence}</Text> : null}
+                </>
+              )}
+            </View>
           </View>
+        </View>
 
-          {geometry.source === 'CACHED' ? (
-            <View style={styles.sourceStrip}>
-              <Text style={styles.sourceStripText}>
-                Saved route — no connection. Downloaded {relativeTime(geometry.capturedAt)}.
+        {geometry.source === 'CACHED' ? (
+          <View style={styles.sourceStrip}>
+            <Text style={styles.sourceStripText}>
+              {/* While the fetch is in flight the saved corridor is a stand-in,
+                  not an outage; "no connection" only when the trip poll says so. */}
+              {geometry.isLoading ? t('Saved route — checking for updates.') : isStale ? t('Saved route — no connection.') : t('Saved route — could not update.')} Downloaded {relativeTime(geometry.capturedAt)}.
+            </Text>
+          </View>
+        ) : null}
+
+        {/* The road the driver asked for, or any new road, was taken by the
+            manager: guidance has switched to it (FV-E2E-2). */}
+        {rerouteJustApproved(rerouteApproved, trip, clock.now) ? (
+          <Banner tone="ok" title="Reroute approved" style={styles.approvedBanner} />
+        ) : null}
+
+        {shownAlert ? (
+          <View style={[styles.alertCard, shownAlert.level !== 'CAUTION' && styles.alertCardHigh]} testID="danger-alert">
+            <View style={styles.alertTitleRow}>
+              <Icon name="alert-triangle" size={16} color={shownAlert.level !== 'CAUTION' ? COLORS.danger : COLORS.warning} />
+              <Text style={[styles.alertTitle, shownAlert.level !== 'CAUTION' && styles.alertTitleHigh]} numberOfLines={2}>
+                {shownAlert.title} · {shownAlert.level}
               </Text>
             </View>
-          ) : null}
-
-          {shownAlert && !isSheetExpanded ? (
-            <View style={[styles.alertCard, shownAlert.level !== 'CAUTION' && styles.alertCardHigh]} testID="danger-alert">
-              <View style={styles.alertTitleRow}>
-                <Icon name="alert-triangle" size={16} color={shownAlert.level !== 'CAUTION' ? COLORS.bad : COLORS.warn} />
-                <Text style={[styles.alertTitle, shownAlert.level !== 'CAUTION' && styles.alertTitleHigh]} numberOfLines={2}>
-                  {shownAlert.title} · {shownAlert.level}
-                </Text>
-              </View>
-              <Text style={styles.alertWhere} numberOfLines={2}>{shownAlert.where}</Text>
-              <Text style={styles.alertDetail} numberOfLines={2}>{shownAlert.detail}</Text>
-              <Text style={styles.alertEvidence} numberOfLines={1}>Evidence · {shownAlert.evidence.join(' · ')}</Text>
-              <View style={styles.alertActions}>
-                <Pressable onPress={() => setIsSheetExpanded(true)} accessibilityRole="button" accessibilityLabel="View route details" style={styles.alertBtn}>
-                  <Text style={styles.alertBtnText}>{t('VIEW')}</Text>
-                </Pressable>
-                <Pressable onPress={findStop} accessibilityRole="button" accessibilityLabel="Find a place to stop" style={styles.alertBtn}>
-                  <Text style={styles.alertBtnText}>{t('STOPS')}</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => setAcknowledged((prev) => new Set(prev).add(shownAlert.key))}
-                  accessibilityRole="button"
-                  accessibilityLabel="Acknowledge this alert"
-                  style={[styles.alertBtn, styles.alertBtnPrimary]}
-                  testID="danger-alert-ack"
-                >
-                  <Text style={[styles.alertBtnText, styles.alertBtnTextPrimary]}>{t('OK, SEEN')}</Text>
-                </Pressable>
-              </View>
-            </View>
-          ) : null}
-        </View>
-
-        {/* RIGHT RAIL. Only controls that DO something right now - a greyed
-            button is a promise the map cannot keep, so the mute, overview,
-            layers and traffic buttons appear when their function exists.
-            Hidden while the details sheet has the map squeezed - a rail
-            climbing into the maneuver card is worse than a tap to close. */}
-        {isSheetExpanded ? null : (
-        <View style={[styles.rightRail, shortScreen && { transform: [{ scale: 0.82 }], transformOrigin: 'right bottom' }]} pointerEvents="box-none">
-          <MapControl
-            onPress={() => setIsSheetExpanded(true)}
-            label="Search roadside services"
-            active={isSheetExpanded && category !== null}
-          >
-            <Icon name="search" size={20} color={COLORS.text} />
-          </MapControl>
-          {voiceUsable ? (
-            <MapControl onPress={() => setMuted((v) => !v)} label={muted ? 'Unmute voice guidance' : 'Mute voice guidance'}>
-              <AudioIcon color={COLORS.text} size={20} muted={muted} />
-            </MapControl>
-          ) : null}
-          {canFitRoute ? (
-            <MapControl onPress={handleFitRoute} label="Route overview — fit the whole route">
-              <FitRouteIcon color={COLORS.text} size={20} />
-            </MapControl>
-          ) : null}
-          {risk?.terrain?.usable || risk?.landslide_history?.events?.length || HILLSHADE_URL !== null ? (
-            <MapControl
-              onPress={() => setShowHazards((v) => !v)}
-              label={showHazards ? 'Hide terrain and landslide overlays' : 'Show terrain and landslide overlays'}
-              active={showHazards}
-            >
-              <Icon name="layers" size={20} color={showHazards ? COLORS.onAccent : COLORS.text} />
-            </MapControl>
-          ) : null}
-          {trafficKnown ? (
-            <MapControl onPress={() => setShowTraffic((v) => !v)} label={showTraffic ? 'Hide fleet traffic' : 'Show fleet traffic'} active={showTraffic}>
-              <Icon name="activity" size={20} color={showTraffic ? COLORS.onAccent : COLORS.text} />
-            </MapControl>
-          ) : null}
-          {hasAlternative ? (
-            <MapControl
-              onPress={() => setShowAltRoute((v) => !v)}
-              label={showAltRoute ? 'Hide alternative route' : 'Show alternative route'}
-              active={showAltRoute}
-            >
-              <Icon name="git-branch" size={20} color={showAltRoute ? COLORS.onAccent : COLORS.text} />
-            </MapControl>
-          ) : null}
-        </View>
-        )}
-
-        {/* BOTTOM-LEFT: speed and GPS state. BOTTOM-CENTRE: re-centre.
-            Hidden with the sheet open: the map is a strip then, and the
-            gauge climbed into the maneuver card on a 360 dp phone. Hidden
-            under a danger card too: on a 412 dp phone the card's action row
-            landed on the gauge, and a gauge over OK, SEEN is a dead button. */}
-        {isSheetExpanded || shownAlert ? null : (
-        <View style={styles.bottomLeft} pointerEvents="box-none">
-          <View style={styles.speedGauge}>
-            <Text style={styles.speedValue}>
-              {localFresh && fix?.speedKmh != null ? fix.speedKmh : '--'}
-            </Text>
-            <Text style={styles.speedUnit}>km/h</Text>
-          </View>
-          <View style={[styles.gpsChip, !isOnline && styles.gpsChipOff, chip.tone === 'coarse' && styles.navChipWarn]}>
-            <View style={[styles.gpsDot, !isOnline && styles.gpsDotOff]} />
-            <Text style={[styles.gpsText, !isOnline && styles.gpsTextOff, chip.tone === 'coarse' && styles.navChipWarnText]}>{chip.text}</Text>
-          </View>
-          <View style={[styles.gpsChip, styles.navChip, (nav === 'OFF_ROUTE' || nav === 'REROUTING') && styles.navChipWarn, (nav === 'GPS_STALE' || nav === 'OFFLINE' || nav === 'IDLE') && styles.gpsChipOff]} testID="nav-state">
-            <Text style={[styles.gpsText, (nav === 'OFF_ROUTE' || nav === 'REROUTING') && styles.navChipWarnText, (nav === 'GPS_STALE' || nav === 'OFFLINE' || nav === 'IDLE') && styles.gpsTextOff]}>{t(NAV_WORDS[nav] ?? nav)}</Text>
-          </View>
-        </View>
-        )}
-        {/* Re-centre only while the camera is NOT on the truck - the way a
-            navigation app hides it while following and shows it after a pan. */}
-        {following && nav === 'FOLLOWING' ? null : (
-        <View style={styles.bottomCentre} pointerEvents="box-none">
-          <Pressable
-            onPress={canRecenter ? handleRecenter : locPermission === 'denied' ? locRequestPermission : undefined}
-            disabled={!canRecenter && locPermission !== 'denied'}
-            accessibilityRole="button"
-            accessibilityLabel={canRecenter ? 'Re-centre the map on the truck' : 'Waiting for a GPS position'}
-            accessibilityState={{ disabled: !canRecenter && locPermission !== 'denied' }}
-            style={[styles.recentrePill, !canRecenter && styles.recentrePillOff]}
-          >
-            <RecenterIcon color={canRecenter ? COLORS.onAccent : COLORS.faint} size={18} />
-            <Text style={[styles.recentreText, !canRecenter && styles.recentreTextOff]}>
-              {canRecenter ? t('Re-centre') : locPermission === 'denied' ? t('Allow location') : t('No GPS fix')}
-            </Text>
-          </Pressable>
-        </View>
-        )}
-      </View>
-
-      {/* PERSONAL ROUTE AI - the decision the engine reached, in words.
-          Absent without a road: there is no decision to show and none is
-          made up. */}
-      {browsing ? null : (
-      <View style={styles.aiCard} testID="route-ai-card">
-        <View style={styles.aiHead}>
-          <Text style={styles.aiEyebrow}>PERSONAL ROUTE AI{riskStale ? ' · LAST KNOWN' : isStale ? ' · OFFLINE' : ''}</Text>
-          <Pressable
-            onPress={() => setIsSheetExpanded((v) => !v)}
-            accessibilityRole="button"
-            accessibilityLabel={isSheetExpanded ? 'Hide route details' : 'Show route details'}
-            hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
-            style={styles.detailsBtn}
-          >
-            <Text style={styles.detailsBtnText}>{isSheetExpanded ? t('HIDE') : t('DETAILS')}</Text>
-          </Pressable>
-        </View>
-        <View style={styles.aiRow}>
-          <View
-            style={[
-              styles.decisionPill,
-              decisionTone === 'ok' && styles.decisionOk,
-              decisionTone === 'warn' && styles.decisionWarn,
-              decisionTone === 'bad' && styles.decisionBad,
-            ]}
-          >
-            <Text
-              style={[
-                styles.decisionText,
-                decisionTone === 'ok' && styles.decisionTextOk,
-                decisionTone === 'warn' && styles.decisionTextWarn,
-                decisionTone === 'bad' && styles.decisionTextBad,
-              ]}
-              numberOfLines={1}
-            >
-              {riskState === 'LOADING' ? 'ASSESSING' : (ai.decision ?? 'NO DATA').replace(/_/g, ' ')}
-            </Text>
-          </View>
-          <Text style={styles.aiHeadline} numberOfLines={1}>
-            {riskState === 'LOADING' ? 'Assessing the route…' : ai.headline}
-          </Text>
-        </View>
-        <Text style={styles.aiLines} numberOfLines={2}>
-          {riskState === 'LOADING' ? 'Reading terrain, weather and landslide evidence.' : ai.lines.join(' · ')}
-        </Text>
-        <View style={styles.aiFacts}>
-          {ai.nextTerrain ? (
-            <Text style={styles.aiFact} numberOfLines={1}>{t('Next terrain')}: <Text style={styles.aiFactStrong}>{ai.nextTerrain}</Text></Text>
-          ) : null}
-          {ai.landslide ? (
-            <Text style={styles.aiFact} numberOfLines={1}>{t('Landslide exposure')}: <Text style={styles.aiFactStrong}>{ai.landslide}</Text></Text>
-          ) : null}
-          {ai.weather ? (
-            <Text style={styles.aiFact} numberOfLines={1}>{t('Weather')}: <Text style={styles.aiFactStrong}>{ai.weather}</Text></Text>
-          ) : null}
-          {risk?.traffic ? (
-            <Text style={styles.aiFact} numberOfLines={1}>{t('Fleet traffic')}: <Text style={styles.aiFactStrong}>{trafficLine(risk.traffic)}</Text></Text>
-          ) : null}
-        </View>
-        {holdDecision ? (
-          <Pressable onPress={findStop} accessibilityRole="button" accessibilityLabel="Find a place to stop" style={styles.stopLink}>
-            <Text style={styles.stopLinkText}>{t('Find a place to stop')} →</Text>
-          </Pressable>
-        ) : null}
-        <Text style={styles.aiStamp} numberOfLines={1}>
-          {ai.evidence}
-          {risk
-            ? riskStale
-              ? ` · captured ${relativeTime(riskCapturedAt ?? risk.assessed_at)} · STALE`
-              : ` · updated ${relativeTime(risk.assessed_at)}${isStale ? ' · connection lost' : ''}`
-            : ''}
-        </Text>
-      </View>
-      )}
-
-      {/* DETAILS SHEET - the evidence behind the card, services, trip facts. */}
-      {isSheetExpanded ? (
-        <ScrollView
-          style={styles.sheetScroll}
-          contentContainerStyle={styles.detailsBody}
-          keyboardShouldPersistTaps="handled"
-          nestedScrollEnabled
-        >
-          {browsing ? null : (<>
-          <Text style={styles.sectionTitle}>{t('Evidence')}</Text>
-          <View style={styles.factorGrid}>
-            {factorRows.slice(0, 8).map(([name, state]) => (
-              <View key={name} style={styles.factorRow}>
-                <Text style={styles.factorName} numberOfLines={1}>{name}</Text>
-                <Text style={[styles.factorState, state !== 'Available' && styles.factorStateOff]}>{state}</Text>
-              </View>
-            ))}
-          </View>
-          {risk?.terrain?.usable ? (
-            <Text style={styles.detailLine}>
-              {terrainAhead(risk.terrain.segments, risk.terrain.class_km, guidanceHasPosition ? travelledM : null)}
-            </Text>
-          ) : null}
-          {risk?.landslide_history?.events?.length ? (
-            <Text style={styles.detailLine}>
-              {hazardAhead(geometry.points, risk.landslide_history.events, guidanceHasPosition ? travelledM : null)}
-            </Text>
-          ) : null}
-          {risk?.landslide_history ? (
-            <Text style={styles.detailLine}>
-              Historical landslide sites only{risk.landslide_history.inventory_from_year && risk.landslide_history.inventory_to_year ? ` (${risk.landslide_history.inventory_from_year}–${risk.landslide_history.inventory_to_year})` : ''} — not a current incident feed.
-            </Text>
-          ) : null}
-          {risk?.flood && risk.flood.level !== 'UNKNOWN' && risk.flood.ratio_max != null ? (
-            <Text style={styles.detailLine}>
-              River levels: {risk.flood.level} · highest {risk.flood.ratio_max.toFixed(1)}× the 30-day mean at {risk.flood.cells} river cell{risk.flood.cells === 1 ? '' : 's'} (GloFAS, {risk.flood.observed_on ?? 'today'}) — a level, not a flood forecast.
-            </Text>
-          ) : null}
-          {risk?.official_warnings && risk.official_warnings.level !== 'UNKNOWN' ? (
-            <Text style={styles.detailLine}>
-              {risk.official_warnings.level === 'ACTIVE'
-                ? risk.official_warnings.on_route.map((w) => `Official alert · ${w.event} (${w.severity}) — ${w.headline} [${w.sender}]`).join(' · ')
-                : `Official alerts (NDMA SACHET): none name a district on this road · ${risk.official_warnings.in_states} active elsewhere in ${risk.official_warnings.districts.length ? 'the corridor states' : 'the region'}.`}
-            </Text>
-          ) : null}
-          {risk?.alternative ? (
-            <Text style={styles.detailLine}>
-              A safer road exists: {risk.alternative.band} risk, {risk.alternative.distance_km != null ? `${formatDistanceKm(risk.alternative.distance_km)}` : 'distance unknown'}. Your manager confirms any route change.
-            </Text>
-          ) : selectedRouteId !== null && !hasAlternative ? (
-            <Text style={styles.detailLine}>{t('No alternate route available for this corridor.')}</Text>
-          ) : null}
-          {risk ? (
-            <Text style={styles.detailStamp}>
-              Assessed {relativeTime(risk.assessed_at)} · {risk.observations_used} weather observations
-              {risk.observations_stale > 0 ? ` (${risk.observations_stale} stale)` : ''} · deterministic engine, no probabilities
-            </Text>
-          ) : null}
-          </>)}
-
-          <Text style={styles.sectionTitle}>{t('Roadside services')}</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipBar} contentContainerStyle={styles.chips}>
-            {CATEGORY_LABELS.map((c) => (
+            {/* Room to finish: the card is a safety notice and its evidence
+                ("landslide inventory ... (historical)") is what keeps it
+                honest; one line cut it even at normal size (RC-DRV-02). */}
+            <Text style={styles.alertWhere} numberOfLines={3}>{shownAlert.where}</Text>
+            <Text style={styles.alertDetail} numberOfLines={4}>{shownAlert.detail}</Text>
+            <Text style={styles.alertEvidence} numberOfLines={3}>Evidence · {shownAlert.evidence.join(' · ')}</Text>
+            <View style={styles.alertActions}>
+              <Pressable onPress={() => showDetails()} accessibilityRole="button" accessibilityLabel="View route details" style={styles.alertBtn}>
+                <Text style={styles.alertBtnText}>{t('VIEW')}</Text>
+              </Pressable>
+              <Pressable onPress={findStop} accessibilityRole="button" accessibilityLabel="Find a place to stop" style={styles.alertBtn}>
+                <Text style={styles.alertBtnText}>{t('STOPS')}</Text>
+              </Pressable>
               <Pressable
-                key={c.id}
-                onPress={() => onPickCategory(c.id)}
+                onPress={() => setAcknowledged((prev) => new Set(prev).add(shownAlert.key))}
                 accessibilityRole="button"
-                accessibilityState={{ selected: category === c.id }}
-                style={[styles.chip, category === c.id && styles.chipActive]}
+                accessibilityLabel="Acknowledge this alert"
+                style={[styles.alertBtn, styles.alertBtnPrimary]}
+                testID="danger-alert-ack"
               >
-                <Text style={[styles.chipLabel, category === c.id && styles.chipLabelActive]}>{t(c.label)}</Text>
+                <Text style={[styles.alertBtnText, styles.alertBtnTextPrimary]}>{t('OK, SEEN')}</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+
+        {cta ? (
+          <View style={styles.ctaBlock}>
+            <Pressable
+              onPress={cta.onPress}
+              disabled={!cta.onPress}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !cta.onPress }}
+              aria-disabled={!cta.onPress}
+              testID={cta.testID}
+              style={({ pressed }) => [styles.cta, !cta.onPress && styles.ctaOff, pressed && styles.pressed]}
+            >
+              <Icon name={cta.icon} size={20} color={COLORS.onPrimary} />
+              <Text style={styles.ctaText} numberOfLines={1}>{cta.label}</Text>
+              <Icon name="arrow-right" size={20} color={COLORS.onPrimary} />
+            </Pressable>
+            {/* The server's own words for the gate, as the Trip tab shows them. */}
+            {cta.note ? <Text style={styles.ctaNote}>{cta.note}</Text> : null}
+          </View>
+        ) : null}
+
+        {guiding ? (
+          <View style={styles.guidance} testID="guidance-panel">
+            {/* Duration and arrival only from the server's planned pace. */}
+            <Pressable
+              onPress={() => (isSheetExpanded ? setIsSheetExpanded(false) : showDetails('top'))}
+              accessibilityRole="button"
+              accessibilityLabel={isSheetExpanded ? 'Hide route details' : 'Show route details'}
+              style={styles.etaBar}
+              testID="eta-bar"
+            >
+              <View style={styles.etaCell}>
+                {/* Wraps rather than cuts: "03:41 …" is not an arrival time (RC-DRV-02). */}
+                <Text style={styles.etaValue} numberOfLines={2}>{eta.duration ?? '—'}</Text>
+                <Text style={styles.etaLabel}>{risk?.traffic && risk.traffic.delay_min > 0 ? `${t('duration')} · +${Math.round(risk.traffic.delay_min)} ${t('min traffic')}` : t('duration')}</Text>
+              </View>
+              <View style={styles.etaCell}>
+                <Text style={styles.etaValue} numberOfLines={2}>{eta.distance ?? '—'}</Text>
+                <Text style={styles.etaLabel}>{t(eta.distanceLabel)}</Text>
+              </View>
+              <View style={styles.etaCell}>
+                <Text style={styles.etaValue} numberOfLines={2}>{eta.arrival ?? '—'}</Text>
+                {/* The arrival is the server's remaining-at-planned-pace from now,
+                    so it is labelled as such (audit s16.1), not as a promise. */}
+                <Text style={styles.etaLabel}>{t(eta.arrival ? (isStale ? 'arrival · last known' : 'arrival · at planned pace') : selectedRouteId === null ? 'no route' : guidanceHasPosition ? 'on route' : 'no fix')}</Text>
+              </View>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={[styles.quick, quickGrid && styles.quickGrid]} testID="quick-actions">
+            {QUICK.map((q) => (
+              <Pressable
+                key={q.id}
+                onPress={() => openCategory(q.id)}
+                accessibilityRole="button"
+                // "Fuel: search this area" - the mode label already says search (RC-DRV-04).
+                accessibilityLabel={`${t(q.label)}: ${t(MODE_LABELS.find((m) => m.id === mode)?.label ?? '').toLowerCase()}`}
+                accessibilityState={{ selected: category === q.id }}
+                testID={`quick-${q.id.toLowerCase()}`}
+                style={({ pressed }) => [styles.quickCard, quickGrid && styles.quickCardGrid, category === q.id && styles.quickCardOn, pressed && styles.pressed]}
+              >
+                <Icon name={q.icon} size={24} color={COLORS.text} />
+                <View style={styles.quickRow}>
+                  <Text style={styles.quickTitle} numberOfLines={2}>{t(q.label)}</Text>
+                  {roomy ? <Icon name="chevron-right" size={16} color={COLORS.textMuted} /> : null}
+                </View>
+                <Text style={styles.quickSub} numberOfLines={2}>{t(MODE_LABELS.find((m) => m.id === mode)?.label ?? '')}</Text>
               </Pressable>
             ))}
-          </ScrollView>
-          {category !== null ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipBar} contentContainerStyle={styles.chips}>
-              {MODE_LABELS.map((m) => {
-                const unavailable =
-                  (m.id === 'NEAR_ME' && marker.kind !== 'LIVE') ||
-                  (m.id === 'ALONG_ROUTE' && geometry.points.length === 0) ||
-                  (m.id === 'THIS_AREA' && viewport === null)
-                return (
-                  <Pressable
-                    key={m.id}
-                    onPress={() => onPickMode(m.id)}
-                    disabled={unavailable}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: mode === m.id, disabled: unavailable }}
-                    style={[styles.modeChip, mode === m.id && styles.chipActive, unavailable && styles.chipOff]}
-                  >
-                    <Text style={styles.modeLabel}>
-                      {t(m.label)}
-                      {m.id === 'NEAR_ME' && marker.position === null ? ' (no GPS)' : ''}
-                    </Text>
-                  </Pressable>
-                )
-              })}
-            </ScrollView>
-          ) : null}
-          {renderResults()}
+            <Pressable
+              onPress={() => setShowEmergency(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Request help: emergency numbers 112, 108 and 1033"
+              testID="quick-help"
+              style={({ pressed }) => [styles.quickCard, quickGrid && styles.quickCardGrid, pressed && styles.pressed]}
+            >
+              <Icon name="plus-circle" size={24} color={COLORS.danger} />
+              <View style={styles.quickRow}>
+                <Text style={styles.quickTitle} numberOfLines={2}>{t('Request help')}</Text>
+                {roomy ? <Icon name="chevron-right" size={16} color={COLORS.textMuted} /> : null}
+              </View>
+              <Text style={styles.quickSub} numberOfLines={2}>112 · 108 · 1033</Text>
+            </Pressable>
+          </View>
+        )}
 
-          {trip === null ? null : (<>
-          <Text style={styles.sectionTitle}>{t('Trip')}</Text>
-          <Text style={styles.tripLine} numberOfLines={2}>
-            {geometry.stops[0]?.name ?? geometry.stops[0]?.address ?? 'Origin'} → {geometry.stops.at(-1)?.name ?? geometry.stops.at(-1)?.address ?? 'Destination'}
-          </Text>
-          <Text style={styles.detailStamp}>
-            {trip?.trip_code ?? 'TRP'} · {trip?.truck?.registration_number ?? 'Truck unassigned'} ·{' '}
-            {trip?.shipment?.total_weight_kg ? `${(Number(trip.shipment.total_weight_kg) / 1000).toFixed(1)} t payload` : 'payload unspecified'}
-          </Text>
-          <View style={styles.progressBarBg}>
+        {browsing ? null : (
+          <View style={styles.infoCard} testID="route-info">
+            <View style={styles.infoHead}>
+              <Text style={styles.infoTitle} accessibilityRole="header">{t('Route Information')}</Text>
+              <Pressable
+                onPress={() => (isSheetExpanded ? setIsSheetExpanded(false) : showDetails('top'))}
+                accessibilityRole="button"
+                accessibilityLabel={isSheetExpanded ? 'Hide route details' : 'Show route details'}
+                style={styles.infoLink}
+              >
+                <Text style={styles.infoLinkText}>{t(isSheetExpanded ? 'Hide details' : 'View details')}</Text>
+                <Icon name={isSheetExpanded ? 'chevron-up' : 'arrow-right'} size={16} color={COLORS.info} />
+              </Pressable>
+            </View>
+            <View style={styles.tiles}>
+              {tiles.map((tile) => (
+                <View key={tile.testID} style={[styles.tile, !roomy && styles.tileNarrow]} testID={tile.testID}>
+                  <Icon name={tile.icon} size={22} color={COLORS.text} />
+                  <Text style={styles.tileValue} numberOfLines={2}>{tile.value}</Text>
+                  <Text style={styles.tileSub} numberOfLines={2}>{tile.sub}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {/* PERSONAL ROUTE AI - the decision the engine reached, in words.
+            Absent without a road: there is no decision to show and none is
+            made up. */}
+        {browsing ? null : (
+        <View style={styles.aiCard} testID="route-ai-card">
+          <View style={styles.aiHead}>
+            <Text style={styles.aiEyebrow}>PERSONAL ROUTE AI{riskStale ? ' · LAST KNOWN' : isStale ? ' · OFFLINE' : ''}</Text>
+            <Pressable
+              onPress={() => (isSheetExpanded ? setIsSheetExpanded(false) : showDetails('top'))}
+              accessibilityRole="button"
+              accessibilityLabel={isSheetExpanded ? 'Hide route details' : 'Show route details'}
+              style={styles.detailsBtn}
+            >
+              <Text style={styles.detailsBtnText}>{isSheetExpanded ? t('HIDE') : t('DETAILS')}</Text>
+            </Pressable>
+          </View>
+          <View style={styles.aiRow}>
             <View
               style={[
-                styles.progressBarFill,
-                {
-                  width: `${travelledM !== null && geometry.distanceKm ? Math.min(100, Math.max(0, Math.round((travelledM / (geometry.distanceKm * 1000)) * 100))) : 0}%`,
-                },
+                styles.decisionPill,
+                decisionTone === 'ok' && styles.decisionOk,
+                decisionTone === 'warn' && styles.decisionWarn,
+                decisionTone === 'bad' && styles.decisionBad,
               ]}
-            />
+            >
+              <Text
+                style={[
+                  styles.decisionText,
+                  decisionTone === 'ok' && styles.decisionTextOk,
+                  decisionTone === 'warn' && styles.decisionTextWarn,
+                  decisionTone === 'bad' && styles.decisionTextBad,
+                ]}
+                numberOfLines={1}
+              >
+                {riskState === 'LOADING' ? 'ASSESSING' : (ai.decision ?? 'NO DATA').replace(/_/g, ' ')}
+              </Text>
+            </View>
+            <Text style={styles.aiHeadline} numberOfLines={2}>
+              {riskState === 'LOADING' ? 'Assessing the route…' : ai.headline}
+            </Text>
           </View>
-          </>)}
-        </ScrollView>
-      ) : null}
+          <Text style={styles.aiLines} numberOfLines={4}>
+            {riskState === 'LOADING' ? 'Reading terrain, weather and landslide evidence.' : ai.lines.join(' · ')}
+          </Text>
+          <View style={styles.aiFacts}>
+            {ai.nextTerrain ? (
+              <Text style={styles.aiFact} numberOfLines={2}>{t('Next terrain')}: <Text style={styles.aiFactStrong}>{ai.nextTerrain}</Text></Text>
+            ) : null}
+            {ai.landslide ? (
+              <Text style={styles.aiFact} numberOfLines={2}>{t('Landslide exposure')}: <Text style={styles.aiFactStrong}>{ai.landslide}</Text></Text>
+            ) : null}
+            {ai.weather ? (
+              <Text style={styles.aiFact} numberOfLines={2}>{t('Weather')}: <Text style={styles.aiFactStrong}>{ai.weather}</Text></Text>
+            ) : null}
+            {risk?.traffic ? (
+              <Text style={styles.aiFact} numberOfLines={2}>{t('Fleet traffic')}: <Text style={styles.aiFactStrong}>{trafficLine(risk.traffic)}</Text></Text>
+            ) : null}
+          </View>
+          {holdDecision ? (
+            <Pressable onPress={findStop} accessibilityRole="button" accessibilityLabel="Find a place to stop" style={styles.stopLink}>
+              <Text style={styles.stopLinkText}>{t('Find a place to stop')} →</Text>
+            </Pressable>
+          ) : null}
+          <Text style={styles.aiStamp} numberOfLines={2}>
+            {ai.evidence}
+            {risk
+              ? riskStale
+                ? ` · captured ${relativeTime(riskCapturedAt ?? risk.assessed_at)} · STALE`
+                : ` · updated ${relativeTime(risk.assessed_at)}${isStale ? ' · connection lost' : ''}`
+              : ''}
+          </Text>
+        </View>
+        )}
 
-      {/* ETA BAR. Duration and arrival only from the server's planned pace.
-          Without a road there is no ETA, so the bar is a services handle. */}
-      {browsing ? (
-        <Pressable
-          onPress={() => setIsSheetExpanded((v) => !v)}
-          accessibilityRole="button"
-          accessibilityLabel={isSheetExpanded ? 'Hide roadside services' : 'Show roadside services'}
-          style={styles.etaBar}
-          testID="browse-bar"
-        >
-          <View style={styles.etaCell}>
-            <Text style={styles.etaValue} numberOfLines={1}>{isSheetExpanded ? t('HIDE') : t('SERVICES')}</Text>
-            <Text style={styles.etaLabel}>{trip === null ? t('no trip') : t('no route')}</Text>
+        {/* DETAILS - the evidence behind the card, services, trip facts. */}
+        {isSheetExpanded ? (
+          <View
+            style={styles.details}
+            testID="details-panel"
+            onLayout={(e) => {
+              detailsY.current = e.nativeEvent.layout.y
+              if (scrollPending.current === 'top') {
+                scrollPending.current = null
+                scrollToDetails('top')
+              }
+            }}
+          >
+            {browsing ? null : (<>
+            <Text style={styles.sectionTitle}>{t('Evidence')}</Text>
+            <View style={styles.factorGrid}>
+              {factorRows.slice(0, 8).map(([name, state]) => (
+                <View key={name} style={styles.factorRow}>
+                  <Text style={styles.factorName} numberOfLines={2}>{name}</Text>
+                  <Text style={[styles.factorState, state !== 'Available' && styles.factorStateOff]}>{state}</Text>
+                </View>
+              ))}
+            </View>
+            {risk?.terrain?.usable ? (
+              <Text style={styles.detailLine}>
+                {terrainAhead(risk.terrain.segments, risk.terrain.class_km, guidanceHasPosition ? travelledM : null)}
+              </Text>
+            ) : null}
+            {risk?.landslide_history?.events?.length ? (
+              <Text style={styles.detailLine}>
+                {hazardAhead(geometry.points, risk.landslide_history.events, guidanceHasPosition ? travelledM : null)}
+              </Text>
+            ) : null}
+            {risk?.landslide_history ? (
+              <Text style={styles.detailLine}>
+                Historical landslide sites only{risk.landslide_history.inventory_from_year && risk.landslide_history.inventory_to_year ? ` (${risk.landslide_history.inventory_from_year}–${risk.landslide_history.inventory_to_year})` : ''} — not a current incident feed.
+              </Text>
+            ) : null}
+            {risk?.flood && risk.flood.level !== 'UNKNOWN' && risk.flood.ratio_max != null ? (
+              <Text style={styles.detailLine}>
+                River levels: {risk.flood.level} · highest {risk.flood.ratio_max.toFixed(1)}× the 30-day mean at {risk.flood.cells} river cell{risk.flood.cells === 1 ? '' : 's'} (GloFAS, {risk.flood.observed_on ?? 'today'}) — a level, not a flood forecast.
+              </Text>
+            ) : null}
+            {risk?.official_warnings && risk.official_warnings.level !== 'UNKNOWN' ? (
+              <Text style={styles.detailLine}>
+                {risk.official_warnings.level === 'ACTIVE'
+                  ? risk.official_warnings.on_route.map((w) => `Official alert · ${w.event} (${w.severity}) — ${w.headline} [${w.sender}]`).join(' · ')
+                  : `Official alerts (NDMA SACHET): none name a district on this road · ${risk.official_warnings.in_states} active elsewhere in ${risk.official_warnings.districts.length ? 'the corridor states' : 'the region'}.`}
+              </Text>
+            ) : null}
+            {risk?.alternative ? (
+              <Text style={styles.detailLine}>
+                A safer road exists: {risk.alternative.band} risk, {risk.alternative.distance_km != null ? `${formatDistanceKm(risk.alternative.distance_km)}` : 'distance unknown'}. Your manager confirms any route change.
+              </Text>
+            ) : selectedRouteId !== null && !hasAlternative ? (
+              <Text style={styles.detailLine}>{t('No alternate route available for this corridor.')}</Text>
+            ) : null}
+            {risk ? (
+              <Text style={styles.detailStamp}>
+                Assessed {relativeTime(risk.assessed_at)} · {risk.observations_used} weather observations
+                {risk.observations_stale > 0 ? ` (${risk.observations_stale} stale)` : ''} · deterministic engine, no probabilities
+              </Text>
+            ) : null}
+            </>)}
+
+            <View
+              style={styles.services}
+              onLayout={(e) => {
+                servicesY.current = e.nativeEvent.layout.y
+                if (scrollPending.current === 'services') {
+                  scrollPending.current = null
+                  scrollToDetails('services')
+                }
+              }}
+            >
+            <Text style={styles.sectionTitle}>{t('Roadside services')}</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipBar} contentContainerStyle={styles.chips}>
+              {CATEGORY_LABELS.map((c) => (
+                <Pressable
+                  key={c.id}
+                  onPress={() => onPickCategory(c.id)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: category === c.id }}
+                  style={[styles.chip, category === c.id && styles.chipActive]}
+                >
+                  <Text style={[styles.chipLabel, category === c.id && styles.chipLabelActive]}>{t(c.label)}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+            {category !== null ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipBar} contentContainerStyle={styles.chips}>
+                {MODE_LABELS.map((m) => {
+                  const unavailable =
+                    (m.id === 'NEAR_ME' && marker.kind !== 'LIVE') ||
+                    (m.id === 'ALONG_ROUTE' && geometry.points.length === 0) ||
+                    (m.id === 'THIS_AREA' && viewport === null)
+                  return (
+                    <Pressable
+                      key={m.id}
+                      onPress={() => onPickMode(m.id)}
+                      disabled={unavailable}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: mode === m.id, disabled: unavailable }}
+                      style={[styles.modeChip, mode === m.id && styles.chipActive, unavailable && styles.chipOff]}
+                    >
+                      <Text style={styles.modeLabel}>
+                        {t(m.label)}
+                        {m.id === 'NEAR_ME' && marker.position === null ? ' (no GPS)' : ''}
+                      </Text>
+                    </Pressable>
+                  )
+                })}
+              </ScrollView>
+            ) : null}
+            {renderResults()}
+            </View>
+
+            {trip === null ? null : (<>
+            <Text style={styles.sectionTitle}>{t('Trip')}</Text>
+            {/* The two addresses whole: two lines cut the destination (AUD2-02). */}
+            <Text style={styles.tripLine} numberOfLines={5}>
+              {origin ?? 'Origin'} → {destination ?? 'Destination'}
+            </Text>
+            <Text style={styles.detailStamp}>
+              {trip?.trip_code ?? 'TRP'} · {trip?.truck?.registration_number ?? 'Truck unassigned'} ·{' '}
+              {trip?.shipment?.total_weight_kg ? `${(Number(trip.shipment.total_weight_kg) / 1000).toFixed(1)} t payload` : 'payload unspecified'}
+            </Text>
+            <View style={styles.progressBarBg}>
+              <View
+                style={[
+                  styles.progressBarFill,
+                  {
+                    width: `${travelledM !== null && geometry.distanceKm ? Math.min(100, Math.max(0, Math.round((travelledM / (geometry.distanceKm * 1000)) * 100))) : 0}%`,
+                  },
+                ]}
+              />
+            </View>
+            </>)}
           </View>
-          <View style={styles.etaCell}>
-            <Text style={styles.etaValue} numberOfLines={1}>{chip.text}</Text>
-            <Text style={styles.etaLabel}>{t('location')}</Text>
-          </View>
-        </Pressable>
-      ) : (
-      <Pressable
-        onPress={() => setIsSheetExpanded((v) => !v)}
-        accessibilityRole="button"
-        accessibilityLabel={isSheetExpanded ? 'Hide route details' : 'Show route details'}
-        style={styles.etaBar}
-        testID="eta-bar"
-      >
-        <View style={styles.etaCell}>
-          <Text style={styles.etaValue} numberOfLines={1}>{eta.duration ?? '—'}</Text>
-          <Text style={styles.etaLabel}>{risk?.traffic && risk.traffic.delay_min > 0 ? `${t('duration')} · +${Math.round(risk.traffic.delay_min)} ${t('min traffic')}` : t('duration')}</Text>
+        ) : null}
+
+        {/* driver_02's scenic foot: decoration with its credit, no claim. It
+            follows the last card at a fixed gap and grows to the foot of a
+            short page, so no empty band sits above it (B2D-12). */}
+        <View style={styles.strip} accessible={false}>
+          <CoverPhoto photo={PHOTOS.strip} />
+          <View style={[styles.fill, styles.passThrough, { backgroundColor: COLORS.imageDim }]} />
+          <View style={[styles.fill, styles.passThrough, gradient(`linear-gradient(180deg, ${COLORS.bg} 0%, transparent 45%)`)]} />
+          <PhotoCredit photo={PHOTOS.strip} style={styles.stripCredit} />
         </View>
-        <View style={styles.etaCell}>
-          <Text style={styles.etaValue} numberOfLines={1}>{eta.distance ?? '—'}</Text>
-          <Text style={styles.etaLabel}>{eta.distanceLabel}</Text>
-        </View>
-        <View style={styles.etaCell}>
-          <Text style={styles.etaValue} numberOfLines={1}>{eta.arrival ?? '—'}</Text>
-          <Text style={styles.etaLabel}>{t(eta.arrival ? (isStale ? 'arrival · last known' : 'arrival') : selectedRouteId === null ? 'no route' : guidanceHasPosition ? 'on route' : 'no fix')}</Text>
-        </View>
-      </Pressable>
-      )}
+      </ScrollView>
 
       {places.selected ? (
         <PlaceSheet place={places.selected} onClose={() => places.select(null)} onCall={call} />
@@ -1504,7 +1891,7 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
 
       {/* THE EMERGENCY SHEET. Bundled numbers; it never dials by itself. */}
       {showEmergency ? (
-        <View style={styles.emergencyPanel} accessibilityRole="alert">
+        <View style={styles.emergencyPanel} accessibilityRole="alert" testID="emergency-sheet">
           <Text style={styles.emergencyTitle}>{t('Emergency')}</Text>
           <Text style={styles.emergencyNote}>{t('Tapping a number opens your dialler. You still press call.')}</Text>
           {emergencyNumbers(resolveLanguage()).map((entry) => (
@@ -1524,159 +1911,301 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
           <Button label={t('Cancel')} variant="secondary" onPress={() => setShowEmergency(false)} />
         </View>
       ) : null}
-    </SafeAreaView>
+    </View>
   )
 }
 
+/** "2 h 10 min" / "45 min" - the same shape as the ETA bar's duration. */
+function formatMinutes(mins: number): string {
+  return mins >= 60 ? `${Math.floor(mins / 60)} h ${Math.round(mins % 60)} min` : `${Math.round(mins)} min`
+}
+
+/** Weather reason codes, loudest first, for the Weather tile. */
+const WEATHER_CODES = [
+  'SEVERE_CONDITIONS_ON_ROUTE',
+  'HEAVY_RAIN_ON_ROUTE',
+  'HIGH_WIND_GUSTS',
+  'MODERATE_RAIN_ON_ROUTE',
+  'HEAVY_RECENT_RAINFALL',
+] as const
+
+/** driver_02's quick actions, on real place categories. The reference's
+ *  "Food Stop" has no category behind it (HOTEL means rooms, not meals), so
+ *  the third card is tyres. */
+const QUICK: { id: PlaceCategory; label: string; icon: IconName }[] = [
+  { id: 'FUEL', label: 'Fuel', icon: 'droplet' },
+  { id: 'REST', label: 'Lay-bys & rest', icon: 'coffee' },
+  { id: 'TYRES', label: 'Puncture & tyres', icon: 'tool' },
+]
+
 const useStyles = makeStyles((COLORS) => ({
   root: { flex: 1, backgroundColor: COLORS.bg },
+  page: { flexGrow: 1, paddingBottom: 0, backgroundColor: COLORS.bg },
+  fill: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+  passThrough: { pointerEvents: 'none' },
+  pressed: { opacity: 0.8 },
+
+  /* --- driver_02: search pill riding the hero's foot ------------------- */
+  search: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: 48,
+    marginTop: -26,
+    marginHorizontal: 13,
+    paddingHorizontal: 16,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
+  },
+  searchText: { flex: 1, color: COLORS.textMuted, fontSize: 15 },
+
+  /* --- The map card: 94% of the width, radius 14 ----------------------- */
+  mapCard: {
+    marginTop: 10,
+    marginHorizontal: 13,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    overflow: 'hidden',
+    backgroundColor: COLORS.surfaceSoft,
+  },
   mapArea: { flex: 1, minHeight: 0, position: 'relative' },
   mapCanvasWrapper: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1 },
-
-  /* --- Top: back · maneuver · SOS ------------------------------------- */
-  topLayer: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 },
-  topRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingHorizontal: 10, paddingTop: 8 },
+  mapOverlay: { position: 'absolute', top: 8, left: 8, right: 8, gap: 8, zIndex: 10 },
+  mapTopRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  mapSecondRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  flex1: { flex: 1 },
   roundBtn: {
-    width: TOUCH_TARGET,
-    height: TOUCH_TARGET,
-    borderRadius: TOUCH_TARGET / 2,
-    backgroundColor: COLORS.card,
-    borderWidth: 1.5,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
     borderColor: COLORS.border,
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
   },
-  sosBtn: { backgroundColor: COLORS.badStrong, borderColor: COLORS.badStrong },
-  sosGlyph: { color: '#FFFFFF', fontSize: 13, fontWeight: '900', letterSpacing: 0.5 },
-  maneuverCard: {
+  sosBtn: { backgroundColor: COLORS.dangerStrong, borderColor: COLORS.dangerStrong },
+  sosGlyph: { color: COLORS.onFill, fontSize: 13, fontWeight: '900', letterSpacing: 0.5 },
+  speedGauge: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: COLORS.surface,
+    borderWidth: 2,
+    borderColor: COLORS.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  speedValue: { color: COLORS.text, fontSize: 16, fontWeight: '900', lineHeight: 18 },
+  speedUnit: { color: COLORS.textMuted, fontSize: 9, fontWeight: '700' },
+  rail: { gap: 8 },
+  layers: {
+    position: 'absolute',
+    top: 0,
+    right: 56,
+    width: 212,
+    zIndex: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
+    paddingVertical: 4,
+  },
+  layerRow: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12 },
+  layerLabel: { flex: 1, color: COLORS.text, fontSize: 14, fontWeight: '600' },
+  layerState: { color: COLORS.textMuted, fontSize: 13, fontWeight: '800' },
+  layerStateOn: { color: COLORS.accent },
+
+  /* The reference's dark translucent overlay; it sits clear of the rail and
+     above the OSM attribution line, which must stay readable. */
+  summary: {
+    position: 'absolute',
+    left: 8,
+    bottom: 22,
+    zIndex: 10,
+    alignSelf: 'flex-start',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 2,
+    backgroundColor: COLORS.imageCaption,
+  },
+  summaryGuiding: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 },
+  flexShrink: { flexShrink: 1 },
+  summaryTitle: { color: COLORS.onPhoto, fontSize: 14, fontWeight: '800', lineHeight: 18 },
+  summaryLine: { color: COLORS.onPhoto, fontSize: 12, lineHeight: 16 },
+  summaryEvidence: { color: COLORS.onPhoto, fontSize: 12, fontWeight: '700' },
+  navChip: {
+    alignSelf: 'flex-start',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.success,
+    backgroundColor: COLORS.successSoft,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  navChipOff: { backgroundColor: COLORS.surfaceRaised, borderColor: COLORS.textDim },
+  navChipWarn: { backgroundColor: COLORS.warningSoft, borderColor: COLORS.warning },
+  navChipText: { color: COLORS.text, fontSize: 11, fontWeight: '800' },
+  navChipWarnText: { color: COLORS.warning },
+
+  /* --- CTA: driver_02's full pill (76 device px) ------------------------ */
+  ctaBlock: { marginTop: 10, marginHorizontal: 13, gap: 6 },
+  cta: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    paddingHorizontal: 18,
+    borderRadius: 26,
+    backgroundColor: COLORS.primary,
+  },
+  ctaOff: { backgroundColor: COLORS.primaryDisabled, opacity: 0.5 },
+  ctaText: { flexShrink: 1, color: COLORS.onPrimary, fontSize: 16, fontWeight: '800' },
+  ctaNote: { color: COLORS.textMuted, fontSize: 13, lineHeight: 18, paddingHorizontal: 6 },
+
+  /* --- Quick actions: four cards, gap 8, radius 12 ---------------------- */
+  quick: { flexDirection: 'row', gap: 8, marginTop: 10, marginHorizontal: 13 },
+  quickCard: {
     flex: 1,
     minWidth: 0,
+    minHeight: 84,
+    gap: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+  },
+  quickCardOn: { borderColor: COLORS.accent },
+  quickGrid: { flexWrap: 'wrap' },
+  quickCardGrid: { flexBasis: '46%', flexGrow: 1 },
+  quickRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  quickTitle: { flex: 1, color: COLORS.text, fontSize: 13, fontWeight: '700' },
+  quickSub: { color: COLORS.textMuted, fontSize: 11 },
+
+  /* --- Route information: title row, four tiles ------------------------ */
+  infoCard: {
+    marginTop: 10,
+    marginHorizontal: 13,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
+    padding: 12,
+  },
+  infoHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  infoTitle: { color: COLORS.text, fontSize: 16, fontWeight: '800' },
+  infoLink: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 4, paddingLeft: 8 },
+  infoLinkText: { color: COLORS.info, fontSize: 14, fontWeight: '700' },
+  tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  tile: {
+    flexGrow: 1,
+    flexBasis: '22%',
+    minWidth: 0,
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 10,
+    backgroundColor: COLORS.surfaceSoft,
+    paddingHorizontal: 6,
+    paddingVertical: 10,
+  },
+  tileNarrow: { flexBasis: '46%' },
+  tileValue: { color: COLORS.text, fontSize: 13, fontWeight: '800', textAlign: 'center' },
+  tileSub: { color: COLORS.textMuted, fontSize: 11, textAlign: 'center' },
+
+  /* --- Guidance (replaces the quick actions while a trip runs) ---------- */
+  guidance: { marginTop: 10, marginHorizontal: 13, gap: 8 },
+  // In the map's top row, between back and SOS.
+  maneuverInMap: { flex: 1, minWidth: 0, paddingHorizontal: 12, paddingVertical: 8 },
+  maneuverCard: {
     backgroundColor: COLORS.route,
     borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 10,
     gap: 6,
-    elevation: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
   },
   maneuverMain: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   maneuverIcon: { width: 40, alignItems: 'center', justifyContent: 'center' },
   maneuverText: { flex: 1, minWidth: 0 },
-  maneuverDistance: { color: '#FFFFFF', fontSize: 26, fontWeight: '900', lineHeight: 30 },
-  maneuverInstruction: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-  maneuverSub: { color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: '600', marginTop: 2 },
-  thenRow: { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.25)', paddingTop: 6 },
-  thenText: { color: 'rgba(255,255,255,0.92)', fontSize: 13, fontWeight: '700' },
-
-  /* --- Rail, gauge, chips over the map -------------------------------- */
-  rightRail: { position: 'absolute', right: 10, bottom: 12, gap: 10, zIndex: 10 },
-  bottomLeft: { position: 'absolute', left: 10, bottom: 12, gap: 8, zIndex: 10, alignItems: 'flex-start' },
-  speedGauge: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: COLORS.card,
-    borderWidth: 2,
-    borderColor: COLORS.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 5,
-  },
-  speedValue: { color: COLORS.text, fontSize: 18, fontWeight: '900', lineHeight: 20 },
-  speedUnit: { color: COLORS.muted, fontSize: 9, fontWeight: '700' },
-  gpsChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: COLORS.okBg,
-    borderWidth: 1,
-    borderColor: COLORS.ok,
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  gpsChipOff: { backgroundColor: COLORS.raised, borderColor: COLORS.dim },
-  navChip: { marginTop: 4 },
-  navChipWarn: { backgroundColor: COLORS.warnBg, borderColor: COLORS.warn },
-  navChipWarnText: { color: COLORS.warn },
-  gpsDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: COLORS.ok },
-  gpsDotOff: { backgroundColor: COLORS.faint },
-  gpsText: { color: COLORS.ok, fontSize: 10, fontWeight: '800' },
-  gpsTextOff: { color: COLORS.muted },
-  bottomCentre: { position: 'absolute', left: 0, right: 0, bottom: 14, alignItems: 'center', zIndex: 9 },
-  recentrePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    minHeight: 44,
-    paddingHorizontal: 16,
-    borderRadius: 22,
-    backgroundColor: COLORS.accent,
-    elevation: 5,
-  },
-  recentrePillOff: { backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border },
-  recentreText: { color: COLORS.onAccent, fontSize: 14, fontWeight: '800' },
-  recentreTextOff: { color: COLORS.muted },
-
-  /* --- Personal Route AI ---------------------------------------------- */
-  aiCard: {
-    backgroundColor: COLORS.card,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-    paddingHorizontal: 14,
-    paddingTop: 8,
-    paddingBottom: 8,
-    gap: 4,
-  },
-  aiHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  aiEyebrow: { color: COLORS.aqua, fontSize: 11, fontWeight: '800', letterSpacing: 1 },
-  detailsBtn: { minHeight: 36, minWidth: 72, justifyContent: 'center', alignItems: 'flex-end' },
-  detailsBtnText: { color: COLORS.routeOn, fontSize: 12, fontWeight: '800', letterSpacing: 0.8 },
-  aiRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  decisionPill: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: COLORS.raised, borderWidth: 1, borderColor: COLORS.border },
-  decisionOk: { backgroundColor: COLORS.okBg, borderColor: COLORS.okBorder },
-  decisionWarn: { backgroundColor: COLORS.warnBg, borderColor: COLORS.warnBorder },
-  decisionBad: { backgroundColor: COLORS.badBg, borderColor: COLORS.badBorder },
-  decisionText: { color: COLORS.muted, fontSize: 12, fontWeight: '900', letterSpacing: 0.6 },
-  decisionTextOk: { color: COLORS.ok },
-  decisionTextWarn: { color: COLORS.warn },
-  decisionTextBad: { color: COLORS.bad },
-  aiHeadline: { flex: 1, minWidth: 0, color: COLORS.text, fontSize: 17, fontWeight: '800' },
-  aiLines: { color: COLORS.text, fontSize: 13, lineHeight: 18 },
-  aiFacts: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  aiFact: { color: COLORS.muted, fontSize: 12 },
-  aiFactStrong: { color: COLORS.text, fontWeight: '800' },
-  aiStamp: { color: COLORS.faint, fontSize: 11 },
-
-  /* --- Details sheet -------------------------------------------------- */
-  sheetScroll: { maxHeight: 300, backgroundColor: COLORS.bg, borderTopWidth: 1, borderTopColor: COLORS.border },
-  detailsBody: { paddingHorizontal: 14, paddingVertical: 10, gap: 8 },
-  sectionTitle: { color: COLORS.aqua, fontSize: 11, fontWeight: '800', letterSpacing: 1, marginTop: 6 },
-  detailLine: { color: COLORS.text, fontSize: 13, lineHeight: 18 },
-  detailStamp: { color: COLORS.faint, fontSize: 11, lineHeight: 15 },
-  tripLine: { color: COLORS.text, fontSize: 14, fontWeight: '700' },
-
-  /* --- ETA bar -------------------------------------------------------- */
+  maneuverDistance: { color: COLORS.onFill, fontSize: 26, fontWeight: '900', lineHeight: 30 },
+  maneuverInstruction: { color: COLORS.onFill, fontSize: 16, fontWeight: '700' },
+  maneuverSub: { color: COLORS.onFill, fontSize: 12, fontWeight: '600', marginTop: 2 },
+  thenRow: { borderTopWidth: 1, borderTopColor: COLORS.onFill, paddingTop: 6 },
+  thenText: { color: COLORS.onFill, fontSize: 13, fontWeight: '700' },
   etaBar: {
     flexDirection: 'row',
     alignItems: 'center',
     minHeight: 56,
-    backgroundColor: COLORS.card,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
     paddingHorizontal: 8,
   },
   etaCell: { flex: 1, alignItems: 'center', minWidth: 0 },
   etaValue: { color: COLORS.text, fontSize: 17, fontWeight: '900' },
-  etaLabel: { color: COLORS.muted, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6 },
+  etaLabel: { color: COLORS.textMuted, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6, textAlign: 'center' },
+
+  /* --- Personal Route AI ---------------------------------------------- */
+  aiCard: {
+    marginTop: 10,
+    marginHorizontal: 13,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
+    paddingHorizontal: 14,
+    paddingTop: 4,
+    paddingBottom: 10,
+    gap: 4,
+  },
+  aiHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  aiEyebrow: { color: COLORS.brand, fontSize: 11, fontWeight: '800', letterSpacing: 1 },
+  detailsBtn: { minHeight: 48, minWidth: 72, justifyContent: 'center', alignItems: 'flex-end' },
+  detailsBtnText: { color: COLORS.info, fontSize: 12, fontWeight: '800', letterSpacing: 0.8 },
+  aiRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  decisionPill: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: COLORS.surfaceRaised, borderWidth: 1, borderColor: COLORS.border },
+  decisionOk: { backgroundColor: COLORS.successSoft, borderColor: COLORS.successBorder },
+  decisionWarn: { backgroundColor: COLORS.warningSoft, borderColor: COLORS.warningBorder },
+  decisionBad: { backgroundColor: COLORS.dangerSoft, borderColor: COLORS.dangerBorder },
+  decisionText: { color: COLORS.textMuted, fontSize: 12, fontWeight: '900', letterSpacing: 0.6 },
+  decisionTextOk: { color: COLORS.success },
+  decisionTextWarn: { color: COLORS.warning },
+  decisionTextBad: { color: COLORS.danger },
+  aiHeadline: { flex: 1, minWidth: 0, color: COLORS.text, fontSize: 17, fontWeight: '800' },
+  aiLines: { color: COLORS.text, fontSize: 13, lineHeight: 18 },
+  aiFacts: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  aiFact: { color: COLORS.textMuted, fontSize: 12 },
+  aiFactStrong: { color: COLORS.text, fontWeight: '800' },
+  aiStamp: { color: COLORS.textFaint, fontSize: 11 },
+
+  /* --- Details panel -------------------------------------------------- */
+  details: {
+    marginTop: 10,
+    marginHorizontal: 13,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  services: { gap: 8 },
+  sectionTitle: { color: COLORS.brand, fontSize: 11, fontWeight: '800', letterSpacing: 1, marginTop: 6 },
+  detailLine: { color: COLORS.text, fontSize: 13, lineHeight: 18 },
+  detailStamp: { color: COLORS.textFaint, fontSize: 11, lineHeight: 15 },
+  tripLine: { color: COLORS.text, fontSize: 14, fontWeight: '700' },
+
+  /* --- Scenic foot ------------------------------------------------------ */
+  strip: { flexGrow: 1, minHeight: 120, marginTop: 14, overflow: 'hidden', backgroundColor: COLORS.surfaceSoft },
+  stripCredit: { position: 'absolute', right: 10, bottom: 0 },
 
   /* --- Kept from the previous layout (helpers, results, sheets) ------- */
   placeholder: {
@@ -1684,6 +2213,7 @@ const useStyles = makeStyles((COLORS) => ({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
+    backgroundColor: COLORS.surface,
   },
   placeholderTitle: {
     color: COLORS.text,
@@ -1692,7 +2222,7 @@ const useStyles = makeStyles((COLORS) => ({
     textAlign: 'center',
   },
   placeholderBody: {
-    color: COLORS.muted,
+    color: COLORS.textMuted,
     fontSize: 14,
     lineHeight: 20,
     textAlign: 'center',
@@ -1706,11 +2236,13 @@ const useStyles = makeStyles((COLORS) => ({
     right: 0,
     bottom: 0,
     maxHeight: '70%',
-    backgroundColor: COLORS.card,
+    backgroundColor: COLORS.surface,
     borderTopWidth: 1,
     borderTopColor: COLORS.accent,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
+    zIndex: 20,
+    elevation: 20,
   },
   sheetHandleRow: { alignItems: 'center', paddingVertical: 4 },
   sheetHandle: {
@@ -1721,17 +2253,17 @@ const useStyles = makeStyles((COLORS) => ({
   },
   sheetBody: { padding: 20, gap: 6 },
   sheetTitle: { color: COLORS.text, fontSize: 20, fontWeight: '800' },
-  sheetKind: { color: COLORS.muted, fontSize: 13, marginBottom: 4 },
+  sheetKind: { color: COLORS.textMuted, fontSize: 13, marginBottom: 4 },
   sheetDistance: { color: COLORS.text, fontSize: 15, fontWeight: '600' },
   sheetCaveat: {
-    color: COLORS.faint,
+    color: COLORS.textFaint,
     fontSize: 12,
     lineHeight: 17,
     marginVertical: 6,
   },
-  sheetNoCall: { color: COLORS.faint, fontSize: 13, marginVertical: 8 },
+  sheetNoCall: { color: COLORS.textFaint, fontSize: 13, marginVertical: 8 },
   sheetConflict: {
-    color: COLORS.warn,
+    color: COLORS.warning,
     fontSize: 12,
     lineHeight: 17,
     marginVertical: 6,
@@ -1740,24 +2272,19 @@ const useStyles = makeStyles((COLORS) => ({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: COLORS.card,
-    borderWidth: 1.5,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
     borderColor: COLORS.border,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 5,
   },
-  recenterCircleBtn: { borderColor: COLORS.routeOn, backgroundColor: COLORS.sunken },
   floatingCircleBtnActive: {
-    backgroundColor: COLORS.accent,
-    borderColor: COLORS.accent,
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
   },
+  floatingCircleBtnOff: { opacity: 0.6 },
   floatingCircleBtnPressed: {
-    backgroundColor: COLORS.soft,
+    backgroundColor: COLORS.surfaceSoft,
     transform: [{ scale: 0.94 }],
   },
   row: {
@@ -1766,101 +2293,103 @@ const useStyles = makeStyles((COLORS) => ({
     gap: 12,
     paddingVertical: 6,
   },
-  rowLabel: { color: COLORS.muted, fontSize: 13, flexShrink: 0 },
+  rowLabel: { color: COLORS.textMuted, fontSize: 13, flexShrink: 0 },
   rowValue: { color: COLORS.text, fontSize: 13, flexShrink: 1, textAlign: 'right' },
-  rowUnknown: { color: COLORS.faint, fontStyle: 'italic' },
+  rowUnknown: { color: COLORS.textFaint, fontStyle: 'italic' },
   resultsPane: {
     maxHeight: 220,
-    paddingHorizontal: 16,
     paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
   },
-  resultsNote: { color: COLORS.muted, fontSize: 12, paddingHorizontal: 16, paddingVertical: 6 },
+  resultsNote: { color: COLORS.textMuted, fontSize: 12, paddingVertical: 6 },
   resultsList: { maxHeight: 130 },
   resultRow: {
     minHeight: 48,
     justifyContent: 'center',
     paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
-  resultRowActive: { backgroundColor: COLORS.card },
+  resultRowActive: { backgroundColor: COLORS.surfaceSoft },
   resultName: { color: COLORS.text, fontSize: 15, fontWeight: '600' },
-  resultMeta: { color: COLORS.faint, fontSize: 12, marginTop: 2 },
+  resultMeta: { color: COLORS.textFaint, fontSize: 12, marginTop: 2 },
   sourceNote: {
-    color: COLORS.faint,
+    color: COLORS.textFaint,
     fontSize: 11,
     lineHeight: 15,
     paddingVertical: 8,
   },
   sourceStrip: {
-    backgroundColor: COLORS.warnBg,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: COLORS.warnBorder,
-    paddingHorizontal: 16,
+    marginTop: 8,
+    marginHorizontal: 13,
+    borderRadius: 12,
+    backgroundColor: COLORS.warningSoft,
+    borderWidth: 1,
+    borderColor: COLORS.warningBorder,
+    paddingHorizontal: 14,
     paddingVertical: 8,
   },
-  sourceStripText: { color: COLORS.warn, fontSize: 12, fontWeight: '600' },
+  sourceStripText: { color: COLORS.warning, fontSize: 12, fontWeight: '600' },
+  approvedBanner: { marginTop: 10, marginHorizontal: 13, marginBottom: 0 },
   alertCard: {
-    marginLeft: 10,
-    // Clear the right rail: on a 360 dp phone its five buttons climb to the
-    // card's height, and a rail over the ACKNOWLEDGE button is a dead button.
-    marginRight: 76,
-    marginTop: 8,
+    marginTop: 10,
+    marginHorizontal: 13,
     padding: 12,
     borderRadius: 14,
-    backgroundColor: COLORS.warnBg,
+    backgroundColor: COLORS.warningSoft,
     borderWidth: 1,
-    borderColor: COLORS.warnBorder,
+    borderColor: COLORS.warningBorder,
     gap: 3,
   },
-  alertCardHigh: { backgroundColor: COLORS.badBg, borderColor: COLORS.badBorder },
+  alertCardHigh: { backgroundColor: COLORS.dangerSoft, borderColor: COLORS.dangerBorder },
   alertTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  alertTitle: { color: COLORS.warn, fontSize: 13, fontWeight: '900', letterSpacing: 0.6, flex: 1 },
-  alertTitleHigh: { color: COLORS.bad },
+  alertTitle: { color: COLORS.warning, fontSize: 13, fontWeight: '900', letterSpacing: 0.6, flex: 1 },
+  alertTitleHigh: { color: COLORS.danger },
   alertWhere: { color: COLORS.text, fontSize: 14, fontWeight: '700' },
-  alertDetail: { color: COLORS.muted, fontSize: 12 },
-  alertEvidence: { color: COLORS.faint, fontSize: 11 },
+  alertDetail: { color: COLORS.textMuted, fontSize: 12 },
+  alertEvidence: { color: COLORS.textFaint, fontSize: 11 },
   alertActions: { flexDirection: 'row', gap: 8, marginTop: 6 },
-  alertBtn: { minHeight: 40, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.card, justifyContent: 'center' },
-  alertBtnPrimary: { backgroundColor: COLORS.accent, borderColor: COLORS.accent, flex: 1, alignItems: 'center' },
+  alertBtn: { minHeight: 48, paddingHorizontal: 14, borderRadius: 24, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, justifyContent: 'center' },
+  alertBtnPrimary: { backgroundColor: COLORS.primary, borderColor: COLORS.primary, flex: 1, alignItems: 'center' },
   alertBtnText: { color: COLORS.text, fontSize: 12, fontWeight: '800', letterSpacing: 0.4 },
-  alertBtnTextPrimary: { color: COLORS.onAccent },
-  stopLink: { alignSelf: 'flex-start', minHeight: 32, justifyContent: 'center', marginTop: 2 },
+  alertBtnTextPrimary: { color: COLORS.onPrimary },
+  stopLink: { alignSelf: 'flex-start', minHeight: 48, justifyContent: 'center' },
   stopLinkText: { color: COLORS.accent, fontSize: 13, fontWeight: '800' },
   factorGrid: { marginTop: 8, gap: 3 },
   factorRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
-  factorName: { color: COLORS.muted, fontSize: 11, flex: 1, minWidth: 0 },
-  factorState: { color: COLORS.ok, fontSize: 11, fontWeight: '700' },
-  factorStateOff: { color: COLORS.warn },
+  // The name keeps its width and the state wraps beside it: a long state
+  // ("Not available · no fleet on this road ...") squeezed "Fleet traffic"
+  // to 21 px and broke it mid-word.
+  factorName: { color: COLORS.textMuted, fontSize: 11, flexShrink: 0, maxWidth: '50%' },
+  factorState: { color: COLORS.success, fontSize: 11, fontWeight: '700', flex: 1, minWidth: 0, textAlign: 'right' },
+  factorStateOff: { color: COLORS.warning },
   chipBar: { flexGrow: 0 },
-  chips: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 6 },
+  chips: { flexDirection: 'row', gap: 8, paddingVertical: 6 },
   chip: {
-    minHeight: 44,
+    minHeight: 48,
     justifyContent: 'center',
     paddingHorizontal: 16,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: COLORS.border,
   },
-  chipActive: { backgroundColor: COLORS.card, borderColor: COLORS.accent },
+  chipActive: { backgroundColor: COLORS.surfaceSoft, borderColor: COLORS.accent },
   chipOff: { opacity: 0.45 },
-  chipLabel: { color: COLORS.muted, fontSize: 14, fontWeight: '600' },
+  chipLabel: { color: COLORS.textMuted, fontSize: 14, fontWeight: '600' },
   chipLabelActive: { color: COLORS.text },
   modeChip: {
-    minHeight: 40,
+    minHeight: 48,
     justifyContent: 'center',
     paddingHorizontal: 14,
-    borderRadius: 8,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: COLORS.border,
   },
-  modeLabel: { color: COLORS.muted, fontSize: 13, fontWeight: '600' },
+  modeLabel: { color: COLORS.textMuted, fontSize: 13, fontWeight: '600' },
   progressBarBg: {
     height: 4,
-    backgroundColor: COLORS.raised,
+    backgroundColor: COLORS.surfaceRaised,
     borderRadius: 2,
     overflow: 'hidden',
     marginTop: 6,
@@ -1873,27 +2402,28 @@ const useStyles = makeStyles((COLORS) => ({
     bottom: 0,
     padding: 20,
     gap: 10,
-    backgroundColor: COLORS.card,
+    backgroundColor: COLORS.surface,
     borderTopWidth: 2,
-    borderTopColor: COLORS.bad,
-    // Above the route sheet. Without these the panel rendered UNDERNEATH it and
-    // only its heading was visible - the numbers, the note and Cancel were all
-    // covered. `elevation` is the Android half of the same statement.
+    borderTopColor: COLORS.danger,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    // Above the place sheet. Without these the panel rendered UNDERNEATH it
+    // and only its heading was visible. `elevation` is the Android half.
     zIndex: 30,
     elevation: 30,
   },
   emergencyTitle: { color: COLORS.text, fontSize: 20, fontWeight: '800' },
-  emergencyNote: { color: COLORS.faint, fontSize: 12, lineHeight: 17 },
+  emergencyNote: { color: COLORS.textFaint, fontSize: 12, lineHeight: 17 },
   emergencyDial: {
     minHeight: TOUCH_TARGET,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: COLORS.badBorder,
-    backgroundColor: COLORS.badBg,
+    borderColor: COLORS.dangerBorder,
+    backgroundColor: COLORS.dangerSoft,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 8,
   },
-  emergencyDialDigits: { color: COLORS.bad, fontSize: 22, fontWeight: '800' },
-  emergencyDialLabel: { color: COLORS.muted, fontSize: 11, marginTop: 2 },
+  emergencyDialDigits: { color: COLORS.danger, fontSize: 22, fontWeight: '800' },
+  emergencyDialLabel: { color: COLORS.textMuted, fontSize: 11, marginTop: 2 },
 }))

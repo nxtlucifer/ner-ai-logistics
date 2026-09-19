@@ -12,7 +12,7 @@
 import { describe, expect, it } from 'vitest'
 
 import catalogue from './guide.json'
-import { LANGUAGES, type Language } from '../i18n/reasonCodes'
+import { LANGUAGES } from '../i18n/reasonCodes'
 import {
   disclaimer,
   emergencyBanner,

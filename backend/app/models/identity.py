@@ -46,6 +46,41 @@ class User(TimestampMixin, Base):
         sa.DateTime(timezone=True), nullable=True
     )
 
+    # --- Administrative scope ---------------------------------------------
+    #
+    # Nullable because most principals have no geography: ADMIN is national,
+    # DRIVER is wherever the truck is, and the existing MANAGER role predates
+    # the hierarchy and keeps its fleet-wide reach. Only STATE_MANAGER and
+    # DISTRICT_MANAGER are required to be scoped, and a database constraint
+    # (migration 0013) enforces exactly that rather than trusting callers.
+    state_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.ForeignKey("states.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    district_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.ForeignKey("districts.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    #: Set when an account was created with a temporary password by someone
+    #: else. Every route except the password change refuses while it is true,
+    #: so a handed-over credential cannot stay in use.
+    must_reset_password: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, server_default=sa.false()
+    )
+    #: When this account last told the server it was there.
+    #:
+    #: Written by the heartbeat endpoint, coalesced so a chatty client cannot
+    #: turn presence into a write storm. Presence is DERIVED from this on
+    #: read (app/domain/presence.py) rather than stored as a word, because a
+    #: stored "ONLINE" is still ONLINE four hours later unless something
+    #: goes round rewriting it - and that job is the one nobody remembers.
+    last_seen_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    #: Who created this account. An audit question a manager hierarchy makes
+    #: worth answering directly on the row.
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
     driver: Mapped["Driver | None"] = relationship(
         back_populates="user", uselist=False, lazy="raise"
     )
@@ -55,6 +90,27 @@ class User(TimestampMixin, Base):
         sa.CheckConstraint(
             "email IS NOT NULL OR phone IS NOT NULL",
             name="ck_users_has_identifier",
+        ),
+        # One ACTIVE scoped manager per state and per district. Partial so a
+        # deactivated predecessor stays on the record rather than having to be
+        # deleted to make room for a successor.
+        sa.Index(
+            "uq_active_state_manager",
+            "state_id",
+            unique=True,
+            postgresql_where=sa.text("role = 'STATE_MANAGER' AND is_active"),
+        ),
+        sa.Index(
+            "uq_active_district_manager",
+            "district_id",
+            unique=True,
+            postgresql_where=sa.text("role = 'DISTRICT_MANAGER' AND is_active"),
+        ),
+        sa.CheckConstraint(
+            "(role = 'STATE_MANAGER' AND state_id IS NOT NULL AND district_id IS NULL) "
+            "OR (role = 'DISTRICT_MANAGER' AND state_id IS NOT NULL AND district_id IS NOT NULL) "
+            "OR role NOT IN ('STATE_MANAGER', 'DISTRICT_MANAGER')",
+            name="ck_users_role_scope",
         ),
         # Case-insensitive uniqueness via a functional index rather than CITEXT:
         # identical behaviour without depending on another extension.

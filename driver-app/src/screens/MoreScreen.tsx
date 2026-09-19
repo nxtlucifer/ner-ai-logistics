@@ -10,11 +10,19 @@
  * ONLY REAL ACTIONS. There is no Profile or Help page in this app, so there is
  * no Profile or Help row - a menu item that opens nothing is worse than an
  * absent one, because the driver pays the tap to find out.
+ *
+ * LAYOUT (Phase B1, driver_04): a photo hero with the title, large rounded row
+ * cards with discs, a filled Sign Out, the tagline, an Image credits link and
+ * a vector mountain band. The reference's back arrow is omitted (More is a tab root) and so is
+ * its "R" mark (not a RASTA asset). The GPS chip in the hero replaces the
+ * shell header this tab no longer shows, so GPS state is never off screen.
  */
-import { useState } from 'react'
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { useState, type ReactNode } from 'react'
+import { Pressable, ScrollView, Text, View } from 'react-native'
 
 import { Icon } from '../components/icons'
+import { PHOTOS } from '../components/photoCredits'
+import { ImageCreditsSheet, MountainBand, RowCard, ScreenHero } from '../components/scenic'
 import { useT } from '../i18n/tx'
 import { useAuth } from '../auth/AuthProvider'
 import { useAppLanguage } from '../i18n/AppLanguageProvider'
@@ -26,110 +34,144 @@ import { makeStyles, useTheme } from '../theme-context'
 export default function MoreScreen({
   onOpenAssistant,
   onOpenDetails,
+  onOpenTutorial,
+  status,
 }: {
   onOpenAssistant: () => void
   onOpenDetails: () => void
+  onOpenTutorial: () => void
+  /** The GPS status chip, from the shell (it reads the tracker). */
+  status?: ReactNode
 }) {
   const styles = useStyles()
   const { colors: COLORS, mode, toggle } = useTheme()
-  const { language, setLanguage, t } = useAppLanguage()
+  const { language, t } = useAppLanguage()
   const tx = useT()
   const { logout } = useAuth()
   const [langOpen, setLangOpen] = useState(false)
+  const [creditsOpen, setCreditsOpen] = useState(false)
 
   const active = APP_LANGUAGES.find((l) => l.code === language)
+  const themeName = tx(mode === 'light' ? 'Light' : 'Dark')
 
   return (
     <ScrollView contentContainerStyle={styles.content}>
-      <Text style={styles.section}>{tx('You').toUpperCase()}</Text>
-      <Pressable style={styles.row} onPress={onOpenDetails} accessibilityRole="button" testID="more-my-details">
-        <Icon name="user" color={COLORS.muted} />
-        <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>{tx('My details')}</Text>
-          <Text style={styles.rowSub}>{tx('Profile, documents and insurance')}</Text>
-        </View>
-        <Icon name="chevron-right" color={COLORS.faint} size={20} />
-      </Pressable>
+      <ScreenHero
+        photo={PHOTOS.more}
+        title={t('nav_more')}
+        subtitle={tx('Your details, help and settings')}
+        status={status}
+      />
 
-      <Text style={styles.section}>{tx('Assistant').toUpperCase()}</Text>
-      <Pressable style={styles.row} onPress={onOpenAssistant} accessibilityRole="button">
-        <Icon name="message-circle" color={COLORS.muted} />
-        <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>{tx('Driver Assistant')}</Text>
-          <Text style={styles.rowSub}>{tx('Offline guidance and the translator')}</Text>
-        </View>
-        <Icon name="chevron-right" color={COLORS.faint} size={20} />
-      </Pressable>
+      <View style={styles.list}>
+        {/* Green disc: the one row that holds the driver's own records. The
+            rest carry no status, so they take the neutral disc. */}
+        <RowCard
+          icon="user"
+          tone="action"
+          title={tx('My Details')}
+          subtitle={tx('Profile, documents and insurance')}
+          onPress={onOpenDetails}
+          testID="more-my-details"
+        />
+        <RowCard
+          icon="message-circle"
+          title={tx('Driver Assistant')}
+          subtitle={tx('Offline guidance and the translator')}
+          onPress={onOpenAssistant}
+          testID="more-assistant"
+        />
+        <RowCard
+          icon="globe"
+          title={tx('Language')}
+          subtitle={`${active?.nativeLabel ?? 'English'} · ${tx("changes the app's own labels")}`}
+          onPress={() => setLangOpen(true)}
+          accessibilityLabel={`Language: ${active?.label ?? 'English'}. Opens language chooser`}
+          testID="more-language"
+        />
+        <RowCard
+          icon={mode === 'light' ? 'sun' : 'moon'}
+          title={tx('Theme')}
+          subtitle={tx(mode === 'light' ? 'Light — light surfaces' : 'Dark — dark cab surfaces')}
+          value={themeName}
+          onPress={toggle}
+          accessibilityLabel={`${tx('Theme')}: ${themeName}. ${mode === 'light' ? 'Switch to dark theme' : 'Switch to light theme'}`}
+          testID="more-theme"
+        />
+        <RowCard
+          icon="help-circle"
+          title={tx('How RASTA Works')}
+          subtitle={tx('The short tour, any time you want it')}
+          onPress={onOpenTutorial}
+          testID="more-tutorial"
+        />
 
-      <Text style={styles.section}>{t('common_change_language').toUpperCase()}</Text>
+        <Pressable
+          style={({ pressed }) => [styles.signOut, pressed && styles.signOutPressed]}
+          onPress={() => void logout()}
+          accessibilityRole="button"
+          testID="more-sign-out"
+        >
+          <Icon name="log-out" color={COLORS.danger} size={22} />
+          <Text style={styles.signOutText}>{t('btn_sign_out')}</Text>
+        </Pressable>
+      </View>
+
+      {/* Brand line, like the login's old motto: decoration, not a claim. */}
+      <View style={styles.tagline} accessible={false}>
+        <Text style={styles.taglineText}>PEOPLE · PLACES · PROGRESS</Text>
+        <View style={styles.taglineRule} />
+      </View>
+      {/* A quiet link, not a sixth row: the credits are a reference the
+          driver rarely needs, and a full row pushed Sign Out off the first
+          screen. The hero's own credit stays on the photo. */}
       <Pressable
-        style={styles.row}
-        onPress={() => setLangOpen(true)}
+        style={styles.creditsLink}
+        onPress={() => setCreditsOpen(true)}
         accessibilityRole="button"
-        accessibilityLabel={`Language: ${active?.label ?? 'English'}. Opens language chooser`}
+        accessibilityLabel={tx('Image credits')}
+        testID="more-image-credits"
       >
-        <Icon name="globe" color={COLORS.muted} />
-        <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>{tx('Language')}</Text>
-          <Text style={styles.rowSub}>
-            {active?.nativeLabel ?? 'English'} · {tx("changes the app's own labels")}
-          </Text>
-        </View>
-        <Icon name="chevron-right" color={COLORS.faint} size={20} />
+        <Icon name="image" color={COLORS.textMuted} size={16} />
+        <Text style={styles.creditsLinkText}>{tx('Image credits')}</Text>
       </Pressable>
-
-      <Text style={styles.section}>{tx('Appearance').toUpperCase()}</Text>
-      <Pressable style={styles.row} onPress={toggle} accessibilityRole="button">
-        <Icon name={mode === 'day' ? 'sun' : 'moon'} color={COLORS.muted} />
-        <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>{tx('Theme')}</Text>
-          <Text style={styles.rowSub}>
-            {tx(mode === 'day' ? 'Day — light surfaces' : 'Night — dark cab surfaces')}
-          </Text>
-        </View>
-        <Text style={styles.value}>{tx(mode === 'day' ? 'Day' : 'Night')}</Text>
-      </Pressable>
-
-      <Pressable
-        style={[styles.row, styles.signOut]}
-        onPress={() => void logout()}
-        accessibilityRole="button"
-      >
-        <Icon name="log-out" color={COLORS.bad} size={20} />
-        <Text style={[styles.rowTitle, { color: COLORS.bad }]}>{t('btn_sign_out')}</Text>
-      </Pressable>
+      <MountainBand />
 
       <LanguageSheet open={langOpen} onClose={() => setLangOpen(false)} />
+      <ImageCreditsSheet open={creditsOpen} onClose={() => setCreditsOpen(false)} />
     </ScrollView>
   )
 }
 
 const useStyles = makeStyles((COLORS) => ({
-  content: { padding: 16, paddingBottom: 32, gap: 8 },
-  section: {
-    color: COLORS.faint,
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1,
-    marginTop: 12,
-    marginBottom: 4,
-  },
-  row: {
+  content: { paddingBottom: 0, backgroundColor: COLORS.bg },
+  // Rides 26 px up over the hero's rounded foot, as driver_04's first card does.
+  list: { marginTop: -26, paddingHorizontal: 14, gap: 6 },
+  signOut: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    justifyContent: 'center',
+    gap: 10,
     minHeight: TOUCH_TARGET,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 12,
+    marginTop: 4,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.card,
+    borderColor: COLORS.dangerBorder,
+    backgroundColor: COLORS.dangerSoft,
   },
-  rowText: { flex: 1, minWidth: 0 },
-  rowTitle: { color: COLORS.text, fontSize: 15, fontWeight: '700' },
-  rowSub: { color: COLORS.muted, fontSize: 12, marginTop: 2 },
-  value: { color: COLORS.muted, fontSize: 13, fontWeight: '700' },
-  signOut: { marginTop: 20, justifyContent: 'center', gap: 8, borderColor: COLORS.badBorder },
-
+  signOutPressed: { opacity: 0.85 },
+  signOutText: { color: COLORS.danger, fontSize: 16, fontWeight: '700' },
+  tagline: { alignItems: 'center', marginTop: 22, gap: 10 },
+  taglineText: { color: COLORS.textMuted, fontSize: 10, fontWeight: '600', letterSpacing: 4 },
+  taglineRule: { width: 40, height: 2, borderRadius: 1, backgroundColor: COLORS.accent },
+  creditsLink: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minHeight: 48,
+    paddingHorizontal: 14,
+    marginTop: 2,
+  },
+  creditsLinkText: { color: COLORS.textMuted, fontSize: 13, fontWeight: '600', textDecorationLine: 'underline' },
 }))

@@ -26,14 +26,16 @@ the audit trail keeps its actor, and the actor keeps no way in.
 
 import secrets
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import hash_password
 from app.models.enums import (
+    DistrictSource,
     AssignmentStatus,
     CargoPriority,
     DriverStatus,
@@ -45,6 +47,7 @@ from app.models.enums import (
     UserRole,
 )
 from app.models.files import StoredFile
+from app.models.geography import District, State
 from app.models.fleet import DriverTruckAssignment, Truck
 from app.models.identity import Driver, User
 from app.models.operations import CargoItem, Shipment, Trip, TripRoute, TripStop
@@ -180,7 +183,10 @@ def unique_phone() -> str:
 
 
 def unique_registration() -> str:
-    return f"AS{uuid.uuid4().int % 100:02d}ZZ{uuid.uuid4().int % 10000:04d}"
+    # AS nn ZZx nnnn: 26M values (was 1M), still REGISTRATION_PATTERN and
+    # still `AS__ZZ%`, which scripts/demo_scenario.py resets by.
+    n = uuid.uuid4().int
+    return f"AS{n % 100:02d}ZZ{chr(65 + n // 100 % 26)}{n // 2600 % 10000:04d}"
 
 
 def unique_licence() -> str:
@@ -194,7 +200,13 @@ async def make_user(
     password: str = TEST_PASSWORD,
     is_active: bool = True,
     phone: str | None = None,
+    state_id: uuid.UUID | None = None,
+    district_id: uuid.UUID | None = None,
+    must_reset_password: bool = False,
 ) -> User:
+    """A login. STATE_MANAGER and DISTRICT_MANAGER need a scope to exist:
+    `ck_users_role_scope` refuses a scoped role without one, which is the
+    point of the constraint."""
     user = User(
         email=unique_email(role.value.lower()),
         phone=phone,
@@ -202,6 +214,9 @@ async def make_user(
         role=role,
         display_name=f"Test {role.value.title()}",
         is_active=is_active,
+        state_id=state_id,
+        district_id=district_id,
+        must_reset_password=must_reset_password,
     )
     db.add(user)
     await db.commit()
@@ -317,14 +332,81 @@ async def attach_verification_photo(
     return assignment.verification_photo_url
 
 
+async def get_state(db: AsyncSession, slug: str = "assam") -> State:
+    """One of the eight states seeded by migration 0013."""
+    row = (await db.execute(select(State).where(State.slug == slug))).scalar_one()
+    return row
+
+
+async def make_district(
+    db: AsyncSession, *, state_slug: str = "assam", slug: str | None = None
+) -> District:
+    """A district, created once per slug and then reused.
+
+    Reference data, not fixture data: it is deliberately absent from OWNED.
+    A user references its district with RESTRICT and cleanup deactivates users
+    instead of deleting them, so a per-test district could never be removed -
+    and the test database is disposable, which is what makes that fine.
+    """
+    state = await get_state(db, state_slug)
+    slug = slug or f"test-{uuid.uuid4().hex[:8]}"
+    existing = (
+        await db.execute(
+            select(District).where(
+                District.state_id == state.id, District.slug == slug
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
+    district = District(
+        state_id=state.id,
+        name=slug.replace("-", " ").title(),
+        slug=slug,
+        source_name="test fixture - not a government notification",
+        # Marked, not merely named. A dashboard counted 230 of these as
+        # configured districts because the only thing distinguishing them
+        # was prose in `source_name` that no query read.
+        source_status=DistrictSource.TEST,
+    )
+    db.add(district)
+    await db.commit()
+    await db.refresh(district)
+    return district
+
+
+@asynccontextmanager
+async def operational(db: AsyncSession, district: District, status=DistrictSource.DEMO):
+    """Treat a fixture district as a real one, for one test only.
+
+    Districts are reference data the whole suite shares, so a test that
+    promoted one and walked away would leave every later count off by one -
+    which is the bug this provenance column exists to prevent. Anything that
+    needs a district the product will actually COUNT borrows one here and
+    gives it back.
+    """
+    before = district.source_status
+    district.source_status = status
+    await db.commit()
+    try:
+        yield district
+    finally:
+        district.source_status = before
+        await db.commit()
+
+
 async def make_shipment(
     db: AsyncSession,
     *,
     weight_kg: Decimal | int = 1000,
     pickup: Coordinate = GUWAHATI,
     destination: Coordinate = JORHAT,
+    origin_district_id: uuid.UUID | None = None,
+    destination_district_id: uuid.UUID | None = None,
 ) -> Shipment:
     shipment = Shipment(
+        origin_district_id=origin_district_id,
+        destination_district_id=destination_district_id,
         reference_code=f"{TEST_SHIPMENT_PREFIX}{uuid.uuid4().hex[:10].upper()}",
         client_name="Test Client",
         pickup_address="Depot, Guwahati",

@@ -1,0 +1,447 @@
+{
+ "base": "http://127.0.0.1:8020",
+ "ran_at": "2026-09-19T09:07:25.402438+00:00",
+ "results": [
+  {
+   "id": "SEC-SESS-001",
+   "area": "Session",
+   "target": "POST /api/auth/login client=web -> Set-Cookie flags",
+   "verdict": "PASS",
+   "observed": "Set-Cookie: ner_refresh=<REDACTED>; HttpOnly; Max-Age=2592000; Path=/api/auth; SameSite=strict; body keys=['access_token', 'expires_at', 'refresh_token', 'token_type', 'user']",
+   "expected": "HttpOnly, Path=/api/auth, SameSite; Secure outside development; no refresh_token in body",
+   "note": "Local backend runs APP_ENV=development, where Secure is deliberately omitted (http dev server); the hosted check below confirms Secure in production."
+  },
+  {
+   "id": "SEC-SESS-007",
+   "area": "Session",
+   "target": "access token lifetime",
+   "verdict": "PASS",
+   "observed": "expires_at - now = 15.0 min",
+   "expected": "15 minutes",
+   "note": ""
+  },
+  {
+   "id": "SEC-SESS-002",
+   "area": "Session",
+   "target": "POST /api/auth/login client=mobile",
+   "verdict": "PASS",
+   "observed": "refresh_token in body=True; Set-Cookie present=False",
+   "expected": "refresh token in body, no cookie",
+   "note": ""
+  },
+  {
+   "id": "SEC-SESS-003",
+   "area": "Session",
+   "target": "POST /api/auth/refresh rotate, replay old token, then use the new one",
+   "verdict": "PASS",
+   "observed": "rotate=200; replay old=401 {\"error\":{\"code\":\"UNAUTHENTICATED\",\"message\":\"Invalid refresh token.\",\"details\":; new token after replay=401",
+   "expected": "rotate 200 with a different token; replay 401; the whole family revoked so the new token is 401 too",
+   "note": ""
+  },
+  {
+   "id": "SEC-SESS-004",
+   "area": "Session",
+   "target": "POST /api/auth/logout then refresh with the same token",
+   "verdict": "PASS",
+   "observed": "logout=204; refresh after logout=401 {\"error\":{\"code\":\"UNAUTHENTICATED\",\"message\":\"Invalid refresh token.\",\"details\":",
+   "expected": "204 then 401",
+   "note": ""
+  },
+  {
+   "id": "SEC-SESS-005",
+   "area": "Session",
+   "target": "GET /api/driver/me with malformed / forged / expired / wrong-type tokens",
+   "verdict": "PASS",
+   "observed": "{\"malformed\": 401, \"wrong-signature\": 401, \"alg=none\": 401, \"expired\": 401, \"tampered-role\": 401, \"refresh-token-as-bearer\": 401, \"not-a-jwt\": 401}",
+   "expected": "401 for every case",
+   "note": ""
+  },
+  {
+   "id": "SEC-SESS-008",
+   "area": "Session",
+   "target": "manager support-view token: GET allowed, POST refused",
+   "verdict": "PASS",
+   "observed": "issue=200; GET /api/driver/me=200; POST push-token=403 {\"error\":{\"code\":\"FORBIDDEN\",\"message\":\"Manager support view is read-only.\",\"details\":{},\"",
+   "expected": "GET 200, POST 403 (read-only)",
+   "note": ""
+  },
+  {
+   "id": "SEC-XSS-001",
+   "area": "XSS",
+   "target": "store payloads through POST /api/drivers, /api/trucks, /api/trips/plan",
+   "verdict": "PASS",
+   "observed": "driver=201 name='<img src=x onerror=alert(1)> SEC393761'; truck=201; plan=201 ",
+   "expected": "accepted as plain text and echoed back as a JSON string; the browser check (SEC-XSS-002) shows it is rendered inert",
+   "note": "Stored in the isolated clone only. The same rows are used by the browser screenshot."
+  },
+  {
+   "id": "SEC-XSS-005",
+   "area": "XSS",
+   "target": "reflected: payload in path and query",
+   "verdict": "PASS",
+   "observed": "path: 404 application/json reflected=False; query: 200 reflected=False",
+   "expected": "JSON error envelope, application/json, input value never echoed",
+   "note": ""
+  },
+  {
+   "id": "SEC-CFG-001",
+   "area": "Misconfiguration",
+   "target": "hosted https://ner-intelligence.onrender.com /docs /openapi.json /redoc",
+   "verdict": "PASS",
+   "observed": "{\"/docs\": 404, \"/openapi.json\": 404, \"/redoc\": 404}; local development: /docs=200",
+   "expected": "404 in production; open only when APP_ENV=development",
+   "note": ""
+  },
+  {
+   "id": "SEC-CFG-003",
+   "area": "Misconfiguration",
+   "target": "CORS preflight from unknown vs allowed origin",
+   "verdict": "PASS",
+   "observed": "evil.example -> 400 ACAO=None; localhost:5173 -> 200 ACAO=http://localhost:5173 credentials=true",
+   "expected": "no ACAO for unknown origins; exact origin (never *) for the allow-list",
+   "note": ""
+  },
+  {
+   "id": "SEC-CFG-006",
+   "area": "Misconfiguration",
+   "target": "GET /ready",
+   "verdict": "PASS",
+   "observed": "200 {\"status\":\"ready\",\"provider\":\"local\",\"checks\":{\"database\":{\"ok\":true,\"detail\":\"PostgreSQL 18.2\"},\"postgis\":{\"ok\":true,\"detail\":\"3.6 USE_GEOS=1 USE_PROJ=1 USE_STATS=1\"}}}",
+   "expected": "provider enum only; no host, DSN or credential",
+   "note": ""
+  },
+  {
+   "id": "SEC-CFG-005",
+   "area": "Misconfiguration",
+   "target": "malformed JSON body (error containment)",
+   "verdict": "PASS",
+   "observed": "422 {\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Request failed validation.\",\"details\":{\"errors\":[{\"loc\":[\"body\",36],\"msg\":\"JSON decode error\",\"type\":\"json_invalid\"}]},\"request_id\":\"b374373c-3c86-4635-82b2-ebcd1f7c4a4d\"}}",
+   "expected": "422 VALIDATION_ERROR envelope, no stack trace; DB errors are 503 DATABASE_UNAVAILABLE (observed earlier in this session when the clone lacked migration 0013)",
+   "note": ""
+  },
+  {
+   "id": "SEC-CFG-009",
+   "area": "Misconfiguration",
+   "target": "Server response header",
+   "verdict": "INFO",
+   "observed": "local: server='uvicorn'; hosted: Server=cloudflare, x-render-origin-server=uvicorn",
+   "expected": "no version string (uvicorn sends its bare name)",
+   "note": ""
+  },
+  {
+   "id": "SEC-HDR-001",
+   "area": "Headers",
+   "target": "API security headers (local backend, GET /api/auth/me)",
+   "verdict": "PASS",
+   "observed": "{\"x-content-type-options\": \"nosniff\", \"referrer-policy\": \"no-referrer\", \"cache-control\": \"no-store\", \"content-security-policy\": \"frame-ancestors 'none'\", \"x-frame-options\": \"DENY\", \"permissions-policy\": null, \"strict-transport-security\": null}",
+   "expected": "nosniff; Referrer-Policy; Cache-Control no-store on /api; CSP frame-ancestors 'none'",
+   "note": ""
+  },
+  {
+   "id": "SEC-HDR-001h",
+   "area": "Headers",
+   "target": "API security headers (hosted https://ner-intelligence.onrender.com)",
+   "verdict": "FINDING",
+   "observed": "{\"x-content-type-options\": null, \"referrer-policy\": null, \"cache-control\": null, \"content-security-policy\": null, \"x-frame-options\": null, \"permissions-policy\": null, \"strict-transport-security\": null}",
+   "expected": "same as local plus HSTS",
+   "note": "The hosted service redeploys from main; until the fix is pushed it serves the pre-fix headers."
+  },
+  {
+   "id": "SEC-HDR-002",
+   "area": "Headers",
+   "target": "static web headers (hosted manager + driver web)",
+   "verdict": "FINDING",
+   "observed": "manager={\"x-content-type-options\": \"nosniff\", \"referrer-policy\": null, \"cache-control\": \"public, max-age=0, s-maxage=300\", \"content-security-policy\": null, \"x-frame-options\": null, \"permissions-policy\": null, \"strict-transport-security\": \"max-age=315360000; includeSubdomains; preload\"}; driver={\"x-content-type-options\": \"nosniff\", \"referrer-policy\": null, \"cache-control\": \"public, max-age=0, s-maxage=300\", \"content-security-policy\": null, \"x-frame-options\": null, \"permissions-policy\": null, \"strict-transport-security\": \"max-age=315360000; includeSubdomains; preload\"}",
+   "expected": "nosniff, Referrer-Policy, HSTS, X-Frame-Options/frame-ancestors, Permissions-Policy",
+   "note": ""
+  },
+  {
+   "id": "SEC-UP-001",
+   "area": "File upload",
+   "target": "POST /api/files valid PNG / JPEG / PDF as driver",
+   "verdict": "PASS",
+   "observed": "png=201 image/png; jpeg(no assignment)=201; pdf=201 application/pdf",
+   "expected": "201, type from magic bytes",
+   "note": ""
+  },
+  {
+   "id": "SEC-UP-002",
+   "area": "File upload",
+   "target": "POST /api/files text / HTML / SVG / GIF / empty / EXE bytes",
+   "verdict": "PASS",
+   "observed": "{\"text\": 415, \"html\": 415, \"svg\": 415, \"gif\": 415, \"empty\": 415, \"exe-magic\": 415, \"renamed-.jpg-text\": 415}",
+   "expected": "415 UNSUPPORTED_FILE_TYPE for everything that is not JPEG/PNG/PDF by magic bytes",
+   "note": ""
+  },
+  {
+   "id": "SEC-UP-003",
+   "area": "File upload",
+   "target": "PDF uploaded as PROFILE_PHOTO",
+   "verdict": "PASS",
+   "observed": "415 {\"error\":{\"code\":\"UNSUPPORTED_FILE_TYPE\",\"message\":\"Only JPEG, PNG or PDF files are accepted.\",\"details\":{},\"request_id\":\"52de26a4-c127-486c-be6f-2f33fbc6c319\"}}",
+   "expected": "415",
+   "note": ""
+  },
+  {
+   "id": "SEC-UP-004",
+   "area": "File upload",
+   "target": "5 MB + 1 document; 600 KB profile photo",
+   "verdict": "PASS",
+   "observed": "5MB+1 -> 413 {\"error\":{\"code\":\"FILE_TOO_LARGE\",\"message\":\"File is larger ; 600KB photo -> 413 {\"error\":{\"code\":\"PROFILE_PHOTO_TOO_LARGE\",\"message\":\"A prof",
+   "expected": "413 for both",
+   "note": ""
+  },
+  {
+   "id": "SEC-UP-005",
+   "area": "File upload",
+   "target": "JPEG polyglot containing <script>, then GET it",
+   "verdict": "PASS",
+   "observed": "upload=201; GET content-type=image/jpeg nosniff=nosniff cache=private, max-age=3600",
+   "expected": "served as image/jpeg with X-Content-Type-Options: nosniff, so a browser cannot sniff it into HTML",
+   "note": ""
+  },
+  {
+   "id": "SEC-UP-006",
+   "area": "File upload",
+   "target": "driver A uploads PROFILE_PHOTO with ?driver_id=<driver B>",
+   "verdict": "PASS",
+   "observed": "status=201; B.photo_url unchanged=True; A.photo_url == new file=True",
+   "expected": "driver_id ignored for a non-manager; the file stays owned by A",
+   "note": ""
+  },
+  {
+   "id": "SEC-UP-007",
+   "area": "File upload",
+   "target": "POST /api/files without a token",
+   "verdict": "PASS",
+   "observed": "401 {\"error\":{\"code\":\"UNAUTHENTICATED\",\"message\":\"Authentication required.\",\"details\":{},\"request_id\":\"cc87f55c-eb15-4133-80c5-494ecd383365\"}}",
+   "expected": "401",
+   "note": ""
+  },
+  {
+   "id": "SEC-API-004",
+   "area": "API security",
+   "target": "GET /api/files/{A's photo} as driver B / manager / owner / anonymous",
+   "verdict": "PASS",
+   "observed": "B=404; manager=200; owner=200; anonymous=401",
+   "expected": "B 404 (not 403: the id space is not an oracle), manager 200, owner 200, anonymous 401",
+   "note": ""
+  },
+  {
+   "id": "SEC-API-001",
+   "area": "API security",
+   "target": "every mounted route (81 operations) without a token",
+   "verdict": "PASS",
+   "observed": "401 on 81/81; exceptions={}",
+   "expected": "401 UNAUTHENTICATED on every operation except /health, /ready and the three public auth routes",
+   "note": ""
+  },
+  {
+   "id": "SEC-API-002",
+   "area": "API security",
+   "target": "driver token on manager-only endpoints",
+   "verdict": "PASS",
+   "observed": "{\"/api/trips\": 403, \"/api/shipments\": 403, \"/api/fleet/active\": 403, \"/api/emergencies/active\": 403, \"POST /api/drivers\": 403, \"POST /api/emergencies/sweep\": 403, \"POST /api/trucks\": 403, \"GET /api/drivers/{B}\": 404}",
+   "expected": "403 FORBIDDEN (404 for another driver's row: the id space is not an oracle)",
+   "note": ""
+  },
+  {
+   "id": "SEC-XS-004",
+   "area": "Excessive access",
+   "target": "driver lists GET /api/drivers and GET /api/trucks (scoping)",
+   "verdict": "PASS",
+   "observed": "/api/drivers -> 1 row(s), ids=['d9cccfcc'] (self=d9cccfcc); /api/trucks -> 1 row(s) for the driver vs 9 for the manager; driver's assigned truck=95c10275",
+   "expected": "drivers: own row only; trucks: only the truck(s) assigned to the caller, never the fleet register",
+   "note": ""
+  },
+  {
+   "id": "SEC-API-005",
+   "area": "API security",
+   "target": "driver A reads GET /api/drivers/{B}/documents",
+   "verdict": "PASS",
+   "observed": "404 {\"error\":{\"code\":\"NOT_FOUND\",\"message\":\"Driver not found.\",\"details\":{},\"request_id\":\"5398a0b3-0a50-41cc-8d33-52c4a501be3e\"}}",
+   "expected": "404 (scoped like GET /api/drivers/{id}); a driver reads their own documents at /api/driver/me/documents",
+   "note": ""
+  },
+  {
+   "id": "SEC-XS-005",
+   "area": "Excessive access",
+   "target": "driver creates a driver account",
+   "verdict": "PASS",
+   "observed": "403",
+   "expected": "403",
+   "note": ""
+  },
+  {
+   "id": "SEC-API-003",
+   "area": "API security",
+   "target": "manager token on driver-only endpoints",
+   "verdict": "PASS",
+   "observed": "{\"/api/driver/me\": 403, \"/api/driver/me/trip\": 403, \"/api/driver/me/documents\": 403, \"/api/ai/status\": 403, \"POST /api/driver/me/location\": 403}",
+   "expected": "403 (a manager has no driver profile)",
+   "note": ""
+  },
+  {
+   "id": "SEC-API-006",
+   "area": "API security",
+   "target": "GET /api/trips/{unknown uuid} and /{not-a-uuid}",
+   "verdict": "PASS",
+   "observed": "404 / 422",
+   "expected": "404 / 422",
+   "note": ""
+  },
+  {
+   "id": "SEC-API-007",
+   "area": "API security",
+   "target": "mass assignment: role/id/user_id on PATCH driver, status/id on trip plan",
+   "verdict": "PASS",
+   "observed": "PATCH driver -> 422 {\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Request failed validation.\",\"details\":{\"errors\":[{\"lo; plan -> 422",
+   "expected": "422 (extra='forbid' on every request model)",
+   "note": ""
+  },
+  {
+   "id": "SEC-API-008",
+   "area": "API security",
+   "target": "DELETE /api/drivers/{id}; PUT /api/trips",
+   "verdict": "PASS",
+   "observed": "405 / 405",
+   "expected": "405 METHOD_NOT_ALLOWED",
+   "note": ""
+  },
+  {
+   "id": "SEC-API-009",
+   "area": "API security",
+   "target": "SSRF: POST /api/geocoding/resolve-link with internal / look-alike hosts",
+   "verdict": "PASS",
+   "observed": "{\"http://127.0.0.1:8020/health\": [400, \"NOT_A_MAPS_LINK\"], \"http://169.254.169.254/latest/meta-data/\": [400, \"NOT_A_MAPS_LINK\"], \"http://localhost/\": [400, \"NOT_A_MAPS_LINK\"], \"http://maps.google.com.evil.example/maps\": [400, \"NOT_A_MAPS_LINK\"], \"http://maps.google.com@evil.example/\": [400, \"NOT_A_MAPS_LINK\"], \"file:///etc/passwd\": [400, \"NOT_A_MAPS_LINK\"], \"http://[::1]/\": [400, \"NOT_A_MAPS_LINK\"], \"http://10.0.0.1/\": [400, \"NOT_A_MAPS_LINK\"]}",
+   "expected": "400 NOT_A_MAPS_LINK before any request is made",
+   "note": ""
+  },
+  {
+   "id": "SEC-API-010",
+   "area": "API security",
+   "target": "driver A marks arrival at a stop of another driver's trip",
+   "verdict": "PASS",
+   "observed": "409 {\"error\":{\"code\":\"TRIP_NOT_IN_PROGRESS\",\"message\":\"Start the trip before updating stops.\",\"details\":{\"current\":\"ASSIGNED\"},\"request_id\":\"1091f91c-cac1-4728-87c2-dbdbdaccf687\"}}",
+   "expected": "404/409: the subject trip comes from the token, never from the path",
+   "note": ""
+  },
+  {
+   "id": "SEC-XS-001",
+   "area": "Excessive access",
+   "target": "GET /api/trips?limit=0/-1/999999/abc/100/101",
+   "verdict": "PASS",
+   "observed": "{\"0\": [422, \"VALIDATION_ERROR\"], \"-1\": [422, \"VALIDATION_ERROR\"], \"999999\": [422, \"VALIDATION_ERROR\"], \"abc\": [422, \"VALIDATION_ERROR\"], \"100\": [200, 79], \"101\": [422, \"VALIDATION_ERROR\"]}",
+   "expected": "422 outside 1..100; 100 accepted",
+   "note": ""
+  },
+  {
+   "id": "SEC-XS-002",
+   "area": "Excessive access",
+   "target": "GET /api/trips/{id}/track?limit=100000",
+   "verdict": "PASS",
+   "observed": "422 {\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Request failed validation.\",\"details\":{\"errors\":[{\"loc\":[\"query\",\"limit\"],\"msg\":\"Input should be less than or equal to 1000\",\"type\":\"less_than_equal\"}]},\"request_id\":\"2b849d",
+   "expected": "422 (max 1000)",
+   "note": ""
+  },
+  {
+   "id": "SEC-XS-003",
+   "area": "Excessive access",
+   "target": "data minimisation: /api/auth/me, /api/drivers, /api/drivers/{id}/documents",
+   "verdict": "PASS",
+   "observed": "password_hash in me=False; in drivers list=False; salary in list=False; documents masked=True (1 rows)",
+   "expected": "no hash anywhere; salary only via driver:read_sensitive; document numbers as \u2022\u2022\u2022\u2022 1234",
+   "note": ""
+  },
+  {
+   "id": "SEC-SESS-006",
+   "area": "Session",
+   "target": "deactivate a driver, then use their still-valid access token and log in again",
+   "verdict": "PASS",
+   "observed": "deactivate=200; token after=401 {\"error\":{\"code\":\"UNAUTHENTICATED\",\"message\":\"Account is dis; login after=401",
+   "expected": "401 immediately (role and status are read from the users row on every request)",
+   "note": "Done on the isolated clone only; the clone is dropped after the assessment."
+  },
+  {
+   "id": "SEC-SQLI-001",
+   "area": "SQL Injection",
+   "target": "POST /api/auth/login identifier + password payloads",
+   "verdict": "PASS",
+   "observed": "{\"'\": [401, 401], \"''\": [401, 401], \"' OR '1'='1\": [401, 401], \"\\\" OR \\\"1\\\"=\\\"1\": [401, 401], \"'; SELECT 1 --\": [401, 401], \"') OR ('1'='1\": [401, 401], \"admin'--\": [401, 401], \"%' OR 1=1 --\": [401, 401]}",
+   "expected": "401 (or 422 for schema) for every payload; no DB error text",
+   "note": "Login uses a parameterised ILIKE/= on the users table and verifies against a dummy Argon2 hash when no user matches."
+  },
+  {
+   "id": "SEC-SQLI-002",
+   "area": "SQL Injection",
+   "target": "GET /api/drivers?search=<payload>",
+   "verdict": "PASS",
+   "observed": "{\"'\": [200, 0], \"''\": [200, 0], \"' OR '1'='1\": [200, 0], \"\\\" OR \\\"1\\\"=\\\"1\": [200, 0], \"'; SELECT 1 --\": [200, 0], \"') OR ('1'='1\": [200, 0], \"admin'--\": [200, 0], \"%' OR 1=1 --\": [200, 0]}; unfiltered page=11 rows",
+   "expected": "200 with literal match (0 rows), never 5xx",
+   "note": "ilike() binds the pattern as a parameter; % and _ are LIKE wildcards only (informational)."
+  },
+  {
+   "id": "SEC-SQLI-003",
+   "area": "SQL Injection",
+   "target": "GET /api/trucks?search=<payload>",
+   "verdict": "PASS",
+   "observed": "{\"'\": [200, 0], \"''\": [200, 0], \"' OR '1'='1\": [200, 0], \"\\\" OR \\\"1\\\"=\\\"1\": [200, 0], \"'; SELECT 1 --\": [200, 0], \"') OR ('1'='1\": [200, 0], \"admin'--\": [200, 0], \"%' OR 1=1 --\": [200, 0]}; unfiltered page=9 rows",
+   "expected": "200 with literal match (0 rows), never 5xx",
+   "note": "ilike() binds the pattern as a parameter; % and _ are LIKE wildcards only (informational)."
+  },
+  {
+   "id": "SEC-SQLI-004",
+   "area": "SQL Injection",
+   "target": "GET /api/trips?search=<payload>",
+   "verdict": "PASS",
+   "observed": "{\"'\": [200, 0], \"''\": [200, 0], \"' OR '1'='1\": [200, 0], \"\\\" OR \\\"1\\\"=\\\"1\": [200, 0], \"'; SELECT 1 --\": [200, 0], \"') OR ('1'='1\": [200, 0], \"admin'--\": [200, 0], \"%' OR 1=1 --\": [200, 0]}; unfiltered page=25 rows",
+   "expected": "200 with literal match (0 rows), never 5xx",
+   "note": "ilike() binds the pattern as a parameter; % and _ are LIKE wildcards only (informational)."
+  },
+  {
+   "id": "SEC-SQLI-005",
+   "area": "SQL Injection",
+   "target": "GET /api/trips?cursor=<tampered>",
+   "verdict": "PASS",
+   "observed": "{\"' OR 1=1--\": [400, \"INVALID_CURSOR\"], \"eyJ0IjoiJyBPUiAxPTEtLSIs\": [400, \"INVALID_CURSOR\"], \"eyJ0IjoiMjAyNi0wMS0wMVQw\": [400, \"INVALID_CURSOR\"], \"AAAA\": [400, \"INVALID_CURSOR\"], \"\": [200, \"ok\"]}",
+   "expected": "400 INVALID_CURSOR for malformed cursors; empty cursor = first page",
+   "note": ""
+  },
+  {
+   "id": "SEC-SQLI-006",
+   "area": "SQL Injection",
+   "target": "GET /api/trips/<sql> (UUID path)",
+   "verdict": "PASS",
+   "observed": "422 {\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Request failed validation.\",\"details\":{\"errors\":[{\"loc\":[\"path\",\"trip_id\"],\"msg\":\"Input should be a valid UUID, invalid character: expected an optional prefix of `urn:uuid:`",
+   "expected": "422 VALIDATION_ERROR",
+   "note": ""
+  },
+  {
+   "id": "SEC-SQLI-007",
+   "area": "SQL Injection",
+   "target": "GET /api/trips?trip_status=<sql> (enum filter)",
+   "verdict": "PASS",
+   "observed": "422 {\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Request failed validation.\",\"details\":{\"errors\":[{\"loc\":[\"query\",\"trip_status\"],\"msg\":\"Input should be 'DRAFT', 'ASSIGNED', 'VERIFICATION_PENDING', 'MANAGER_REVIEW', 'ACTIVE",
+   "expected": "422 VALIDATION_ERROR",
+   "note": ""
+  },
+  {
+   "id": "SEC-RL-001",
+   "area": "Rate limiting",
+   "target": "POST /api/auth/login: repeated wrong passwords on one identifier",
+   "verdict": "PASS",
+   "observed": "codes=[401, 401, 401, 401, 401, 401, 401, 401, 401, 401, 429]; Retry-After=60",
+   "expected": "10 x 401 then 429 with Retry-After (LOGIN_RATE_LIMIT_PER_IDENTIFIER=10)",
+   "note": "Per-IP limit is 20/min; window reset is proven by tests/test_rate_limit.py with an injected clock."
+  },
+  {
+   "id": "SEC-SESS-001h",
+   "area": "Session",
+   "target": "hosted https://ner-intelligence.onrender.com login client=web -> Set-Cookie flags",
+   "verdict": "PASS",
+   "observed": "status=200; Set-Cookie: ner_refresh=<REDACTED>; HttpOnly; Max-Age=2592000; Path=/api/auth; SameSite=none; Secure",
+   "expected": "Secure; HttpOnly; SameSite=None (cross-site static host); Path=/api/auth",
+   "note": ""
+  }
+ ]
+}

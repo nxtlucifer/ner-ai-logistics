@@ -11,7 +11,7 @@ vi.mock('react-native', async () => {
   const { createElement: h } = await import('react')
   const box = ({ children }: { children?: import('react').ReactNode }) => h('div', null, children)
   return { View: box, ScrollView: box, Pressable: box, Text: box, SafeAreaView: box, RefreshControl: () => null,
-    Image: () => h('img'), StyleSheet: { create: (v: unknown) => v, hairlineWidth: 1 } }
+    Image: () => h('img'), Platform: { OS: 'web' }, StyleSheet: { create: (v: unknown) => v, hairlineWidth: 1 } }
 })
 vi.mock('../api/client', () => ({ api: { myAssignment: () => state.assignment(), verifyAssignment: (...a: unknown[]) => state.verify(...a) } }))
 vi.mock('../files/pick', () => ({ pickPhoto: vi.fn(), upload: vi.fn() }))
@@ -59,6 +59,13 @@ describe('the truck check', () => {
     expect(host.textContent).toContain('Take a photo of the truck before you verify.')
     await typePlate('AS86QQ7606')
     expect(confirmButton().disabled).toBe(true)
+  })
+
+  it('says next to a disabled Verify what is still missing', async () => {
+    await render({ ...base, verification_photo_url: '/api/files/f1' })
+    expect(host.textContent).toContain('Type the registration you can see on the truck.')
+    await typePlate('AS86QQ7606')
+    expect(host.textContent).not.toContain('Type the registration you can see on the truck.')
   })
 
   it('needs the plate as well as the photo', async () => {

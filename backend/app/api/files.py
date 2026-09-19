@@ -86,9 +86,19 @@ async def upload(
     truck_id: Annotated[uuid.UUID | None, Query()] = None,
     driver_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> FileRead:
-    data = await request.body()
-    if len(data) > MAX_BYTES:
-        raise APIError("File is larger than 5 MB.", code="FILE_TOO_LARGE", status_code=413)
+    # Read at most MAX_BYTES + 1 and stop. `request.body()` would buffer the
+    # whole upload before the size check ran, so a 500 MB body cost 500 MB of
+    # memory to be told "too large". A declared Content-Length is refused
+    # before a single byte is read; a chunked body is cut off at the cap.
+    too_large = APIError("File is larger than 5 MB.", code="FILE_TOO_LARGE", status_code=413)
+    if int(request.headers.get("content-length") or 0) > MAX_BYTES:
+        raise too_large
+    buf = bytearray()
+    async for chunk in request.stream():
+        buf.extend(chunk)
+        if len(buf) > MAX_BYTES:
+            raise too_large
+    data = bytes(buf)
     if kind == "PROFILE_PHOTO" and len(data) > MAX_PROFILE_PHOTO_BYTES:
         raise APIError(
             f"A profile photo must be under {MAX_PROFILE_PHOTO_BYTES // 1024} KB; "

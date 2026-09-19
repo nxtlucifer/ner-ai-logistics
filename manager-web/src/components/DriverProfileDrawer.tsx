@@ -6,13 +6,18 @@
  * read-only look at the driver's app, GET-only, 15 minutes, audited) still
  * exists, but sits under Support at the bottom, behind its own permission,
  * with the consequence written next to it. Destructive actions live there too.
+ *
+ * One surface: the drawer is the card, so its sections are divided by rules,
+ * never boxed into cards of their own.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { ChevronDown, X } from 'lucide-react'
 
 import { DRIVER_WEB_URL, api, type Assignment, type Driver, type Trip, type Truck, unavailableReason } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
 import AuthImage, { initials } from './AuthImage'
-import { Button, ErrorState, LoadingState, StatusPill } from './ui'
+import { LoadingState, StatusPill } from './ui'
+import { ActionButton, InlineError, Pill } from './pageKit'
 import AssignTruckDialog from './AssignTruckDialog'
 import { wrapTab } from './focusTrap'
 import { useMutation, useResource } from '../hooks/useResource'
@@ -24,19 +29,34 @@ export function licenceHealth(expiry: string, today = new Date()): { label: stri
   const days = Math.floor((new Date(expiry).getTime() - new Date(today.toDateString()).getTime()) / 86_400_000)
   if (days < 0) return { label: `Expired ${expiry}`, tone: 'danger' }
   if (days <= 30) return { label: `Expires in ${days} day${days === 1 ? '' : 's'} (${expiry})`, tone: 'warning' }
-  return { label: `Valid to ${expiry}`, tone: 'ok' }
+  return { label: `Valid till ${expiry}`, tone: 'ok' }
 }
+
+// Every digit but the last two (audit 11: the list masks the number).
+export { maskPhone } from '../utils/phone'
 
 const TONE = { ok: 'text-ok', warning: 'text-warning', danger: 'text-danger' } as const
 
-function Fact({ label, children }: { label: string; children: React.ReactNode }) {
+function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted">{label}</dt>
-      <dd className="mt-0.5 text-sm text-ink break-words">{children}</dd>
+      <dt className="text-xs font-medium uppercase tracking-[0.04em] text-muted">{label}</dt>
+      <dd className="mt-0.5 break-words text-sm text-ink">{children}</dd>
     </div>
   )
 }
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="border-t border-line pt-4">
+      <h3 className="text-[13px] font-semibold uppercase tracking-[0.04em] text-muted">{title}</h3>
+      <div className="mt-2">{children}</div>
+    </section>
+  )
+}
+
+/** Why a control is shut, as text beside it - a tooltip alone is invisible to most. */
+const Why = ({ children }: { children: ReactNode }) => <p className="text-[13px] text-muted">{children}</p>
 
 export interface DriverProfileDrawerProps {
   driver: Driver
@@ -84,7 +104,8 @@ export default function DriverProfileDrawer({ driver, trucks, assignments, trips
   const [plate, setPlate] = useState('')
   const endBlocked = unavailableReason('endAssignment')
   const deactivateBlocked = unavailableReason('deactivateDriver')
-  const supportBlocked = unavailableReason('supportSession')
+  const supportBlocked =
+    unavailableReason('supportSession') ?? (DRIVER_WEB_URL ? null : 'No driver web app address is configured for this deployment.')
 
   async function handleEnd() {
     if (!live || !window.confirm(`End ${driver.full_name}'s assignment to ${truck?.registration_number ?? 'this truck'}? Trips already dispatched keep their record.`)) return
@@ -103,6 +124,11 @@ export default function DriverProfileDrawer({ driver, trucks, assignments, trips
     if (data) window.open(`${DRIVER_WEB_URL}/#support=${encodeURIComponent(data.token)}`, '_blank', 'noopener')
   }
 
+  const changeWhy = current ? `Cannot change while ${current.trip_code} is open` : driver.status === 'ON_TRIP' ? 'Cannot change while the driver is on a trip' : null
+  const endWhy = endBlocked ?? (current ? `Cannot end while ${current.trip_code} is open` : null)
+  const deactivateWhy = deactivateBlocked ?? (!driver.login_is_active ? 'Already inactive' : null)
+  const pairingWhy = [...new Set([can('assignment:create') ? changeWhy : null, can('assignment:end') ? endWhy : null])].filter(Boolean).join(' · ')
+
   return (
     <div
       ref={dialog}
@@ -110,42 +136,54 @@ export default function DriverProfileDrawer({ driver, trucks, assignments, trips
       aria-modal="true"
       aria-labelledby="driver-profile-title"
       onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); onClose() } else wrapTab(e) }}
-      className="fixed inset-0 z-50 flex justify-end bg-canvas/70"
+      className="fixed inset-0 z-50 flex justify-end bg-[var(--overlay)]"
       data-testid="driver-profile"
     >
-      <div className="flex h-full w-full max-w-xl flex-col overflow-y-auto border-l border-line bg-surface shadow-[var(--shadow-panel)]">
-        <div className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
-          <div className="flex min-w-0 items-center gap-3">
+      <div className="flex h-full w-full max-w-xl flex-col overflow-y-auto border-l border-line bg-surface shadow-[var(--shadow-float)] sm:rounded-l-[var(--radius-card)]">
+        <div className="flex items-start justify-between gap-3 px-6 pb-4 pt-5">
+          <div className="flex min-w-0 items-center gap-4">
             <AuthImage src={driver.photo_url} alt={`${driver.full_name} photo`} fallback={initials(driver.full_name)} className="h-14 w-14 rounded-full" />
             <div className="min-w-0">
-              <h2 id="driver-profile-title" className="text-lg font-bold text-ink">{driver.full_name}</h2>
-              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              <h2 id="driver-profile-title" className="font-display text-xl font-bold leading-tight text-ink">{driver.full_name}</h2>
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                 <StatusPill status={driver.status} />
-                <span className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-semibold ${driver.login_is_active ? 'border-ok/30 bg-ok-soft text-ok' : 'border-warning/30 bg-warning-soft text-warning'}`}>
-                  {driver.login_is_active ? 'LOGIN ACTIVE' : 'LOGIN INACTIVE'}
-                </span>
+                <Pill tone={driver.login_is_active ? 'ok' : 'warning'}>{driver.login_is_active ? 'LOGIN ACTIVE' : 'LOGIN INACTIVE'}</Pill>
               </div>
             </div>
           </div>
-          <button ref={closeButton} type="button" onClick={onClose} className="min-h-11 rounded-md px-3 text-sm text-muted hover:text-ink" aria-label="Close driver profile">Close</button>
+          <button
+            ref={closeButton}
+            type="button"
+            onClick={onClose}
+            className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-[6px] border border-line bg-surface px-3 text-[13px] font-semibold text-ink hover:border-outline hover:bg-soft"
+            aria-label="Close driver profile"
+          >
+            <X className="size-4" aria-hidden="true" />
+            Close
+          </button>
         </div>
 
-        <div className="space-y-5 px-5 py-4">
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+        <div className="space-y-4 px-6 pb-6">
+          <dl className="grid grid-cols-2 gap-x-5 gap-y-3.5">
             <Fact label="Phone">{driver.phone}</Fact>
             <Fact label="Driver ID"><span className="font-mono text-xs">{driver.id.slice(0, 8)}</span></Fact>
             <Fact label="Licence"><span className="font-mono text-xs">{driver.licence_number}</span></Fact>
             <Fact label="Licence status"><span className={TONE[health.tone]}>{health.label}</span></Fact>
             <Fact label="Availability">{driver.status.replaceAll('_', ' ')}</Fact>
             <Fact label="Login">{driver.login_is_active ? 'Can sign in to the driver app' : 'Disabled — cannot be dispatched'}</Fact>
+            {/* No sync time travels with a driver row, and reading presence here
+                would be a new request: say where it is instead of guessing. */}
+            <Fact label="Last sync">
+              <span className="text-muted">UNAVAILABLE here</span>
+              <span className="block text-xs text-muted">Heartbeat and GPS age are on the Overview and Fleet pages.</span>
+            </Fact>
           </dl>
 
-          <section className="rounded-[10px] border border-line p-3">
-            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted">Assigned truck</h3>
+          <Section title="Assigned truck">
             {live ? (
-              <div className="mt-1.5 space-y-1 text-sm">
+              <div className="space-y-2 text-sm">
                 <p className="font-mono font-semibold text-ink">{truck?.registration_number ?? live.truck_id.slice(0, 8)}{truck ? <span className="ml-2 font-sans text-xs font-normal text-muted">{Number(truck.max_capacity_kg).toLocaleString()} kg</span> : null}</p>
-                <p className="text-xs">
+                <p className="text-[13px]">
                   {live.verified_at ? (
                     live.mismatch_flagged
                       ? <span className="text-warning">Driver reported a different registration — needs review</span>
@@ -153,71 +191,79 @@ export default function DriverProfileDrawer({ driver, trucks, assignments, trips
                   ) : <span className="text-muted">Awaiting the driver's truck check</span>}
                 </p>
                 {!live.verified_at && can('assignment:review') ? (
-                  <form className="mt-1 flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); void handleManual() }}>
-                    <input aria-label="Number plate on the truck" value={plate} onChange={(e) => setPlate(e.target.value.toUpperCase())} placeholder={truck?.registration_number ?? 'PLATE'} className="w-36 rounded border border-line bg-surface px-2 py-1 font-mono text-xs" />
-                    <Button type="submit" variant="secondary" busy={manual.isSubmitting} disabled={plate.trim().length < 4} title="Driver has no smartphone: confirm the plate by hand. Recorded as MANAGER_MANUAL.">Verify by hand</Button>
+                  <form className="flex flex-wrap items-center gap-2" onSubmit={(e) => { e.preventDefault(); void handleManual() }}>
+                    <input aria-label="Number plate on the truck" value={plate} onChange={(e) => setPlate(e.target.value.toUpperCase())} placeholder={truck?.registration_number ?? 'PLATE'} className="h-9! min-h-9! w-40 rounded-[6px] border border-outline bg-surface px-2.5 font-mono text-xs text-ink placeholder:text-muted focus:border-route focus:ring-1 focus:ring-route" />
+                    <ActionButton type="submit" busy={manual.isSubmitting} disabled={plate.trim().length < 4} title="Driver has no smartphone: confirm the plate by hand. Recorded as MANAGER_MANUAL.">Verify by hand</ActionButton>
+                    {plate.trim().length < 4 ? <Why>Type the plate you see on the truck (4 characters or more). Recorded as a manager check.</Why> : null}
                   </form>
                 ) : null}
-                {manual.error ? <ErrorState error={manual.error} /> : null}
+                {manual.error ? <InlineError compact error={manual.error} /> : null}
                 <div className="flex flex-wrap items-center gap-2 pt-1">
                   {can('assignment:create') ? (
-                    <Button variant="secondary" className="min-h-9 px-2 py-1 text-xs" disabled={current !== null || driver.status === 'ON_TRIP'} title={current ? `Cannot change while ${current.trip_code} is open` : driver.status === 'ON_TRIP' ? 'Cannot change while the driver is on a trip' : 'Move this driver to another truck - the current pairing ends in the same step'} onClick={() => setAssigning(true)}>Change truck</Button>
+                    <ActionButton disabled={changeWhy !== null} title={changeWhy ?? 'Move this driver to another truck - the current pairing ends in the same step'} onClick={() => setAssigning(true)}>Change truck</ActionButton>
                   ) : null}
                   {can('assignment:end') ? (
-                    <Button variant="danger" className="min-h-9 px-2 py-1 text-xs" busy={end.isSubmitting} disabled={endBlocked !== null || current !== null} title={endBlocked ?? (current ? `Cannot end while ${current.trip_code} is open` : undefined)} onClick={() => void handleEnd()}>End assignment</Button>
+                    <ActionButton variant="danger" busy={end.isSubmitting} disabled={endWhy !== null} title={endWhy ?? undefined} onClick={() => void handleEnd()}>End assignment</ActionButton>
                   ) : null}
                 </div>
-                {end.error ? <ErrorState error={end.error} /> : null}
+                {pairingWhy ? <Why>{pairingWhy}</Why> : null}
+                {end.error ? <InlineError compact error={end.error} /> : null}
               </div>
             ) : (
-              <div className="mt-1.5 space-y-2 text-sm">
+              <div className="space-y-2 text-sm">
                 <p className="text-warning">No truck assigned — this driver cannot be dispatched until one is.</p>
                 {can('assignment:create') ? (
-                  <Button disabled={!driver.login_is_active} title={driver.login_is_active ? 'Pair this driver with a truck' : 'Login inactive — reactivate first'} onClick={() => setAssigning(true)}>Assign truck</Button>
+                  <>
+                    <ActionButton variant="primary" disabled={!driver.login_is_active} title={driver.login_is_active ? 'Pair this driver with a truck' : 'Login inactive — reactivate first'} onClick={() => setAssigning(true)}>Assign truck</ActionButton>
+                    {!driver.login_is_active ? <Why>Login inactive — reactivate first.</Why> : null}
+                  </>
                 ) : null}
               </div>
             )}
             {assigning ? <AssignTruckDialog driverId={driver.id} onClose={() => setAssigning(false)} onChanged={onChanged} /> : null}
-          </section>
+          </Section>
 
-          <section className="rounded-[10px] border border-line p-3">
-            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted">Current trip</h3>
+          <Section title="Current trip">
             {current ? (
-              <p className="mt-1.5 text-sm"><span className="font-semibold text-ink">{current.trip_code}</span> <StatusPill status={current.status} />{current.started_at ? <span className="ml-2 text-xs text-muted">started {new Date(current.started_at).toLocaleString()}</span> : current.dispatched_at ? <span className="ml-2 text-xs text-muted">dispatched {new Date(current.dispatched_at).toLocaleString()}</span> : null}</p>
-            ) : <p className="mt-1.5 text-sm text-muted">No open trip.</p>}
-            <p className="mt-1 text-xs text-muted">{history.length} trip{history.length === 1 ? '' : 's'} in the last 50 · {delivered} delivered</p>
-          </section>
+              <p className="flex flex-wrap items-center gap-2 text-sm"><span className="font-semibold text-ink">{current.trip_code}</span> <StatusPill status={current.status} />{current.started_at ? <span className="text-xs text-muted">started {new Date(current.started_at).toLocaleString()}</span> : current.dispatched_at ? <span className="text-xs text-muted">dispatched {new Date(current.dispatched_at).toLocaleString()}</span> : null}</p>
+            ) : <p className="text-sm text-muted">No open trip.</p>}
+            <p className="mt-1 text-[13px] text-muted">{history.length} trip{history.length === 1 ? '' : 's'} in the last 50 · {delivered} delivered</p>
+          </Section>
 
-          <section className="rounded-[10px] border border-line p-3">
-            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted">Documents</h3>
-            {documents.status === 'loading' ? <LoadingState label="Reading documents…" /> : documents.status === 'error' ? <ErrorState error={documents.error} onRetry={documents.reload} /> : documents.data && documents.data.length > 0 ? (
-              <ul className="mt-1.5 space-y-1 text-sm">
+          <Section title="Documents">
+            {documents.status === 'loading' ? <LoadingState label="Reading documents…" /> : documents.status === 'error' ? <InlineError compact error={documents.error} onRetry={documents.reload} /> : documents.data && documents.data.length > 0 ? (
+              <ul className="divide-y divide-line text-sm">
                 {documents.data.map((d) => (
-                  <li key={d.id} className="flex flex-wrap items-baseline justify-between gap-2">
+                  <li key={d.id} className="flex flex-wrap items-baseline justify-between gap-2 py-2 first:pt-0">
                     <span className="text-ink">{d.doc_type.replaceAll('_', ' ')}{d.number_masked ? <span className="ml-2 font-mono text-xs text-muted">{d.number_masked}</span> : null}</span>
                     <span className="text-xs text-muted">{d.status.replaceAll('_', ' ')}{d.expires_on ? ` · expires ${d.expires_on}` : ''}</span>
                   </li>
                 ))}
               </ul>
-            ) : <p className="mt-1.5 text-sm text-muted">No documents on file. Numbers are shown masked; document images are not opened from here.</p>}
-          </section>
+            ) : <p className="text-sm text-muted">No documents on file. Numbers are shown masked; document images are not opened from here.</p>}
+          </Section>
 
           {(can('driver:deactivate') || can('driver:support_view')) ? (
-            <details className="rounded-[10px] border border-danger/30 p-3">
-              <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wide text-danger">Support &amp; danger zone</summary>
-              <div className="mt-3 space-y-3">
+            <details className="group border-t border-line pt-4">
+              {/* A chevron says it opens: without its marker the summary read as a static red heading. */}
+              <summary className="inline-flex min-h-9 cursor-pointer list-none items-center gap-1.5 rounded-[6px] text-[13px] font-semibold uppercase tracking-[0.04em] text-danger [&::-webkit-details-marker]:hidden">
+                Support &amp; danger zone
+                <ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true" />
+              </summary>
+              <div className="mt-3 space-y-4">
                 {can('driver:support_view') && driver.login_is_active ? (
-                  <div>
-                    <Button variant="secondary" busy={support.isSubmitting} disabled={supportBlocked !== null} title={supportBlocked ?? undefined} onClick={() => void handleSupport()}>Open read-only support view</Button>
-                    <p className="mt-1 text-xs text-muted">Opens this driver's app read-only for 15 minutes, audited. No password is shared. For support only, not for operations.</p>
-                    {support.error ? <ErrorState error={support.error} /> : null}
+                  <div className="space-y-1.5">
+                    <ActionButton busy={support.isSubmitting} disabled={supportBlocked !== null} title={supportBlocked ?? undefined} onClick={() => void handleSupport()}>Open read-only support view</ActionButton>
+                    {/* The reason it is shut, and still what it would do. */}
+                    <Why>{supportBlocked ? `${supportBlocked} ` : ''}Opens this driver's app read-only for 15 minutes, audited. No password is shared. For support only, not for operations.</Why>
+                    {support.error ? <InlineError compact error={support.error} /> : null}
                   </div>
                 ) : null}
                 {can('driver:deactivate') ? (
-                  <div>
-                    <Button variant="danger" busy={deactivate.isSubmitting} disabled={deactivateBlocked !== null || !driver.login_is_active} title={deactivateBlocked ?? (!driver.login_is_active ? 'Already inactive' : undefined)} onClick={() => void handleDeactivate()}>Deactivate driver</Button>
-                    <p className="mt-1 text-xs text-muted">Login disabled · future dispatch blocked · trip history preserved.</p>
-                    {deactivate.error ? <ErrorState error={deactivate.error} /> : null}
+                  <div className="space-y-1.5">
+                    <ActionButton variant="danger" busy={deactivate.isSubmitting} disabled={deactivateWhy !== null} title={deactivateWhy ?? undefined} onClick={() => void handleDeactivate()}>Deactivate driver</ActionButton>
+                    <Why>{deactivateWhy ? `${deactivateWhy.replace(/[.]$/, '')}. ` : ''}Login disabled · future dispatch blocked · trip history preserved.</Why>
+                    {deactivate.error ? <InlineError compact error={deactivate.error} /> : null}
                   </div>
                 ) : null}
               </div>

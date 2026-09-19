@@ -1,0 +1,37 @@
+### BEFORE - hosted API (pre-fix code, as deployed): curl -sI https://ner-intelligence.onrender.com/api/auth/me
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json
+www-authenticate: Bearer
+
+
+### BEFORE - local API baseline run (14:14 IST, before the middleware): from probe_prefix_baseline.txt
+FAIL  SEC-HDR-001    API security headers (local backend, GET /api/auth/me)       {"x-content-type-options": null, "referrer-policy": null, "cache-control": null,
+
+### AFTER - local API with the security-headers middleware: curl -sI http://127.0.0.1:8020/api/auth/me
+HTTP/1.1 401 Unauthorized
+content-type: application/json
+www-authenticate: Bearer
+x-content-type-options: nosniff
+x-frame-options: DENY
+content-security-policy: frame-ancestors 'none'
+referrer-policy: no-referrer
+cache-control: no-store
+
+
+### AFTER - stored file (route keeps its own Cache-Control): curl -sI http://127.0.0.1:8020/api/files/<id> (anonymous, so 401; a 200 keeps the route-set Cache-Control: private, max-age=3600 - asserted in tests/test_security_assessment.py)
+HTTP/1.1 401 Unauthorized
+x-content-type-options: nosniff
+x-frame-options: DENY
+content-security-policy: frame-ancestors 'none'
+referrer-policy: no-referrer
+cache-control: no-store
+
+### hosted static sites (Render) - X-Frame-Options / Referrer-Policy / Permissions-Policy absent until render.yaml headers deploy
+-- https://ner-manager.onrender.com/
+HTTP/1.1 200 OK
+strict-transport-security: max-age=315360000; includeSubdomains; preload
+x-content-type-options: nosniff
+-- https://ner-driver-web.onrender.com/
+HTTP/1.1 200 OK
+strict-transport-security: max-age=315360000; includeSubdomains; preload
+x-content-type-options: nosniff

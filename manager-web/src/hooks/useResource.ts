@@ -53,9 +53,13 @@ export function useResource<T>(
   // Guards against a slow earlier request resolving after a newer one and
   // overwriting fresher data.
   const requestId = useRef(0)
+  // Fetches still outstanding. The poll tick skips while any is: a slow
+  // fetcher (a multi-page walk) must not overlap the next tick.
+  const pending = useRef(0)
 
   const run = useCallback(async () => {
     const id = ++requestId.current
+    pending.current += 1
     setStatus((prev) => (prev === 'success' ? prev : 'loading'))
     setIsRefreshing(true)
     try {
@@ -72,6 +76,7 @@ export function useResource<T>(
       // Data on screen (cached or earlier) outranks the failure.
       setStatus((prev) => (prev === 'success' && cacheKey ? prev : 'error'))
     } finally {
+      pending.current -= 1
       if (mounted.current && id === requestId.current) setIsRefreshing(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -94,7 +99,7 @@ export function useResource<T>(
     // once so the operator sees current data the moment they come back.
     const timer = pollMs
       ? setInterval(() => {
-          if (getConnectivity().online && document.visibilityState !== 'hidden') void run()
+          if (pending.current === 0 && getConnectivity().online && document.visibilityState !== 'hidden') void run()
         }, pollMs)
       : undefined
     const onVisible = () => {

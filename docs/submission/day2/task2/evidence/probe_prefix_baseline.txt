@@ -1,0 +1,45 @@
+PASS  SEC-SESS-001   POST /api/auth/login client=web -> Set-Cookie flags          Set-Cookie: ner_refresh=<REDACTED>; HttpOnly; Max-Age=2592000; Path=/api/auth; S
+PASS  SEC-SESS-007   access token lifetime                                        expires_at - now = 15.0 min
+PASS  SEC-SESS-002   POST /api/auth/login client=mobile                           refresh_token in body=True; Set-Cookie present=False
+PASS  SEC-SESS-003   POST /api/auth/refresh rotate, replay old token, then use th rotate=200; replay old=401 {"error":{"code":"UNAUTHENTICATED","message":"Invalid
+PASS  SEC-SESS-004   POST /api/auth/logout then refresh with the same token       logout=204; refresh after logout=401 {"error":{"code":"UNAUTHENTICATED","message
+PASS  SEC-SESS-005   GET /api/driver/me with malformed / forged / expired / wrong {"malformed": 401, "wrong-signature": 401, "alg=none": 401, "expired": 401, "tam
+PASS  SEC-SESS-008   manager support-view token: GET allowed, POST refused        issue=200; GET /api/driver/me=200; POST push-token=403 {"error":{"code":"FORBIDD
+PASS  SEC-XSS-001    store payloads through POST /api/drivers, /api/trucks, /api/ driver=201 name='<img src=x onerror=alert(1)> SEC941580'; truck=201; plan=201 
+PASS  SEC-XSS-005    reflected: payload in path and query                         path: 404 application/json reflected=False; query: 200 reflected=False
+PASS  SEC-CFG-001    hosted https://ner-intelligence.onrender.com /docs /openapi. {"/docs": 404, "/openapi.json": 404, "/redoc": 404}; local development: /docs=20
+PASS  SEC-CFG-003    CORS preflight from unknown vs allowed origin                evil.example -> 400 ACAO=None; localhost:5173 -> 200 ACAO=http://localhost:5173 
+PASS  SEC-CFG-006    GET /ready                                                   200 {"status":"ready","provider":"local","checks":{"database":{"ok":true,"detail
+PASS  SEC-CFG-005    malformed JSON body (error containment)                      422 {"error":{"code":"VALIDATION_ERROR","message":"Request failed validation.","
+INFO  SEC-CFG-009    Server response header                                       local: server='uvicorn'; hosted: Server=cloudflare, x-render-origin-server=uvico
+FAIL  SEC-HDR-001    API security headers (local backend, GET /api/auth/me)       {"x-content-type-options": null, "referrer-policy": null, "cache-control": null,
+FINDING SEC-HDR-001h   API security headers (hosted https://ner-intelligence.onrend {"x-content-type-options": null, "referrer-policy": null, "cache-control": null,
+FINDING SEC-HDR-002    static web headers (hosted manager + driver web)             manager={"x-content-type-options": "nosniff", "referrer-policy": null, "cache-co
+PASS  SEC-UP-001     POST /api/files valid PNG / JPEG / PDF as driver             png=201 image/png; jpeg(no assignment)=201; pdf=201 application/pdf
+PASS  SEC-UP-002     POST /api/files text / HTML / SVG / GIF / empty / EXE bytes  {"text": 415, "html": 415, "svg": 415, "gif": 415, "empty": 415, "exe-magic": 41
+PASS  SEC-UP-003     PDF uploaded as PROFILE_PHOTO                                415 {"error":{"code":"UNSUPPORTED_FILE_TYPE","message":"Only JPEG, PNG or PDF fi
+PASS  SEC-UP-004     5 MB + 1 document; 600 KB profile photo                      5MB+1 -> 413 {"error":{"code":"FILE_TOO_LARGE","message":"File is larger ; 600KB
+FINDING SEC-UP-005     JPEG polyglot containing <script>, then GET it               upload=201; GET content-type=image/jpeg nosniff=None cache=private, max-age=3600
+FAIL  SEC-UP-006     driver A uploads PROFILE_PHOTO with ?driver_id=<driver B>    status=201; B.photo_url unchanged=True; A.photo_url == new file=False
+PASS  SEC-UP-007     POST /api/files without a token                              401 {"error":{"code":"UNAUTHENTICATED","message":"Authentication required.","det
+PASS  SEC-API-004    GET /api/files/{A's photo} as driver B / manager / owner / a B=404; manager=200; owner=200; anonymous=401
+FAIL  SEC-API-001    every mounted route (84 operations) without a token          401 on 82/84; exceptions={"POST /api/auth/login": 422, "POST /api/auth/logout": 
+FAIL  SEC-API-002    driver token on manager endpoints                            {"/api/drivers": 200, "/api/trucks": 200, "/api/trips": 403, "/api/shipments": 4
+FAIL  SEC-API-005    driver A reads GET /api/drivers/{B}/documents                200
+FAIL  SEC-XS-004     driver lists drivers (enumeration)                           200
+PASS  SEC-XS-005     driver creates a driver account                              403
+PASS  SEC-API-003    manager token on driver-only endpoints                       {"/api/driver/me": 403, "/api/driver/me/trip": 403, "/api/driver/me/documents": 
+PASS  SEC-API-006    GET /api/trips/{unknown uuid} and /{not-a-uuid}              404 / 422
+PASS  SEC-API-007    mass assignment: role/id/user_id on PATCH driver, status/id  PATCH driver -> 422 {"error":{"code":"VALIDATION_ERROR","message":"Request faile
+PASS  SEC-API-008    DELETE /api/drivers/{id}; PUT /api/trips                     405 / 405
+PASS  SEC-API-009    SSRF: POST /api/geocoding/resolve-link with internal / look- {"http://127.0.0.1:8020/health": [400, "NOT_A_MAPS_LINK"], "http://169.254.169.2
+PASS  SEC-API-010    driver A marks arrival at a stop of another driver's trip    409 {"error":{"code":"TRIP_NOT_IN_PROGRESS","message":"Start the trip before upd
+PASS  SEC-XS-001     GET /api/trips?limit=0/-1/999999/abc/100/101                 {"0": [422, "VALIDATION_ERROR"], "-1": [422, "VALIDATION_ERROR"], "999999": [422
+PASS  SEC-XS-002     GET /api/trips/{id}/track?limit=100000                       422 {"error":{"code":"VALIDATION_ERROR","message":"Request failed validation.","
+Traceback (most recent call last):
+  File "D:\Projects\ner-ai-logistics\docs\submission\day2\task2\security_probe.py", line 423, in <module>
+    main()
+  File "D:\Projects\ner-ai-logistics\docs\submission\day2\task2\security_probe.py", line 320, in main
+    masked_ok = all(("number_masked" in d and (d["number_masked"] is None or d["number_masked"].startswith("••••"))) and "doc_number" not in d for d in docs.get("items", docs if isinstance(docs, list) else []))
+                                                                                                                                                        ^^^^^^^^
+AttributeError: 'list' object has no attribute 'get'

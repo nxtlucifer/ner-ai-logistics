@@ -35,6 +35,7 @@ from sqlalchemy import text as sa_text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import scope
 from app.domain import telemetry_policy as policy
 from app.domain.routing import haversine_m
 from app.models.enums import TripStatus
@@ -303,7 +304,7 @@ class FleetRow:
         )
 
 
-async def active_fleet(db: AsyncSession, *, limit: int = 100) -> list[FleetRow]:
+async def active_fleet(db: AsyncSession, *, limit: int = 100, actor=None) -> list[FleetRow]:
     """Every trip currently on the road, with its last known position.
 
     Two queries, not one per trip. The trip list uses the partial index
@@ -318,6 +319,9 @@ async def active_fleet(db: AsyncSession, *, limit: int = 100) -> list[FleetRow]:
                 .join(Driver, Driver.id == Trip.driver_id)
                 .join(Truck, Truck.id == Trip.truck_id)
                 .where(Trip.status.in_((TripStatus.ACTIVE, TripStatus.DELAYED)))
+                # A scoped manager's fleet map shows only the trips their
+                # district or state has a claim on (app/core/scope.py).
+                .where(*([scope.trip_scope_clause(actor)] if actor is not None and scope.is_scoped(actor) else []))
                 .order_by(Trip.started_at.desc().nullslast(), Trip.id)
                 .limit(limit)
             )

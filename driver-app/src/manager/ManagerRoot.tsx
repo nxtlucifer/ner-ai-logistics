@@ -4,23 +4,29 @@
  * (api/manager.ts): Overview, Trips, Map, Fleet, More. Every action here is a
  * permission the server granted AND a state that allows it; the server still
  * decides. "View as driver" stays on the web console - this is not that.
+ *
+ * THEME (Phase B3): tokens only, the same Light and Dark palettes as the
+ * driver screens - no raw colour, and Dark stays black with green only on the
+ * active tab. The trip and fleet chips and the back link are 48 dp targets.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
 
 import { ApiError } from '../api/client'
-import { managerApi, type FleetTrip, type MgrDriver, type MgrReroute, type MgrRisk, type MgrRoute, type MgrTrip, type MgrTripDetail, type MgrTruck, type ProviderRow } from '../api/manager'
+import { managerApi, type FleetTrip, type MgrDriver, type MgrTrip, type MgrTruck, type ProviderRow } from '../api/manager'
 import { useAuth } from '../auth/AuthProvider'
 import { Icon, type IconName } from '../components/icons'
 import { Banner, Button, Loading, Row } from '../components/ui'
 import { useAuthImage } from '../files/useAuthImage'
 import { LanguageSheet } from '../i18n/LanguageSheet'
 import { useAppLanguage } from '../i18n/AppLanguageProvider'
+import { APP_LANGUAGES } from '../i18n/appLanguage'
 import { translateReasonCode } from '../i18n/reasonCodes'
 import { resolveLanguage } from '../i18n/language'
 import { useT } from '../i18n/tx'
 import DriverRouteMap from '../map/DriverRouteMap'
+import { codeWords, providerHealthy, providerName, providerState } from './labels'
 import { makeStyles, useTheme } from '../theme-context'
 
 type Tab = 'overview' | 'trips' | 'map' | 'fleet' | 'more'
@@ -79,7 +85,7 @@ export default function ManagerRoot() {
           const on = it.value === tab
           return (
             <Pressable key={it.value} style={styles.tab} onPress={() => setTab(it.value)} accessibilityRole="tab" accessibilityState={{ selected: on }} testID={`mgr-tab-${it.value}`}>
-              <Icon name={it.icon} size={20} color={on ? COLORS.accent : COLORS.muted} />
+              <Icon name={it.icon} size={20} color={on ? COLORS.accent : COLORS.textMuted} />
               <Text style={[styles.tabLabel, on && { color: COLORS.accent }]}>{t(it.label)}</Text>
             </Pressable>
           )
@@ -95,34 +101,44 @@ function Overview({ onOpenTrip }: { onOpenTrip: (id: string) => void }) {
   const t = useT()
   const { data, error, busy, reload } = useLoad(async () => {
     const [trips, drivers, trucks, providers] = await Promise.all([managerApi.listTrips(), managerApi.listDrivers(), managerApi.listTrucks(), managerApi.providers()])
-    return { trips: trips.items, drivers: drivers.items, trucks: trucks.items, providers: providers.providers }
+    return { trips: trips.items, drivers: drivers.items, trucks: trucks.items, providers: providers.providers, cut: [trips, drivers, trucks].some((p) => p.next_cursor) }
   }, [])
   if (busy && !data) return <Loading label="Loading fleet" />
   if (!data) return <Banner tone="bad" title="Could not load" detail={error ?? ''} />
   const active = data.trips.filter((x) => MOVING.has(x.status))
-  const review = data.trips.filter((x) => x.status === 'MANAGER_REVIEW' || (x.status === 'DRAFT' && !x.selected_route_id))
+  // Every open trip with no selected route, drafts and trips on the road
+  // alike - the web Overview's "awaiting a route" (AUD-08).
+  const noRoute = data.trips.filter((x) => OPEN.has(x.status) && !x.selected_route_id)
   const warnings = data.providers.find((p) => p.provider === 'NDMA_SACHET')
-  const unhealthy = data.providers.filter((p) => p.state === 'FAILED' || p.state === 'RATE_LIMITED')
+  const unhealthy = data.providers.filter((p) => !providerHealthy(p))
   const stat = (n: number, label: string) => (
     <View style={styles.stat} key={label}><Text style={styles.statN}>{n}</Text><Text style={styles.statL}>{t(label)}</Text></View>
   )
   return (
     <ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={busy} onRefresh={reload} />}>
+      <CutShort show={data.cut} />
       <View style={styles.statRow}>
         {stat(active.length, 'Active trips')}
         {stat(data.drivers.filter((d) => d.status === 'AVAILABLE').length, 'Drivers available')}
         {stat(data.trucks.filter((x) => x.status === 'AVAILABLE').length, 'Trucks available')}
-        {stat(review.length, 'Routes needing review')}
+        {stat(noRoute.length, 'Awaiting a route')}
       </View>
       <Text style={styles.section}>{t('Current warnings').toUpperCase()}</Text>
-      <Row label="NDMA SACHET" value={warnings ? `${warnings.state} · ${warnings.freshness}` : t('Unknown')} />
+      <Row label="NDMA SACHET" value={warnings ? providerState(t, warnings) : t('Unknown')} />
       <Text style={styles.section}>{t('Data health').toUpperCase()}</Text>
       <Row label={t('Providers')} value={`${data.providers.length - unhealthy.length}/${data.providers.length} ${t('healthy')}`} />
-      {unhealthy.map((p) => <Row key={p.provider} label={p.provider} value={`${p.state}${p.last_error ? ` · ${p.last_error}` : ''}`} />)}
+      {unhealthy.map((p) => <Row key={p.provider} label={providerName(p.provider)} value={`${providerState(t, p)}${p.last_error ? ` · ${p.last_error}` : ''}`} />)}
       <Text style={styles.section}>{t('Open trips').toUpperCase()}</Text>
       {data.trips.filter((x) => OPEN.has(x.status)).map((x) => <TripRow key={x.id} trip={x} onPress={() => onOpenTrip(x.id)} />)}
     </ScrollView>
   )
+}
+
+/** The lists stop at 1,000 rows (api/manager.ts, MAX_PAGES): counts and
+ *  lists past that would undercount in silence, so a longer list says so. */
+function CutShort({ show }: { show: boolean }) {
+  const t = useT()
+  return show ? <Banner tone="warn" title={t('Only the first 1,000 rows are shown')} /> : null
 }
 
 function TripRow({ trip, onPress }: { trip: MgrTrip; onPress: () => void }) {
@@ -133,9 +149,9 @@ function TripRow({ trip, onPress }: { trip: MgrTrip; onPress: () => void }) {
     <Pressable style={styles.row} onPress={onPress} accessibilityRole="button" testID={`mgr-trip-${trip.trip_code}`}>
       <View style={{ flex: 1 }}>
         <Text style={styles.rowTitle}>{trip.trip_code}</Text>
-        <Text style={styles.rowSub}>{t(trip.status)} · {trip.selected_route_id ? t('route selected') : t('no route')}</Text>
+        <Text style={styles.rowSub}>{codeWords(t, trip.status)} · {trip.selected_route_id ? t('route selected') : t('no route')}</Text>
       </View>
-      <Icon name="chevron-right" color={COLORS.faint} size={20} />
+      <Icon name="chevron-right" color={COLORS.textFaint} size={20} />
     </Pressable>
   )
 }
@@ -149,6 +165,7 @@ function Trips({ onOpen }: { onOpen: (id: string) => void }) {
   const sorted = [...data.items].sort((a, b) => Number(OPEN.has(b.status)) - Number(OPEN.has(a.status)))
   return (
     <ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={busy} onRefresh={reload} />}>
+      <CutShort show={Boolean(data.next_cursor)} />
       {sorted.map((x) => <TripRow key={x.id} trip={x} onPress={() => onOpen(x.id)} />)}
     </ScrollView>
   )
@@ -181,16 +198,16 @@ function TripDetail({ id, onBack, onMap }: { id: string; onBack: () => void; onM
     <ScrollView contentContainerStyle={styles.content}>
       <Pressable onPress={onBack} style={styles.back} accessibilityRole="button" accessibilityLabel="Back to trips"><Icon name="chevron-left" color={COLORS.text} size={22} /><Text style={styles.backText}>{t('Trips')}</Text></Pressable>
       <Text style={styles.title}>{trip.trip_code}</Text>
-      <Row label={t('Status')} value={t(trip.status)} />
+      <Row label={t('Status')} value={codeWords(t, trip.status)} />
       <Row label={t('Driver')} value={driver?.full_name ?? '—'} />
       <Row label={t('Truck')} value={truck?.registration_number ?? '—'} />
-      <Row label={t('Route')} value={current ? `${current.kind} · ${current.distance_km ?? '?'} km · ${current.state}` : t('no route')} />
+      <Row label={t('Route')} value={current ? `${codeWords(t, current.kind)} · ${current.distance_km ?? '?'} km · ${codeWords(t, current.state)}` : t('no route')} />
       <Row label={t('Stops')} value={`${trip.stops.filter((s) => s.status === 'COMPLETED').length} / ${trip.stops.length}`} />
       <Text style={styles.section}>{t('Risk decision').toUpperCase()}</Text>
       {risk ? (
         <>
-          <Row label={t('Decision')} value={risk.decision ? t(risk.decision) : '—'} />
-          <Row label={t('Band')} value={`${risk.band} · ${risk.score}`} />
+          <Row label={t('Decision')} value={risk.decision ? codeWords(t, risk.decision) : '—'} />
+          <Row label={t('Band')} value={`${codeWords(t, risk.band)} · ${risk.score}`} />
           {risk.reason_codes.map((c) => <Text key={c} style={styles.code}>• {translateReasonCode(c, lang)}</Text>)}
           {risk.unavailable.length ? <Text style={styles.muted}>{t('Unknown')}: {risk.unavailable.join(', ')}</Text> : null}
         </>
@@ -240,8 +257,10 @@ function FleetMap({ tripId, onPick }: { tripId: string | null; onPick: (id: stri
           backupPoints={[]}
           showBackup={false}
           stops={[]}
-          position={pos ? [pos.lat, pos.lon] : null}
-          positionKind={pos ? (truck?.freshness === 'FRESH' ? 'LIVE' : 'LAST_KNOWN') : null}
+          position={pos ? [pos.location.lat, pos.location.lon] : null}
+          // The server's words are LIVE / STALE / NO_CONTACT (telemetry_policy);
+          // 'FRESH' never matched, so a live truck always drew as last known.
+          positionKind={pos ? (truck?.freshness === 'LIVE' ? 'LIVE' : 'LAST_KNOWN') : null}
           positionSource="GPS"
           accuracyM={pos?.accuracy_m ?? null}
           positionAgeSeconds={ageS}
@@ -267,24 +286,25 @@ function Fleet() {
   const t = useT()
   const { data, error, busy, reload } = useLoad(async () => {
     const [d, k] = await Promise.all([managerApi.listDrivers(), managerApi.listTrucks()])
-    return { drivers: d.items, trucks: k.items }
+    return { drivers: d.items, trucks: k.items, cut: Boolean(d.next_cursor || k.next_cursor) }
   }, [])
   if (busy && !data) return <Loading label="Loading fleet" />
   if (!data) return <Banner tone="bad" title="Could not load" detail={error ?? ''} />
   return (
     <ScrollView contentContainerStyle={styles.content} refreshControl={<RefreshControl refreshing={busy} onRefresh={reload} />}>
+      <CutShort show={data.cut} />
       <Text style={styles.section}>{t('Drivers').toUpperCase()}</Text>
       {data.drivers.map((d: MgrDriver) => (
         <View key={d.id} style={styles.row}>
           <Photo url={d.photo_url} initials={d.full_name.split(' ').map((w) => w[0]).join('').slice(0, 2)} />
-          <View style={{ flex: 1 }}><Text style={styles.rowTitle}>{d.full_name}</Text><Text style={styles.rowSub}>{t(d.status)}{d.login_is_active ? '' : ` · ${t('login inactive')}`}</Text></View>
+          <View style={{ flex: 1 }}><Text style={styles.rowTitle}>{d.full_name}</Text><Text style={styles.rowSub}>{codeWords(t, d.status)}{d.login_is_active ? '' : ` · ${t('login inactive')}`}</Text></View>
         </View>
       ))}
       <Text style={styles.section}>{t('Trucks').toUpperCase()}</Text>
       {data.trucks.map((k: MgrTruck) => (
         <View key={k.id} style={styles.row}>
           <Photo url={k.photo_url} initials={k.registration_number.slice(0, 2)} />
-          <View style={{ flex: 1 }}><Text style={styles.rowTitle}>{k.registration_number}</Text><Text style={styles.rowSub}>{k.truck_type ?? ''} · {t(k.status)}</Text></View>
+          <View style={{ flex: 1 }}><Text style={styles.rowTitle}>{k.registration_number}</Text><Text style={styles.rowSub}>{[k.truck_type, codeWords(t, k.status)].filter(Boolean).join(' · ')}</Text></View>
         </View>
       ))}
     </ScrollView>
@@ -307,22 +327,23 @@ function More() {
     <ScrollView contentContainerStyle={styles.content}>
       <Text style={styles.section}>{t('Account').toUpperCase()}</Text>
       <Row label={t('Name')} value={user?.display_name ?? ''} />
-      <Row label={t('Role')} value={user?.role ?? ''} />
+      <Row label={t('Role')} value={user?.role ? codeWords(t, user.role) : ''} />
       <Row label={t('Email')} value={user?.email ?? user?.phone ?? ''} />
       <Text style={styles.section}>{t('System status').toUpperCase()}</Text>
       <Row label={t('API')} value={health.data?.ready ?? '…'} />
       <Text style={styles.section}>{t('Provider health').toUpperCase()}</Text>
-      {(health.data?.providers ?? []).map((p: ProviderRow) => <Row key={p.provider} label={p.provider} value={`${p.state} · ${p.freshness}`} />)}
+      {(health.data?.providers ?? []).map((p: ProviderRow) => <Row key={p.provider} label={providerName(p.provider)} value={providerState(t, p)} />)}
       <Text style={styles.section}>{t('Language').toUpperCase()}</Text>
       <Pressable style={styles.row} onPress={() => setLangOpen(true)} accessibilityRole="button" accessibilityLabel="Opens language chooser">
-        <Icon name="globe" color={COLORS.muted} />
-        <Text style={[styles.rowTitle, { flex: 1 }]}>{t('Language')} · {language}</Text>
-        <Icon name="chevron-right" color={COLORS.faint} size={20} />
+        <Icon name="globe" color={COLORS.textMuted} />
+        {/* The language by its own name, not its code ("en", RC-DRV-10). */}
+        <Text style={[styles.rowTitle, { flex: 1 }]}>{t('Language')} · {APP_LANGUAGES.find((o) => o.code === language)?.nativeLabel ?? language}</Text>
+        <Icon name="chevron-right" color={COLORS.textFaint} size={20} />
       </Pressable>
       <LanguageSheet open={langOpen} onClose={() => setLangOpen(false)} />
       <Pressable style={[styles.row, { marginTop: 16 }]} onPress={() => void logout()} accessibilityRole="button" testID="mgr-logout">
-        <Icon name="log-out" color={COLORS.bad} size={20} />
-        <Text style={[styles.rowTitle, { color: COLORS.bad }]}>{t('Sign Out')}</Text>
+        <Icon name="log-out" color={COLORS.danger} size={20} />
+        <Text style={[styles.rowTitle, { color: COLORS.danger }]}>{t('Sign Out')}</Text>
       </Pressable>
     </ScrollView>
   )
@@ -334,28 +355,28 @@ const useStyles = makeStyles((COLORS) => ({
   brand: { color: COLORS.text, fontSize: 15, fontWeight: '800', letterSpacing: 0.4 },
   body: { flex: 1 },
   content: { padding: 16, paddingBottom: 32, gap: 6 },
-  tabs: { flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.border, backgroundColor: COLORS.card },
+  tabs: { flexDirection: 'row', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.border, backgroundColor: COLORS.surface },
   tab: { flex: 1, alignItems: 'center', paddingVertical: 8, gap: 2, minHeight: 56, justifyContent: 'center' },
-  tabLabel: { color: COLORS.muted, fontSize: 11, fontWeight: '700' },
-  section: { color: COLORS.muted, fontSize: 11, fontWeight: '800', letterSpacing: 1, marginTop: 14, marginBottom: 4 },
+  tabLabel: { color: COLORS.textMuted, fontSize: 11, fontWeight: '700' },
+  section: { color: COLORS.textMuted, fontSize: 11, fontWeight: '800', letterSpacing: 1, marginTop: 14, marginBottom: 4 },
   statRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  stat: { flexBasis: '47%', flexGrow: 1, backgroundColor: COLORS.card, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: COLORS.border },
+  stat: { flexBasis: '47%', flexGrow: 1, backgroundColor: COLORS.surface, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: COLORS.border },
   statN: { color: COLORS.text, fontSize: 28, fontWeight: '800' },
-  statL: { color: COLORS.muted, fontSize: 12, fontWeight: '700', marginTop: 2 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: COLORS.card, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: COLORS.border, minHeight: 56 },
+  statL: { color: COLORS.textMuted, fontSize: 12, fontWeight: '700', marginTop: 2 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: COLORS.surface, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: COLORS.border, minHeight: 56 },
   rowTitle: { color: COLORS.text, fontSize: 15, fontWeight: '700' },
-  rowSub: { color: COLORS.muted, fontSize: 12, marginTop: 2 },
+  rowSub: { color: COLORS.textMuted, fontSize: 12, marginTop: 2 },
   title: { color: COLORS.text, fontSize: 22, fontWeight: '800', marginBottom: 6 },
-  back: { flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 44 },
+  back: { flexDirection: 'row', alignItems: 'center', gap: 4, minHeight: 48 },
   backText: { color: COLORS.text, fontSize: 15, fontWeight: '700' },
   code: { color: COLORS.text, fontSize: 13, lineHeight: 19 },
-  muted: { color: COLORS.muted, fontSize: 13 },
+  muted: { color: COLORS.textMuted, fontSize: 13 },
   actions: { gap: 10, marginTop: 14 },
-  chips: { flexGrow: 0, backgroundColor: COLORS.card },
-  chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.sunken },
-  chipOn: { borderColor: COLORS.accent, backgroundColor: COLORS.card },
+  chips: { flexGrow: 0, backgroundColor: COLORS.surface },
+  chip: { paddingHorizontal: 12, minHeight: 48, justifyContent: 'center', borderRadius: 999, borderWidth: 1, borderColor: COLORS.borderStrong, backgroundColor: COLORS.surfaceSunken },
+  chipOn: { borderColor: COLORS.accent, backgroundColor: COLORS.surface },
   chipText: { color: COLORS.text, fontSize: 12, fontWeight: '700' },
-  evidence: { padding: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.border, backgroundColor: COLORS.card, maxHeight: 170 },
-  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.sunken, alignItems: 'center', justifyContent: 'center' },
+  evidence: { padding: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.border, backgroundColor: COLORS.surface, maxHeight: 170 },
+  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.surfaceSunken, alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: COLORS.text, fontWeight: '800', fontSize: 13 },
 }))

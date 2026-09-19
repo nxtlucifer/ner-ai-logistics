@@ -8,8 +8,9 @@ THREE CACHES, THREE CADENCES
     items whose RSS text mentions a corridor district or state are fetched -
     the feed carries a hundred alerts for the whole country at a time.
   - The districts a route crosses come from Nominatim reverse geocoding of the
-    sampled positions, once per route, serialised at one request per second
-    per the usage policy. Light geocoding only; no autocomplete.
+    sampled positions, once per route, through the one Nominatim throttle in
+    geocoding.py (one request per second, per the usage policy). A route that
+    resolves nothing is not asked about again for LOCATE_RETRY_SECONDS.
 
 Failure at any step returns None and the factor reads NOT_AVAILABLE.
 """
@@ -17,6 +18,7 @@ Failure at any step returns None and the factor reads NOT_AVAILABLE.
 import asyncio
 import json
 import logging
+import time
 from datetime import UTC, datetime
 from typing import Final
 
@@ -43,11 +45,17 @@ _feed: tuple[datetime, list[RssItem]] | None = None
 _caps: dict[str, OfficialWarning | None] = {}
 _districts: dict[str, tuple[set[str], set[str]]] = {}
 _locating: set[str] = set()
-# ONE lock for every Nominatim call this process makes - the address search in
-# geocoding.py included. Two locks were two callers at once, which is how the
-# shared Render egress IP earned a 429 from a service whose limit is 1/s.
+#: route -> monotonic time its lookup resolved nothing. Without it a Nominatim
+#: outage re-ran the whole lookup on every assessment.
+_unlocated: dict[str, float] = {}
+LOCATE_RETRY_SECONDS: Final[float] = 600.0
+# ONE lock and ONE throttle for every Nominatim call this process makes - the
+# address search in geocoding.py included. Two locks were two callers at once,
+# which is how the shared Render egress IP earned a 429 from a service whose
+# limit is 1/s. Taken per request, so an address search waits one request, not
+# a whole route.
 from app.services import provider_health  # noqa: E402
-from app.services.geocoding import _nominatim_lock  # noqa: E402
+from app.services.geocoding import _nominatim_lock, _throttle  # noqa: E402
 
 
 async def _get(client: httpx.AsyncClient, url: str, **params) -> bytes | None:
@@ -97,37 +105,35 @@ async def cap(client: httpx.AsyncClient, item: RssItem) -> OfficialWarning | Non
 async def locate(route_id: object, positions: list[tuple[float, float]]) -> tuple[set[str], set[str]] | None:
     """District and state names along the route, from Nominatim, once per route.
 
-    Serialised at one request per second, so five samples take about six
+    Paced at one request per second, so five samples take about five
     seconds - which is why callers never wait for it inside a request: see
     `warnings_for`. `routes.plan` warms it as soon as a route is persisted.
     """
     key = str(route_id)
     if key in _districts:
         return _districts[key]
-    if key in _locating:
+    failed_at = _unlocated.get(key)
+    if key in _locating or (failed_at is not None and time.monotonic() - failed_at < LOCATE_RETRY_SECONDS):
         return None
     _locating.add(key)
     settings = get_settings()
     districts: set[str] = set()
     states: set[str] = set()
+
+    async def reverse(client: httpx.AsyncClient, lat: float, lon: float) -> bytes | None:
+        async with _nominatim_lock:
+            await _throttle()
+            return await _get(
+                client, f"{settings.NOMINATIM_URL}/reverse",
+                lat=f"{lat:.5f}", lon=f"{lon:.5f}", format="jsonv2", zoom=8,
+            )
+
     try:
-        async with _nominatim_lock, httpx.AsyncClient(timeout=settings.WEATHER_TIMEOUT_SECONDS) as client:
-            for index, (lat, lon) in enumerate(positions):
-                if index:
-                    await asyncio.sleep(1.1)  # usage policy: at most one request per second
-                raw = await _get(
-                    client, f"{settings.NOMINATIM_URL}/reverse",
-                    lat=f"{lat:.5f}", lon=f"{lon:.5f}", format="jsonv2", zoom=8,
-                )
-                if raw is None:
-                    # One patient retry: a 429 on a shared IP clears in seconds,
-                    # and a district lookup that gives up leaves the whole
-                    # warnings factor UNKNOWN for the life of the process.
-                    await asyncio.sleep(3.0)
-                    raw = await _get(
-                        client, f"{settings.NOMINATIM_URL}/reverse",
-                        lat=f"{lat:.5f}", lon=f"{lon:.5f}", format="jsonv2", zoom=8,
-                    )
+        async with httpx.AsyncClient(timeout=settings.WEATHER_TIMEOUT_SECONDS) as client:
+            for lat, lon in positions:
+                # One retry, paced by the shared throttle: a 429 on a shared IP
+                # often clears within seconds.
+                raw = await reverse(client, lat, lon) or await reverse(client, lat, lon)
                 if raw is None:
                     continue
                 try:
@@ -142,6 +148,7 @@ async def locate(route_id: object, positions: list[tuple[float, float]]) -> tupl
     finally:
         _locating.discard(key)
     if not districts:
+        _unlocated[key] = time.monotonic()
         return None
     _districts[key] = (districts, states)
     return _districts[key]

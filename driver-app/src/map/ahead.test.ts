@@ -55,6 +55,14 @@ describe('hazardAhead', () => {
     )
   })
 
+  it('says how far off the road a site lies instead of calling it here (E2E-R3)', () => {
+    // 0.018 degrees north of the middle vertex: about 2 km off the road.
+    const line = hazardAhead(ROUTE, [{ latitude: 26.518, longitude: 91.1, year: 2017 }], LEG - 100)
+    expect(line).toBe('Recorded landslide site 2.0 km off the road, near here (recorded 2017)')
+    expect(hazardAhead(ROUTE, [{ latitude: 26.518, longitude: 91.2, year: 2017 }], 1000)).toContain(', 2.0 km off the road')
+    expect(hazardAhead(ROUTE, [{ latitude: 26.5, longitude: 91.1, year: 2017 }], LEG - 100)).toBe('Recorded landslide site here (recorded 2017)')
+  })
+
   it('counts the corridor when there is no fix', () => {
     expect(
       hazardAhead(ROUTE, [{ latitude: 26.5, longitude: 91.1, year: 2016 }, { latitude: 26.5, longitude: 91.2, year: 2017 }], null),

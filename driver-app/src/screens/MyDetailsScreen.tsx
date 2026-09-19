@@ -8,20 +8,30 @@
  * `files/pick.ts` and the private files API; a missing photo is initials.
  *
  * Nothing here claims a government or insurer verification. A document's
- * status is derived from its expiry date and whether a file is attached.
+ * status is derived from its expiry date and whether a file is attached, and
+ * its pill follows the hue rule: green only for Valid, amber for expiring or
+ * missing, red for expired, neutral for unknown - UNKNOWN is never green.
+ *
+ * LAYOUT (Phase B3; no own reference, so the driver system): More's photo in
+ * a compact hero with the way back to More and the GPS chip, then one card per
+ * block. The emergency contact stays read-only (Safety's Emergency contact
+ * tool lands here).
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 
 import { api, type DocumentRead, type DriverProfile } from '../api/client'
+import { LIMITS, autoFormat, checkDates } from './documentDates'
 import { Banner, Button, Field, Loading, errorMessage } from '../components/ui'
+import { PHOTOS } from '../components/photoCredits'
+import { HeroBack, ScreenHero, StatusPill, type Tone } from '../components/scenic'
 import { pickDocument, pickPhoto, upload } from '../files/pick'
 import { setProfilePhotoUrl } from '../files/profilePhoto'
 import { useAuthImage } from '../files/useAuthImage'
-import { Icon } from '../components/icons'
 import { useT } from '../i18n/tx'
-import { makeStyles, useTheme } from '../theme-context'
+import { TOUCH_TARGET } from '../theme'
+import { makeStyles } from '../theme-context'
 
 const DOC_TYPES = [
   ['DRIVING_LICENCE', 'Driving Licence'],
@@ -29,6 +39,7 @@ const DOC_TYPES = [
   ['OTHER', 'Other'],
 ] as const
 const STATUS_WORD: Record<string, string> = { VALID: 'Valid', EXPIRING_SOON: 'Expiring soon', EXPIRED: 'Expired', MISSING: 'Missing', UNKNOWN: 'Unknown' }
+const STATUS_TONE: Record<string, Tone> = { VALID: 'action', EXPIRING_SOON: 'caution', MISSING: 'caution', EXPIRED: 'emergency' }
 const TYPE_LABEL: Record<string, string> = { DRIVING_LICENCE: 'Driving Licence', GOVERNMENT_ID: 'Government ID', OTHER: 'Other', INSURANCE: 'Insurance' }
 
 function initials(name: string): string {
@@ -41,9 +52,8 @@ function fmtDate(iso: string | null): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-export default function MyDetailsScreen({ onBack }: { onBack: () => void }) {
+export default function MyDetailsScreen({ onBack, status }: { onBack: () => void; status?: ReactNode }) {
   const styles = useStyles()
-  const { colors: COLORS } = useTheme()
   const t = useT()
   const [profile, setProfile] = useState<DriverProfile | null>(null)
   const [error, setError] = useState<{ title: string; detail: string } | null>(null)
@@ -78,18 +88,30 @@ export default function MyDetailsScreen({ onBack }: { onBack: () => void }) {
     }
   }
 
-  if (profile === null && error === null) return <Loading label="…" />
-
   return (
-    <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <View style={styles.headRow}>
-        <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back" style={styles.back}><Icon name="chevron-left" size={26} color={COLORS.text} /></Pressable>
-        <Text style={styles.title}>{t('My details')}</Text>
+    <ScrollView style={styles.page} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <View style={styles.heroBleed}>
+        <ScreenHero
+          photo={PHOTOS.more}
+          title={t('My Details')}
+          subtitle={t('Profile, documents and insurance')}
+          status={status}
+          // The Light/Dark chip the shell header gave this screen (B3D-R01).
+          themeChip="icon"
+          compact
+          height={176}
+          overlap={14}
+          creditAt="bottom"
+          leading={<HeroBack label="Back to More" text={t('More')} onPress={onBack} />}
+        />
       </View>
-      {error ? <Banner tone="bad" title={error.title} detail={error.detail} /> : null}
+      {profile === null && error === null ? (
+        <View style={styles.card}><Loading label="…" /></View>
+      ) : null}
+      {error ? <Banner tone="bad" title={error.title} detail={error.detail} style={styles.flush} /> : null}
       {profile ? (
         <>
-          <View style={styles.card}>
+          <View style={styles.card} testID="details-profile">
             <View style={styles.avatarRow}>
               {photoUri ? (
                 <Image source={{ uri: photoUri }} style={styles.avatar} accessibilityLabel="Profile photo" />
@@ -135,7 +157,6 @@ export default function MyDetailsScreen({ onBack }: { onBack: () => void }) {
           </Text>
         </>
       ) : null}
-      <View style={{ height: 24, backgroundColor: COLORS.bg }} />
     </ScrollView>
   )
 }
@@ -155,18 +176,18 @@ function DocList({ title, empty, rows, addLabel, onAdd }: { title: string; empty
   const t = useT()
   return (
     <View style={styles.card}>
-      <Text style={styles.section}>{title.toUpperCase()}</Text>
+      <Text style={styles.cardTitle} accessibilityRole="header">{title}</Text>
       {rows.length === 0 ? <Text style={styles.sub}>{empty}</Text> : null}
       {rows.map((d) => (
         <View key={d.id} style={styles.doc} testID={`doc-${d.doc_type}`}>
           <View style={styles.docText}>
             <Text style={styles.docTitle}>{t(TYPE_LABEL[d.doc_type] ?? d.doc_type.replace(/_/g, ' '))}</Text>
-            <Text style={styles.sub}>{d.number_masked ?? '—'}{d.expires_on ? ` · ${t('Valid until')} ${fmtDate(d.expires_on)}` : ''}</Text>
+            <Text style={styles.sub}>{d.number_masked ?? '—'}{d.expires_on ? ` · ${t('Valid till')} ${fmtDate(d.expires_on)}` : ''}</Text>
           </View>
-          <Text style={[styles.status, d.status === 'EXPIRED' && styles.statusBad, d.status === 'EXPIRING_SOON' && styles.statusWarn]}>{t(STATUS_WORD[d.status] ?? d.status.replace(/_/g, ' '))}</Text>
+          <StatusPill text={t(STATUS_WORD[d.status] ?? d.status.replace(/_/g, ' '))} tone={STATUS_TONE[d.status] ?? 'neutral'} />
         </View>
       ))}
-      {onAdd ? <Button label={addLabel} variant="secondary" onPress={onAdd} /> : null}
+      {onAdd ? <View style={styles.cardAction}><Button label={addLabel} variant="secondary" onPress={onAdd} /></View> : null}
     </View>
   )
 }
@@ -197,6 +218,9 @@ function DocForm({ kind, onDone, onCancel }: { kind: 'DRIVER_DOCUMENT' | 'TRUCK_
     }
   }
 
+  const problems = checkDates(issued, expires)
+  const hasProblem = Object.keys(problems).length > 0
+
   async function save() {
     setBusy('save')
     setError(null)
@@ -214,58 +238,87 @@ function DocForm({ kind, onDone, onCancel }: { kind: 'DRIVER_DOCUMENT' | 'TRUCK_
 
   return (
     <View style={styles.card} testID="doc-form">
-      <Text style={styles.section}>{(kind === 'TRUCK_DOCUMENT' ? t('Add insurance') : t('Add document')).toUpperCase()}</Text>
+      <Text style={styles.cardTitle} accessibilityRole="header">{kind === 'TRUCK_DOCUMENT' ? t('Add Insurance') : t('Add Document')}</Text>
       {kind === 'DRIVER_DOCUMENT' ? (
-        <View style={styles.chips}>
+        <View style={styles.chips} accessibilityRole="radiogroup">
           {DOC_TYPES.map(([k, label]) => (
-            <Pressable key={k} onPress={() => setType(k)} accessibilityRole="button" accessibilityState={{ selected: type === k }} style={[styles.chip, type === k && styles.chipOn]}>
+            <Pressable key={k} onPress={() => setType(k)} accessibilityRole="radio" accessibilityState={{ selected: type === k }} aria-checked={type === k} style={[styles.chip, type === k && styles.chipOn]}>
               <Text style={[styles.chipText, type === k && styles.chipTextOn]}>{t(label)}</Text>
             </Pressable>
           ))}
         </View>
       ) : null}
-      <Field label={kind === 'TRUCK_DOCUMENT' ? t('Policy number') : t('Document number')} value={number} onChangeText={setNumber} />
-      <Field label={`${t('Issue date')} (YYYY-MM-DD)`} value={issued} onChangeText={setIssued} placeholder="2024-01-31" keyboardType="numeric" />
-      <Field label={`${t('Expiry date')} (YYYY-MM-DD)`} value={expires} onChangeText={setExpires} placeholder="2028-01-31" keyboardType="numeric" />
+      <Field
+        label={kind === 'TRUCK_DOCUMENT' ? t('Policy number') : t('Document number')}
+        value={number}
+        onChangeText={setNumber}
+        maxLength={LIMITS.number}
+        autoCapitalize="characters"
+      />
+      {/* The keypad stays numeric and `autoFormat` supplies the hyphens,
+          because an Android numeric keypad has none - the form was asking
+          for a format it would not let the driver type. */}
+      <Field
+        label={`${t('Issue date')} (YYYY-MM-DD)`}
+        value={issued}
+        onChangeText={(v) => setIssued(autoFormat(v))}
+        placeholder="2024-01-31"
+        keyboardType="numeric"
+        maxLength={LIMITS.date}
+        error={problems.issued}
+      />
+      <Field
+        label={`${t('Expiry date')} (YYYY-MM-DD)`}
+        value={expires}
+        onChangeText={(v) => setExpires(autoFormat(v))}
+        placeholder="2028-01-31"
+        keyboardType="numeric"
+        maxLength={LIMITS.date}
+        error={problems.expires}
+      />
       <Button label={file ? `${t('Photo uploaded')} · ${file.name}` : t('Attach image or PDF')} variant="secondary" busy={busy === 'file'} onPress={() => void attach()} />
-      {error ? <Banner tone="bad" title={error.title} detail={error.detail} /> : null}
+      {/* The form's own failure, as a line in this card - not a banner boxed
+          inside it. */}
+      {error ? (
+        <Text style={styles.formError} accessibilityRole="alert">{t(error.title)} · {t(error.detail)}</Text>
+      ) : null}
       <View style={styles.btnRow}>
         <View style={styles.btnCell}><Button label={t('Cancel')} variant="secondary" onPress={onCancel} /></View>
-        <View style={styles.btnCell}><Button label={t('Save')} busy={busy === 'save'} onPress={() => void save()} /></View>
+        <View style={styles.btnCell}><Button label={t('Save')} busy={busy === 'save'} disabled={hasProblem} onPress={() => void save()} /></View>
       </View>
     </View>
   )
 }
 
 const useStyles = makeStyles((COLORS) => ({
-  content: { padding: 16, paddingBottom: 32, gap: 12, backgroundColor: COLORS.bg },
-  headRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  back: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  title: { color: COLORS.text, fontSize: 20, fontWeight: '800' },
-  card: { backgroundColor: COLORS.raised, borderRadius: 14, padding: 14, gap: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: COLORS.dim },
+  page: { flex: 1, backgroundColor: COLORS.bg },
+  content: { paddingHorizontal: 13, paddingBottom: 32, gap: 10, width: '100%', maxWidth: 700, alignSelf: 'center' },
+  heroBleed: { marginHorizontal: -13, marginBottom: -24 },
+  // Banner's own 16 dp foot, on a page spaced by `gap`.
+  flush: { marginBottom: 0 },
+  card: { backgroundColor: COLORS.surface, borderRadius: 16, padding: 14, gap: 10, borderWidth: 1, borderColor: COLORS.border },
+  cardTitle: { color: COLORS.text, fontSize: 15, fontWeight: '800' },
+  cardAction: { marginTop: 2 },
   avatarRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  avatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: COLORS.dim },
-  avatarFallback: { alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.accent },
-  avatarText: { color: COLORS.onAccent, fontSize: 22, fontWeight: '800' },
+  avatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: COLORS.surfaceSoft },
+  avatarFallback: { alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.discNeutral },
+  avatarText: { color: COLORS.text, fontSize: 22, fontWeight: '800' },
   avatarText2: { flex: 1, minWidth: 0 },
   name: { color: COLORS.text, fontSize: 18, fontWeight: '800' },
-  sub: { color: COLORS.muted, fontSize: 12, marginTop: 2 },
+  sub: { color: COLORS.textMuted, fontSize: 12, marginTop: 2 },
   foot: { paddingHorizontal: 4 },
   btnRow: { flexDirection: 'row', gap: 8 },
   btnCell: { flex: 1, minWidth: 0 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, paddingVertical: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.dim },
-  rowLabel: { color: COLORS.muted, fontSize: 13 },
+  row: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, paddingVertical: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.border },
+  rowLabel: { color: COLORS.textMuted, fontSize: 13 },
   rowValue: { color: COLORS.text, fontSize: 13, fontWeight: '700', flex: 1, textAlign: 'right' },
-  section: { color: COLORS.accent, fontSize: 11, fontWeight: '800', letterSpacing: 1.2 },
-  doc: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.dim },
+  doc: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.border },
   docText: { flex: 1, minWidth: 0 },
   docTitle: { color: COLORS.text, fontSize: 14, fontWeight: '700' },
-  status: { color: COLORS.ok, fontSize: 11, fontWeight: '800' },
-  statusWarn: { color: COLORS.warn },
-  statusBad: { color: COLORS.bad },
+  formError: { color: COLORS.danger, fontSize: 13, lineHeight: 18 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: COLORS.dim, minHeight: 40, justifyContent: 'center' },
-  chipOn: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
+  chip: { paddingHorizontal: 14, borderRadius: 999, borderWidth: 1, borderColor: COLORS.borderStrong, minHeight: TOUCH_TARGET - 4, minWidth: 48, justifyContent: 'center', alignItems: 'center' },
+  chipOn: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
   chipText: { color: COLORS.text, fontSize: 13, fontWeight: '700' },
-  chipTextOn: { color: COLORS.onAccent },
+  chipTextOn: { color: COLORS.onPrimary },
 }))

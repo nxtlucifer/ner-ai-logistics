@@ -1,0 +1,24 @@
+### backend/tests/test_security_assessment.py WITH the fixes reverted (temporary, 14:20 IST)
+FAILED tests/test_security_assessment.py::TestSecurityHeaders::test_every_response_carries_the_hardening_set
+FAILED tests/test_security_assessment.py::TestSecurityHeaders::test_api_bodies_are_never_cached_but_avatars_keep_their_own_policy
+FAILED tests/test_security_assessment.py::TestDriverDocumentsAreScoped::test_another_drivers_documents_are_404
+FAILED tests/test_security_assessment.py::TestTruckRegisterIsScopedForDrivers::test_driver_sees_only_the_assigned_truck
+FAILED tests/test_security_assessment.py::TestUploadIsBoundedBeforeItIsBuffered::test_declared_oversize_is_refused_without_reading_the_body
+FAILED tests/test_security_assessment.py::TestUploadIsBoundedBeforeItIsBuffered::test_chunked_oversize_stops_at_the_cap
+6 failed, 2 passed in 3.56s
+
+### backend/tests/test_security_assessment.py with the fixes in place
+tests/test_security_assessment.py::TestSecurityHeaders::test_every_response_carries_the_hardening_set PASSED
+tests/test_security_assessment.py::TestSecurityHeaders::test_api_bodies_are_never_cached_but_avatars_keep_their_own_policy PASSED
+tests/test_security_assessment.py::TestDriverDocumentsAreScoped::test_another_drivers_documents_are_404 PASSED
+tests/test_security_assessment.py::TestDriverDocumentsAreScoped::test_manager_still_reads_any_drivers_documents PASSED
+tests/test_security_assessment.py::TestTruckRegisterIsScopedForDrivers::test_driver_sees_only_the_assigned_truck PASSED
+tests/test_security_assessment.py::TestTruckRegisterIsScopedForDrivers::test_manager_still_sees_the_fleet PASSED
+tests/test_security_assessment.py::TestUploadIsBoundedBeforeItIsBuffered::test_declared_oversize_is_refused_without_reading_the_body PASSED
+tests/test_security_assessment.py::TestUploadIsBoundedBeforeItIsBuffered::test_chunked_oversize_stops_at_the_cap PASSED
+============================== 8 passed in 3.06s ==============================
+
+### manager-web/src/pages/tripExport.test.ts (SEC-XSS-003 case added)
+ ✓ src/pages/tripExport.test.ts (10 tests) 15ms
+ Test Files  1 passed (1)
+      Tests  10 passed (10)

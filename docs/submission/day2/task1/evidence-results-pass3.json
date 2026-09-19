@@ -1,0 +1,33 @@
+{
+  "at": "2026-09-19T04:35:25.286Z",
+  "results": [
+    {
+      "name": "manager login",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "ACTIVE row visible",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "trip review opened",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "journey history lists lifecycle events",
+      "ok": true,
+      "note": ""
+    }
+  ],
+  "console": {
+    "name": "manager",
+    "console": [],
+    "exceptions": [],
+    "network": [
+      "401 /api/auth/refresh"
+    ]
+  }
+}

@@ -28,6 +28,7 @@ a provider that retries multiply into a storm against a free service.
 """
 
 import logging
+import time
 from datetime import UTC, datetime
 from typing import Any, Final
 
@@ -60,6 +61,13 @@ _EXPECTED_UNITS: Final[dict[str, str]] = {
     "precipitation": "mm",
 }
 
+#: Weather moves over tens of minutes, and every assessment of the same route
+#: asks about the same sampled points. Keyed to ~1 km (2 decimals).
+CACHE_TTL_SECONDS: Final[float] = 600.0
+
+# ponytail: process-local, successes only; a shared cache if more than one worker ever runs.
+_cache: dict[tuple[float, float], tuple[float, WeatherObservation]] = {}
+
 
 class OpenMeteoWeatherProvider:
     """Implements `WeatherProvider` against Open-Meteo."""
@@ -84,6 +92,17 @@ class OpenMeteoWeatherProvider:
         self._fallback = fallback_url.rstrip("/")
 
     async def current(self, lat: float, lon: float) -> WeatherObservation:
+        key = (round(lat, 2), round(lon, 2))
+        hit = _cache.get(key)
+        if hit is not None and time.monotonic() - hit[0] < CACHE_TTL_SECONDS:
+            return hit[1]
+        observation = await self._fetch(lat, lon)  # a failure raises and is never cached
+        if len(_cache) > 2048:
+            _cache.clear()  # bound memory: an expired entry is otherwise never dropped
+        _cache[key] = (time.monotonic(), observation)
+        return observation
+
+    async def _fetch(self, lat: float, lon: float) -> WeatherObservation:
         if not (-90.0 <= lat <= 90.0) or not (-180.0 <= lon <= 180.0):
             # Refused here rather than sent: an out-of-range coordinate is the
             # shape of a lat/lon inversion, and spending a request to be told

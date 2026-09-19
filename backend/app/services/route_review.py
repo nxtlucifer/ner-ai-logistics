@@ -268,6 +268,7 @@ async def approve_and_select(
     """
     from app.services import reroute as reroute_service
     from app.services import routes as route_service
+    from app.services import trips as trip_service
 
     authorization = await _issue(
         db, trip_id, route_id,
@@ -294,6 +295,11 @@ async def approve_and_select(
             authorization_id=authorization.id,
             assessment=assessment,
         )
+        # Read before the commit, as routes.select_route does, so the push
+        # below runs with no transaction open.
+        trip = await trip_service.get(db, trip_id, actor=actor)
+        await db.commit()
+        await route_service.announce_route_change(db, trip, route)
         await db.commit()
     await db.refresh(authorization)
     await db.refresh(route)

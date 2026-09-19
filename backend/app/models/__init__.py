@@ -8,8 +8,11 @@ how a table silently disappears from a migration.
 
 from app.models.audit import AuditLog
 from app.models.auth import RefreshToken
+from app.models.coordination import InstanceLease, ProviderPacing, RateLimitWindow  # noqa: F401
 from app.models.emergency import Emergency
 from app.models.files import StoredFile
+from app.models.geography import CountryBoundary, District, State  # noqa: F401
+from app.models.notifications import Notification
 from app.models.review import RouteReviewAuthorization
 from app.models.enums import (
     AssignmentStatus,
@@ -20,6 +23,8 @@ from app.models.enums import (
     DriverDocumentType,
     DriverStatus,
     EmergencyState,
+    NotificationKind,
+    NotificationSeverity,
     MaintenanceKind,
     RouteKind,
     RouteReviewBasis,
@@ -52,6 +57,11 @@ from app.models.operations import (
 
 __all__ = [
     "StoredFile",
+    # Geography
+    "State",
+    "District",
+    # Notifications
+    "Notification",
     # Identity
     "User",
     "Driver",

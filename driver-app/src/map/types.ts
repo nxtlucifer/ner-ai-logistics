@@ -113,6 +113,27 @@ export interface DriverRouteMapProps {
   cameraMode?: 'FIT_ROUTE' | 'RECENTER' | null
   /** Whether the camera is following the truck right now; the screen's state chip reads it. */
   onFollowChange?: (following: boolean) => void
+  /**
+   * How far the attribution line reaches up from the map's foot, in px,
+   * whenever that changes (web). The OpenStreetMap credit is a licence
+   * condition, and larger text wraps it onto more lines: the screen keeps its
+   * bottom overlays above what is measured, not above a guess (RC-DRV-09).
+   */
+  onAttributionHeight?: (px: number) => void
+  /**
+   * Whether the camera follows the truck by itself from the first LIVE fix.
+   * Off before a trip starts: the route is then shown whole (the overview)
+   * rather than a street around the depot. Re-centre still follows on
+   * request. Default true.
+   */
+  autoFollow?: boolean
+  /**
+   * The room the screen's own overlays take inside the map, in px: the top
+   * row, the right rail and a bottom-left box (the route summary). Framing
+   * the route puts it clear of them, above the box or beside it, whichever
+   * draws the road larger. Without it the frame is a plain 40 px margin.
+   */
+  frame?: { top: number; right: number; obstacle: { width: number; height: number } }
   /** Test seam: lets a test assert what was drawn without a GL context. */
   testID?: string
 }

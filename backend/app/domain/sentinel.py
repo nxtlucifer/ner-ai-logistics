@@ -330,8 +330,9 @@ def build_briefing_snapshot(
     suggested_actions = [
         f"1. Attempt voice contact with driver at {driver_phone or 'unlisted'}",
         (
-            f"2. Contact secondary emergency contact ({emergency_contact_name or 'unlisted'}) "
-            f"at {emergency_contact_phone or 'unlisted'}"
+            f"2. Contact the driver's emergency contact, {emergency_contact_name}, at {emergency_contact_phone}"
+            if emergency_contact_phone
+            else "2. No emergency contact is on file for this driver: ask their depot for one"
         ),
         "3. Notify regional transport authority / highway patrol with truck registration and coordinates",
         "4. Dispatch nearest field assist or arrange standby recovery vehicle",

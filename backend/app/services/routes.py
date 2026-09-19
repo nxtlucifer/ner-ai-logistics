@@ -59,10 +59,17 @@ from app.domain.routing import (
     DETOUR_SLACK_M,
     MAX_DETOUR_RATIO,
 )
-from app.models.enums import AuditAction, RouteKind, RouteState, TripStopKind
+from app.models.enums import (
+    AuditAction,
+    NotificationKind,
+    RouteKind,
+    RouteState,
+    TripStatus,
+    TripStopKind,
+)
 from app.models.identity import User
 from app.models.operations import TripRoute, TripStop
-from app.services import audit, trips
+from app.services import audit, notifications, notify, trips
 from app.services.routing import OsrmRoutingProvider, RoutingChain
 from app.services.shipments import SRID
 
@@ -351,7 +358,7 @@ async def plan(
     # Taken AFTER the provider call on purpose. Locking first would hold a row
     # lock across an HTTP request to a third party for up to the routing
     # timeout, so one slow provider would block every other write to that trip.
-    locked_trip = await trips.load_for_update(db, trip_id)
+    locked_trip = await trips.load_for_update(db, trip_id, actor=actor)
 
     # THE CURRENT ASSIGNMENT SURVIVES PLANNING (LS-10).
     #
@@ -613,7 +620,7 @@ async def apply_selection(
     # otherwise each demote the other's choice and leave the trip pointing at
     # one route while a different one is marked SELECTED. No external call
     # happens here, so holding the lock for the whole operation costs nothing.
-    await trips.load_for_update(db, trip_id)
+    await trips.load_for_update(db, trip_id, actor=actor)
 
     route = (
         await db.execute(
@@ -678,7 +685,7 @@ async def apply_selection(
     route.state = RouteState.SELECTED
     # Already loaded and locked above; `get` here would be a second read of a
     # row this session is holding.
-    locked_trip = await trips.load_for_update(db, trip_id)
+    locked_trip = await trips.load_for_update(db, trip_id, actor=actor)
     locked_trip.selected_route_id = route.id
 
     await db.flush()
@@ -728,9 +735,63 @@ async def select_route(
         authorization_id=authorization_id,
         assessment=assessment,
     )
+    # Read before the commit (expire_on_commit=False keeps it loaded): a read
+    # after it would open a transaction that notify.send then holds, pooled
+    # connection and all, through the push.
+    trip = await trips.get(db, trip_id, actor=actor)
+    await db.commit()
+    await announce_route_change(db, trip, route)
     await db.commit()
     await db.refresh(route)
     return route
+
+
+#: Trip states in which a route change is news the driver must act on. A
+#: DRAFT trip's route changing is planning; an ACTIVE trip's route changing
+#: means the road under the wheels is no longer the one in the phone.
+UNDER_WAY = (TripStatus.ASSIGNED, TripStatus.VERIFICATION_PENDING,
+             TripStatus.ACTIVE, TripStatus.DELAYED, TripStatus.INCIDENT)
+
+
+async def announce_route_change(
+    db: AsyncSession, trip, route: TripRoute, *, previous_route_id=None
+) -> None:
+    """Tell the driver, and the districts, that the road changed.
+
+    AFTER the commit, by every caller. A push that fails must never roll back
+    a route change - the route IS changed, and the phone finding out late is
+    a smaller problem than a manager's decision silently disappearing.
+
+    Fingerprinted on the destination route, so a manager who selects the same
+    road twice does not buzz a phone twice, while a genuinely new road always
+    does. The reroute path has its own wording for the case where the DRIVER
+    proposed the road; this is the manager-initiated one.
+    """
+    if trip.status not in UNDER_WAY:
+        return
+    await notify.send(
+        db,
+        driver_id=trip.driver_id,
+        trip_id=trip.id,
+        event="ROUTE_CHANGED",
+        title="Route updated by your manager",
+        body="A new road has been set for this trip. Open Navigate - guidance has switched to it.",
+        fingerprint=f"ROUTE_CHANGED:{trip.id}:{route.id}",
+        data={"screen": "navigate", "route_id": str(route.id)},
+    )
+    people = await notifications.recipients_for_trip(db, trip)
+    await notifications.notify(
+        db,
+        recipients=people,
+        kind=NotificationKind.ROUTE_CHANGED,
+        dedupe_key=f"route-changed:{trip.id}:{route.id}",
+        trip_id=trip.id,
+        payload={
+            "trip_code": trip.trip_code,
+            "route_kind": route.kind.value,
+            "distance_km": str(route.distance_km) if route.distance_km is not None else None,
+        },
+    )
 
 
 async def geometry_wkt(db: AsyncSession, route_id: uuid.UUID) -> str:

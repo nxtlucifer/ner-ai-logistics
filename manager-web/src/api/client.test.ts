@@ -112,15 +112,26 @@ describe('refreshSession', () => {
     await expect(refreshSession()).resolves.toBe('token-d')
   })
 
-  it('returns null when the refresh is rejected, without throwing', async () => {
+  it('returns null when the refresh is rejected, without throwing, and lets that request finish', async () => {
     installLockManager()
-    fetchMock.mockResolvedValue({
-      ok: false,
-      status: 401,
-      json: async () => ({ error: { code: 'UNAUTHENTICATED', message: 'no' } }),
-    } as unknown as Response)
+    const refused = new Response(JSON.stringify({ error: { code: 'UNAUTHENTICATED', message: 'no' } }), { status: 401 })
+    fetchMock.mockResolvedValue(refused)
 
     await expect(refreshSession()).resolves.toBeNull()
+    // Left unread, the body held the request open until the 60 s timeout.
+    expect(refused.bodyUsed).toBe(true)
+  })
+
+  it('lets the 401 that a silent refresh replaces finish too', async () => {
+    installLockManager()
+    const expired = new Response('{}', { status: 401 })
+    fetchMock
+      .mockResolvedValueOnce(expired)
+      .mockResolvedValueOnce(okResponse('token-f'))
+      .mockResolvedValueOnce(new Response('{"trips":[]}', { status: 200 }))
+
+    await expect(api.activeFleet()).resolves.toEqual({ trips: [] })
+    expect(expired.bodyUsed).toBe(true)
   })
 
   it('recovers after a failure instead of wedging the lock', async () => {

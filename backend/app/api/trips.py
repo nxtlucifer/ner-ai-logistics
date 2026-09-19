@@ -17,6 +17,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy import func, select
 
 from app.services import simulation
 from app.services import audit
@@ -24,11 +25,13 @@ from app.models.enums import AuditAction
 from app.core.errors import BusinessRuleError
 from app.api.deps import DbSession, get_client_ip, require_permission
 from app.core import permissions as perm
+from app.core import scope
 from app.core.errors import PermissionDeniedError
 from app.core.permissions import has_permission
 from app.domain import telemetry_policy as policy
 from app.domain.reroute import driver_decision
 from app.domain.routing import parse_wkt_linestring
+from app.models.fleet import Truck
 from app.models.enums import (
     CargoPriority,
     RouteKind,
@@ -37,10 +40,12 @@ from app.models.enums import (
     TripStatus,
     TripStopKind,
     TripStopStatus,
+    TruckStatus,
 )
 from app.models.identity import User
 from app.schemas.common import APIModel, Coordinate, ReadModel
 from app.schemas.domain import (
+    ProposedRerouteRead,
     ShipmentCreate,
     ShipmentRead,
     TripCreate,
@@ -78,7 +83,7 @@ async def list_shipments(
     cursor: str | None = None,
 ) -> ShipmentPage:
     rows, next_cursor = await shipment_service.list_shipments(
-        db, limit=limit, cursor=cursor
+        db, actor=actor, limit=limit, cursor=cursor
     )
     return ShipmentPage(
         items=[ShipmentRead.model_validate(r) for r in rows], next_cursor=next_cursor
@@ -183,6 +188,7 @@ async def list_trips(
     """
     rows, next_cursor, total = await trip_service.list_trips(
         db,
+        actor=actor,
         limit=limit,
         cursor=cursor,
         status=trip_status,
@@ -192,6 +198,9 @@ async def list_trips(
         open_only=open_only,
         with_total=True,
     )
+    pending = await trip_service.proposed_reroutes(db, [r.id for r in rows])
+    for r in rows:
+        r.proposed_reroute = pending.get(r.id)
     return TripPage(
         items=[TripRead.model_validate(r) for r in rows],
         next_cursor=next_cursor,
@@ -265,10 +274,11 @@ async def plan_trip(
     )
 
 
-async def _trip_detail(db, trip_id: uuid.UUID) -> TripDetail:
+async def _trip_detail(db, trip_id: uuid.UUID, actor: User) -> TripDetail:
     """One assembly of a trip's detail, so every writer that returns it says
     the same thing the reader does."""
-    trip = await trip_service.get(db, trip_id)
+    trip = await trip_service.get(db, trip_id, actor=actor)
+    trip.proposed_reroute = (await trip_service.proposed_reroutes(db, [trip.id])).get(trip.id)
     stops = await trip_service.stops_for(db, trip_id)
     shipment = await shipment_service.get(db, trip.shipment_id)
     return TripDetail(
@@ -285,7 +295,7 @@ async def get_trip(
     db: DbSession,
     actor: Annotated[User, Depends(require_permission(perm.TRIP_READ))],
 ) -> TripDetail:
-    return await _trip_detail(db, trip_id)
+    return await _trip_detail(db, trip_id, actor)
 
 
 @trips_router.post(
@@ -329,7 +339,7 @@ async def start_simulation(
         raise BusinessRuleError("Demo simulation is disabled on this service.")
     if scenario not in simulation.SCENARIOS:
         raise BusinessRuleError(f"Unknown scenario. One of: {', '.join(sorted(simulation.SCENARIOS))}")
-    trip = await trip_service.get(db, trip_id)
+    trip = await trip_service.get(db, trip_id, actor=actor)
     if trip.selected_route_id is None:
         raise BusinessRuleError("The trip has no selected route to simulate on.")
     sc = simulation.start(trip.id, trip.selected_route_id, scenario, minutes)
@@ -346,6 +356,7 @@ async def stop_simulation(
     db: DbSession,
     actor: Annotated[User, Depends(require_permission(perm.TRIP_DISPATCH))],
 ) -> dict[str, bool]:
+    await trip_service.get(db, trip_id, actor=actor)  # 404 before disclosing anything
     stopped = simulation.stop(trip_id)
     if stopped:
         await audit.record(db, action=AuditAction.UPDATE, entity_type="trip", entity_id=trip_id, actor_user_id=actor.id,
@@ -359,7 +370,7 @@ class CancelRequest(APIModel):
 
     Before pickup every field is optional. After pickup the server requires a
     reason of at least `trips.MIN_REASON_CHARS` and one of `trips.DISPOSITIONS`;
-    NEW_DESTINATION also needs a confirmed, in-region destination. See
+    NEW_DESTINATION also needs a confirmed destination inside India. See
     docs/API_CONTRACTS.md section 9 for the codes.
     """
 
@@ -778,7 +789,7 @@ async def list_routes(
     evidence in an incident review, and hiding it here would make the API look
     like rerouting overwrites.
     """
-    trip = await trip_service.get(db, trip_id)  # 404 before disclosing anything
+    trip = await trip_service.get(db, trip_id, actor=actor)  # 404 before disclosing anything
     rows = await route_service.list_for_trip(db, trip_id)
     return [
         _route_read(
@@ -840,7 +851,7 @@ async def recalculate_route(
     # is False today - but stating it from the trip row means the contract stays
     # honest if that ever changes, instead of hard-coding a fact about a
     # different function.
-    trip = await trip_service.get(db, trip_id)
+    trip = await trip_service.get(db, trip_id, actor=actor)
     return RoutePlanResult(
         route=_route_read(
             result.route,
@@ -952,7 +963,7 @@ async def get_review_authorization(
     """Null when none exists. An expired one is still returned, so a screen can
     say "this expired" rather than showing nothing - which looks identical to
     never having been reviewed."""
-    await trip_service.get(db, trip_id)
+    await trip_service.get(db, trip_id, actor=actor)
     await route_service.ensure_belongs_to_trip(db, trip_id, route_id)
     # Live first; otherwise the one spent for the selection that stands, so a
     # reload still shows who accepted the evidence.
@@ -988,7 +999,7 @@ async def approve_and_select_route(
     Approving does NOT change the assessment. The route still reports its
     evidence as incomplete afterwards; what is recorded is who accepted that.
     """
-    await trip_service.get(db, trip_id)
+    await trip_service.get(db, trip_id, actor=actor)
     await route_service.ensure_belongs_to_trip(db, trip_id, route_id)
 
     decision, assessment = (
@@ -1041,7 +1052,7 @@ async def create_review_authorization(
     This does NOT change the assessment. The route still reports UNKNOWN
     afterwards and every screen still says the evidence is incomplete.
     """
-    await trip_service.get(db, trip_id)
+    await trip_service.get(db, trip_id, actor=actor)
     await route_service.ensure_belongs_to_trip(db, trip_id, route_id)
 
     decision, assessment = (
@@ -1078,7 +1089,7 @@ async def revoke_review_authorization(
     ip: ClientIp,
 ) -> ReviewAuthorizationRead:
     """Withdraw it before it is used. A consumed one cannot be revoked."""
-    await trip_service.get(db, trip_id)
+    await trip_service.get(db, trip_id, actor=actor)
     await route_service.ensure_belongs_to_trip(db, trip_id, route_id)
     row = await review_service.revoke(
         db, authorization_id, actor=actor, reason="revoked by reviewer", ip=ip
@@ -1139,7 +1150,7 @@ async def add_stop(
         reason=payload.reason,
         ip=ip,
     )
-    return await _trip_detail(db, trip_id)
+    return await _trip_detail(db, trip_id, actor)
 
 
 class TripEventRead(ReadModel):
@@ -1177,7 +1188,7 @@ async def trip_events(
     """Oldest first, so it reads as a story. Records already written by the
     rest of the system - nothing here creates or infers an event.
     """
-    await trip_service.get(db, trip_id)
+    await trip_service.get(db, trip_id, actor=actor)
     rows = await trip_service.events_for(db, trip_id, limit=limit)
     acked = {
         (e.payload or {}).get("acknowledges")
@@ -1424,7 +1435,7 @@ async def route_risk(
     because distance and duration are still real evidence and showing nothing
     at all would be a worse answer than showing a partial one.
     """
-    await trip_service.get(db, trip_id)  # 404 before disclosing anything
+    await trip_service.get(db, trip_id, actor=actor)  # 404 before disclosing anything
     await route_service.ensure_belongs_to_trip(db, trip_id, route_id)
 
     return risk_read(await route_risk_service.assess_route(db, route_id))
@@ -1497,7 +1508,7 @@ async def route_recommendation(
     Superseded and blocked routes are excluded: history is evidence, but advice
     is about what to do next.
     """
-    await trip_service.get(db, trip_id)  # 404 before disclosing anything
+    await trip_service.get(db, trip_id, actor=actor)  # 404 before disclosing anything
 
     result, candidates = await route_recommendation_service.recommend_for_trip(
         db, trip_id
@@ -1599,6 +1610,7 @@ async def reroute_assessment(
     an answer already determined. That matters because this is the endpoint a
     fleet view is most tempted to call once per row.
     """
+    await trip_service.get(db, trip_id, actor=actor)  # 404 before disclosing anything
     result, candidates = await reroute_service.assess(db, trip_id)
     return RerouteAssessmentRead(
         outcome=result.outcome,
@@ -1706,6 +1718,8 @@ class FleetTripRead(ReadModel):
     next_stop_name: str | None
     stops_done: int
     stops_total: int
+    #: Same as TripRead.proposed_reroute: the driver's pending road, or null.
+    proposed_reroute: ProposedRerouteRead | None = None
 
 
 class FleetRead(ReadModel):
@@ -1714,6 +1728,16 @@ class FleetRead(ReadModel):
     fresh_seconds: int
     stale_seconds: int
     server_time: datetime
+    #: Trucks that could be carrying something - the denominator for a
+    #: utilisation figure.
+    #:
+    #: **Null for a scoped manager, and that is not an oversight.** A truck
+    #: belongs to the fleet; only a TRIP has districts. So the numerator of
+    #: "my trucks in transit" is scoped while the denominator is not, and
+    #: the ratio would be a confident number describing nothing. Null means
+    #: "this question has no answer for you", which the client renders by
+    #: omitting the card rather than by showing a zero.
+    trucks_total: int | None = None
 
 
 def _position_read(position: telemetry.Position | None) -> PositionRead | None:
@@ -1750,8 +1774,22 @@ async def active_fleet(
     eventually disagree with the server, and a dispatcher would be acting on a
     green dot that the system does not consider current.
     """
-    rows = await telemetry.active_fleet(db, limit=limit or 100)
+    rows = await telemetry.active_fleet(db, limit=limit or 100, actor=actor)
+    pending = await trip_service.proposed_reroutes(db, [row.trip_id for row in rows])
+    # Only an unscoped role gets a denominator - see FleetRead.trucks_total.
+    trucks_total: int | None = None
+    if not scope.is_scoped(actor):
+        trucks_total = int(
+            (
+                await db.execute(
+                    select(func.count())
+                    .select_from(Truck)
+                    .where(Truck.status != TruckStatus.RETIRED)
+                )
+            ).scalar_one()
+        )
     return FleetRead(
+        trucks_total=trucks_total,
         trips=[
             FleetTripRead(
                 trip_id=row.trip_id,
@@ -1768,6 +1806,7 @@ async def active_fleet(
                 next_stop_name=row.next_stop_name,
                 stops_done=row.stops_done,
                 stops_total=row.stops_total,
+                proposed_reroute=pending.get(row.trip_id),
             )
             for row in rows
         ],
@@ -1794,7 +1833,7 @@ async def trip_track(
     person - see docs/SECURITY.md section 3. Callers page backwards with
     `since` instead.
     """
-    await trip_service.get(db, trip_id)  # 404 before disclosing anything
+    await trip_service.get(db, trip_id, actor=actor)  # 404 before disclosing anything
 
     # Over-fetch by one to answer `truncated` honestly. Reporting
     # `len(points) == limit` would claim truncation for a trip whose track is

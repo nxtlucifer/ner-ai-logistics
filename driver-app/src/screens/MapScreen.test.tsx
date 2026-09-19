@@ -11,7 +11,9 @@ const state = vi.hoisted(() => {
     map: {} as Record<string, unknown>,
     clear: vi.fn(),
     reroute: vi.fn(),
-    geometry: { error: null as unknown, reload: vi.fn() },
+    geometry: { error: null as unknown, reload: vi.fn(), source: 'LIVE', isLoading: false },
+    isStale: false,
+    gpsHeld: false,
     trip: { id: 'trip-a', trip_code: 'DEMO', selected_route_id: 'route-a', tracking: { fresh_seconds: 60 }, tracking_expected: true, status: 'ACTIVE', stops: [] } as Record<string, unknown> | null,
     browse: { permission: 'unknown', lastPosition: null as null | Record<string, unknown>, requestPermission: vi.fn() },
   }
@@ -19,7 +21,7 @@ const state = vi.hoisted(() => {
 vi.mock('react-native', async () => {
   const { createElement: h } = await import('react')
   const box = ({ children }: { children?: import('react').ReactNode }) => h('div', null, children)
-  return { View: box, SafeAreaView: box, ScrollView: box, Pressable: box, Text: box, useWindowDimensions: () => ({ width: 390, height: 844 }),
+  return { View: box, SafeAreaView: box, ScrollView: box, Pressable: box, Text: box, Image: () => null, Modal: box, Platform: { OS: 'web' }, useWindowDimensions: () => ({ width: 390, height: 844 }),
     Linking: { openURL: vi.fn() }, BackHandler: { addEventListener: () => ({ remove: vi.fn() }) },
     StyleSheet: { create: (value: unknown) => value, hairlineWidth: 1 },
   }
@@ -52,7 +54,7 @@ vi.mock('../i18n/tx', () => ({ useT: () => (en: string) => en }))
 vi.mock('../map/DriverRouteMap', () => ({ default: (props: Record<string, unknown>) => { state.map = props; return null } }))
 vi.mock('../map/useRouteGeometry', () => ({ useRouteGeometry: () => ({
   points: [[26, 91], [27, 92]], backupPoints: [], stops: [], routeId: 'route-a', distanceKm: 100,
-  isLoading: false, error: state.geometry.error, source: 'LIVE', reload: state.geometry.reload,
+  isLoading: state.geometry.isLoading, error: state.geometry.error, source: state.geometry.source, reload: state.geometry.reload,
 }) }))
 vi.mock('../map/useNavigationPackage', () => ({ useNavigationPackage: () => ({ available: false, maneuvers: [], reasonCodes: [] }) }))
 vi.mock('../notify/local', () => ({ notifyInBackground: async () => false }))
@@ -65,7 +67,7 @@ vi.mock('../places/usePlaces', () => ({ usePlaces: () => ({
 }) }))
 vi.mock('../trip/TripProvider', () => ({ useTrip: () => ({
   trip: state.trip,
-  tracking: state.tracking, loadedAt: new Date(100_000),
+  tracking: state.tracking, loadedAt: new Date(100_000), isStale: state.isStale, gpsHeld: state.gpsHeld,
 }) }))
 vi.mock('../auth/AuthProvider', () => ({
   useAuth: () => ({ driver: { full_name: 'Test Driver' } }),
@@ -80,9 +82,11 @@ beforeEach(() => {
   vi.setSystemTime(100_000)
   state.clock = { now: 100_000, platformPermission: null }
   state.tracking = { permission: 'granted', isTracking: true, lastPosition: { lat: 26, lon: 91, accuracyM: 20, at: 100_000 } }
-  state.geometry = { error: null, reload: vi.fn() }
+  state.geometry = { error: null, reload: vi.fn(), source: 'LIVE', isLoading: false }
+  state.isStale = false
   state.trip = { id: 'trip-a', trip_code: 'DEMO', selected_route_id: 'route-a', tracking: { fresh_seconds: 60 }, tracking_expected: true, status: 'ACTIVE', stops: [] }
   state.browse = { permission: 'unknown', lastPosition: null, requestPermission: vi.fn() }
+  state.gpsHeld = false
   host = document.createElement('div')
   root = createRoot(host)
 })
@@ -97,6 +101,29 @@ describe('map position truthfulness without new GPS samples', () => {
     state.clock = { ...state.clock, now: 165_000 }
     await render()
     expect(state.map.positionKind).toBe('LAST_KNOWN')
+  })
+
+  it('keeps a fix taken since the last clock tick LIVE: newer than the tick is fresh, not from the future', async () => {
+    // Browser lane D1: the tick is up to 5 s old when a fix lands, and the
+    // marker went grey (Last known, speed --, follow dropped) until the next one.
+    state.tracking = { ...state.tracking, lastPosition: { lat: 26, lon: 91, accuracyM: 20, at: 103_000 } }
+    await render()
+    expect(state.map.positionKind).toBe('LIVE')
+    expect(host.textContent).toContain('GPS · ±20 m')
+    expect(host.textContent).not.toContain('Last known')
+  })
+
+  it('holds guidance when the phone fix has aged out, though the server still calls its copy LIVE', async () => {
+    // B2D-10: the chip read "GPS stale" while the card, on the server's
+    // freshness, kept a confident turn distance from the server's progress.
+    state.trip = { ...state.trip!, last_fix: { freshness: 'LIVE' }, progress: { travelled_distance_km: 10, on_route: true } }
+    state.tracking = { ...state.tracking, lastPosition: { lat: 26, lon: 91, accuracyM: 20, at: 60_000 } }
+    vi.setSystemTime(130_000)
+    state.clock = { ...state.clock, now: 130_000 }
+    await render()
+    expect(host.textContent).toContain('GPS stale')
+    // No position for guidance: the driven stretch is not drawn from a guess.
+    expect(state.map.progressFraction).toBeNull()
   })
 
   it('removes the marker immediately when browser permission is revoked', async () => {
@@ -144,11 +171,36 @@ describe('map position truthfulness without new GPS samples', () => {
   })
 
   it('retries a failed route fetch by itself while the trip poll is healthy', async () => {
-    state.geometry = { error: new Error('dropped'), reload: vi.fn() }
+    state.geometry = { ...state.geometry, error: new Error('dropped') }
     await render()
     expect(state.geometry.reload).not.toHaveBeenCalled()
     await act(async () => { vi.advanceTimersByTime(10_000) })
     expect(state.geometry.reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('over a saved route says checking, then could not update, and retries while the trip poll is healthy', async () => {
+    state.geometry = { ...state.geometry, source: 'CACHED', isLoading: true }
+    await render()
+    expect(host.textContent).toContain('Saved route — checking for updates.')
+    await act(async () => { vi.advanceTimersByTime(10_000) })
+    expect(state.geometry.reload).not.toHaveBeenCalled()
+    // The fetch failed but the trip poll answers: a server hiccup, not an
+    // outage. The cache keeps error null, so the retry keys on CACHED too.
+    state.geometry.isLoading = false
+    await render()
+    expect(host.textContent).toContain('Saved route — could not update.')
+    expect(host.textContent).not.toContain('no connection')
+    await act(async () => { vi.advanceTimersByTime(10_000) })
+    expect(state.geometry.reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('says no connection over a saved route only when the trip poll is failing too', async () => {
+    state.isStale = true
+    state.geometry = { ...state.geometry, source: 'CACHED', isLoading: false }
+    await render()
+    expect(host.textContent).toContain('Saved route — no connection.')
+    await act(async () => { vi.advanceTimersByTime(10_000) })
+    expect(state.geometry.reload).not.toHaveBeenCalled()
   })
 
   it('renders honest telemetry without a fake name, payload, road or decision', async () => {
@@ -179,6 +231,15 @@ describe('the map without a trip, and the words on the location chip', () => {
     expect(host.textContent).toContain('Network · ±180 m')
     expect(state.map.positionSource).toBe('NETWORK')
     expect(host.textContent).not.toContain('GPS LIVE')
+  })
+
+  it('shows the phone position from the upload-free watch while a day-old offline seed holds GPS', async () => {
+    // Seeded trip still says tracking_expected, but the tracker is held off.
+    state.gpsHeld = true
+    state.tracking = { permission: 'unknown', isTracking: false, lastPosition: null as never }
+    state.browse = { permission: 'granted', lastPosition: { lat: 26.3, lon: 91.9, accuracyM: 180, source: 'NETWORK', at: 100_000 }, requestPermission: vi.fn() }
+    await render()
+    expect(state.map.position).toEqual([26.3, 91.9])
   })
 
   it('names a GPS-grade fix with its metres while tracking', async () => {

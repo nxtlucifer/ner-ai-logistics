@@ -24,8 +24,11 @@ moments a driver must not miss with the screen off.
 
 A provider failure degrades that trip's evidence for this pass and is logged;
 it never stops the loop or another trip. No LLM anywhere in this module.
-ponytail: per-process state (restart re-observes; cooldown rows stop repeats);
-a table when the API runs on more than one instance.
+ponytail: per-process state (restart re-observes; cooldown rows stop repeats).
+With MULTI_INSTANCE only the lease holder ticks (_still_leading). It renews the
+lease before every trip it assesses, and an instance that finds it has lost the
+lease, or cannot tell, stops and forgets _STATE, so every lease gain re-observes
+like a restart. Each trip's push rows are committed before the next trip.
 """
 
 from __future__ import annotations
@@ -46,7 +49,7 @@ from app.domain.routing import haversine_m, parse_wkt_linestring, sample_positio
 from app.domain.traffic import estimate as traffic_estimate
 from app.models.enums import TripStatus
 from app.models.operations import Trip
-from app.services import notify, simulation, telemetry
+from app.services import coordination, notify, simulation, telemetry
 from app.services import traffic as traffic_service
 from app.services.driver_trips import IN_PROGRESS_STATUSES
 from app.services.route_risk import ROUTE_SAMPLES, _route_facts, evidence_for
@@ -82,6 +85,8 @@ class Watched:
 
 
 _STATE: dict[uuid.UUID, Watched] = {}
+#: time.monotonic() of the last route_watch lease call that won (MULTI_INSTANCE).
+_renewed_at: float | None = None
 
 
 def horizon_km(speed_kmph: float | None) -> float:
@@ -158,10 +163,43 @@ async def look_ahead(db: AsyncSession, trip_id: uuid.UUID, route_id: uuid.UUID) 
                  fraction_complete=progress.fraction_complete, band=risk.band), risk
 
 
-async def run_tick(db: AsyncSession, *, now: float | None = None) -> list[dict]:
-    """One coordinator pass. Returns what it did, for logs and tests."""
+async def _still_leading(holder: str | None) -> bool:
+    """May this instance go on? Always, on a single instance (no query).
+
+    With MULTI_INSTANCE, only while it holds the route_watch lease, renewed on
+    every call. Whenever the lease may have been lost, _STATE is dropped: what
+    it remembers stopped being true while another instance watched, and a stale
+    "already told the driver" would swallow a hazard that came back. That is
+    when the lease is refused, when the call fails (not leading; the tick ends
+    and commits what it pushed), and when a win comes more than one TTL after
+    the last (a stall: the lease lapsed, maybe to a leader that since died).
+    """
+    global _renewed_at
+    settings = get_settings()
+    asked = time.monotonic()
+    try:
+        leading = await coordination.my_turn("route_watch", settings.ROUTE_WATCH_TICK_SECONDS, holder=holder)
+    except Exception as exc:  # noqa: BLE001 - a lease we cannot confirm is not ours
+        logger.warning("route watch: lease check failed, standing down (%s)", type(exc).__name__)
+        leading = False
+    if not leading:
+        _STATE.clear()
+        return False
+    if settings.MULTI_INSTANCE:
+        ttl = settings.ROUTE_WATCH_TICK_SECONDS * coordination.LEASE_INTERVALS
+        if _renewed_at is not None and time.monotonic() - _renewed_at > ttl:
+            _STATE.clear()
+        _renewed_at = asked
+    return True
+
+
+async def run_tick(db: AsyncSession, *, now: float | None = None, holder: str | None = None) -> list[dict]:
+    """One coordinator pass. Returns what it did, for logs and tests.
+    `holder` stands in for coordination.INSTANCE_ID in tests."""
     settings = get_settings()
     now = now or time.time()
+    if not await _still_leading(holder):
+        return []
     rows = (
         await db.execute(
             select(Trip.id, Trip.driver_id, Trip.selected_route_id)
@@ -176,6 +214,10 @@ async def run_tick(db: AsyncSession, *, now: float | None = None) -> list[dict]:
         watched = _STATE.get(trip_id)
         if watched and now - watched.last_assessed < settings.ROUTE_WATCH_REFRESH_SECONDS:
             continue
+        # Each trip can wait on provider timeouts, and the first pass after a
+        # takeover has every trip due: renew per trip, and stop if it is gone.
+        if not await _still_leading(holder):
+            break
         try:
             ahead, _risk = await look_ahead(db, trip_id, route_id)
         except Exception as exc:  # noqa: BLE001 - one trip's evidence degrades, the loop lives
@@ -191,6 +233,9 @@ async def run_tick(db: AsyncSession, *, now: float | None = None) -> list[dict]:
             )
             sent.append((event, row.delivery))
         _STATE[trip_id] = Watched(last_assessed=now, ahead=ahead)
+        # Before the next trip: its rollback, or a later failure in this tick,
+        # must not take the record (and cooldown) of a push already delivered.
+        await db.commit()
         done.append({"trip_id": str(trip_id), "decision": ahead.decision, "horizon_km": ahead.horizon_km, "events": sent})
     await db.commit()
     return done

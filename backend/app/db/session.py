@@ -26,38 +26,68 @@ class Base(DeclarativeBase):
 
 _engine: AsyncEngine | None = None
 _sessionmaker: async_sessionmaker[AsyncSession] | None = None
+_coordination_engine: AsyncEngine | None = None
+_coordination_sessionmaker: async_sessionmaker[AsyncSession] | None = None
+
+
+def _build_engine(**pool: object) -> AsyncEngine:
+    settings = get_settings()
+
+    connect_args: dict[str, object] = {
+        "connect_timeout": settings.DB_CONNECT_TIMEOUT_SECONDS,
+    }
+    if settings.requires_ssl:
+        # Supabase terminates TLS. psycopg defaults to sslmode=prefer, which
+        # silently downgrades to plaintext if the handshake fails; "require"
+        # makes a failed handshake an error instead. Only set when the URL
+        # does not already carry an sslmode, so an explicit choice wins.
+        if "sslmode=" not in settings.effective_database_url:
+            connect_args["sslmode"] = "require"
+
+    return create_async_engine(
+        settings.effective_database_url,
+        echo=settings.DB_ECHO,
+        # Essential against a managed database: Supabase's pooler closes idle
+        # connections, and without pre-ping the first query after an idle gap
+        # fails on a dead pooled connection.
+        pool_pre_ping=True,
+        # Recycle below typical pooler idle timeouts.
+        pool_recycle=1800,
+        connect_args=connect_args,
+        **pool,
+    )
 
 
 def get_engine() -> AsyncEngine:
     global _engine
     if _engine is None:
         settings = get_settings()
-
-        connect_args: dict[str, object] = {
-            "connect_timeout": settings.DB_CONNECT_TIMEOUT_SECONDS,
-        }
-        if settings.requires_ssl:
-            # Supabase terminates TLS. psycopg defaults to sslmode=prefer, which
-            # silently downgrades to plaintext if the handshake fails; "require"
-            # makes a failed handshake an error instead. Only set when the URL
-            # does not already carry an sslmode, so an explicit choice wins.
-            if "sslmode=" not in settings.effective_database_url:
-                connect_args["sslmode"] = "require"
-
-        _engine = create_async_engine(
-            settings.effective_database_url,
-            echo=settings.DB_ECHO,
-            pool_size=settings.DB_POOL_SIZE,
-            max_overflow=settings.DB_MAX_OVERFLOW,
-            # Essential against a managed database: Supabase's pooler closes idle
-            # connections, and without pre-ping the first query after an idle gap
-            # fails on a dead pooled connection.
-            pool_pre_ping=True,
-            # Recycle below typical pooler idle timeouts.
-            pool_recycle=1800,
-            connect_args=connect_args,
-        )
+        _engine = _build_engine(pool_size=settings.DB_POOL_SIZE, max_overflow=settings.DB_MAX_OVERFLOW)
     return _engine
+
+
+def get_coordination_sessionmaker() -> async_sessionmaker[AsyncSession]:
+    """Sessions for the leases and Nominatim pacing in services/coordination.py,
+    on a pool of their own.
+
+    Pacing runs INSIDE geocoding requests that already hold a connection from
+    the main pool (get_current_user has queried by then), under the process-wide
+    Nominatim lock. On the shared pool, a burst of such requests each held one
+    connection and waited for a second: the pool starved for pool_timeout
+    (30 s) and every other request on the instance waited with it. Lease
+    renewals must not queue behind requests either. The auth rate limits stay
+    on the main pool: login and refresh hold no connection when they call
+    them, and a login flood here would delay renewals. At most three callers
+    (two leased loops, one pace under the lock), each one short statement:
+    one connection is enough, and a 5 s timeout fails fast instead of hanging.
+    """
+    global _coordination_engine, _coordination_sessionmaker
+    if _coordination_sessionmaker is None:
+        _coordination_engine = _build_engine(pool_size=1, max_overflow=0, pool_timeout=5)
+        _coordination_sessionmaker = async_sessionmaker(
+            bind=_coordination_engine, expire_on_commit=False, autoflush=False
+        )
+    return _coordination_sessionmaker
 
 
 def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
@@ -87,8 +117,9 @@ async def dispose_engine() -> None:
     Resetting the globals matters for tests, which rebuild the engine after
     changing settings.
     """
-    global _engine, _sessionmaker
-    if _engine is not None:
-        await _engine.dispose()
-    _engine = None
-    _sessionmaker = None
+    global _engine, _sessionmaker, _coordination_engine, _coordination_sessionmaker
+    for engine in (_engine, _coordination_engine):
+        if engine is not None:
+            await engine.dispose()
+    _engine = _coordination_engine = None
+    _sessionmaker = _coordination_sessionmaker = None

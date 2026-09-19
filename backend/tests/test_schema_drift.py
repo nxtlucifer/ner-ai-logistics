@@ -76,7 +76,12 @@ def test_every_enum_type_exists_with_expected_labels(db: Connection) -> None:
 #: extended in Python without someone recording which migration ships it - which
 #: is the drift this test exists to catch.
 ENUM_LABELS_ADDED_AFTER_0002: dict[str, dict[str, str]] = {
-    "user_role": {"AUTHORISED_REVIEWER": "0007_route_review_authorizations"},
+    "user_role": {
+        "AUTHORISED_REVIEWER": "0007_route_review_authorizations",
+        "NORTH_EAST_MANAGER": "0013_state_district_inbox",
+        "STATE_MANAGER": "0013_state_district_inbox",
+        "DISTRICT_MANAGER": "0013_state_district_inbox",
+    },
     "trip_event_kind": {"ACCEPTED": "0008_trip_driver_acceptance"},
     "driver_document_type": {"GOVERNMENT_ID": "0011_files_verification"},
 }
@@ -86,6 +91,9 @@ ENUM_TYPES_ADDED_AFTER_0002: dict[str, str] = {
     "route_review_basis": "0007_route_review_authorizations",
     "emergency_state": "0010_emergencies",
     "driver_check_response": "0010_emergencies",
+    "district_source": "0013_state_district_inbox",
+    "notification_kind": "0013_state_district_inbox",
+    "notification_severity": "0013_state_district_inbox",
 }
 
 

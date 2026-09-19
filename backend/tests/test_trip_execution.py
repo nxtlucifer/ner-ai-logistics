@@ -576,8 +576,18 @@ class TestTripCompletion:
         await session.refresh(driver)
         await session.refresh(truck)
         assert trip.status is TripStatus.DELIVERED
-        assert driver.status is DriverStatus.AVAILABLE
-        assert truck.status is TruckStatus.AVAILABLE
+        # DELIVERY DOES NOT RELEASE THE CREW, AND THIS ASSERTION USED TO SAY
+        # IT DID.
+        #
+        # It contradicted `test_resource_reservation`, which asserts that a
+        # DELIVERED trip still refuses the pair with 409 because the truck is
+        # at the consignee until the job is settled. Both were green: the
+        # status columns said free, the reservation query said held, and
+        # nothing cross-checked them. A dispatcher met a conflict that no
+        # screen could explain. The lifecycle rule is the deliberate one, so
+        # the columns now follow it - see `test_trip_release_after_delivery`.
+        assert driver.status is DriverStatus.ON_TRIP
+        assert truck.status is TruckStatus.ON_TRIP
 
     async def test_completing_the_trip_twice_is_idempotent(
         self, api: AsyncClient, session: AsyncSession

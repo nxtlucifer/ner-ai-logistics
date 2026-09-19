@@ -15,9 +15,12 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from geoalchemy2 import WKTElement
+
 from app.domain.routing import RouteCandidate
-from app.models.enums import RouteKind, RouteState, UserRole
+from app.models.enums import AuditAction, RouteKind, RouteState, UserRole
 from app.models.operations import TripRoute
+from app.services import audit
 from app.services import route_risk as risk_service
 from app.services import routes as route_service
 from app.services.routing.base import RoutingUnavailable
@@ -193,3 +196,113 @@ async def test_a_road_from_far_outside_the_corridor_is_refused_and_nothing_is_st
     rows = (await session.execute(select(TripRoute).where(TripRoute.trip_id == trip_id))).scalars().all()
     assert [r.id for r in rows] == [primary.id]
     assert rows[0].state is RouteState.SELECTED
+
+
+# --- The manager is told (E2E-R2) ------------------------------------------
+#
+# The driver's road used to reach the phone and nobody else. The list, the
+# detail and the fleet read now carry `proposed_reroute` while it waits.
+
+
+async def _manager(api: AsyncClient, session: AsyncSession, **kw):
+    user = await factories.make_user(session, **kw)
+    return user, await auth_headers(api, user.email, factories.TEST_PASSWORD)
+
+
+async def _told(api: AsyncClient, headers: dict, trip_id, code: str):
+    """`proposed_reroute` as the list, the detail and the fleet say it."""
+    listed = (await api.get(f"/api/trips?search={code}", headers=headers)).json()["items"]
+    detail = (await api.get(f"/api/trips/{trip_id}", headers=headers)).json()
+    fleet = (await api.get("/api/fleet/active", headers=headers)).json()["trips"]
+    return (
+        next(t for t in listed if t["id"] == str(trip_id))["proposed_reroute"],
+        detail["proposed_reroute"],
+        next(t for t in fleet if t["trip_id"] == str(trip_id))["proposed_reroute"],
+    )
+
+
+NOTHING = (None, None, None)
+
+
+async def test_the_manager_is_told_of_the_drivers_road_until_it_is_taken(
+    api: AsyncClient, session: AsyncSession, chain: _Recording
+) -> None:
+    trip, primary, headers = await _trip(api, session, start=True)
+    trip_id, code, primary_id = trip.id, trip.trip_code, str(primary.id)
+    chain.origins.clear()  # the stub reads every call after the first as a reroute
+    other, _, _ = await _trip(api, session, start=True)
+    other_id, other_code = other.id, other.trip_code
+    _, manager = await _manager(api, session)
+    assert await _told(api, manager, trip_id, code) == NOTHING
+
+    res = await api.post(
+        "/api/driver/me/trip/reroute", headers=headers, json={"lat": OFF_ROAD[0], "lon": OFF_ROAD[1]}
+    )
+    assert res.status_code == 201, res.text
+    route_id = res.json()["route_id"]
+
+    listed, detail, fleet = await _told(api, manager, trip_id, code)
+    assert listed == detail == fleet
+    assert listed["route_id"] == route_id
+    assert listed["distance_km"] == 190.0
+    assert listed["proposed_at"]
+    assert await _told(api, manager, other_id, other_code) == NOTHING
+
+    taken = await api.post(
+        f"/api/trips/{trip_id}/reroute/accept", headers=manager,
+        json={"from_route_id": primary_id, "to_route_id": route_id},
+    )
+    assert taken.status_code == 200, taken.text
+    assert await _told(api, manager, trip_id, code) == NOTHING
+
+    # Back onto the first road: the driver's road is PROPOSED again, but it is
+    # a decision already made, not a new ask.
+    back = await api.post(
+        f"/api/trips/{trip_id}/reroute/accept", headers=manager,
+        json={"from_route_id": route_id, "to_route_id": primary_id},
+    )
+    assert back.status_code == 200, back.text
+    assert await _told(api, manager, trip_id, code) == NOTHING
+
+
+async def test_a_backup_a_manager_planned_is_not_called_the_drivers(
+    api: AsyncClient, session: AsyncSession, chain: _Recording
+) -> None:
+    trip, _, _ = await _trip(api, session, start=True)
+    trip_id, code = trip.id, trip.trip_code
+    user, manager = await _manager(api, session)
+    await session.commit()  # a fresh transaction, so now() is after the selected route
+    route = TripRoute(
+        trip_id=trip_id, kind=RouteKind.EMERGENCY_BACKUP, state=RouteState.PROPOSED,
+        geometry=WKTElement("LINESTRING(92.6 26.1, 94.2037 26.7509)", srid=4326),
+        distance_km=150,
+    )
+    session.add(route)
+    await session.flush()
+    await audit.record(
+        session, action=AuditAction.CREATE, entity_type="trip_routes",
+        entity_id=route.id, actor_user_id=user.id,
+    )
+    await session.commit()
+    assert await _told(api, manager, trip_id, code) == NOTHING
+
+
+async def test_a_manager_outside_the_trips_scope_is_told_nothing(
+    api: AsyncClient, session: AsyncSession, chain: _Recording
+) -> None:
+    trip, _, headers = await _trip(api, session, start=True)
+    trip_id, code = trip.id, trip.trip_code
+    res = await api.post(
+        "/api/driver/me/trip/reroute", headers=headers, json={"lat": OFF_ROAD[0], "lon": OFF_ROAD[1]}
+    )
+    assert res.status_code == 201, res.text
+
+    district = await factories.make_district(session, state_slug="meghalaya")
+    _, scoped = await _manager(
+        api, session, role=UserRole.DISTRICT_MANAGER,
+        state_id=district.state_id, district_id=district.id,
+    )
+    assert (await api.get(f"/api/trips/{trip_id}", headers=scoped)).status_code == 404
+    assert (await api.get(f"/api/trips?search={code}", headers=scoped)).json()["items"] == []
+    fleet = (await api.get("/api/fleet/active", headers=scoped)).json()["trips"]
+    assert str(trip_id) not in {t["trip_id"] for t in fleet}

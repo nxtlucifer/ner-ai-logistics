@@ -13,7 +13,7 @@
  * server refuses them regardless of what is typed here.
  */
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import type { RouteRiskSummary } from '../api/client'
 import { Button, ErrorState } from './ui'
@@ -71,21 +71,27 @@ export function RouteApprovalDialog({ risk, reasons, busy, error, rerouting = fa
   const complete = rows.filter(([, s]) => s === 'AVAILABLE').length
   const ready = rationale.trim().length >= MIN_RATIONALE && acknowledged && !busy
   const warnings = risk.official_warnings?.on_route ?? []
+  // A dialog takes focus when it opens: it appears far down a long review
+  // page, and a keyboard or screen-reader user must land on the decision.
+  const title = useRef<HTMLHeadingElement>(null)
+  useEffect(() => { title.current?.focus() }, [])
 
   return (
-    <div role="dialog" aria-labelledby="route-approval-title" className="rounded-xl border border-warning/40 bg-surface p-4 space-y-3" data-testid="route-approval">
-      <h3 id="route-approval-title" className="text-sm font-semibold text-ink">Manager decision</h3>
-      <p className="text-[12.5px] text-muted">
+    // A caution rule down the side, not a box inside the card: the panel is
+    // the decision, and amber says it is taken on incomplete evidence.
+    <div role="dialog" aria-labelledby="route-approval-title" className="space-y-3 border-l-4 border-warning py-1 pl-4" data-testid="route-approval">
+      <h3 id="route-approval-title" ref={title} tabIndex={-1} className="text-base font-bold text-ink focus:outline-none">Manager Decision</h3>
+      <p className="text-[13px] leading-5 text-muted">
         These conditions do not prove the road is unsafe, but they are not enough to call it verified. Approving records that <strong>you</strong> accepted that for this {rerouting ? 'reroute' : 'dispatch'}; the route keeps reporting its evidence as incomplete afterwards.
       </p>
 
       <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.13em] text-muted">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted">
           Evidence status · {complete} of {rows.length} available
         </p>
         <ul className="mt-1 grid gap-x-4 gap-y-0.5 sm:grid-cols-2" data-testid="evidence-status">
           {rows.map(([name, status]) => (
-            <li key={name} className="flex justify-between gap-3 border-b border-line py-1 text-[12px]">
+            <li key={name} className="flex justify-between gap-3 border-b border-line py-1.5 text-[13px]">
               <span className="text-ink">{name}</span>
               <span className={`font-semibold ${TONE[status]}`}>{status}</span>
             </li>
@@ -95,8 +101,8 @@ export function RouteApprovalDialog({ risk, reasons, busy, error, rerouting = fa
 
       {reasons.length > 0 ? (
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.13em] text-muted">Why review is required</p>
-          <ul className="mt-1 list-disc pl-5 text-[12px] text-ink">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted">Why review is required</p>
+          <ul className="mt-1 list-disc pl-5 text-[13px] text-ink">
             {reasons.map((r) => <li key={r}>{r}</li>)}
           </ul>
         </div>
@@ -104,17 +110,17 @@ export function RouteApprovalDialog({ risk, reasons, busy, error, rerouting = fa
 
       {warnings.length > 0 ? (
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.13em] text-muted">Official alerts on this corridor</p>
-          <ul className="mt-1 list-disc pl-5 text-[12px] text-ink">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted">Official alerts on this corridor</p>
+          <ul className="mt-1 list-disc pl-5 text-[13px] text-ink">
             {warnings.map((w) => <li key={w.identifier}>{w.event} · {w.severity} — {w.headline}</li>)}
           </ul>
         </div>
       ) : null}
 
-      <label className="block text-[12px]">
-        <span className="mb-1 block text-muted">Reason for approval * — the only record of why this risk was accepted</span>
+      <label className="block text-[13px]">
+        <span className="mb-1 block font-medium text-ink">Reason for approval<span className="ml-0.5 text-danger">*</span> <span className="font-normal text-muted">— the only record of why this risk was accepted</span></span>
         <textarea
-          className="w-full rounded border border-line bg-surface px-2 py-1.5 text-sm text-ink"
+          className="w-full rounded-[var(--radius-control)] border border-outline bg-surface px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-route"
           rows={2}
           value={rationale}
           disabled={busy}
@@ -122,22 +128,23 @@ export function RouteApprovalDialog({ risk, reasons, busy, error, rerouting = fa
           placeholder="e.g. Depot confirms road open this morning; proceeding with current evidence"
         />
         {rationale.trim().length < MIN_RATIONALE ? (
-          <span className="mt-1 block text-[11px] text-muted">At least {MIN_RATIONALE} characters of reasoning.</span>
+          <span className="mt-1 block text-xs text-muted">At least {MIN_RATIONALE} characters of reasoning.</span>
         ) : null}
       </label>
 
-      <label className="flex items-start gap-2 text-[12.5px] text-ink">
-        <input type="checkbox" className="mt-0.5" checked={acknowledged} disabled={busy} onChange={(e) => setAcknowledged(e.target.checked)} />
+      <label className="flex cursor-pointer items-start gap-2.5 text-[13px] text-ink">
+        <input type="checkbox" className="mt-0.5 size-4 shrink-0 accent-primary" checked={acknowledged} disabled={busy} onChange={(e) => setAcknowledged(e.target.checked)} />
         <span>I understand that incomplete evidence is not the same as SAFE.</span>
       </label>
 
       {error ? <ErrorState error={error} /> : null}
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button variant="secondary" disabled={busy} onClick={onCancel}>Cancel</Button>
-        <Button busy={busy} disabled={!ready} title={ready ? undefined : 'Enter a reason and tick the acknowledgement first.'} onClick={() => onApprove(rationale.trim())}>
+        <Button busy={busy} disabled={!ready} title={ready ? undefined : 'Enter a reason and tick the acknowledgement first.'} describedBy={ready ? undefined : 'route-approval-needs'} onClick={() => onApprove(rationale.trim())}>
           {rerouting ? 'Approve & reroute' : 'Approve & use route'}
         </Button>
+        {ready || busy ? null : <span id="route-approval-needs" className="text-[13px] text-muted">Enter a reason and tick the acknowledgement first.</span>}
       </div>
     </div>
   )

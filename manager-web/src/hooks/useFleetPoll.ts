@@ -88,13 +88,16 @@ export function useFleetPoll(): FleetPoll {
     let timer: ReturnType<typeof setTimeout> | undefined
 
     const tick = async () => {
-      if (cancelled) return
+      // A hidden tab stops the loop; becoming visible restarts it at once.
+      if (cancelled || document.visibilityState === 'hidden') return
       await poll()
       if (cancelled) return
       const delay =
         failures.current === 0
           ? FLEET_POLL_MS
           : Math.min(FLEET_POLL_MS * 2 ** failures.current, BACKOFF_MAX_MS)
+      // A wake() during an in-flight poll started a second chain; keep one.
+      clearTimeout(timer)
       timer = setTimeout(() => void tick(), delay)
     }
 
@@ -110,10 +113,16 @@ export function useFleetPoll(): FleetPoll {
       if (online && !wasOnline) wake.current?.()
       wasOnline = online
     })
+    // Same rule as useResource: nobody is watching a hidden tab.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') wake.current?.()
+    }
+    document.addEventListener('visibilitychange', onVisible)
 
     return () => {
       cancelled = true
       unsubscribe()
+      document.removeEventListener('visibilitychange', onVisible)
       wake.current = null
       if (timer) clearTimeout(timer)
       inFlight.current?.abort()

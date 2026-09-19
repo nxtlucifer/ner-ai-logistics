@@ -58,6 +58,7 @@
  * the cadence.
  */
 
+import type { RerouteApproved, TripDelivered } from './tripNotices'
 import {
   createContext,
   useCallback,
@@ -70,10 +71,16 @@ import {
 import { AppState } from 'react-native'
 
 import { api, type CurrentTrip } from '../api/client'
+import { currentAppLanguage } from '../i18n/language'
+import { tx } from '../i18n/tx'
 import { notifyInBackground } from '../notify/local'
+
+/** Translate a background notification. Outside React, so not `useT`. */
+const say = (en: string): string => tx(currentAppLanguage(), en)
 import { errorMessage } from '../components/ui'
 import { useLocationTracking } from '../tracking/useLocationTracking'
 import { useAuth } from '../auth/AuthProvider'
+import { cacheTrip, readCachedTrip } from '../auth/sessionCache'
 
 export type Phase = 'loading' | 'ready' | 'error'
 
@@ -90,6 +97,17 @@ export type Phase = 'loading' | 'ready' | 'error'
  * not measurable here - no native build exists yet (BLOCKER-4).
  */
 export const TRIP_POLL_MS = 10_000
+
+/** One presence beat a minute.
+ *
+ *  The server treats a gap under 90 s as present, so 60 s tolerates one
+ *  lost request without a driver blinking out on somebody's board. Faster
+ *  would buy nothing: the server coalesces anything inside 45 s. */
+export const HEARTBEAT_MS = 60_000
+
+/** The server's MAX_BACKDATE: a fix older than this is rejected, so a cached
+ *  trip last seen longer ago than this may be over and never restarts GPS. */
+const CACHED_TRIP_TRACKING_MS = 24 * 60 * 60 * 1000
 
 export interface TripContextValue {
   trip: CurrentTrip | null
@@ -120,6 +138,17 @@ export interface TripContextValue {
   load: () => Promise<CurrentTrip | null | undefined>
   act: (action: () => Promise<CurrentTrip>) => Promise<void>
   tracking: ReturnType<typeof useLocationTracking>
+  /** True while an offline seed older than 24 h holds the tracker off. The map
+   *  then shows position from its upload-free watch instead of nothing. */
+  gpsHeld: boolean
+  /** The road a manager moved this trip onto while the app was open, and when
+   *  the poll saw it: the in-app "Reroute approved" (FV-E2E-2). The background
+   *  notification only fires with the app in the background. */
+  rerouteApproved: RerouteApproved | null
+  /** The trip this driver delivered, from the moment the poll stopped
+   *  returning it: the server's current trip is an open one, so "Trip
+   *  complete" otherwise lasted one poll (RE2E-2). */
+  delivered: TripDelivered | null
 }
 
 const TripContext = createContext<TripContextValue | null>(null)
@@ -135,6 +164,13 @@ export function TripProvider({ children }: { children: ReactNode }) {
   const [isBusy, setIsBusy] = useState(false)
   const [loadedAt, setLoadedAt] = useState<number | null>(null)
   const [isStale, setIsStale] = useState(false)
+  const [rerouteApproved, setRerouteApproved] = useState<TripContextValue['rerouteApproved']>(null)
+  const [delivered, setDelivered] = useState<TripDelivered | null>(null)
+  // The offline seed is a cached trip last seen over 24 h ago: shown as sent,
+  // but GPS stays off until a live read. Cleared by the first one.
+  const [seededTooOld, setSeededTooOld] = useState(false)
+  // A manager's support view must never watch the MANAGER's position.
+  const { supportView, offline } = useAuth()
 
   // Refs, not state: a poll must not re-run the effect that owns its timer, or
   // the loop restarts on every tick.
@@ -170,9 +206,31 @@ export function TripProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
+    // FE-01: an offline launch shows the last trip the server sent, marked
+    // stale, until a live read replaces it - so the trip, its stops and the
+    // stored route package stay reachable after an OS kill in a dead zone.
+    // Read once, at mount: going live later is the poll's job.
+    if (offline) {
+      void readCachedTrip().then((cached) => {
+        if (!cached || hasLoaded.current) return
+        hasLoaded.current = true
+        setSeededTooOld(Date.now() - cached.at > CACHED_TRIP_TRACKING_MS)
+        setTrip(cached.trip)
+        setLoadedAt(cached.at)
+        setIsStale(true)
+        setPhase('ready')
+      })
+    }
     void load()
     return () => { writeSeq.current += 1 }
   }, [load])
+
+  // Every fresh server answer is remembered for the next offline launch. A
+  // stale one is never written back as if it were current.
+  useEffect(() => {
+    if (loadedAt !== null && !isStale) cacheTrip(trip, loadedAt)
+    if (!isStale) setSeededTooOld(false)
+  }, [trip, loadedAt, isStale])
 
   /**
    * The background refresh. Quiet on failure, by design.
@@ -201,10 +259,20 @@ export function TripProvider({ children }: { children: ReactNode }) {
         // pocket; the route-danger card has its own key on the map screen.
         const before = lastSeen.current
         if (fresh && (!before || before.id !== fresh.id) && fresh.status === 'ASSIGNED') {
-          void notifyInBackground(`trip-assigned:${fresh.id}`, 'New trip assigned', `${fresh.trip_code} - open RASTA to accept.`)
+          void notifyInBackground(
+            `trip-assigned:${fresh.id}`,
+            say('New trip assigned'),
+            `${fresh.trip_code} - ${say('open RASTA to accept.')}`,
+          )
         } else if (fresh && before && before.id === fresh.id && before.selected_route_id && fresh.selected_route_id && before.selected_route_id !== fresh.selected_route_id) {
-          void notifyInBackground(`reroute:${fresh.selected_route_id}`, 'Reroute approved', 'Your manager approved a new road. Open Navigate to follow it.')
+          setRerouteApproved({ tripId: fresh.id, routeId: fresh.selected_route_id, at: Date.now() })
+          void notifyInBackground(
+            `reroute:${fresh.selected_route_id}`,
+            say('Reroute approved'),
+            say('Your manager approved a new road. Open Navigate to follow it.'),
+          )
         }
+        if (!fresh && before?.status === 'DELIVERED') setDelivered({ tripId: before.id, at: Date.now() })
         lastSeen.current = fresh
         setTrip(fresh)
         setLoadedAt(Date.now())
@@ -219,6 +287,23 @@ export function TripProvider({ children }: { children: ReactNode }) {
       }
     }
 
+    // PRESENCE. One beat a minute, on its own slow timer rather than
+    // piggybacking the 10 s trip poll: a manager's board needs to know the
+    // app is alive, not to be told sixty times a minute. The server
+    // coalesces anything faster than 45 s, so this is already the floor.
+    //
+    // Deliberately NOT tied to the foreground. A driver whose phone is in a
+    // cradle with the screen off is present, and a board that called them
+    // offline for that would be wrong in the most common case there is.
+    const beat = () => {
+      api.heartbeat().catch(() => {
+        // A missed beat is a gap the manager's board shows honestly. It is
+        // never worth surfacing to the driver, who can do nothing about it.
+      })
+    }
+    beat()
+    const heartbeat = setInterval(beat, HEARTBEAT_MS)
+
     // BATTERY-AWARE: the same poll runs three times slower while the app is
     // in the background. Alerts still arrive (within 30 s); the radio is not
     // woken every ten seconds for a screen nobody is looking at.
@@ -231,17 +316,16 @@ export function TripProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
       clearInterval(timer)
+      clearInterval(heartbeat)
       sub.remove()
     }
   }, [])
 
   // Tracking runs only while the SERVER says this trip is in progress. The app
   // does not decide for itself when it is allowed to collect position.
-  // A manager's support view must never watch the MANAGER's position.
-  const { supportView } = useAuth()
   const tracking = useLocationTracking(
     trip?.id ?? null,
-    Boolean(trip?.tracking_expected) && !supportView,
+    Boolean(trip?.tracking_expected) && !supportView && !seededTooOld,
     trip?.tracking ?? null,
   )
 
@@ -263,6 +347,9 @@ export function TripProvider({ children }: { children: ReactNode }) {
       try {
         const applied = await action()
         writeSeq.current += 1
+        // What the app now knows, for the poll's comparisons: a delivery
+        // confirmed here is the trip the next empty poll takes away.
+        lastSeen.current = applied
         setTrip(applied)
         // A mutation's response IS a fresh read of the trip, so it advances
         // the age just as `load` does.
@@ -300,6 +387,9 @@ export function TripProvider({ children }: { children: ReactNode }) {
     load,
     act,
     tracking,
+    gpsHeld: seededTooOld,
+    rerouteApproved,
+    delivered,
   }
 
   return <TripContext.Provider value={value}>{children}</TripContext.Provider>

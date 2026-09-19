@@ -763,7 +763,8 @@ export async function handleGeminiAi(
   }
 
   // 8. Request to Google Gemini Developer API
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
+  // The key goes in a header, never the URL, which request logs record.
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
 
@@ -798,7 +799,7 @@ export async function handleGeminiAi(
     const resp = await withDeadline(
       deps.fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify(geminiPayload),
         signal: controller.signal,
       }),

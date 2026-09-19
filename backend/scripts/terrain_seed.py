@@ -15,6 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.core.event_loop import configure_event_loop_policy
 configure_event_loop_policy()
+from app.core.disposable import assert_disposable
 from app.core.config import get_settings
 from app.core.security import hash_password
 from app.db.session import get_sessionmaker, dispose_engine
@@ -24,6 +25,10 @@ from tests import db_target
 from httpx import AsyncClient
 
 async def main():
+    # A fixture loader may only write to a database somebody is
+    # prepared to lose. Checked FIRST: a guard after the first
+    # insert has prevented nothing.
+    assert_disposable("terrain_seed.py")
     db_target.install()
     db_target.enforce(get_settings().effective_database_url, context='Terrain browser QA')
     tag = uuid.uuid4().hex[:8].upper()

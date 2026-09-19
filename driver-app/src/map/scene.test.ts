@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { sceneLayers } from './scene'
+import { MAP_COLOURS, sceneLayers } from './scene'
 
 const base = { points: [[26.1, 91.7], [26.2, 91.8], [26.3, 91.9]] as [number, number][], backupPoints: [], showBackup: false, stops: [], position: null, positionKind: null, accuracyM: null }
 
@@ -32,9 +32,29 @@ describe('sceneLayers', () => {
     expect(traffic).toHaveLength(1)
     expect(traffic[0]).toMatchObject({ c: '#DC2626', tip: 'Fleet traffic: congested · 12 km/h vs 48 planned · 2 trucks · 4 min ago' })
   })
+  it('gives terrain a light edge in Dark and draws Light exactly as before', () => {
+    const terrainSegments = [{ start_m: 0, end_m: 8000, grade_pct: 11, terrain_class: 'STEEP' }]
+    const kinds = (mode: 'light' | 'dark') => sceneLayers({ ...base, progressFraction: null, terrainSegments }, mode).map((l) => `${l.c}/${l.k === 'line' ? l.w : ''}`)
+    expect(kinds('light')).toEqual(['#FFFFFF/10', '#2563EB/6', '#B42318/6'])
+    // Dark: black casing, light route blue, then the edge the steep red sits on.
+    expect(kinds('dark')).toEqual(['#070808/10', '#62A8FF/6', '#F5F6F2/10', '#B42318/6'])
+  })
   it('draws nothing for a null position and keeps place ids for taps', () => {
     const layers = sceneLayers({ ...base, points: [], places: [{ provider_id: 'osm:1', name: 'Lay-by', category: 'REST', lat: 26, lon: 91 } as never] })
     expect(layers).toEqual([expect.objectContaining({ k: 'dot', id: 'osm:1', tip: 'Lay-by - rest' })])
+  })
+})
+
+describe('Dark data hues', () => {
+  it('draws the live fix and flowing traffic in the accent in Dark, and Light exactly as before (REG-5)', () => {
+    const fix = { ...base, progressFraction: null, position: [26.15, 91.75] as [number, number], positionKind: 'LIVE' as const, accuracyM: 20, headingDeg: 45,
+      trafficSegments: [{ start_m: 0, end_m: 8000, state: 'NORMAL', observed_kmph: 40, baseline_kmph: 42, vehicle_count: 1, newest_age_seconds: 60 }] }
+    const colours = (mode: 'light' | 'dark') => {
+      const layers = sceneLayers(fix, mode)
+      return { traffic: layers.find((l) => l.k === 'line' && l.w === 3)?.c, arrow: layers.find((l) => l.k === 'arrow')?.c, disc: layers.find((l) => l.k === 'circle')?.c }
+    }
+    expect(colours('light')).toEqual({ traffic: '#16A34A', arrow: '#087F5B', disc: '#087F5B' })
+    expect(colours('dark')).toEqual({ traffic: '#39D8A0', arrow: '#39D8A0', disc: '#39D8A0' })
   })
 })
 
@@ -57,5 +77,18 @@ describe('static and live layers', () => {
     // never trims them, so a fix does not rebuild the road.
     expect(still.filter((l) => l.k === 'line').every((l) => l.p.length === base.points.length)).toBe(true)
     expect(still.filter((l) => l.k === 'dot')).toHaveLength(2)
+  })
+})
+
+describe('service pins', () => {
+  it('draws none in green, which the app keeps for actions, and FUEL as the manager draws it (REG-5)', () => {
+    const CATEGORY_COLOUR = MAP_COLOURS.light.category
+    expect(MAP_COLOURS.dark.category).toEqual(CATEGORY_COLOUR)
+    for (const [kind, hex] of Object.entries(CATEGORY_COLOUR)) {
+      const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
+      expect(g > r && g > b, kind).toBe(false)
+    }
+    expect(CATEGORY_COLOUR.FUEL).toBe('#6D28D9')
+    expect(CATEGORY_COLOUR.TYRES).toBe('#475569')
   })
 })

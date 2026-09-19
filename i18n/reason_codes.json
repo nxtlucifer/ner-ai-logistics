@@ -140,9 +140,9 @@
     },
     "LANDSLIDE_DATA_NOT_CONFIGURED": {
       "speak": false,
-      "en": "Landslide data is not available - no source is connected.",
-      "hi": "भूस्खलन का डेटा उपलब्ध नहीं है - कोई स्रोत जुड़ा नहीं है।",
-      "as": "ভূমিস্খলনৰ তথ্য নাই - কোনো উৎস সংযোগ কৰা হোৱা নাই।"
+      "en": "Live landslide reports are not available - no source is connected.",
+      "hi": "भूस्खलन की ताज़ा रिपोर्ट उपलब्ध नहीं है - कोई स्रोत जुड़ा नहीं है।",
+      "as": "ভূমিস্খলনৰ শেহতীয়া প্ৰতিবেদন নাই - কোনো উৎস সংযোগ কৰা হোৱা নাই।"
     },
     "LANDSLIDE_INCIDENT_LOCATION_UNKNOWN": {
       "speak": false,

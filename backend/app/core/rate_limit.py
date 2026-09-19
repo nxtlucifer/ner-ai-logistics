@@ -17,27 +17,26 @@ in one burst, and a policy broad enough to cover "the API" would throttle the
 telemetry the fleet map depends on. Being unable to apply a limit without naming
 the route makes that mistake hard to make by accident.
 
-WHY THE PEER ADDRESS AND NOT X-Forwarded-For
+WHY NOT THE LEFT-MOST X-Forwarded-For
 
-`get_client_ip` in app/api/deps.py reads X-Forwarded-For for audit records, and
-says plainly that it is client-controlled and never used for an authorization
-decision. A limiter keyed on it would be bypassed by rotating one header, which
-is worse than no limiter because it would look like protection. This module
-keys on `request.client.host`, the actual TCP peer.
-
-The cost is real and stated rather than hidden: behind a reverse proxy every
-request appears to come from the proxy, and the per-IP limit would then apply to
-everyone at once. The per-identifier limit is what still holds in that case, and
-if this is ever deployed behind a proxy the peer address must be replaced with
-one the proxy is trusted to set - not with a header any caller can forge.
+The left-most X-Forwarded-For entry is whatever the caller typed. A limiter
+keyed on it would be bypassed by rotating one header, which is worse than no
+limiter because it would look like protection. `client_address` below is the
+one reading used by both the login limiter and `get_client_ip` (the audit IP in
+app/api/deps.py): the TCP peer, or, with TRUSTED_PROXY_HOPS set, the entry that
+many trusted proxies appended, counted from the right (SEC-006). Behind Render's
+one proxy that is the real client, not the proxy, so callers do not share one
+per-IP budget.
 
 SCOPE, HONESTLY
 
 State is in-process memory. It does not survive a restart and is not shared
 between workers, so a multi-process deployment enforces the limit per worker.
 For a single uvicorn process - what this project runs - that is exactly the
-stated limit. Anything larger needs shared state (Redis, or Postgres), and this
-module's interface is deliberately narrow enough to swap.
+stated limit. With MULTI_INSTANCE set, app/api/auth.py counts the same keys in
+Postgres (app/services/coordination.allow), which returns this module's
+Decision. The per-address keys are still checked here first, so an attempt
+this process already refuses costs no query.
 """
 
 from dataclasses import dataclass, field
@@ -153,3 +152,43 @@ class FixedWindowLimiter:
         cutoff = now - self.window
         for key in [k for k, w in self._windows.items() if w.started_at < cutoff]:
             del self._windows[key]
+
+
+def client_address(
+    peer: str | None, forwarded_for: str | None, trusted_hops: int
+) -> str:
+    """The address a rate limit should be counted against.
+
+    `peer` is the TCP peer. `forwarded_for` is the raw `X-Forwarded-For`
+    header. `trusted_hops` is how many proxies genuinely sit in front of
+    this service.
+
+    WHY FROM THE RIGHT
+
+    A conforming proxy APPENDS the address it received from. So for a
+    request that really passed through one proxy:
+
+        X-Forwarded-For: <client>
+                          ^ appended by the proxy, trustworthy
+
+    and for a client that forged the header before reaching that proxy:
+
+        X-Forwarded-For: 1.2.3.4 (forged), <client>
+                                            ^ still the rightmost
+
+    Taking the rightmost entry per trusted hop therefore reads only what
+    the infrastructure wrote. Taking the LEFTMOST — the usual reading of
+    "the original client" — reads precisely the part an attacker controls,
+    and would let anyone reset their own rate limit on every request.
+
+    With `trusted_hops == 0` the header is not consulted at all.
+    """
+    if trusted_hops > 0 and forwarded_for:
+        hops = [h.strip() for h in forwarded_for.split(",") if h.strip()]
+        if hops:
+            # Never index past the start: a request with fewer hops than
+            # configured has not been through the expected chain, so fall
+            # back to the leftmost real entry rather than to nothing.
+            index = max(0, len(hops) - trusted_hops)
+            return hops[index][:45]
+    return peer or "unknown-peer"

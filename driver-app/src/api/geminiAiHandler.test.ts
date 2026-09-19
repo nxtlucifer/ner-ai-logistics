@@ -408,6 +408,10 @@ describe('Gemini Edge Function Handler', () => {
     const data = await res.json()
     expect(data.source_mode).toBe('LIVE_DATA')
     expect(data.answer).toBe('Your next stop is Jorhat Delivery Depot.')
+    // The key rides in a header: a query-string key is a key in every request log.
+    const [url, init] = mockFetch.mock.calls[0]
+    expect(String(url)).not.toContain('test-key')
+    expect((init as RequestInit & { headers: Record<string, string> }).headers['x-goog-api-key']).toBe('test-key')
   })
 
   it('falls back to OpenRouter when Gemini returns 429 and OPENROUTER_API_KEY is present', async () => {

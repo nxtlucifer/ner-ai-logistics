@@ -1,0 +1,57 @@
+{
+  "at": "2026-09-18T10:46:44.464Z",
+  "results": [
+    {
+      "name": "login: wrong password shows one server message",
+      "ok": true,
+      "note": "Invalid"
+    },
+    {
+      "name": "login: manager session",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "fleet: no horizontal overflow at 1440",
+      "ok": true,
+      "note": "overflow=0"
+    },
+    {
+      "name": "fleet: no horizontal overflow at 768",
+      "ok": true,
+      "note": "overflow=0"
+    },
+    {
+      "name": "fleet: no horizontal overflow at 390",
+      "ok": true,
+      "note": "overflow=0"
+    },
+    {
+      "name": "trips: no horizontal overflow at 390",
+      "ok": true,
+      "note": "overflow=0"
+    },
+    {
+      "name": "drivers: server 422 mapped onto fields",
+      "ok": true,
+      "note": "full_name,phone,licence_number,initial_password"
+    },
+    {
+      "name": "unknown URL redirects home",
+      "ok": true,
+      "note": "/fleet"
+    }
+  ],
+  "console": {
+    "name": "manager",
+    "console": [],
+    "exceptions": [],
+    "network": [
+      "401 /api/auth/refresh",
+      "401 /api/auth/login",
+      "422 /api/drivers",
+      "FAILED net::ERR_INTERNET_DISCONNECTED Document",
+      "FAILED net::ERR_INTERNET_DISCONNECTED Document"
+    ]
+  }
+}

@@ -127,10 +127,13 @@ def _envelope(
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(APIError)
     async def _api_error(request: Request, exc: APIError) -> JSONResponse:
-        response = JSONResponse(
-            status_code=exc.status_code,
-            content=_envelope(exc.code, exc.message, request, exc.details),
-        )
+        body = _envelope(exc.code, exc.message, request, exc.details)
+        if exc.status_code >= 500:
+            logger.warning(
+                "%s on %s request_id=%s",
+                exc.code, request.url.path, body["error"]["request_id"],
+            )
+        response = JSONResponse(status_code=exc.status_code, content=body)
         if exc.status_code == status.HTTP_401_UNAUTHORIZED:
             response.headers["WWW-Authenticate"] = "Bearer"
         if isinstance(exc, RateLimitedError):
@@ -200,20 +203,22 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def _database_error(request: Request, exc: SQLAlchemyError) -> JSONResponse:
         # psycopg embeds the connection DSN - password included - in connection
         # errors. Never serialise this exception to a client.
-        logger.error("Database error on %s", request.url.path, exc_info=exc)
-        return JSONResponse(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content=_envelope(
-                "DATABASE_UNAVAILABLE", "A database error occurred.", request
-            ),
+        body = _envelope("DATABASE_UNAVAILABLE", "A database error occurred.", request)
+        logger.error(
+            "Database error on %s request_id=%s",
+            request.url.path, body["error"]["request_id"], exc_info=exc,
         )
+        return JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content=body)
 
     @app.exception_handler(Exception)
     async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
-        logger.exception("Unhandled error on %s", request.url.path)
+        body = _envelope("INTERNAL_ERROR", "An unexpected error occurred.", request)
+        rid = body["error"]["request_id"]
+        logger.exception("Unhandled error on %s request_id=%s", request.url.path, rid)
+        # Answered by ServerErrorMiddleware, outside the request-id middleware
+        # in app/main.py, so the header is set here.
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content=_envelope(
-                "INTERNAL_ERROR", "An unexpected error occurred.", request
-            ),
+            content=body,
+            headers={"X-Request-ID": rid},
         )

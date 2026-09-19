@@ -1,0 +1,30 @@
+### npm test
+ Test Files  24 passed (24)
+      Tests  261 passed (261)
+### npm run typecheck
+> manager-web@0.0.0 typecheck
+> tsc -b --noEmit
+
+typecheck exit=0
+### npm run build
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 669ms
+### bundle secret scan (manager-web/dist after npm run build)
+index-BpAG2Mgy.js
+index-Dtcd001M.css
+maplibre-gl-worker-Bml_7JYB.js
+  service_role: 0 match(es)
+  sb_secret: 1 match(es)
+  AIza key: 0 match(es)
+  sk- key: 0 match(es)
+  JWT: 1 match(es)
+  postgres DSN: 0 match(es)
+  VITE_ names: 0 match(es)
+  .map files: 0 source maps shipped
+  inlined API base: ['http://localhost', 'http://localhost:8123', 'http://localhost:9999', 'http://www.w3.org', 'https://fonts.googleapis.com', 'https://fonts.gstatic.com', 'https://github.com', 'https://maplibre.org']
+  triage: the single "JWT" match is the Supabase ANON (publishable) key (claims: iss=supabase, role=anon) - public by design, RLS-protected (tests/test_rls_boundary.py);
+          the single "sb_secret_" match is a prefix-check string literal inside the supabase-js library, not a key. No service-role key, no API key, no DSN, no source maps.

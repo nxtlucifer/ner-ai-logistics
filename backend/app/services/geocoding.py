@@ -36,7 +36,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from app.services import provider_health
+from app.services import coordination, provider_health
 
 from app.core.config import get_settings
 
@@ -114,6 +114,31 @@ NOMINATIM_USER_AGENT = "ner-fleet-intelligence/0.1 (SIH26002; trip planner geoco
 _NOMINATIM_LIMIT = 6
 _CACHE_SIZE = 500
 _nominatim_lock = asyncio.Lock()
+_last_request = 0.0
+
+
+async def _throttle() -> None:
+    """Usage policy: at most one request per second. Called under the lock,
+    before each request, so the wait falls on the NEXT caller, not this one.
+    With MULTI_INSTANCE the second is also shared: a slot is reserved in
+    Postgres so every instance together stays at one request per second. The
+    extra 50 ms covers sleep and round-trip jitter between slot and request.
+    If the slot cannot be reserved within a second, this instance's own second
+    still holds and the search goes ahead: while the database is sick the
+    shared second is lost, but an address search or a shipment does not fail
+    with a 500, and the lock is not held for the pool's 5 s timeout."""
+    global _last_request
+    loop = asyncio.get_running_loop()
+    wait = 1.0 - (loop.time() - _last_request)
+    if wait > 0:
+        await asyncio.sleep(wait)
+    if get_settings().MULTI_INSTANCE:
+        try:
+            await coordination.pace("nominatim", 1.05, reserve_within_s=1.0)
+        except Exception as exc:  # noqa: BLE001 - see above; the local second already ran
+            log.warning("nominatim pacing unavailable, local 1 s only: %s", type(exc).__name__)
+    _last_request = loop.time()
+
 _search_cache: "OrderedDict[str, list[PlaceDetail]]" = OrderedDict()
 _detail_cache: "OrderedDict[str, PlaceDetail]" = OrderedDict()
 
@@ -155,12 +180,12 @@ async def nominatim_search(query: str, *, limit: int = _NOMINATIM_LIMIT) -> list
     settings = get_settings()
     try:
         async with _nominatim_lock, httpx.AsyncClient(timeout=settings.GEOCODING_TIMEOUT_SECONDS) as c:
+            await _throttle()
             response = await c.get(
                 f"{settings.NOMINATIM_URL}/search",
                 params={"q": query, "format": "jsonv2", "limit": limit, "countrycodes": NOMINATIM_COUNTRIES},
                 headers={"User-Agent": NOMINATIM_USER_AGENT},
             )
-            await asyncio.sleep(1.0)  # usage policy: at most one request per second
     except httpx.HTTPError as exc:
         provider_health.fail("NOMINATIM", provider_health.category(exc))
         raise GeocodingUnavailable(f"nominatim transport failed: {exc}") from exc
@@ -173,6 +198,53 @@ async def nominatim_search(query: str, *, limit: int = _NOMINATIM_LIMIT) -> list
     for detail in found:
         _remember(_detail_cache, detail.place_id, detail)
     _remember(_search_cache, key, found)
+    return found
+
+
+_reverse_cache: "OrderedDict[str, tuple[str | None, list[str]]]" = OrderedDict()
+
+
+def parse_reverse_admin(payload: dict) -> tuple[str | None, list[str]]:
+    """(state, district candidates) from a Nominatim reverse answer.
+
+    Indian districts arrive as `state_district` or `county` depending on how
+    the area was mapped; both are returned and the caller matches exactly.
+    """
+    address = (payload or {}).get("address") or {}
+    state = (address.get("state") or "").strip() or None
+    districts = [v.strip() for k in ("state_district", "county") if (v := address.get(k))]
+    return state, districts
+
+
+async def reverse_admin(lat: float, lon: float) -> tuple[str | None, list[str]]:
+    """Which state and district OpenStreetMap places this point in.
+
+    Third-party, not authoritative: the caller records it as such
+    (app/services/trip_geography.py) and matches it exactly, never loosely.
+    """
+    key = f"{lat:.4f},{lon:.4f}"
+    cached = _reverse_cache.get(key)
+    if cached is not None:
+        _reverse_cache.move_to_end(key)
+        return cached
+    settings = get_settings()
+    try:
+        async with _nominatim_lock, httpx.AsyncClient(timeout=settings.GEOCODING_TIMEOUT_SECONDS) as c:
+            await _throttle()
+            response = await c.get(
+                f"{settings.NOMINATIM_URL}/reverse",
+                params={"lat": lat, "lon": lon, "format": "jsonv2", "addressdetails": 1, "zoom": 10},
+                headers={"User-Agent": NOMINATIM_USER_AGENT},
+            )
+    except httpx.HTTPError as exc:
+        provider_health.fail("NOMINATIM", provider_health.category(exc))
+        raise GeocodingUnavailable(f"nominatim reverse failed: {exc}") from exc
+    if response.status_code != 200:
+        provider_health.fail("NOMINATIM", provider_health.category(Exception(), response.status_code))
+        raise GeocodingUnavailable(f"nominatim reverse returned {response.status_code}")
+    found = parse_reverse_admin(response.json())
+    provider_health.ok("NOMINATIM")
+    _remember(_reverse_cache, key, found)
     return found
 
 
@@ -276,12 +348,12 @@ async def details(place_id: str, session_token: str) -> PlaceDetail:
             raise GeocodingUnavailable("malformed place id") from exc
         try:
             async with _nominatim_lock, httpx.AsyncClient(timeout=settings.GEOCODING_TIMEOUT_SECONDS) as c:
+                await _throttle()
                 response = await c.get(
                     f"{settings.NOMINATIM_URL}/reverse",
                     params={"lat": f"{lat:.6f}", "lon": f"{lon:.6f}", "format": "jsonv2"},
                     headers={"User-Agent": NOMINATIM_USER_AGENT},
                 )
-                await asyncio.sleep(1.0)
         except httpx.HTTPError as exc:
             raise GeocodingUnavailable(f"nominatim transport failed: {exc}") from exc
         name = (response.json().get("display_name") if response.status_code == 200 else None) or f"{lat:.5f}, {lon:.5f}"

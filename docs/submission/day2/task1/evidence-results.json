@@ -1,0 +1,686 @@
+{
+  "at": "2026-09-19T04:27:36.730Z",
+  "api": "http://127.0.0.1:8010",
+  "manager": "http://localhost:5173",
+  "driver": "http://localhost:8123",
+  "results": [
+    {
+      "name": "GET /health renders",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "GET /ready reports database + postgis",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "Swagger UI lists the API",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "manager login -> Fleet",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "manager UI called the API",
+      "ok": true,
+      "note": "102 calls"
+    },
+    {
+      "name": "manager UI: no 5xx",
+      "ok": true,
+      "note": "[]"
+    },
+    {
+      "name": "driver login: session",
+      "ok": true,
+      "note": ""
+    },
+    {
+      "name": "driver app called the API",
+      "ok": true,
+      "note": "19 calls"
+    },
+    {
+      "name": "driver app: no 5xx",
+      "ok": true,
+      "note": "[]"
+    }
+  ],
+  "manager_api_calls": [
+    {
+      "method": "GET",
+      "path": "/health",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/ready",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/src/api/connectivity.ts",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/src/api/client.ts",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/src/api/supabaseClient.ts",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/src/api/supabaseManagerApi.ts",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/src/api/intelligence.ts",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/auth/refresh",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/refresh",
+      "status": 401
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/auth/login",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/login",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/fleet/active",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/emergencies/active",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/fleet/active",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/emergencies/active",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/emergencies/active",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/emergencies/active",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/fleet/active",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/src/api/connectivity.ts",
+      "status": 304
+    },
+    {
+      "method": "GET",
+      "path": "/src/api/client.ts",
+      "status": 304
+    },
+    {
+      "method": "GET",
+      "path": "/src/api/supabaseClient.ts",
+      "status": 304
+    },
+    {
+      "method": "GET",
+      "path": "/src/api/supabaseManagerApi.ts",
+      "status": 304
+    },
+    {
+      "method": "GET",
+      "path": "/src/api/intelligence.ts",
+      "status": 304
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/refresh",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/drivers",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/assignments?active_only=true",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/trucks?limit=100",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/trips?limit=50",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/assignments?active_only=true",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/trucks?limit=100",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/drivers",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/assignments?active_only=true",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/trucks?limit=100",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/drivers",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/files/c0caff6f-2779-40dc-9d43-0bb5f4fb88e7",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/files/c0caff6f-2779-40dc-9d43-0bb5f4fb88e7",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/files/c0caff6f-2779-40dc-9d43-0bb5f4fb88e7",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/files/c0caff6f-2779-40dc-9d43-0bb5f4fb88e7",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/trips?limit=50",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/trips?limit=50",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/src/api/connectivity.ts",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/src/api/client.ts",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/src/api/supabaseClient.ts",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/src/api/supabaseManagerApi.ts",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/src/api/intelligence.ts",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/refresh",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/trucks",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/drivers?limit=100",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/trucks",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/trips?limit=50",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/assignments?active_only=true",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/trucks",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/trips?limit=50",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/files/6c755b65-b03d-49e6-a8a7-3c1281f73e5e",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/files/6c755b65-b03d-49e6-a8a7-3c1281f73e5e",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/assignments?active_only=true",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/files/6c755b65-b03d-49e6-a8a7-3c1281f73e5e",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/files/6c755b65-b03d-49e6-a8a7-3c1281f73e5e",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/drivers?limit=100",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/drivers?limit=100",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/src/api/connectivity.ts",
+      "status": 304
+    },
+    {
+      "method": "GET",
+      "path": "/src/api/client.ts",
+      "status": 304
+    },
+    {
+      "method": "GET",
+      "path": "/src/api/supabaseClient.ts",
+      "status": 304
+    },
+    {
+      "method": "GET",
+      "path": "/src/api/supabaseManagerApi.ts",
+      "status": 304
+    },
+    {
+      "method": "GET",
+      "path": "/src/api/intelligence.ts",
+      "status": 304
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/refresh",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/trips?limit=20&open_only=true",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/trips?limit=100&open_only=true",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/trips?limit=100&open_only=true",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/drivers?limit=100",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/trucks?limit=100",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/trips?limit=20&open_only=true",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/drivers?limit=100",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/trucks?limit=100",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/trips?limit=20&open_only=true",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/assignments?active_only=true",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/assignments?active_only=true",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/trips?limit=100&open_only=true",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/trips?limit=100&open_only=true",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/trips?limit=100&open_only=true",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/trips?limit=20&open_only=true",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/trips?limit=20&open_only=false",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/trips?limit=20&open_only=false",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/src/api/connectivity.ts",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/src/api/client.ts",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/src/api/supabaseClient.ts",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/src/api/supabaseManagerApi.ts",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/src/api/intelligence.ts",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/refresh",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/ready",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/system/providers",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/system/providers",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/system/providers",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/ready",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/system/providers",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/ready",
+      "status": 200
+    }
+  ],
+  "driver_api_calls": [
+    {
+      "method": "OPTIONS",
+      "path": "/api/auth/login",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/login",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/driver/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/driver/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/driver/me/trip",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/driver/me/profile",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/driver/me/trip",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/driver/me/profile",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/driver/me/assignment",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/driver/me/notices?limit=5",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/driver/me/assignment",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/driver/me/notices?limit=5",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/files/c0caff6f-2779-40dc-9d43-0bb5f4fb88e7",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/files/c0caff6f-2779-40dc-9d43-0bb5f4fb88e7",
+      "status": 200
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/driver/me/trip/route-risk",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/driver/me/trip/route-risk",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/driver/me/trip",
+      "status": 200
+    }
+  ],
+  "console": {
+    "manager": {
+      "name": "manager",
+      "console": [],
+      "exceptions": [],
+      "network": [
+        "401 /api/auth/refresh"
+      ]
+    },
+    "driver": {
+      "name": "driver",
+      "console": [
+        "warning: [expo-notifications] Listening to push token changes is not yet fully supported on web. Adding a listener will have no effect.",
+        "warning: \"shadow*\" style props are deprecated. Use \"boxShadow\".",
+        "warning: props.pointerEvents is deprecated. Use style.pointerEvents"
+      ],
+      "exceptions": [],
+      "network": [
+        "404 /api/driver/me/trip/route-risk",
+        "FAILED net::ERR_BLOCKED_BY_ORB Image",
+        "FAILED net::ERR_BLOCKED_BY_ORB Image"
+      ]
+    }
+  }
+}
