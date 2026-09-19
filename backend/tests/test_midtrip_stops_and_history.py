@@ -294,6 +294,25 @@ class TestTripFilters:
         open_page = await api.get("/api/trips?open_only=true&limit=100", headers=manager_headers)
         assert old.trip_code not in [t["trip_code"] for t in open_page.json()["items"]]
 
+    async def test_a_listed_trip_says_who_and_where_without_a_second_request(
+        self, api: AsyncClient, session: AsyncSession, manager_headers: dict
+    ):
+        """The export defect: 107 rows wrote Trip, Driver, Truck and Status and
+        left Client, Origin and Destination blank, because the list row knew a
+        shipment_id and nothing a person can read."""
+        trip, _, _ = await _trip(session)
+        page = await api.get("/api/trips?limit=5", headers=manager_headers)
+        assert page.status_code == 200, page.text
+        row = next(t for t in page.json()["items"] if t["trip_code"] == trip.trip_code)
+        assert row["client_name"], "the list row has no client name"
+        assert row["origin"], "the list row has no origin"
+        assert row["destination"], "the list row has no destination"
+
+        detail = (await api.get(f"/api/trips/{trip.id}", headers=manager_headers)).json()
+        assert row["client_name"] == detail["shipment"]["client_name"], (
+            "the list and the trip disagree about the client"
+        )
+
     async def test_filter_by_driver_and_truck(
         self, api: AsyncClient, session: AsyncSession, manager_headers: dict
     ):

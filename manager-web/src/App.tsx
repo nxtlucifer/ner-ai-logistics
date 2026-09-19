@@ -9,7 +9,7 @@
 import type { ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { Activity, LayoutDashboard, LogOut, Route as RouteIcon, ShieldCheck, Truck, Users } from 'lucide-react'
-import { BrowserRouter, NavLink, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 
 import { ageLabel, useConnectivity } from './api/connectivity'
 
@@ -91,6 +91,7 @@ function SyncBanner() {
 }
 
 function Shell() {
+  const location = useLocation()
   const { user, logout, can } = useAuth()
   const home =
     NAV.find((item) => !item.permission || can(item.permission))?.to ?? '/system'
@@ -154,7 +155,9 @@ function Shell() {
       </header>
       <SyncBanner />
 
-      <main id="main-content" className="workspace">
+      {/* Trips is the one page whose table wants every pixel of a wide
+          screen; everything else keeps the reading cap. */}
+      <main id="main-content" className={`workspace${location.pathname.startsWith('/trips') ? ' workspace--wide' : ''}`}>
         <Routes>
           <Route
             path="/fleet"

@@ -383,9 +383,19 @@ class TripStatusUpdate(APIModel):
 
 
 class TripRead(ReadModel):
+    #: WHO AND WHERE, carried on the trip itself.
+    #:
+    #: `client_name`, `origin` and `destination` live on the shipment, one join
+    #: away. They are here because every list that shows a trip has to say what
+    #: it is - a row, a report, an export - and asking for the shipment per row
+    #: is 107 requests to draw one table. Null only for a trip whose shipment
+    #: row is gone, which is a data fault, not a blank cell.
     id: uuid.UUID
     trip_code: str
     shipment_id: uuid.UUID
+    client_name: str | None = None
+    origin: str | None = None
+    destination: str | None = None
     truck_id: uuid.UUID
     driver_id: uuid.UUID
     status: TripStatus

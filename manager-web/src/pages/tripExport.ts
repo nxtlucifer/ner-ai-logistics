@@ -53,6 +53,19 @@ export const EXPORT_COLUMNS: [keyof ExportRow, string][] = [
 const when = (iso: string | null | undefined): string =>
   iso ? new Date(iso).toLocaleString() : ''
 
+/**
+ * A field the system HAS but this record does not.
+ *
+ * An empty cell in an operational export reads as a broken export. "Not
+ * recorded" says the row is complete and the value genuinely is not there -
+ * which is a different fact, and the only honest one when an old trip predates
+ * a field. Timestamps stay blank: "not started" is obvious from the status
+ * column, and a column of "Not recorded" would drown the real gaps.
+ */
+export const NOT_RECORDED = 'Not recorded'
+const stored = (value: string | null | undefined): string =>
+  value && value.trim() ? value.trim() : NOT_RECORDED
+
 /** One trip as the row a spreadsheet or a report shows. */
 export function exportRow(
   trip: Trip,
@@ -60,9 +73,10 @@ export function exportRow(
 ): ExportRow {
   return {
     trip_code: trip.trip_code,
-    client: lookup.client ?? '',
-    origin: lookup.origin ?? '',
-    destination: lookup.destination ?? '',
+    // The trip row carries these; the lookup only overrides them.
+    client: stored(lookup.client ?? trip.client_name),
+    origin: stored(lookup.origin ?? trip.origin),
+    destination: stored(lookup.destination ?? trip.destination),
     driver: lookup.driver ?? '',
     truck: lookup.truck ?? '',
     status: trip.status,

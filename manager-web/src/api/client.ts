@@ -517,6 +517,12 @@ export interface Trip {
   id: string
   trip_code: string
   shipment_id: string
+  /** Who and where, carried on the row itself so a list, a report and an
+   *  export can all say it without a request per trip. Null only when the
+   *  shipment row is missing. */
+  client_name?: string | null
+  origin?: string | null
+  destination?: string | null
   truck_id: string
   driver_id: string
   status: TripStatus

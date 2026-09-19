@@ -9,16 +9,38 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest'
 
-import { EXPORT_COLUMNS, csvCell, exportRow, printReport, reportHtml, toCsv } from './tripExport'
+import { EXPORT_COLUMNS, NOT_RECORDED, csvCell, exportRow, printReport, reportHtml, toCsv } from './tripExport'
 import { activeFilterCount, describeFilters, EMPTY_FILTERS } from './TripListControls'
 import type { Trip } from '../api/client'
 
 const trip = (over: Partial<Trip> = {}): Trip => ({
   id: 't1', trip_code: 'TRP-ALPHA', shipment_id: 's1', truck_id: 'k1', driver_id: 'd1',
+  client_name: 'Brahmaputra Traders', origin: 'Guwahati Depot', destination: 'Shillong Depot',
   status: 'DELIVERED', selected_route_id: 'r1', dispatched_at: null,
   started_at: '2026-09-18T04:30:00Z', delivered_at: '2026-09-18T09:00:00Z',
   planned_eta: null, current_eta: null, delay_minutes: null,
   created_at: '2026-09-18T04:00:00Z', ...over,
+})
+
+describe('what the row says about the trip', () => {
+  it('takes client, origin and destination from the trip itself', () => {
+    // The defect: 107 exported rows had Trip, Driver, Truck and Status and a
+    // blank Client, Origin and Destination, because the caller had no lookup
+    // for them and the list row did not carry them.
+    const row = exportRow(trip(), { driver: 'D', truck: 'T' })
+    expect(row.client).toBe('Brahmaputra Traders')
+    expect(row.origin).toBe('Guwahati Depot')
+    expect(row.destination).toBe('Shillong Depot')
+  })
+
+  it('says "Not recorded" for a field the record genuinely lacks, never a blank', () => {
+    const row = exportRow(trip({ client_name: null, origin: null, destination: '  ' }), {})
+    expect(row.client).toBe(NOT_RECORDED)
+    expect(row.origin).toBe(NOT_RECORDED)
+    expect(row.destination).toBe(NOT_RECORDED)
+    // A timestamp stays blank: "not started" is already in the status column.
+    expect(exportRow(trip({ started_at: null }), {}).started).toBe('')
+  })
 })
 
 describe('CSV', () => {
@@ -46,7 +68,11 @@ describe('CSV', () => {
 
   it('carries nothing sensitive', () => {
     const csv = toCsv([exportRow(trip(), { driver: 'RASTA Demo Driver', truck: 'AS86QQ7606' })])
-    expect(csv).not.toMatch(/licence|phone|lat|lon|password|document/i)
+    // Word-ish, because "Shillong" contains "lon" and a place name is not a
+    // coordinate. What must never appear: credentials, documents, positions.
+    expect(csv).not.toMatch(/licen[cs]e|password|document|latitude|longitude/i)
+    expect(csv).not.toMatch(/\d{10}/, )            // a phone number
+    expect(csv).not.toMatch(/\d{1,3}\.\d{4,}/)    // a coordinate
   })
 })
 

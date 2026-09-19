@@ -202,6 +202,16 @@ table th, table td { padding-right: 16px; }
 
 /* `margin: 0 auto`, never `auto`: in a grid cell `auto` centres VERTICALLY too, floating a short page mid-screen. */
 .workspace { min-width: 0; padding: 32px; max-width: 1800px; width: 100%; margin: 0 auto; }
+/* AN OPERATIONAL PAGE FILLS AN ULTRA-WIDE CANVAS.
+   Measured on the hosted console: at a 3840 CSS-px viewport - a 1920 screen at
+   50% browser zoom, which is how a dispatcher sees more rows at once - the
+   1800px cap left 1128px of dead gutter on the left and 912px on the right,
+   using 53% of the screen for a twelve-column table that was wrapping.
+   The table earns that width. The planner/review grid does NOT: a 1500px-wide
+   form field and a 1500px line of evidence prose are not more readable, so
+   they keep the reading cap and the page stays balanced. */
+.workspace--wide { max-width: none; }
+.workspace--wide .dispatch-grid { max-width: 1800px; }
 .workspace h1 { font-family: var(--font-display); font-size: 28px; font-weight: 700; letter-spacing: -.8px; }
 
 .dispatch-grid { display: grid; grid-template-columns: minmax(320px, .85fr) minmax(0, 1.15fr); gap: 24px; align-items: start; }

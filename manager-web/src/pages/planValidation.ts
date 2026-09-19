@@ -7,7 +7,7 @@
  * Text in an address box is not a location: an endpoint counts only with a
  * coordinate AND a provenance (search result, map pin, Maps link, typed).
  */
-import type { Assignment, Driver, Truck } from '../api/client'
+import type { Assignment, Driver, Trip, Truck } from '../api/client'
 import type { EndpointValue } from '../components/AddressPicker'
 
 export interface Check {
@@ -25,9 +25,46 @@ export interface PlanInput {
   drivers: Driver[]
   trucks: Truck[]
   assignments: Assignment[]
+  /**
+   * The fleet's open trips, so the planner knows which driver and truck are
+   * already spoken for.
+   *
+   * A driver's own `status` is not enough: a trip sitting in DRAFT leaves them
+   * AVAILABLE while a dispatcher has already promised them to it, and the
+   * console happily offered the same pair to a second and a third draft. The
+   * server refuses it either way (DRIVER_RESERVED_BY_TRIP); this is what stops
+   * the form from walking someone into that refusal.
+   */
+  openTrips: Trip[]
   referencesReady: boolean
   submitting: boolean
   today?: Date
+}
+
+/**
+ * Trip states that OWN a driver and a truck. Mirrors the server's
+ * RESOURCE_BLOCKING_STATUSES; the server is the enforcement, this is the
+ * courtesy. DELIVERED still holds them - the truck is at the consignee until
+ * someone closes the job.
+ */
+export const RESOURCE_BLOCKING_STATUSES = [
+  'DRAFT', 'ASSIGNED', 'VERIFICATION_PENDING', 'MANAGER_REVIEW',
+  'ACTIVE', 'DELAYED', 'INCIDENT', 'DELIVERED',
+] as const
+
+/** The open trip already holding this driver or truck, if any. */
+export function heldBy(
+  trips: Trip[] | undefined,
+  who: { driverId?: string; truckId?: string },
+): Trip | null {
+  return (
+    (trips ?? []).find(
+      (t) =>
+        (RESOURCE_BLOCKING_STATUSES as readonly string[]).includes(t.status) &&
+        ((who.driverId !== undefined && t.driver_id === who.driverId) ||
+          (who.truckId !== undefined && t.truck_id === who.truckId)),
+    ) ?? null
+  )
 }
 
 export interface PlanValidation {
@@ -136,6 +173,8 @@ export function validatePlan(input: PlanInput): PlanValidation {
     : ok
 
   const driverRow = input.drivers.find((x) => x.id === input.driverId) ?? null
+  const driverHeldBy = driverRow ? heldBy(input.openTrips, { driverId: driverRow.id }) : null
+  const truckHeldBy = input.truckId ? heldBy(input.openTrips, { truckId: input.truckId }) : null
   const driver = !input.driverId
     ? fail('Select a driver.')
     : !driverRow
@@ -148,7 +187,9 @@ export function validatePlan(input: PlanInput): PlanValidation {
             ? fail(`${driverRow.full_name} is already on a trip.`)
             : new Date(driverRow.licence_expiry) < new Date(today.toDateString())
               ? fail(`${driverRow.full_name}'s licence expired on ${driverRow.licence_expiry}.`)
-              : ok
+              : driverHeldBy
+                ? fail(`${driverRow.full_name} is already committed to ${driverHeldBy.trip_code} (${driverHeldBy.status}). Close or cancel that trip first.`)
+                : ok
 
   const truckRow = input.trucks.find((x) => x.id === input.truckId) ?? null
   const truck = !input.truckId
@@ -157,7 +198,9 @@ export function validatePlan(input: PlanInput): PlanValidation {
       ? fail('That truck is no longer listed.')
       : truckRow.status !== 'AVAILABLE'
         ? fail(`${truckRow.registration_number} is ${truckRow.status.toLowerCase().replaceAll('_', ' ')}, not available.`)
-        : ok
+        : truckHeldBy
+          ? fail(`${truckRow.registration_number} is already committed to ${truckHeldBy.trip_code} (${truckHeldBy.status}). Close or cancel that trip first.`)
+          : ok
 
   let assignment: Check = ok
   if (driverRow && truckRow) {

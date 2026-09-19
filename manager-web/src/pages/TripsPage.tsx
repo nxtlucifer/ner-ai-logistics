@@ -34,7 +34,7 @@ import AddressPicker, {
   EMPTY_ENDPOINT,
   type EndpointValue,
 } from '../components/AddressPicker'
-import { endpointPoint, pairedTruckId, straightLineKm, validatePlan } from './planValidation'
+import { endpointPoint, heldBy, pairedTruckId, straightLineKm, validatePlan } from './planValidation'
 import JourneyHistory from '../components/JourneyHistory'
 import {
   ALL_LIMIT,
@@ -158,6 +158,20 @@ export default function TripsPage() {
   const truckReg = (id: string) =>
     trucks.data?.items.find((t) => t.id === id)?.registration_number ??
     id.slice(0, 8)
+
+  // Every open trip in the fleet, for the planner's eligibility - NOT the page
+  // the list happens to be showing. A driver reserved by a draft on page three
+  // is just as unavailable as one on page one.
+  const openTrips = useResource(
+    () => api.listTrips({ open_only: true, limit: 100 }),
+    [],
+    'trips:open:100',
+    TRIPS_POLL_MS,
+  )
+  const heldTrip = useCallback(
+    (who: { driverId?: string; truckId?: string }) => heldBy(openTrips.data?.items, who),
+    [openTrips.data],
+  )
 
   const [reviewTrip, setReviewTrip] = useState<Trip | null>(null)
   const draftAttempt = useRef<{ intent: string; stamp: string } | null>(null)
@@ -366,6 +380,7 @@ export default function TripsPage() {
     drivers: drivers.data?.items ?? [],
     trucks: trucks.data?.items ?? [],
     assignments: assignments.data ?? [],
+    openTrips: openTrips.data?.items ?? [],
     referencesReady,
     submitting: create.isSubmitting,
   })
@@ -507,14 +522,15 @@ export default function TripsPage() {
                         DRIVER_LOGIN_INACTIVE, which is what actually enforces it. */}
                     {drivers.data?.items.map((d) => {
                       const paired = pairedFor(d.id)
+                      // Already promised to an open trip? Say which one. The
+                      // server refuses it (DRIVER_RESERVED_BY_TRIP); offering a
+                      // row that walks into that refusal is the defect.
+                      const held = heldTrip({ driverId: d.id })
+                      const blocked = !d.login_is_active || held !== null
                       return (
-                        <option
-                          key={d.id}
-                          value={d.id}
-                          disabled={!d.login_is_active}
-                        >
+                        <option key={d.id} value={d.id} disabled={blocked}>
                           {d.full_name} — {paired ? `truck ${truckReg(paired)}` : 'no truck assigned'}
-                          {d.login_is_active ? '' : ' (login inactive)'}
+                          {!d.login_is_active ? ' (login inactive)' : held ? ` (reserved by ${held.trip_code})` : ''}
                         </option>
                       )
                     })}
@@ -539,10 +555,17 @@ export default function TripsPage() {
                     {trucks.data?.items.map((t) => {
                       const pairedTruck = driverId ? pairedFor(driverId) : null
                       const unpaired = pairedTruck !== null && pairedTruck !== t.id
+                      const held = heldTrip({ truckId: t.id })
                       return (
-                        <option key={t.id} value={t.id} disabled={unpaired || t.status !== 'AVAILABLE'}>
+                        <option key={t.id} value={t.id} disabled={unpaired || held !== null || t.status !== 'AVAILABLE'}>
                           {t.registration_number} — {Number(t.max_capacity_kg).toLocaleString()} kg
-                          {t.status !== 'AVAILABLE' ? ` (${t.status.toLowerCase().replaceAll('_', ' ')})` : unpaired ? ' (not this driver’s truck)' : ''}
+                          {t.status !== 'AVAILABLE'
+                            ? ` (${t.status.toLowerCase().replaceAll('_', ' ')})`
+                            : held
+                              ? ` (reserved by ${held.trip_code})`
+                              : unpaired
+                                ? ' (not this driver’s truck)'
+                                : ''}
                         </option>
                       )
                     })}

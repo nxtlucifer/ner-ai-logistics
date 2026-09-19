@@ -220,6 +220,89 @@ async def stops_for(db: AsyncSession, trip_id: uuid.UUID) -> list[TripStop]:
 #: read-only rows, no dispatch or cancel control.
 HISTORY_STATUSES = (TripStatus.DELIVERED, TripStatus.CLOSED, TripStatus.CANCELLED)
 
+#: A trip in one of these states OWNS its driver and truck: planning them into
+#: a second trip would promise the same person and the same vehicle to two
+#: jobs at once.
+#:
+#: Derived from the lifecycle, not guessed. DRAFT is included because a draft
+#: is a commitment a dispatcher has already made on paper - it is the state the
+#: console shows as "ready to dispatch", and the screenshot that prompted this
+#: had one pair sitting on several drafts at once. DELIVERED is included
+#: because `release_resources` runs on CLOSE, not on delivery: until someone
+#: closes the job the truck is still standing at the consignee. CLOSED and
+#: CANCELLED release, which is exactly where `release_resources` is called.
+RESOURCE_BLOCKING_STATUSES = (
+    TripStatus.DRAFT,
+    TripStatus.ASSIGNED,
+    TripStatus.VERIFICATION_PENDING,
+    TripStatus.MANAGER_REVIEW,
+    TripStatus.ACTIVE,
+    TripStatus.DELAYED,
+    TripStatus.INCIDENT,
+    TripStatus.DELIVERED,
+)
+
+
+async def blocking_trip_for(
+    db: AsyncSession,
+    *,
+    driver_id: uuid.UUID | None = None,
+    truck_id: uuid.UUID | None = None,
+    exclude_trip_id: uuid.UUID | None = None,
+) -> Trip | None:
+    """The open trip already holding this driver or truck, if there is one.
+
+    Read with FOR UPDATE so two managers planning the same pair at the same
+    moment cannot both find nothing: the second transaction waits on the first
+    one's rows and then sees the trip it created. Without the lock the check is
+    advisory and the race is real - two requests, two drafts, one driver.
+    """
+    if driver_id is None and truck_id is None:
+        return None
+    who = []
+    if driver_id is not None:
+        who.append(Trip.driver_id == driver_id)
+    if truck_id is not None:
+        who.append(Trip.truck_id == truck_id)
+    stmt = (
+        select(Trip)
+        .where(or_(*who), Trip.status.in_(RESOURCE_BLOCKING_STATUSES))
+        .order_by(Trip.created_at.asc())
+        .limit(1)
+        .with_for_update()
+    )
+    if exclude_trip_id is not None:
+        stmt = stmt.where(Trip.id != exclude_trip_id)
+    return (await db.execute(stmt)).scalar_one_or_none()
+
+
+async def _assert_resources_free(
+    db: AsyncSession, *, driver: Driver, truck: Truck
+) -> None:
+    """Refuse a trip that would double-book a driver or a truck.
+
+    Inside the caller's transaction and before anything is written, so a
+    refusal leaves nothing behind. The message names the trip that holds the
+    resource, because "driver unavailable" sends a dispatcher hunting through
+    a list while the answer is one row away.
+    """
+    held = await blocking_trip_for(db, driver_id=driver.id)
+    if held is not None:
+        raise ConflictError(
+            f"{driver.full_name} is already committed to {held.trip_code} "
+            f"({held.status.value}). Close or cancel that trip first.",
+            code="DRIVER_RESERVED_BY_TRIP",
+            details={"trip_code": held.trip_code, "trip_status": held.status.value},
+        )
+    held = await blocking_trip_for(db, truck_id=truck.id)
+    if held is not None:
+        raise ConflictError(
+            f"{truck.registration_number} is already committed to {held.trip_code} "
+            f"({held.status.value}). Close or cancel that trip first.",
+            code="TRUCK_RESERVED_BY_TRIP",
+            details={"trip_code": held.trip_code, "trip_status": held.status.value},
+        )
+
 
 def _trip_filters(stmt, *, status, driver_id, truck_id, search, open_only):
     """Every filter in one place, so the page query and the count query can
@@ -272,8 +355,15 @@ async def list_trips(
     pager can say which page of how many.
     """
     page_size = clamp_limit(limit)
+    # ONE join for the shipment's client and endpoints. Without it every list
+    # row knows a shipment_id and nothing a person can read, and the CSV/PDF
+    # export wrote 107 rows with Client, Origin and Destination blank while
+    # every other column was populated. A per-row detail fetch would be 107
+    # requests to draw one table.
     stmt = _trip_filters(
-        select(Trip), status=status, driver_id=driver_id, truck_id=truck_id,
+        select(Trip, Shipment.client_name, Shipment.pickup_address, Shipment.destination_address)
+        .outerjoin(Shipment, Shipment.id == Trip.shipment_id),
+        status=status, driver_id=driver_id, truck_id=truck_id,
         search=search, open_only=open_only,
     )
     if cursor:
@@ -281,7 +371,14 @@ async def list_trips(
             cursor_predicate(Trip.created_at, Trip.id, decode_cursor(cursor))
         )
     stmt = stmt.order_by(Trip.created_at.desc(), Trip.id.desc()).limit(page_size + 1)
-    rows = list((await db.execute(stmt)).scalars().all())
+    rows = []
+    for trip, client_name, pickup, destination in (await db.execute(stmt)).all():
+        # Attached to the loaded Trip so the existing read model picks them up
+        # without a second shape travelling through every caller.
+        trip.client_name = client_name
+        trip.origin = pickup
+        trip.destination = destination
+        rows.append(trip)
     page, next_cursor = build_page(rows, page_size)
     if not with_total:
         return page, next_cursor
@@ -379,6 +476,10 @@ async def create(
         )
 
     _assert_capacity(shipment, truck)
+    # A driver and a truck can each be on ONE open job. Checked here, under
+    # the same transaction that writes the trip, so two concurrent planners
+    # cannot both pass.
+    await _assert_resources_free(db, driver=driver, truck=truck)
 
     trip = Trip(
         trip_code=payload.trip_code,

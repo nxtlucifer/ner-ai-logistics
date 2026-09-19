@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { Assignment, Driver, Truck } from '../api/client'
+import type { Assignment, Driver, Trip, Truck } from '../api/client'
 import { EMPTY_ENDPOINT, type EndpointValue } from '../components/AddressPicker'
 import { inServiceRegion, pairedTruckId, straightLineKm, validatePlan, type PlanInput } from './planValidation'
 
@@ -22,8 +22,16 @@ const good: PlanInput = {
   client: 'Brahmaputra Traders', weight: '1000',
   pickup: pin('26.1445', '91.7362'), destination: pin('25.5788', '91.8933', 'GOOGLE'),
   driverId: 'd1', truckId: 't1', drivers: [driver], trucks: [truck, other], assignments: [paired],
+  openTrips: [],
   referencesReady: true, submitting: false, today: new Date('2026-09-14'),
 }
+
+/** An open trip holding this driver and truck. */
+const holding = (status: string, over: Partial<Trip> = {}): Trip => ({
+  id: 'x1', trip_code: 'TRP-HELD', shipment_id: 's1', truck_id: 't1', driver_id: 'd1',
+  status, selected_route_id: null, dispatched_at: null, started_at: null, delivered_at: null,
+  planned_eta: null, current_eta: null, delay_minutes: null, created_at: '', ...over,
+})
 
 describe('validatePlan', () => {
   it('passes a complete, paired, in-capacity plan', () => {
@@ -100,5 +108,50 @@ describe('endpoint labels', () => {
     const out = validatePlan({ ...good, pickup: { ...pin('26.1445', '91.7362', 'MANUAL'), address: '' } })
     expect(out.pickup.valid).toBe(false)
     expect(out.blocker).toMatch(/Name the pickup location/)
+  })
+})
+
+/**
+ * One driver and one truck can be on ONE open job.
+ *
+ * The screenshot that prompted this had the same pair on several open DRAFT
+ * rows with another trip already ASSIGNED to them. A driver's own status says
+ * AVAILABLE the whole time - the occupancy lives in the trips, not the driver.
+ */
+describe('a resource already promised to an open trip', () => {
+  it('refuses the driver and names the trip holding them', () => {
+    const r = validatePlan({ ...good, openTrips: [holding('DRAFT')] })
+    expect(r.driver.valid).toBe(false)
+    expect(r.driver.reason).toMatch(/already committed to TRP-HELD \(DRAFT\)/)
+    expect(r.blocker).toMatch(/TRP-HELD/)
+  })
+
+  it('refuses the truck even when another driver is chosen', () => {
+    const second: Driver = { ...driver, id: 'd2', full_name: 'Second Driver' }
+    const r = validatePlan({
+      ...good,
+      driverId: 'd2',
+      drivers: [driver, second],
+      assignments: [{ ...paired, id: 'a2', driver_id: 'd2' }],
+      openTrips: [holding('ACTIVE', { driver_id: 'd1' })],
+    })
+    expect(r.truck.valid).toBe(false)
+    expect(r.truck.reason).toMatch(/already committed to TRP-HELD/)
+  })
+
+  it.each([['DRAFT'], ['ASSIGNED'], ['VERIFICATION_PENDING'], ['ACTIVE'], ['DELAYED'], ['DELIVERED']])(
+    '%s still holds the pair',
+    (status) => {
+      expect(validatePlan({ ...good, openTrips: [holding(status)] }).blocker).toMatch(/TRP-HELD/)
+    },
+  )
+
+  it.each([['CLOSED'], ['CANCELLED']])('%s releases the pair', (status) => {
+    expect(validatePlan({ ...good, openTrips: [holding(status)] }).blocker).toBeNull()
+  })
+
+  it('leaves an unrelated open trip alone', () => {
+    const elsewhere = holding('ACTIVE', { id: 'x2', trip_code: 'TRP-OTHER', driver_id: 'd9', truck_id: 't9' })
+    expect(validatePlan({ ...good, openTrips: [elsewhere] }).blocker).toBeNull()
   })
 })
