@@ -1,6 +1,6 @@
 # UI bug certification
 
-Four reported defects, verified on the hosted build at
+Four reported defects plus one found while verifying them, on the hosted build at
 `https://ner-manager.onrender.com` + `https://ner-intelligence.onrender.com`, 19 September
 2026. Commit `7c176f3` (fixes) and `d473f9c` (follow-ups) are live.
 
@@ -162,6 +162,28 @@ take ~16 s to show a face. Re-seeding them is a data decision and was left to th
 
 ---
 
+---
+
+## 5. Found while checking #3: the export named drivers by UUID — FIXED
+
+Reading the hosted CSV rather than only counting its blanks turned up a second
+export defect in the same family. Client, Origin and Destination were correct;
+**Driver and Truck were id fragments**:
+
+```
+TRP-A8BA83FC-9328-42A9,Pushp Trader,"Barpeta, Assam, …","Furkating, …",b16a6c05,7380130f,ASSIGNED,…
+```
+
+**Cause:** `driverName()` and `truckReg()` resolve ids against the two fleet lists and fall
+back to `id.slice(0, 8)`. The export callback closed over those lists without listing them
+as dependencies, so an export run before they loaded — a cold page, which is exactly what an
+automated check and a hurried judge both produce — captured the empty lists forever.
+
+**Fix:** `drivers.data` and `trucks.data` added to the callback's dependencies.
+
+**Regression test:** `names the driver and the truck in the export, never an id fragment`
+in `TripsPage.test.tsx` — verified to fail with the dependencies removed and pass with them.
+
 ## Console and network
 
 No console errors during the hosted flow. No failed requests. No duplicate mutation calls.
@@ -170,6 +192,7 @@ No console errors during the hosted flow. No failed requests. No duplicate mutat
 
 | Suite | Result |
 |---|---|
-| Manager web (`vitest`) | 259 passed / 24 files |
+| Manager web (`vitest`) | 260 passed / 24 files |
 | Manager typecheck (`tsc --noEmit`) | clean |
-| Backend | 1,200 passed / 5 skipped, plus 10 new reservation tests and 1 list test |
+| Manager build (`vite build --mode remote-demo`) | clean |
+| Backend (`pytest`) | 1,210 passed / 5 skipped, plus the new avatar-cap test |
