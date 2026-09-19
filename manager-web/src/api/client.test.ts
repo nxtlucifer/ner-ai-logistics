@@ -277,7 +277,7 @@ describe('fieldErrors', () => {
  */
 it('sends open_only=false, because history is a value and not an omitted flag', async () => {
   // A fresh Response per call: a body can only be read once.
-  const fetchMock = vi.fn(async () =>
+  const fetchMock = vi.fn(async (..._args: Parameters<typeof fetch>) =>
     new Response(JSON.stringify({ items: [], next_cursor: null, total: 0 }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
   )
   vi.stubGlobal('fetch', fetchMock)

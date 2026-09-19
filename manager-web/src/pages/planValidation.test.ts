@@ -27,7 +27,7 @@ const good: PlanInput = {
 }
 
 /** An open trip holding this driver and truck. */
-const holding = (status: string, over: Partial<Trip> = {}): Trip => ({
+const holding = (status: Trip['status'], over: Partial<Trip> = {}): Trip => ({
   id: 'x1', trip_code: 'TRP-HELD', shipment_id: 's1', truck_id: 't1', driver_id: 'd1',
   status, selected_route_id: null, dispatched_at: null, started_at: null, delivered_at: null,
   planned_eta: null, current_eta: null, delay_minutes: null, created_at: '', ...over,
@@ -139,14 +139,14 @@ describe('a resource already promised to an open trip', () => {
     expect(r.truck.reason).toMatch(/already committed to TRP-HELD/)
   })
 
-  it.each([['DRAFT'], ['ASSIGNED'], ['VERIFICATION_PENDING'], ['ACTIVE'], ['DELAYED'], ['DELIVERED']])(
+  it.each<[Trip['status']]>([['DRAFT'], ['ASSIGNED'], ['VERIFICATION_PENDING'], ['ACTIVE'], ['DELAYED'], ['DELIVERED']])(
     '%s still holds the pair',
     (status) => {
       expect(validatePlan({ ...good, openTrips: [holding(status)] }).blocker).toMatch(/TRP-HELD/)
     },
   )
 
-  it.each([['CLOSED'], ['CANCELLED']])('%s releases the pair', (status) => {
+  it.each<[Trip['status']]>([['CLOSED'], ['CANCELLED']])('%s releases the pair', (status) => {
     expect(validatePlan({ ...good, openTrips: [holding(status)] }).blocker).toBeNull()
   })
 

@@ -35,7 +35,6 @@ import AddressPicker, {
   type EndpointValue,
 } from '../components/AddressPicker'
 import { endpointPoint, heldBy, pairedTruckId, straightLineKm, validatePlan } from './planValidation'
-import JourneyHistory from '../components/JourneyHistory'
 import {
   ALL_LIMIT,
   EMPTY_FILTERS,
