@@ -52,6 +52,24 @@ class TestFiles:
         r = await api.post("/api/files?kind=PROFILE_PHOTO", headers=headers, content=JPEG + b"\x00" * (5 * 1024 * 1024))
         assert r.status_code == 413
 
+    async def test_an_avatar_is_held_to_an_avatar_size(self, api, session):
+        """A 40-pixel face does not need a megabyte.
+
+        Seeded 2.3 MB profile photos took 15-18 seconds to reach the manager's
+        driver list over the hosted tier, so a quarter of a minute of initials
+        stood in for faces. A document may still be 5 MB; a portrait may not.
+        """
+        _, headers, _, _ = await _driver(api, session)
+        big = JPEG + b"\x00" * (600 * 1024)
+        r = await api.post("/api/files?kind=PROFILE_PHOTO", headers=headers, content=big)
+        assert r.status_code == 413 and r.json()["error"]["code"] == "PROFILE_PHOTO_TOO_LARGE"
+        assert "600 KB" in r.json()["error"]["message"]
+        # The same bytes as a document are fine: the limit is about avatars.
+        doc = await api.post("/api/files?kind=DRIVER_DOCUMENT", headers=headers, content=big)
+        assert doc.status_code == 201
+        small = await api.post("/api/files?kind=PROFILE_PHOTO", headers=headers, content=JPEG + b"\x00" * (400 * 1024))
+        assert small.status_code == 201
+
     async def test_profile_photo_sets_the_driver_and_only_the_owner_or_a_manager_reads_it(self, api, session, manager_headers):
         driver, headers, _, _ = await _driver(api, session)
         _, other_headers, _, _ = await _driver(api, session, assigned=False)

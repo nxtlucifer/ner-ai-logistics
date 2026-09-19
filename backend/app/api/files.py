@@ -45,6 +45,12 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/files", tags=["files"])
 
 MAX_BYTES = 5 * 1024 * 1024
+#: An avatar is drawn at 56 pixels. Three seeded profile photos of 2.3-3.5 MB
+#: took 15-18 seconds to arrive over the hosted tier, so the manager's driver
+#: list showed initials instead of faces for a quarter of a minute. The driver
+#: app already re-encodes captures at JPEG quality 0.5 and lands far under
+#: this; the cap stops a full-resolution upload from any other client.
+MAX_PROFILE_PHOTO_BYTES = 512 * 1024
 Kind = Literal["PROFILE_PHOTO", "TRUCK_VERIFICATION", "TRUCK_PHOTO", "DEMO_REFERENCE", "DRIVER_DOCUMENT", "TRUCK_DOCUMENT"]
 _MAGIC = (
     (b"\xff\xd8\xff", "image/jpeg"),
@@ -83,6 +89,14 @@ async def upload(
     data = await request.body()
     if len(data) > MAX_BYTES:
         raise APIError("File is larger than 5 MB.", code="FILE_TOO_LARGE", status_code=413)
+    if kind == "PROFILE_PHOTO" and len(data) > MAX_PROFILE_PHOTO_BYTES:
+        raise APIError(
+            f"A profile photo must be under {MAX_PROFILE_PHOTO_BYTES // 1024} KB; "
+            f"this one is {len(data) // 1024} KB. Take the photo in the driver app, "
+            "or save a smaller copy.",
+            code="PROFILE_PHOTO_TOO_LARGE",
+            status_code=413,
+        )
     ctype = sniff(data)
     if ctype is None or (kind in _IMAGE_KINDS and ctype == "application/pdf"):
         raise APIError("Only JPEG, PNG or PDF files are accepted.", code="UNSUPPORTED_FILE_TYPE", status_code=415)
