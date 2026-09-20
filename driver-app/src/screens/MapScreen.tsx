@@ -50,7 +50,10 @@ import { type LatLon } from '../map/geo'
 import { useRouteGeometry } from '../map/useRouteGeometry'
 import { useNavigationPackage } from '../map/useNavigationPackage'
 import { guidanceHold, upcomingManeuver, maneuverIcon, formatTurnDistance, instructionFor, type GuidanceHold } from '../map/maneuvers'
-import { navState, ON_ROUTE, projectOntoRoute, shouldRequestReroute, trackOffRoute, type NavState, type OffRouteTrack, type RerouteMark } from '../map/navState'
+import { navState, ON_ROUTE, projectOntoRouteNear, shouldRequestReroute, trackOffRoute, type NavState, type OffRouteTrack, type RerouteMark } from '../map/navState'
+import { NOT_ARRIVED, trackArrival, type ArrivalTrack } from '../map/arrival'
+import { OFF_ROUTE_ENTER_M } from '../map/navState'
+import { type VoiceMode } from '../map/speech'
 import { routeAiCard } from '../navigation/routeAi'
 import { useBrowsePosition } from '../tracking/useBrowsePosition'
 import { locationChip } from '../map/locationLabel'
@@ -98,6 +101,26 @@ const CATEGORY_LABELS: { id: PlaceCategory; label: string }[] = [
 /** The nav-state chip, as words a driver reads rather than the machine name. */
 const NAV_WORDS: Record<string, string> = {
   IDLE: 'Idle', OVERVIEW: 'Overview', FOLLOWING: 'Following', OFF_ROUTE: 'Off route', REROUTING: 'Rerouting', GPS_STALE: 'GPS stale', OFFLINE: 'Offline',
+}
+
+/**
+ * What one tap on the voice button will do next, as the driver reads it.
+ *
+ * The label names the DESTINATION of the tap, not the current state: an
+ * accessibility label that says "full voice guidance" on a button that is
+ * about to mute the app is the wrong way round.
+ */
+const VOICE_LABEL: Record<VoiceMode, string> = {
+  GUIDANCE: 'Voice: full guidance — tap for alerts only',
+  ALERTS: 'Voice: alerts only — tap to mute',
+  MUTED: 'Voice: muted — tap for full guidance',
+}
+
+/** Full guidance -> alerts only -> muted -> full guidance. */
+const VOICE_NEXT: Record<VoiceMode, VoiceMode> = {
+  GUIDANCE: 'ALERTS',
+  ALERTS: 'MUTED',
+  MUTED: 'GUIDANCE',
 }
 
 type Mode = 'NEAR_ME' | 'ALONG_ROUTE' | 'THIS_AREA'
@@ -333,10 +356,29 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
     east: number
   } | null>(null)
   const [showEmergency, setShowEmergency] = useState(false)
-  // Muted by DEFAULT. A phone that starts talking the moment a driver opens
-  // the map, in a cab with a passenger or at 2am, is a feature they turn off
-  // once and never turn on again.
-  const [muted, setMuted] = useState(true)
+  /**
+   * How much the app may say. Three modes, not a mute toggle: see `speech.ts`.
+   *
+   * THE DEFAULT DEPENDS ON WHY THE SCREEN IS OPEN, and this is a deliberate
+   * change from the previous always-muted default.
+   *
+   * That default was argued for a good reason - "a phone that starts talking
+   * the moment a driver opens the map, in a cab with a passenger or at 2am, is
+   * a feature they turn off once and never turn on again" - and the reason
+   * still holds for the case it was written about: browsing the map with no
+   * road assigned. It does not hold for a driver who has just accepted a trip
+   * and entered navigation, where silent-by-default means the turn-by-turn
+   * audio never runs unless someone finds the button.
+   *
+   * So the trigger is the same one that decides whether this screen is a
+   * navigator at all: a selected route. Browsing opens MUTED; navigating opens
+   * in GUIDANCE. Either way the control is one tap and the mode is visible on
+   * it, which is what the original concern was actually about.
+   */
+  const [voiceMode, setVoiceMode] = useState<VoiceMode>(() =>
+    trip?.selected_route_id ? 'GUIDANCE' : 'MUTED',
+  )
+  const [showSteps, setShowSteps] = useState(false)
   const [isSheetExpanded, setIsSheetExpanded] = useState(false)
   const [showAltRoute, setShowAltRoute] = useState(false)
   // Danger cards the driver has acknowledged, by key (route + hazard +
@@ -354,6 +396,8 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
     setCameraMode('RECENTER')
     setCameraTrigger((t) => t + 1)
   }, [])
+
+  const cycleVoiceMode = useCallback(() => setVoiceMode((m) => VOICE_NEXT[m]), [])
 
   useEffect(() => {
     const handler = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -442,10 +486,39 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
     now: clock.now,
   }, t)
   const isOnline = chip.tone !== 'off'
+  /**
+   * The fix projected onto the line, NEAR where this truck already was.
+   *
+   * The memory is what makes progress continuous. Without it a corridor that
+   * doubles back - a bypass beside the road it bypasses, a flyover over the
+   * street below - matches a fix to whichever stretch is marginally nearer, and
+   * the countdown jumps kilometres between two polls on a truck that drove 160
+   * metres. See `projectOntoRouteNear`.
+   *
+   * The memory is a ref, not state: it is an input to the next projection and
+   * must not itself cause a render, or every fix would render twice.
+   */
+  const lastAlongM = useRef<number | null>(null)
+  useEffect(() => {
+    // A new corridor is a new line and the old distance means nothing on it.
+    lastAlongM.current = null
+  }, [selectedRouteId])
   const projection = useMemo(
-    () => (fix ? projectOntoRoute(geometry.points, [fix.lat, fix.lon]) : null),
+    () => (fix ? projectOntoRouteNear(geometry.points, [fix.lat, fix.lon], lastAlongM.current) : null),
     [geometry.points, fix],
   )
+  // Only a fix that is ON the corridor is worth remembering. Seeding the window
+  // from an off-route position would carry the error into the next match.
+  //
+  // In an effect rather than during render: the memo above READS this ref, and
+  // writing it in the same pass makes the projection depend on how many times
+  // React chose to render. After commit, the value is ready for the next fix and
+  // nothing in this pass has seen it change.
+  useEffect(() => {
+    if (projection && projection.crossTrackM <= OFF_ROUTE_ENTER_M) {
+      lastAlongM.current = projection.alongM
+    }
+  }, [projection])
   const travelledM =
     localFresh && projection
       ? (projection.alongM / projection.totalM) * (geometry.distanceKm ? geometry.distanceKm * 1000 : projection.totalM)
@@ -519,14 +592,110 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
   )
 
   /**
-   * Voice. Fed the SAME `nextTurn` and `hold` the panel renders, so the app
-   * cannot say one thing and show another.
+   * The maneuver after the next. Google's "Then ↱" line: a driver in a
+   * roundabout wants the exit AND the turn after it. Only from real
+   * maneuvers, never from the corridor's shape.
+   *
+   * Computed here rather than beside the card because the voice scheduler needs
+   * it too - two turns 80 m apart are one spoken sentence - and the card and
+   * the audio must be describing the same pair.
+   */
+  const thenTurn = useMemo(() => {
+    if (!nextTurn) return null
+    const i = navigation.maneuvers.indexOf(nextTurn.maneuver)
+    return i >= 0 ? navigation.maneuvers[i + 1] ?? null : null
+  }, [navigation.maneuvers, nextTurn])
+
+  /**
+   * Has this truck arrived, or has it only driven past?
+   *
+   * The destination is the LAST stop, and the leg target is the next one still
+   * open, so a multi-stop trip announces each stop and only calls the final one
+   * arrival. Both come from the trip payload; nothing here picks a destination
+   * of its own.
+   *
+   * Three conditions and a fix count, in `arrival.ts` - near the point, at the
+   * end of the line, and ON the line. Proximity alone would complete a trip for
+   * a truck on the far side of a depot wall.
+   */
+  // TWO SOURCES, ONE JOIN. `trip.stops` carries the STATUS (whose turn it is)
+  // and no coordinates; the offline route package carries the COORDINATES and
+  // no status. `OfflineStop.stop_id` is `TripStop.id` - the same column, checked
+  // in `offline_package.py` rather than assumed - so they join on it.
+  const placedStops = useMemo(
+    () => geometry.stops.filter((stop) => stop.lat != null && stop.lon != null),
+    [geometry.stops],
+  )
+  const destination = useMemo((): LatLon | null => {
+    const last = placedStops[placedStops.length - 1]
+    return last ? [last.lat as number, last.lon as number] : null
+  }, [placedStops])
+  const legTarget = useMemo(() => {
+    const open = (trip?.stops ?? []).find((s) => s.status === 'PENDING' || s.status === 'ARRIVED')
+    if (!open) return null
+    const placed = placedStops.find((stop) => stop.stop_id === open.id)
+    if (!placed) return null
+    return {
+      id: open.id,
+      at: [placed.lat as number, placed.lon as number] as LatLon,
+      isLast: placed.stop_id === placedStops[placedStops.length - 1]?.stop_id,
+    }
+  }, [trip?.stops, placedStops])
+
+  const remainingAlongM =
+    projection && travelledM !== null ? Math.max(0, projection.totalM - projection.alongM) : null
+
+  const [arrival, setArrival] = useState<ArrivalTrack>(NOT_ARRIVED)
+  const arrivalFixAt = useRef<number | null>(null)
+  useEffect(() => {
+    if (!fix || !projection || destination === null) return
+    // One count per FIX, keyed on its timestamp - not per render. The same rule
+    // the off-route counter follows, and for the same reason.
+    if (arrivalFixAt.current === fix.at) return
+    arrivalFixAt.current = fix.at
+    setArrival((prev) =>
+      trackArrival(prev, {
+        position: [fix.lat, fix.lon],
+        destination,
+        remainingM: remainingAlongM,
+        crossTrackM: projection.crossTrackM,
+        accuracyM: fix.accuracyM,
+        fresh: localFresh,
+      }),
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fix, projection, destination, remainingAlongM, localFresh])
+  // A replan or a new leg is a new question. Arrival does not survive either.
+  useEffect(() => { setArrival(NOT_ARRIVED) }, [selectedRouteId, legTarget?.id])
+
+  /** Announced arrival is the FINAL stop; an intermediate one is a stop reached. */
+  const arrivedAtDestination = arrival.arrived && (legTarget === null || legTarget.isLast)
+  const reachedIntermediateStop = arrival.arrived && legTarget !== null && !legTarget.isLast
+
+  /**
+   * Voice. Fed the SAME `nextTurn`, `thenTurn` and `hold` the panel renders, so
+   * the app cannot say one thing and show another.
+   *
+   * The conditions are passed as FACTS. Which of them is new enough to say out
+   * loud is the scheduler's decision, not this screen's - see the hook's header.
    */
   const voice = useSpokenGuidance({
     next: nextTurn,
+    then: thenTurn,
     routeId: selectedRouteId,
     held: hold !== null || !navigation.available,
-    muted,
+    mode: voiceMode,
+    // `fix.speedKmph` is the receiver's own ground speed where it reports one;
+    // an absent speed leaves the cue distances at their fixed values rather
+    // than shrinking them.
+    speedMps: fix?.speedKmh != null ? fix.speedKmh / 3.6 : null,
+    condition: {
+      rerouting: reroute.inFlight,
+      offRoute: offRoute.off,
+      gpsLost: hold === 'NO_FIX' || hold === 'FIX_STALE' || hold === 'CONTACT_LOST',
+      arrived: arrivedAtDestination,
+      stopReached: reachedIntermediateStop,
+    },
   })
 
   /**
@@ -1004,17 +1173,6 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
           ? 'off'
           : 'bad'
 
-  /**
-   * The maneuver after the next. Google's "Then ↱" line: a driver in a
-   * roundabout wants the exit AND the turn after it. Only from real
-   * maneuvers, never from the corridor's shape.
-   */
-  const thenTurn = useMemo(() => {
-    if (!nextTurn) return null
-    const i = navigation.maneuvers.indexOf(nextTurn.maneuver)
-    return i >= 0 ? navigation.maneuvers[i + 1] ?? null : null
-  }, [navigation.maneuvers, nextTurn])
-
   /** Arrival clock time from the server's remaining-at-planned-pace, never
    *  from a speed this screen invented. */
   const eta = (() => {
@@ -1179,8 +1337,39 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
             <Icon name="search" size={20} color={COLORS.text} />
           </MapControl>
           {voiceUsable ? (
-            <MapControl onPress={() => setMuted((v) => !v)} label={muted ? 'Unmute voice guidance' : 'Mute voice guidance'}>
-              <AudioIcon color={COLORS.text} size={20} muted={muted} />
+            <MapControl
+              onPress={cycleVoiceMode}
+              label={t(VOICE_LABEL[voiceMode])}
+              active={voiceMode !== 'MUTED'}
+            >
+              {/* The mode is on the button, not only in its label: a rail of
+                  five identical glyphs tells a driver nothing about which one
+                  is live. GUIDANCE is a filled speaker, ALERTS the same
+                  speaker with its badge, MUTED the struck-through one. */}
+              <AudioIcon
+                color={voiceMode === 'MUTED' ? COLORS.text : COLORS.onAccent}
+                size={20}
+                muted={voiceMode === 'MUTED'}
+              />
+              {voiceMode === 'ALERTS' ? <View style={styles.modeDot} /> : null}
+            </MapControl>
+          ) : null}
+          {/* REPEAT. Deliberately available while MUTED: asking to hear the
+              instruction is not the app deciding to talk. Hidden, not
+              disabled, when there is no instruction to repeat - a live-looking
+              button that says nothing is the failure this rail avoids. */}
+          {voiceUsable && voice.canRepeat ? (
+            <MapControl onPress={voice.repeat} label={t('Repeat the current instruction')}>
+              <Icon name="rotate-ccw" size={20} color={COLORS.text} />
+            </MapControl>
+          ) : null}
+          {navigation.available && navigation.maneuvers.length > 0 ? (
+            <MapControl
+              onPress={() => setShowSteps((v) => !v)}
+              label={t(showSteps ? 'Hide the step list' : 'Show every step on this route')}
+              active={showSteps}
+            >
+              <Icon name="list" size={20} color={showSteps ? COLORS.onAccent : COLORS.text} />
             </MapControl>
           ) : null}
           {canFitRoute ? (
@@ -1497,6 +1686,75 @@ export default function MapScreen({ onBack }: { onBack: () => void }) {
         </View>
       </Pressable>
       )}
+
+      {/* THE STEP LIST. Every maneuver on this route, in order, each with its
+          own distance along the corridor - the provider's steps, never the
+          polyline's corners. The step the driver is on is marked, and the ones
+          already behind them are dimmed rather than removed, because a list
+          that silently shortens gives no sense of where you are in it. */}
+      {showSteps ? (
+        <View style={styles.stepSheet} testID="step-list">
+          <View style={styles.stepHeader}>
+            <Text style={styles.stepTitle}>{t('All steps')}</Text>
+            <Pressable
+              onPress={() => setShowSteps(false)}
+              accessibilityRole="button"
+              accessibilityLabel={t('Close the step list')}
+              style={styles.stepClose}
+            >
+              <Icon name="x" size={20} color={COLORS.text} />
+            </Pressable>
+          </View>
+          <ScrollView style={styles.stepScroll}>
+            {navigation.maneuvers.map((m, i) => {
+              const isCurrent = nextTurn?.maneuver === m
+              const passed =
+                travelledM !== null && guidanceHasPosition && m.distance_from_start_m < travelledM
+              return (
+                <View
+                  key={`${m.distance_from_start_m}-${m.type}-${i}`}
+                  style={[styles.stepRow, isCurrent && styles.stepRowNow]}
+                >
+                  <Icon
+                    name={maneuverIcon(m)}
+                    size={18}
+                    color={isCurrent ? COLORS.routeOn : passed ? COLORS.muted : COLORS.text}
+                  />
+                  <Text
+                    style={[styles.stepText, passed && !isCurrent && styles.stepTextPassed]}
+                    numberOfLines={2}
+                  >
+                    {instructionFor(m, t)}
+                  </Text>
+                  {/* For the CURRENT step the useful number is how far there is
+                      still to go; for every other step it is where it sits on
+                      the route. Two different questions, so two labels. */}
+                  <Text style={styles.stepDistance}>
+                    {isCurrent
+                      ? formatTurnDistance(nextTurn.distanceM)
+                      : formatDistanceKm(m.distance_from_start_m / 1000)}
+                  </Text>
+                </View>
+              )
+            })}
+          </ScrollView>
+        </View>
+      ) : null}
+
+      {/* VOICE FALLBACK. `getAvailableVoicesAsync` returning nothing is a real
+          state on a stripped Android build, and the honest response is to say
+          so and keep the written instruction rather than fail silently. The
+          TEST button exists because a non-empty voice list is not the same fact
+          as sound leaving the phone - muted media volume and a stale Bluetooth
+          route both pass the API check. Only an ear settles it. */}
+      {!browsing && voice.available !== null && !voiceUsable ? (
+        <View style={styles.voiceFallback} testID="voice-unavailable">
+          <Text style={styles.voiceFallbackText} numberOfLines={2}>
+            {t('No speech voice on this device. Turn instructions stay on screen.')}
+          </Text>
+          <Button label={t('Test')} variant="secondary" onPress={voice.test} />
+        </View>
+      ) : null}
 
       {places.selected ? (
         <PlaceSheet place={places.selected} onClose={() => places.select(null)} onCall={call} />
@@ -1895,5 +2153,70 @@ const useStyles = makeStyles((COLORS) => ({
     paddingVertical: 8,
   },
   emergencyDialDigits: { color: COLORS.bad, fontSize: 22, fontWeight: '800' },
+  /** The ALERTS badge on the voice button. Small, because it is a qualifier. */
+  modeDot: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: COLORS.onAccent,
+  },
+  stepSheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    // Half the screen at most: the map stays visible above it, so opening the
+    // list never costs the driver sight of where they are.
+    maxHeight: '55%',
+    backgroundColor: COLORS.bg,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    zIndex: 40,
+  },
+  stepHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  stepTitle: { color: COLORS.text, fontSize: 16, fontWeight: '700' },
+  stepClose: {
+    minWidth: TOUCH_TARGET,
+    minHeight: TOUCH_TARGET,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  stepScroll: { paddingBottom: 8 },
+  stepRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLORS.border,
+  },
+  stepRowNow: { backgroundColor: COLORS.raised },
+  stepText: { flex: 1, color: COLORS.text, fontSize: 14, fontWeight: '500' },
+  stepTextPassed: { color: COLORS.muted, fontWeight: '400' },
+  stepDistance: { color: COLORS.muted, fontSize: 13, fontVariant: ['tabular-nums'] },
+  voiceFallback: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: COLORS.card,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  voiceFallbackText: { flex: 1, color: COLORS.muted, fontSize: 13 },
   emergencyDialLabel: { color: COLORS.muted, fontSize: 11, marginTop: 2 },
 }))

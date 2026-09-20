@@ -7,6 +7,9 @@ import {
   ON_ROUTE,
   OFF_ROUTE_FIXES,
   projectOntoRoute,
+  projectOntoRouteNear,
+  PROJECTION_AHEAD_M,
+  PROJECTION_REACQUIRE_M,
   REROUTE_MIN_INTERVAL_MS,
   shouldRequestReroute,
   trackOffRoute,
@@ -44,6 +47,81 @@ describe('projectOntoRoute', () => {
 
   it('needs two points', () => {
     expect(projectOntoRoute([ROUTE[0]], ROUTE[0])).toBeNull()
+  })
+})
+
+/**
+ * A corridor that comes back alongside itself, which is what breaks a
+ * nearest-point matcher: out 3 km east, 150 m north, then 3 km back west.
+ * Metres are converted once, here, and the numbers below are in metres along.
+ */
+const M_LAT = 111_320
+const M_LON = 111_320 * Math.cos((26.14 * Math.PI) / 180)
+const pt = (east: number, north: number): LatLon => [26.14 + north / M_LAT, 91.7 + east / M_LON]
+const DOUBLE_BACK: LatLon[] = [
+  ...Array.from({ length: 31 }, (_, i) => pt(i * 100, 0)),        // 0 .. 3000
+  pt(3000, 150),                                                  // 3150
+  ...Array.from({ length: 31 }, (_, i) => pt(3000 - i * 100, 150)), // 3150 .. 6150
+]
+
+describe('projectOntoRouteNear', () => {
+  it('is exactly the global projection when there is no memory to use', () => {
+    const fix = pt(1200, 20)
+    expect(projectOntoRouteNear(DOUBLE_BACK, fix, null)).toEqual(projectOntoRoute(DOUBLE_BACK, fix))
+  })
+
+  it('refuses the return leg for a fix that is nearer it but behind it', () => {
+    // 100 m north of the outbound leg at 1200 m, so 50 m from the return leg.
+    // The global matcher takes the return leg and reports ~4.9 km; with the
+    // truck's last position known, that is a 3.7 km jump in one poll.
+    const fix = pt(1200, 100)
+    expect(projectOntoRoute(DOUBLE_BACK, fix)!.alongM).toBeGreaterThan(4_000)
+    expect(projectOntoRouteNear(DOUBLE_BACK, fix, 1_050)!.alongM).toBeCloseTo(1_200, -2)
+  })
+
+  it('keeps the full route length whatever the window does', () => {
+    // `totalM` scales the provider's distance; a window that shortened it would
+    // silently rescale every distance on screen.
+    const whole = projectOntoRoute(DOUBLE_BACK, pt(0, 0))!.totalM
+    expect(projectOntoRouteNear(DOUBLE_BACK, pt(1200, 100), 1_050)!.totalM).toBeCloseTo(whole, 6)
+  })
+
+  it('reports the real cross-track, not the scored cost', () => {
+    // The drift penalty is for choosing between candidates. Leaking it into
+    // `crossTrackM` would make off-route detection fire on a truck on its road.
+    const near = projectOntoRouteNear(DOUBLE_BACK, pt(1200, 100), 1_050)!
+    expect(near.crossTrackM).toBeCloseTo(100, -1)
+    expect(near.crossTrackM).toBeLessThan(PROJECTION_REACQUIRE_M)
+  })
+
+  it('drops a stale memory rather than reporting a position from it', () => {
+    // The app was backgrounded and the truck drove well past the window. Pinning
+    // it to where it last looked would be worse than re-acquiring. Tested on the
+    // long non-doubling corridor, where "past the window" really is far from
+    // everything in it.
+    const far = onLine(0.8)
+    const reacquired = projectOntoRouteNear(ROUTE, far, 100)
+    expect(reacquired).toEqual(projectOntoRoute(ROUTE, far))
+    expect(reacquired!.alongM).toBeGreaterThan(PROJECTION_AHEAD_M)
+  })
+
+  it('prefers continuity over believing a 150 m sideways jump', () => {
+    // A STATED TRADE-OFF, not an oversight. Re-acquisition triggers at 200 m and
+    // these two legs are 150 m apart, so a truck that genuinely appeared on the
+    // return leg keeps being matched to the outbound one. That is the right way
+    // round: a 150 m lateral jump between two polls is a bad fix far more often
+    // than it is a truck, and the cost of believing it - progress leaping 4 km,
+    // maneuvers skipped, a turn announced for a road not reached - is much worse
+    // than the cost of a few stale seconds. A truck that has really moved there
+    // keeps moving, and leaves the window along the return leg within a poll or
+    // two. Raising `PROJECTION_REACQUIRE_M` above the separation of two
+    // carriageways would trade this for exactly the jump the window exists for.
+    const onReturn = pt(1_000, 150)
+    expect(projectOntoRouteNear(DOUBLE_BACK, onReturn, 100)!.alongM).toBeLessThan(1_200)
+  })
+
+  it('still needs two points', () => {
+    expect(projectOntoRouteNear([DOUBLE_BACK[0]], DOUBLE_BACK[0], 0)).toBeNull()
   })
 })
 
