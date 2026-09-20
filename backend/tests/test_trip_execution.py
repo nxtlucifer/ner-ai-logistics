@@ -576,8 +576,12 @@ class TestTripCompletion:
         await session.refresh(driver)
         await session.refresh(truck)
         assert trip.status is TripStatus.DELIVERED
-        assert driver.status is DriverStatus.AVAILABLE
-        assert truck.status is TruckStatus.AVAILABLE
+        # Delivery does NOT release the crew. This used to assert AVAILABLE,
+        # contradicting `test_resource_reservation`, which asserts a
+        # DELIVERED trip still refuses the pair with 409. Both were green
+        # because nothing cross-checked them.
+        assert driver.status is DriverStatus.ON_TRIP
+        assert truck.status is TruckStatus.ON_TRIP
 
     async def test_completing_the_trip_twice_is_idempotent(
         self, api: AsyncClient, session: AsyncSession

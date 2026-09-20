@@ -280,7 +280,43 @@ export function refreshSession(): Promise<string | null> {
   return refreshInFlight
 }
 
+/** GETs already on the wire, keyed by path. Cleared the moment each settles.
+ *
+ *  NOT a response cache - nothing is stored, nothing goes stale, and a read
+ *  that arrives after the first has returned still hits the network. It only
+ *  stops the SAME read being asked for twice while the first ask is in
+ *  flight. Measured: opening Trips fired `/api/trips` seven times in 2.6 s
+ *  against a five-second poll, because every list page loads the same four
+ *  resources and each component asked independently.
+ */
+const inFlight = new Map<string, Promise<unknown>>()
+
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  // Only plain reads. A mutation must never be coalesced - two Dispatches
+  // that look alike are two decisions - and a caller with its own signal
+  // must not have another component's unmount cancel its request.
+  const shareable =
+    (options.method ?? 'GET') === 'GET' && options.body === undefined && !options.signal
+  if (shareable) {
+    const running = inFlight.get(path)
+    if (running) return running as Promise<T>
+  }
+  const work = requestUncoalesced<T>(path, options)
+  if (shareable) {
+    inFlight.set(path, work as Promise<unknown>)
+    void work.catch(() => {}).finally(() => {
+      if (inFlight.get(path) === (work as Promise<unknown>)) inFlight.delete(path)
+    })
+  }
+  return work
+}
+
+/** For tests and for a caller that genuinely wants its own round trip. */
+export function clearInFlight(): void {
+  inFlight.clear()
+}
+
+async function requestUncoalesced<T>(path: string, options: RequestOptions = {}): Promise<T> {
   let response = await rawRequest(path, options)
 
   // A 401 on a normal call usually means the 15-minute access token expired.

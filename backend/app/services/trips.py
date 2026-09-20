@@ -1359,6 +1359,13 @@ async def close(
 
     transition(trip, TripStatus.CLOSED)
     trip.closed_at = datetime.now(UTC)
+    # THE release point. `RESOURCE_BLOCKING_STATUSES` has always counted a
+    # DELIVERED trip as still holding its pair - the truck is at the
+    # consignee until the job is settled - and the console says so in words
+    # ("Close to release the truck"). Nothing released them here, while
+    # `driver_trips.complete` released them early at DELIVERED, so every
+    # screen showed the pair free and the planner refused them.
+    await release_resources(db, trip)
 
     await db.flush()
     await record_event(

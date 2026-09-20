@@ -399,6 +399,18 @@ export default function TripsPage() {
     trips.reload()
   }
 
+  /** Everything a trip's lifecycle moves, not just the trip.
+   *
+   *  Close hands the driver and truck back; the pickers on this page read
+   *  `drivers`, `trucks` and `assignments`, so reloading only `trips` left
+   *  the dropdowns advertising the old availability until the next poll. */
+  function reloadAfterLifecycleChange() {
+    trips.reload()
+    drivers.reload()
+    trucks.reload()
+    assignments.reload()
+  }
+
   async function run(
     tripId: string,
     action: () => Promise<{ data?: Trip; error?: unknown }>,
@@ -406,7 +418,7 @@ export default function TripsPage() {
     setActingOn(tripId)
     try {
       const outcome = await action()
-      if (outcome.data) trips.reload()
+      if (outcome.data) reloadAfterLifecycleChange()
       return outcome
     } finally {
       setActingOn(null)

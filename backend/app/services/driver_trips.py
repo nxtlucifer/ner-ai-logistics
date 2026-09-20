@@ -656,7 +656,9 @@ async def complete(
     # Server clock, never the device's. A phone with a wrong or manipulated
     # clock must not be able to backdate a delivery.
     trip.delivered_at = datetime.now(UTC)
-    await trips.release_resources(db, trip)
+    # NOT released here: DELIVERED still holds the pair by design, and
+    # flipping the status columns early is what made the screens and
+    # the planner disagree. The manager's Close releases them.
 
     await db.flush()
     await trips.record_event(
