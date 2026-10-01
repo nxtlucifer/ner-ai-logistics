@@ -55,9 +55,20 @@ only safety claim this module makes.
 
 `REQUIRED_EVIDENCE` below is the single place to change if a factor's status
 changes.
+
+EVIDENCE ONLY COUNTS WHERE IT IS COLLECTED (owner decisions, 29 Sep 2026)
+
+Logistics is India-wide; intelligence is NER-first. A hazard source that
+watches the North-East saying "nothing found" says nothing about a road in
+West Bengal. So a clearing landslide reading (LOW, CAUTION) counts only when
+the whole route lies inside the NER state polygons (`intelligence_coverage`
+NER_DEEP, services/geo_classify.route_coverage). Anywhere else it is UNKNOWN -
+LIMITED_EVIDENCE says INDIA_BASE_ROUTING - and so REQUIRES_REVIEW: a manager
+may accept it for one selection, and it is never ELIGIBLE. A reported hazard
+(HIGH, CRITICAL) stands wherever it is. Coverage not supplied is UNKNOWN.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Final
 
@@ -112,6 +123,32 @@ REVIEW_BANDS: Final[frozenset[LandslideRisk]] = frozenset(
 #: evidence, and gating on them would make the control meaningless.
 REQUIRED_EVIDENCE: Final[frozenset[str]] = frozenset({"landslide"})
 
+#: `intelligence_coverage` of a route (see the module docstring).
+COVERAGE_NER_DEEP: Final[str] = "NER_DEEP"
+COVERAGE_LIMITED: Final[str] = "LIMITED_EVIDENCE"
+COVERAGE_UNKNOWN: Final[str] = "UNKNOWN"
+#: Part of the route runs outside the NER state polygons, on India base data.
+REASON_INDIA_BASE_ROUTING: Final[str] = "INDIA_BASE_ROUTING"
+
+#: The readings that would let a route through; only these depend on coverage.
+_CLEARING: Final[frozenset[LandslideRisk]] = frozenset({LandslideRisk.LOW, LandslideRisk.CAUTION})
+
+
+def within_coverage(landslide: LandslideAssessment, coverage: str | None) -> LandslideAssessment:
+    """The landslide reading as far as it reaches.
+
+    A clearing reading on a route that is not wholly NER_DEEP becomes UNKNOWN
+    (evidence missing for part of the road). Idempotent. This is also the
+    evidence a review digests, so accepting a LIMITED road is the same act as
+    accepting any other unknown one.
+    """
+    if coverage == COVERAGE_NER_DEEP or landslide.risk not in _CLEARING:
+        return landslide
+    codes = landslide.reason_codes
+    if coverage == COVERAGE_LIMITED:
+        codes = tuple(dict.fromkeys((*codes, REASON_INDIA_BASE_ROUTING)))
+    return replace(landslide, risk=LandslideRisk.UNKNOWN, reason_codes=codes)
+
 
 @dataclass(frozen=True)
 class EligibilityDecision:
@@ -153,12 +190,17 @@ def not_assessed(detail: str | None = None) -> EligibilityDecision:
     )
 
 
-def evaluate(*, landslide: LandslideAssessment | None = None) -> EligibilityDecision:
+def evaluate(
+    *, landslide: LandslideAssessment | None = None, coverage: str | None = COVERAGE_UNKNOWN
+) -> EligibilityDecision:
     """Decide whether a route may be used, from the hazard evidence available.
 
     `landslide=None` means no assessment was performed at all, which is the
     same absence of evidence as an unconfigured provider: eligible, reported,
     never called clear.
+
+    `coverage` is the route's `intelligence_coverage`. Omitted, it is UNKNOWN:
+    a caller that forgets it gets a refusal, never ELIGIBLE (the LS-5 lesson).
     """
     codes: list[str] = []
 
@@ -170,6 +212,7 @@ def evaluate(*, landslide: LandslideAssessment | None = None) -> EligibilityDeci
             eligibility=Eligibility.REQUIRES_REVIEW,
             reason_codes=(REASON_HAZARD_DATA_UNKNOWN,),
         )
+    landslide = within_coverage(landslide, coverage)
 
     if landslide.risk in REJECTING_BANDS:
         # An authority said the road is shut. Nothing downstream may weigh

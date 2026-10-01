@@ -44,6 +44,7 @@ from urllib.parse import urlparse
 import httpx
 
 from app.core.config import get_settings
+from app.services import http_clients
 
 log = logging.getLogger(__name__)
 
@@ -121,8 +122,9 @@ async def status() -> ModelStatus:
         return ModelStatus(False, None, None, str(exc))
 
     try:
-        async with httpx.AsyncClient(timeout=settings.AI_STATUS_TIMEOUT_SECONDS) as c:
-            response = await c.get(f"{base}/api/tags")
+        response = await http_clients.get("ollama").get(
+            f"{base}/api/tags", timeout=settings.AI_STATUS_TIMEOUT_SECONDS
+        )
     except httpx.HTTPError:
         return ModelStatus(
             False,
@@ -188,10 +190,9 @@ async def generate(
             },
         }
         try:
-            async with httpx.AsyncClient(
-                timeout=settings.AI_TIMEOUT_SECONDS
-            ) as client:
-                response = await client.post(f"{base}/api/chat", json=body)
+            response = await http_clients.get("ollama").post(
+                f"{base}/api/chat", json=body, timeout=settings.AI_TIMEOUT_SECONDS
+            )
         except httpx.TimeoutException as exc:
             raise InferenceUnavailable("the model took too long to answer") from exc
         except httpx.HTTPError as exc:

@@ -66,6 +66,8 @@ describe('AssignTruckDialog', () => {
     render(<AssignTruckDialog driverId="d1" onClose={onClose} onChanged={onChanged} />)
 
     const truckSelect = await screen.findByLabelText('Truck')
+    // Named by its visible title.
+    expect(screen.getByRole('dialog', { name: 'Assign a Truck' })).toBeDefined()
     expect((screen.getByLabelText('Driver') as HTMLSelectElement).value).toBe('d1')
     expect(screen.getByTestId('assign-blocker').textContent).toMatch(/choose a truck/i)
     const submit = () => screen.getByRole('button', { name: /assign truck|change pairing/i }) as HTMLButtonElement

@@ -15,7 +15,7 @@
  * tiles and DOM markers keep working, leaving a map that looks healthy with the
  * planned route and observed GPS track silently missing.
  *
- * FleetMap fixes this by importing the worker through Vite's worker pipeline
+ * mapSetup fixes this by importing the worker through Vite's worker pipeline
  * and handing the emitted URL to `setWorkerUrl`. This test asserts the build
  * actually honours that, by reading the emitted asset graph rather than the
  * filesystem, so it needs no prior `npm run build`.
@@ -63,5 +63,12 @@ describe('production build', () => {
       `worker ${worker!.fileName} was emitted but no application chunk ` +
         'references it',
     ).toBe(true)
+
+    // MapLibre is most of a megabyte and only map screens need it. A static
+    // import of it (or of FleetMap / mapSetup) from an eager module puts it
+    // back in the chunk every page downloads first.
+    const entry = output.find((o) => o.type === 'chunk' && o.isEntry) as Rollup.OutputChunk
+    expect(entry.moduleIds.length).toBeGreaterThan(0)
+    expect(entry.moduleIds.filter((id) => id.includes('maplibre-gl'))).toEqual([])
   }, 120_000)
 })

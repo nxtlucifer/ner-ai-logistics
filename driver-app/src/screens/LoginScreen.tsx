@@ -1,17 +1,35 @@
+/**
+ * Driver sign-in, laid out on driver_01: a full-bleed road photo, the
+ * language pill top-right, the shield mark and wordmark centred over the sky,
+ * a frosted card with the two fields and Sign In, and three decorative
+ * statements over the road.
+ *
+ * WHAT THE REFERENCE HAS THAT THIS DOES NOT, ON PURPOSE:
+ *   - No "Forgot password?". Dispatch manages driver passwords; there is no
+ *     reset flow, and a link shaped like one is a lie. The help line under
+ *     Sign In says what actually happens.
+ *   - No "+91 ▾" dropdown and no number in the field. The prefix is a fixed
+ *     label, and the placeholder describes the field instead of showing a
+ *     real or demo number.
+ *   - No figures in the trust row: they are statements, not metrics.
+ *
+ * ONE login for every role: a manager types an e-mail into the same field,
+ * and the +91 label steps aside for it.
+ */
 import { useMemo, useState } from 'react'
 import {
   ActivityIndicator,
   Image,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 
 import { useAuth } from '../auth/AuthProvider'
 import { normalizeAndValidatePhone } from '../auth/phone'
@@ -20,16 +38,33 @@ import { useAppLanguage } from '../i18n/AppLanguageProvider'
 import { APP_LANGUAGES } from '../i18n/appLanguage'
 import { LanguageSheet } from '../i18n/LanguageSheet'
 import { Banner } from '../components/ui'
+import { Icon, type IconName } from '../components/icons'
+import { PHOTOS } from '../components/photoCredits'
+import { gradient } from '../components/scenic'
 import { TOUCH_TARGET } from '../theme'
 import { useT } from '../i18n/tx'
 import { makeStyles, useTheme } from '../theme-context'
+
+/** The photo's ridge line, as a share of the file's height (1080 x 1920),
+ *  and where it should land on screen: just under the brand block.
+ *  ponytail: one hand-measured focal point for one photo; swap the photo,
+ *  re-measure. */
+const PHOTO_RIDGE = 0.34
+const RIDGE_AT = 224
+
+/** Decorative value statements (audit s15 #15): no numbers, not buttons. */
+const TRUST: { icon: IconName; label: string; accent: boolean }[] = [
+  { icon: 'shield', label: 'Safer Deliveries', accent: true },
+  { icon: 'truck', label: 'Smarter Logistics', accent: false },
+  { icon: 'users', label: 'Stronger India', accent: true },
+]
 
 export default function LoginScreen() {
   const styles = useStyles()
   const { colors: COLORS } = useTheme()
   const tx = useT()
   const { login } = useAuth()
-  const { language, setLanguage, t } = useAppLanguage()
+  const { language, t } = useAppLanguage()
 
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
@@ -37,7 +72,17 @@ export default function LoginScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [authError, setAuthError] = useState<UserFacingError | null>(null)
   const [langSheetOpen, setLangSheetOpen] = useState(false)
+  // The focus ring is drawn on the rounded well, not on the bare input
+  // inside it (the browser's own ring was a square box around the text).
+  const [focused, setFocused] = useState<'phone' | 'password' | null>(null)
   const activeLanguage = APP_LANGUAGES.find((l) => l.code === language)
+  // Cover the screen, anchored at the photo's foot, and grow it until the
+  // ridge sits under the wordmark. A plain cover left the top third of a
+  // tall phone as blown-out sky (grey slab in Dark); on 360 x 640 the ridge
+  // already sits there, so nothing grows.
+  const { width, height } = useWindowDimensions()
+  const photoH = Math.max(height, (width * 16) / 9, (height - RIDGE_AT) / (1 - PHOTO_RIDGE))
+  const photoW = (photoH * 9) / 16
 
   // Real-time phone validation
   const phoneValidation = useMemo(() => {
@@ -46,6 +91,7 @@ export default function LoginScreen() {
   }, [phone])
 
   const isFormValid = phoneValidation.isValid && password.trim().length > 0
+  const submitOff = !isFormValid || isSubmitting
 
   async function handleSubmit() {
     if (isSubmitting || !isFormValid) return
@@ -64,624 +110,330 @@ export default function LoginScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.flex}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <ScrollView
-        contentContainerStyle={styles.container}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        {/* HERO. Drawn, not photographed: this repo ships no photography, and
-            inventing a stock Northeast highway shot would put a picture of a
-            road we do not operate behind a sign-in. Three stacked ridge
-            silhouettes over the deep ground read as terrain at a glance and
-            cost no asset, no bundle weight and no licence. To use a real
-            photo later, wrap this View in <ImageBackground> - the card below
-            already floats over it. */}
-        <View style={styles.hero}>
-          <View style={[styles.ridge, styles.ridgeBack]} />
-          <View style={[styles.ridge, styles.ridgeMid]} />
-          <View style={[styles.ridge, styles.ridgeFront]} />
-        </View>
+    <View style={styles.root}>
+      {/* The photo carries no information: hidden from screen readers. Dark
+          veils it in neutral black; both themes darken the foot, where the
+          trust row's light text sits. Never baked into the file. */}
+      <Image
+        source={PHOTOS.login.source()}
+        style={{ position: 'absolute', bottom: 0, left: (width - photoW) / 2, width: photoW, height: photoH }}
+        resizeMode="cover"
+        accessible={false}
+      />
+      <View style={[styles.fill, styles.passThrough, { backgroundColor: COLORS.imageDim }]} />
+      <View
+        style={[
+          styles.fill,
+          styles.passThrough,
+          gradient(
+            `linear-gradient(180deg, ${COLORS.imageTopVeil} 0%, ${COLORS.imageTopVeil} 30%, transparent 48%, ` +
+              `transparent 55%, ${COLORS.imageScrim} 86%, ${COLORS.imageScrim} 100%)`,
+          ),
+        ]}
+      />
 
-        <View style={styles.header}>
-          {/* ONE brand mark for both products: brand/mark.svg rendered to
-              assets (shield + heading arrow), the same file the launcher
-              icon and the console favicon come from. */}
-          <View style={styles.brandRow}>
-            <Image source={require('../../assets/brand-mark.png')} style={styles.logoBadge} accessibilityLabel="RASTA AI" />
-            <View style={styles.brandTextGroup}>
-              <Text style={styles.orgTag}>RASTA AI</Text>
-              <Text style={styles.motto}>NER LOGISTICS</Text>
-            </View>
-          </View>
-
-          <Text style={styles.title}>DRIVER</Text>
-          {/* LOCALISED, because the rest of this screen is.
-              These two lines were hardcoded English while every field label
-              below them translated, so a driver who picked Assamese got a
-              half-translated sign-in - on the first screen of a product whose
-              whole claim is regional accessibility. The keys already existed
-              and were unused, carrying stale copy ("Terrain Command Industrial
-              Edition"); they now carry what is actually on screen.
-
-              One support line, not two: "Safe routes. Connected fleet." and
-              "Sign in to continue your journey" said the same thing twice and
-              pushed the phone field down a 390pt screen. */}
-          <Text style={styles.welcomeTitle}>{t('login_title')}</Text>
-          <Text style={styles.subtitle}>{t('login_subtitle')}</Text>
-        </View>
-
-        {/* Categorized Safe Error Banner */}
-        {authError ? (
-          <View style={styles.errorContainer}>
-            <Banner tone="bad" title={authError.title} detail={authError.detail} />
-          </View>
-        ) : null}
-
-        {/* One control, not five. A row of chips cannot hold the languages
-            this product intends to support - at five it already filled the
-            width on a 360pt screen, and every added language would shrink the
-            others below the touch target. The sheet scales; the row did not.
-            Search, recent and A-Z live in LanguageSheet. */}
-        <Pressable
-          onPress={() => setLangSheetOpen(true)}
-          style={styles.langSelector}
-          accessibilityRole="button"
-          accessibilityLabel={`Language: ${activeLanguage?.label ?? 'English'}. Opens language chooser`}
-        >
-          <Text style={styles.langSelectorLabel}>
-            {activeLanguage?.nativeLabel ?? 'English'}
-          </Text>
-          <Text style={styles.langSelectorChevron}>▾</Text>
-        </Pressable>
-
-        {/* Main Login Card */}
-        <View style={styles.card}>
-          {/* Phone Field */}
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>{t('login_phone_label')}</Text>
-            <View
-              style={[
-                styles.phoneInputRow,
-                phone.length > 0 && !phoneValidation.isValid && styles.inputErrorBorder,
-              ]}
-            >
-              {/* No flag emoji. Android renders 🇮🇳 as the letters "IN" in a box
-                  on most builds anyway, which is what this now says on purpose
-                  and identically on every device. */}
-              {/* ONE login for every role: a manager types an e-mail, so the
-                  +91 badge belongs only to a phone-shaped identifier. */}
-              {phone.includes('@') ? null : (
-                <View style={styles.countryCodeBadge}>
-                  <Text style={styles.countryCodeText}>+91</Text>
-                  <View style={styles.badgeDivider} />
-                </View>
-              )}
-              <TextInput
-                style={styles.phoneInput}
-                value={phone}
-                onChangeText={(text) => {
-                  setPhone(text)
-                  if (authError) setAuthError(null)
-                }}
-                placeholder="94300 00777"
-                placeholderTextColor={COLORS.faint}
-                keyboardType="email-address"
-                autoComplete="tel"
-                editable={!isSubmitting}
-                maxLength={phone.includes('@') ? 120 : 16}
-              />
-            </View>
-            {phone.length > 0 && !phoneValidation.isValid ? (
-              <Text style={styles.inlineErrorText}>
-                {phoneValidation.error ?? 'Enter a valid 10-digit number'}
-              </Text>
-            ) : null}
-          </View>
-
-          {/* Password Field */}
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>{t('login_pin_label')}</Text>
-            <View style={styles.passwordInputRow}>
-              <View style={styles.lockIconBadge}>
-                {/* Drawn padlock: shackle arc over a body. Two Views, no font,
-                    no emoji colour-scheme surprises across Android versions. */}
-                <View style={styles.lockShackle} />
-                <View style={styles.lockBody} />
-              </View>
-              <TextInput
-                style={styles.passwordInput}
-                value={password}
-                onChangeText={(text) => {
-                  setPassword(text)
-                  if (authError) setAuthError(null)
-                }}
-                placeholder={t('login_pin_placeholder')}
-                placeholderTextColor={COLORS.faint}
-                secureTextEntry={!showPassword}
-                returnKeyType="go"
-                onSubmitEditing={() => void handleSubmit()}
-                editable={!isSubmitting}
-              />
-              <Pressable
-                onPress={() => setShowPassword((v) => !v)}
-                style={styles.visibilityButton}
-                accessibilityRole="button"
-                accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
-              >
-                {/* A word, not an eye. The two eye emoji differ by a single
-                    variation selector - 👁️ vs 👁️‍🗨️ - which most Android fonts
-                    render identically, so the control gave no feedback about
-                    which state it was in. This says which state it is in. */}
-                <Text style={styles.visibilityText}>
-                  {showPassword ? 'HIDE' : 'SHOW'}
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-
-          {/*
-            "REMEMBER ME" WAS REMOVED, NOT RESTYLED.
-
-            It was a checkbox, checked by default, whose value nothing read:
-            `rememberMe` never reached `login()`, was never persisted, and
-            changed no behaviour at all. It also promised something the app
-            already does unconditionally - `supabaseClient` sets
-            `persistSession: true` on native with keystore-backed storage, so a
-            driver stays signed in across a force-close whether the box is
-            ticked or not.
-
-            Implementing it for real would mean either storing the raw password
-            or making the session deliberately WORSE when unticked. Neither is
-            worth doing for a single-user work phone, so the honest move is to
-            delete the control rather than wire a checkbox to a lie.
-          */}
-          {/* Submit Button */}
+      <SafeAreaView style={styles.safe}>
+        {/* Fixed above the scroll, so neither scrolls away on a short screen:
+            the language pill top-right, and the Photo credits control
+            top-left over the plain sky (at 360 x 640 it used to sit below the
+            fold). The pill comes first in reading order; row-reverse puts it
+            right. */}
+        <View style={styles.topBar}>
+          {/* The first control on the screen: a driver who cannot read
+              English finds the language before anything else. The sheet
+              holds search, recent and A-Z. */}
           <Pressable
-            style={({ pressed }) => [
-              styles.submitButton,
-              (!isFormValid || isSubmitting) && styles.submitButtonDisabled,
-              pressed && isFormValid && !isSubmitting && styles.submitButtonPressed,
-            ]}
-            onPress={handleSubmit}
-            disabled={!isFormValid || isSubmitting}
+            onPress={() => setLangSheetOpen(true)}
+            style={styles.langSelector}
             accessibilityRole="button"
+            accessibilityLabel={`Language: ${activeLanguage?.label ?? 'English'}. Opens language chooser`}
           >
-            {isSubmitting ? (
-              <View style={styles.buttonContent}>
-                <ActivityIndicator size="small" color={COLORS.onAccent} />
-                <Text style={[styles.submitButtonLabel, styles.submitButtonLabelOff]}>
-                  {t('login_submitting').toUpperCase()}
-                </Text>
-              </View>
-            ) : (
-              <View style={styles.buttonContent}>
-                <Text
-                  style={[
-                    styles.submitButtonLabel,
-                    !isFormValid && styles.submitButtonLabelOff,
-                  ]}
-                >
-                  {t('login_submit')}
-                </Text>
-              </View>
-            )}
+            <Icon name="globe" size={18} color={COLORS.text} />
+            <Text style={styles.langSelectorLabel}>
+              {activeLanguage?.nativeLabel ?? 'English'}
+            </Text>
+            <Icon name="chevron-down" size={18} color={COLORS.textMuted} />
           </Pressable>
         </View>
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <ScrollView
+            contentContainerStyle={styles.container}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            {/* ONE brand mark for both products: brand/mark.svg rendered to
+                assets, the same file as the launcher icon. */}
+            <View style={styles.brand}>
+              <Image source={require('../../assets/brand-mark.png')} style={styles.logo} accessibilityLabel="RASTA AI" />
+              <Text style={styles.wordmark} accessibilityRole="header">
+                RASTA <Text style={styles.wordmarkAi}>AI</Text>
+              </Text>
+              <Text style={styles.subline}>NER LOGISTICS</Text>
+            </View>
 
-        {/* Footer */}
-        <View style={styles.footerSection}>
-          <View style={styles.secureRow}>
-            <View style={styles.secureDot} />
-            <Text style={styles.secureBadge}>{tx('Secure driver access')}</Text>
-          </View>
-          {/* This is what the removed "Forgot password?" link actually did:
-              it opened an alert saying dispatch manages passwords. A link
-              shaped like a reset flow, which was not one. The sentence is the
-              honest form of it, and it costs no tap. */}
-          <Text style={styles.footer}>
-            {tx('Need access? Contact your fleet manager — driver accounts and passwords are managed by dispatch.')}
-          </Text>
-          <Text style={styles.mottoFooter}>Safe Routes. Stronger India.</Text>
-        </View>
+            <View style={styles.card}>
+              {authError ? (
+                <View style={styles.errorContainer}>
+                  <Banner tone="bad" title={authError.title} detail={authError.detail} />
+                </View>
+              ) : null}
 
-        {/* THE DIAGNOSTICS TOGGLE WAS REMOVED, not merely hidden.
-            `__DEV__` is true for Expo web and for every debug build, so
-            "Debug connection details" was sitting on the sign-in screen of the
-            build used to demo this product. Connection diagnostics belong to
-            whoever is running the server, and that person has the server. */}
+              <Text style={styles.fieldLabel}>{t('login_phone_label')}</Text>
+              <View
+                style={[
+                  styles.well,
+                  phone.length > 0 && !phoneValidation.isValid && styles.wellError,
+                  focused === 'phone' && styles.wellFocus,
+                  focused === 'phone' && phone.length > 0 && !phoneValidation.isValid && styles.wellFocusError,
+                ]}
+              >
+                <Icon name="phone" size={18} color={COLORS.text} />
+                {/* A fixed label, not a country picker: it is not pressable. */}
+                {phone.includes('@') ? null : (
+                  <View style={styles.prefix}>
+                    <Text style={styles.prefixText}>+91</Text>
+                  </View>
+                )}
+                {phone.includes('@') ? null : <View style={styles.wellDivider} />}
+                <TextInput
+                  style={styles.input}
+                  value={phone}
+                  onChangeText={(text) => {
+                    setPhone(text)
+                    if (authError) setAuthError(null)
+                  }}
+                  onFocus={() => setFocused('phone')}
+                  onBlur={() => setFocused(null)}
+                  placeholder={t('login_phone_placeholder')}
+                  placeholderTextColor={COLORS.textMuted}
+                  keyboardType="email-address"
+                  autoComplete="tel"
+                  editable={!isSubmitting}
+                  maxLength={phone.includes('@') ? 120 : 16}
+                  accessibilityLabel={t('login_phone_label')}
+                />
+              </View>
+              {phone.length > 0 && !phoneValidation.isValid ? (
+                <Text style={styles.inlineErrorText}>
+                  {phoneValidation.error ?? 'Enter a valid 10-digit number'}
+                </Text>
+              ) : null}
 
-      </ScrollView>
+              <Text style={[styles.fieldLabel, styles.fieldLabelNext]}>{t('login_pin_label')}</Text>
+              <View style={[styles.well, focused === 'password' && styles.wellFocus]}>
+                <Icon name="lock" size={18} color={COLORS.text} />
+                <TextInput
+                  style={styles.input}
+                  value={password}
+                  onChangeText={(text) => {
+                    setPassword(text)
+                    if (authError) setAuthError(null)
+                  }}
+                  onFocus={() => setFocused('password')}
+                  onBlur={() => setFocused(null)}
+                  placeholder={t('login_pin_placeholder')}
+                  placeholderTextColor={COLORS.textMuted}
+                  secureTextEntry={!showPassword}
+                  returnKeyType="go"
+                  onSubmitEditing={() => void handleSubmit()}
+                  editable={!isSubmitting}
+                  accessibilityLabel={t('login_pin_label')}
+                />
+                <Pressable
+                  onPress={() => setShowPassword((v) => !v)}
+                  style={styles.eye}
+                  accessibilityRole="button"
+                  accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  <Icon name={showPassword ? 'eye-off' : 'eye'} size={20} color={COLORS.text} />
+                </Pressable>
+              </View>
 
-      {/* Bottom sheet. RN's own Modal - no sheet dependency for a list of five.
-          `transparent` + a pressable scrim gives tap-outside-to-close, and
-          onRequestClose wires the Android back button, which a custom overlay
-          would silently drop. */}
+              {/* Disabled look: the forest CTA at half strength (audit s16.3
+                  #12), so the page keeps its one strong action. The logic is
+                  unchanged: nothing is sent until both fields are complete,
+                  and `isSubmitting` is the double-submit guard. */}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.submit,
+                  submitOff && styles.submitOff,
+                  pressed && !submitOff && styles.submitPressed,
+                ]}
+                onPress={handleSubmit}
+                disabled={submitOff}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: submitOff, busy: isSubmitting }}
+                aria-disabled={submitOff}
+                testID="login-submit"
+              >
+                {isSubmitting ? (
+                  <ActivityIndicator size="small" color={COLORS.onPrimary} />
+                ) : null}
+                <Text style={styles.submitLabel}>
+                  {isSubmitting ? t('login_submitting') : t('login_submit')}
+                </Text>
+                {isSubmitting ? null : <Icon name="arrow-right" size={20} color={COLORS.onPrimary} />}
+              </Pressable>
+
+              {/* Where the reference has "Forgot password?": the honest form
+                  of it, which costs no tap. */}
+              <Text style={styles.help}>
+                {tx('Need access? Contact your fleet manager — driver accounts and passwords are managed by dispatch.')}
+              </Text>
+            </View>
+
+            <View style={styles.spacer} />
+
+            <View
+              style={styles.trustRow}
+              accessible
+              accessibilityLabel={TRUST.map((item) => tx(item.label)).join('. ')}
+            >
+              {TRUST.map((item, i) => (
+                <View key={item.label} style={styles.trustCell}>
+                  {i > 0 ? <View style={styles.trustDivider} /> : null}
+                  <Icon name={item.icon} size={24} color={item.accent ? COLORS.onPhotoAccent : COLORS.onPhoto} />
+                  <Text style={styles.trustText}>{tx(item.label)}</Text>
+                </View>
+              ))}
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+
       <LanguageSheet open={langSheetOpen} onClose={() => setLangSheetOpen(false)} />
-    </KeyboardAvoidingView>
+    </View>
   )
 }
 
 const useStyles = makeStyles((COLORS) => ({
-  flex: { flex: 1, backgroundColor: COLORS.bg },
+  root: { flex: 1, backgroundColor: COLORS.bg, overflow: 'hidden' },
+  fill: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, width: '100%', height: '100%' },
+  passThrough: { pointerEvents: 'none' },
+  safe: { flex: 1 },
+  flex: { flex: 1 },
 
-  // Hero occupies the top third and sits BEHIND the brand block, which is why
-  // it is absolutely positioned rather than a sibling in flow.
-  hero: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 250,
-    // Texture, not scenery: at full strength the ridges cut through the
-    // title and the language control on a 360pt screen.
-    opacity: 0.45,
-    // No background and no clipping. Painting the hero a different shade drew
-    // a hard seam across the login card; clipping rotated squares drew the
-    // same seam a second way, as a flat cut through the peaks. Real triangles
-    // need neither - they end in a point on their own.
-    backgroundColor: 'transparent',
+  // Proportions from driver_01 at 450 x 800 CSS: pill at 14, mark 70-145,
+  // wordmark 155-195, card from 225 at 74% of the width, trust row at 90%.
+  container: {
+    flexGrow: 1,
+    paddingHorizontal: 20,
+    paddingBottom: 24,
+    alignItems: 'center',
   },
-  // Border-triangles, the same trick the logo mark already uses (see
-  // logoPeakBack/Front): transparent left and right borders over a coloured
-  // bottom border. Self-contained silhouettes, so nothing has to be clipped
-  // and no horizontal edge can appear where a container ends.
-  // Bases are STAGGERED on purpose. Aligned at one baseline the three
-  // silhouettes merged into a single unbroken horizontal edge running the full
-  // width of the screen and straight past the login card - a box edge, not a
-  // horizon. Different baselines break it into layered hills. Fills sit only a
-  // few steps off the page ground for the same reason: at higher contrast this
-  // stops being a backdrop and starts competing with the form.
-  //
-  // FROM THE PALETTE, NOT HARD-CODED. These were three night hexes that never
-  // got a day value, so in Day mode near-black hills were drawn straight
-  // through 'Welcome back' - dark shape under dark heading. Three tokens that
-  // are distinct steps in BOTH palettes keep the layering and keep the
-  // heading readable either way.
-  ridge: {
-    position: 'absolute',
-    width: 0,
-    height: 0,
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
-  },
-  ridgeBack: {
-    bottom: 34,
-    left: -30,
-    borderLeftWidth: 130,
-    borderRightWidth: 130,
-    borderBottomWidth: 150,
-    borderBottomColor: COLORS.border,
-  },
-  ridgeMid: {
-    bottom: 0,
-    left: 150,
-    borderLeftWidth: 160,
-    borderRightWidth: 160,
-    borderBottomWidth: 190,
-    borderBottomColor: COLORS.borderStrong,
-  },
-  ridgeFront: {
-    bottom: 58,
-    left: 60,
-    borderLeftWidth: 110,
-    borderRightWidth: 110,
-    borderBottomWidth: 120,
-    borderBottomColor: COLORS.sunken,
+  topBar: {
+    flexDirection: 'row-reverse',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingTop: 12,
   },
   langSelector: {
-    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    minHeight: TOUCH_TARGET,
+    minHeight: 48,
     paddingHorizontal: 16,
-    borderRadius: 12,
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: COLORS.borderStrong,
-    backgroundColor: COLORS.raised,
-    marginBottom: 16,
+    borderColor: COLORS.glassBorder,
+    backgroundColor: COLORS.glass,
   },
   langSelectorLabel: { color: COLORS.text, fontSize: 15, fontWeight: '700' },
-  langSelectorChevron: { color: COLORS.muted, fontSize: 13, fontWeight: '800' },
 
-  container: {
-    paddingHorizontal: 22,
-    paddingTop: 36,
-    paddingBottom: 32,
-    justifyContent: 'center',
-    maxWidth: 480,
-    alignSelf: 'center',
-    width: '100%',
-  },
-  header: { marginBottom: 20 },
-  brandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 8,
-  },
-  // Padlock: an arc of border for the shackle, a filled body under it.
-  lockShackle: {
-    width: 10,
-    height: 7,
-    borderWidth: 1.6,
-    borderBottomWidth: 0,
-    borderColor: COLORS.muted,
-    borderTopLeftRadius: 5,
-    borderTopRightRadius: 5,
-    marginBottom: -1,
-  },
-  lockBody: {
-    width: 14,
-    height: 10,
-    borderRadius: 2.5,
-    backgroundColor: COLORS.muted,
-  },
-  secureRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-  },
-  secureDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: COLORS.ok,
-  },
+  brand: { alignItems: 'center', marginTop: 4 },
+  logo: { width: 76, height: 76, borderRadius: 18 },
+  wordmark: { color: COLORS.text, fontSize: 28, fontWeight: '800', letterSpacing: 0.5, marginTop: 8 },
+  wordmarkAi: { color: COLORS.brand },
+  subline: { color: COLORS.brand, fontSize: 11, fontWeight: '700', letterSpacing: 3.5, marginTop: 2 },
 
-  logoBadge: { width: 44, height: 44, borderRadius: 11 },
-  brandTextGroup: {
-    flexDirection: 'column',
-  },
-  orgTag: {
-    color: COLORS.text,
-    fontSize: 18,
-    fontWeight: '900',
-    letterSpacing: 1.5,
-  },
-  motto: {
-    color: COLORS.aqua,
-    fontSize: 9,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-    marginTop: 1,
-  },
-  title: {
-    color: COLORS.faint,
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-    marginTop: 8,
-  },
-  welcomeTitle: {
-    color: COLORS.text,
-    fontSize: 28,
-    fontWeight: '800',
-    letterSpacing: -0.6,
-    marginTop: 4,
-  },
-  subtitle: {
-    color: COLORS.muted,
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: 6,
-  },
-  errorContainer: {
-    marginBottom: 16,
-  },
-  // A single row. Wrapping five pills onto two lines pushed the phone field
-  // down and made the selector look like a tag cloud rather than a control.
-  // Selection is BLUE, not green. Green is the primary action colour in this
-  // system (the Sign In bar) and it also means "verified / safe" on the safety
-  // screens. Spending it on "which language is selected" made the language
-  // picker compete with the CTA directly below it and diluted the one colour
-  // the driver most needs to read correctly.
-  // A floating panel, so Terrain's sheet radius of 20. Heavy drop shadow
-  // removed: on a charcoal ground it rendered as a smudge, not elevation.
   card: {
-    backgroundColor: COLORS.card,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    width: '100%',
+    maxWidth: 340,
+    marginTop: 18,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     borderRadius: 20,
-    padding: 20,
+    borderWidth: 1,
+    borderColor: COLORS.glassBorder,
+    backgroundColor: COLORS.glass,
+    // Web only (react-native-web): the frost behind the card. Native draws
+    // the same translucent card without the blur.
+    backdropFilter: 'blur(14px)',
   },
-  field: {
-    marginBottom: 16,
-  },
+  errorContainer: { marginBottom: 14 },
   fieldLabel: {
-    color: COLORS.muted,
-    fontSize: 12,
+    color: COLORS.text,
+    fontSize: 11,
     fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginBottom: 8,
+    letterSpacing: 0.9,
+    marginBottom: 5,
   },
-  phoneInputRow: {
+  fieldLabelNext: { marginTop: 12 },
+  well: {
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 56,
-    borderWidth: 1.5,
-    borderColor: COLORS.borderStrong,
+    gap: 8,
+    minHeight: 50,
+    paddingLeft: 12,
     borderRadius: 12,
-    backgroundColor: COLORS.sunken,
-    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: COLORS.glassBorder,
+    backgroundColor: COLORS.glassWell,
   },
-  inputErrorBorder: {
-    borderColor: COLORS.bad,
+  wellError: { borderColor: COLORS.danger },
+  wellFocus: { outlineWidth: 2, outlineStyle: 'solid', outlineColor: COLORS.accent, outlineOffset: 1 },
+  wellFocusError: { outlineColor: COLORS.danger },
+  prefix: {
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: COLORS.surface,
   },
-  countryCodeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.raised,
-    paddingHorizontal: 12,
-    height: '100%',
-    gap: 6,
-  },
-  countryCodeText: {
-    color: COLORS.text,
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  badgeDivider: {
-    width: 1,
-    height: 20,
-    backgroundColor: COLORS.borderStrong,
-    marginLeft: 4,
-  },
-  phoneInput: {
-    flex: 1,
-    paddingHorizontal: 14,
-    color: COLORS.text,
-    fontSize: 16,
-    fontWeight: '600',
-    letterSpacing: 0.5,
-  },
-  inlineErrorText: {
-    color: COLORS.bad,
-    fontSize: 12,
-    marginTop: 5,
-    fontWeight: '500',
-  },
-  passwordInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: 56,
-    borderWidth: 1.5,
-    borderColor: COLORS.borderStrong,
-    borderRadius: 12,
-    backgroundColor: COLORS.sunken,
-  },
-  lockIconBadge: {
-    paddingLeft: 14,
-    paddingRight: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  passwordInput: {
+  prefixText: { color: COLORS.text, fontSize: 14, fontWeight: '700' },
+  wellDivider: { width: 1, height: 22, backgroundColor: COLORS.borderStrong },
+  input: {
     flex: 1,
     // A flex item's default minimum is its content, and a long placeholder
-    // pushed the SHOW toggle off a 320 dp screen. Zero lets the field shrink.
+    // pushed the eye off a 320 dp screen. Zero lets the field shrink.
     minWidth: 0,
-    paddingHorizontal: 8,
+    minHeight: 48,
+    paddingLeft: 4,
+    paddingRight: 8,
     color: COLORS.text,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  visibilityButton: {
-    paddingHorizontal: 16,
-    minHeight: 56,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  visibilityText: {
-    color: COLORS.muted,
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-  },
-  // Radius 12, not 28. A full pill on a 56pt bar reads as a consumer app; the
-  // rest of this product uses 10-12. The green glow (shadowRadius 10 at 0.35
-  // opacity, in the button's own colour) was a permanent halo - the design
-  // system forbids constant glow, and on an OLED dash mount at night it bloomed.
-  submitButton: {
-    minHeight: 56,
-    borderRadius: 12,
-    backgroundColor: COLORS.accent,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 2,
-  },
-  submitButtonPressed: {
-    opacity: 0.88,
-    transform: [{ scale: 0.99 }],
-  },
-  submitButtonDisabled: {
-    backgroundColor: COLORS.disabled,
-    shadowOpacity: 0,
-    elevation: 0,
-    opacity: 0.6,
-  },
-  buttonContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  // `onAccent` is the DARK label Terrain's night action requires - 9.2:1 on
-  // the mint fill. It is only correct while that fill is mint: on the disabled
-  // charcoal it is 1.3:1, i.e. an invisible button. The submitting state uses
-  // the same off-label because that fill is disabled too.
-  submitButtonLabelOff: {
-    color: COLORS.muted,
-  },
-  submitButtonLabel: {
-    color: COLORS.onAccent,
-    fontSize: 17,
-    fontWeight: '800',
-    letterSpacing: 0.3,
-  },
-  dividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 18,
-    gap: 12,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: COLORS.border,
-  },
-  dividerText: {
-    color: COLORS.faint,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  biometricsButton: {
-    minHeight: 52,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: COLORS.borderStrong,
-    backgroundColor: COLORS.sunken,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 10,
-  },
-  biometricsIcon: {
-    fontSize: 18,
-  },
-  biometricsText: {
-    color: COLORS.muted,
     fontSize: 14,
-    fontWeight: '700',
-  },
-  footerSection: {
-    marginTop: 24,
-    alignItems: 'center',
-    gap: 6,
-  },
-  secureBadge: {
-    color: COLORS.ok,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  footer: {
-    color: COLORS.faint,
-    fontSize: 12,
-    lineHeight: 18,
-    textAlign: 'center',
-    paddingHorizontal: 12,
-  },
-  mottoFooter: {
-    color: COLORS.dim,
-    fontSize: 11,
     fontWeight: '600',
-    letterSpacing: 0.8,
-    marginTop: 4,
+    // The well draws the focus ring (wellFocus); web's own ring on the bare
+    // input is switched off. A native TextInput draws none.
+    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as unknown as object) : null),
   },
+  inlineErrorText: { color: COLORS.danger, fontSize: 12, marginTop: 5, fontWeight: '600' },
+  eye: { width: TOUCH_TARGET, minHeight: 48, alignItems: 'center', justifyContent: 'center' },
+
+  submit: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    // The 48 dp floor, not the app's 52: driver_01's CTA is 46.
+    minHeight: 48,
+    marginTop: 14,
+    borderRadius: 12,
+    backgroundColor: COLORS.primary,
+  },
+  submitOff: { opacity: 0.5, backgroundColor: COLORS.primaryDisabled },
+  submitPressed: { backgroundColor: COLORS.primaryHover },
+  submitLabel: { color: COLORS.onPrimary, fontSize: 16, fontWeight: '700' },
+  help: { color: COLORS.textMuted, fontSize: 12, lineHeight: 16, textAlign: 'center', marginTop: 6 },
+
+  spacer: { flexGrow: 1, minHeight: 20 },
+  trustRow: { flexDirection: 'row', width: '100%', maxWidth: 380, alignItems: 'flex-start' },
+  trustCell: { flex: 1, alignItems: 'center', gap: 6, paddingHorizontal: 6 },
+  trustDivider: { position: 'absolute', left: 0, top: 6, bottom: 2, width: 1, backgroundColor: COLORS.onPhoto, opacity: 0.35 },
+  trustText: { color: COLORS.onPhoto, fontSize: 11, fontWeight: '600', lineHeight: 15, textAlign: 'center', maxWidth: 66 },
 }))

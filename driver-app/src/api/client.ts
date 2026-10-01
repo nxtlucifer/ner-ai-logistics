@@ -98,13 +98,26 @@ export class ApiError extends Error {
 }
 
 export class NetworkError extends Error {
-  constructor(cause: unknown) {
+  /**
+   * True when OUR timeout aborted the request, rather than the network
+   * failing.
+   *
+   * This cannot be read back off the message. React Native rejects an
+   * aborted fetch with "Network request failed" - the same text a real
+   * connection failure produces - so the previous `/abort/i` test on the
+   * message never matched, and every slow server was reported to the
+   * driver as a broken internet connection.
+   */
+  readonly timedOut: boolean
+
+  constructor(cause: unknown, timedOut = false) {
     super(
       cause instanceof Error
         ? `Cannot reach the server: ${cause.message}`
         : 'Cannot reach the server',
     )
     this.name = 'NetworkError'
+    this.timedOut = timedOut
   }
 }
 
@@ -138,6 +151,19 @@ export function setUnauthenticatedHandler(handler: (() => void) | null): void {
  * NetworkError the driver can retry.
  */
 export const REQUEST_TIMEOUT_MS = 15_000
+/**
+ * Sign-in and session restore, sized for a SLEEPING backend.
+ *
+ * Measured from this phone on 20 September 2026: the first request to the
+ * hosted service after an idle period returned 200 in **23.2 s**, and a
+ * separate probe saw **32.9 s**. At the 15 s default the first sign-in of
+ * the day aborted before the server finished starting.
+ *
+ * 60 s covers the observed wake with room for a slow mobile network. It
+ * applies only to the auth calls - by the time anything else runs, the
+ * server is awake.
+ */
+export const AUTH_TIMEOUT_MS = 60_000
 
 interface RequestOptions {
   method?: string
@@ -165,10 +191,11 @@ async function rawRequest(path: string, options: RequestOptions): Promise<Respon
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`
 
   const controller = new AbortController()
-  const timer = setTimeout(
-    () => controller.abort(),
-    options.timeoutMs ?? REQUEST_TIMEOUT_MS,
-  )
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, options.timeoutMs ?? REQUEST_TIMEOUT_MS)
   // An already-aborted signal must abort immediately: a caller that cancels
   // between deciding to retry and the fetch starting would otherwise get one
   // request it can no longer stop.
@@ -199,7 +226,7 @@ async function rawRequest(path: string, options: RequestOptions): Promise<Respon
       credentials: 'omit',
     })
   } catch (cause) {
-    throw new NetworkError(cause)
+    throw new NetworkError(cause, timedOut)
   } finally {
     // Cleared whether the request succeeded, failed or timed out. A leaked
     // timer would abort a later request that happened to reuse the controller.
@@ -213,15 +240,21 @@ async function rawRequest(path: string, options: RequestOptions): Promise<Respon
 // there are no sibling tabs to coordinate with.
 let refreshInFlight: Promise<string | null> | null = null
 
+/**
+ * Resolves the new access token, or null when there is no session to restore
+ * (nothing stored, or the server refused it with 401/403 - the token is then
+ * discarded). REJECTS on a retryable failure (NetworkError, or ApiError for a
+ * 5xx/429) and keeps the stored token.
+ */
 export function refreshSession(): Promise<string | null> {
   if (refreshInFlight) return refreshInFlight
 
   refreshInFlight = (async () => {
     try {
       // The token is always supplied explicitly - never taken from a cookie.
-      // On web there is no secure storage, so there is nothing to restore and
-      // the driver simply signs in again. That is the correct trade: the web
-      // build is a development convenience, and persisting a refresh token in
+      // On web it is held in memory only (tokenStore.ts): it renews the
+      // session inside the tab, and after a reload there is nothing to
+      // restore, so the driver signs in again. Persisting a refresh token in
       // browser storage would be strictly worse than asking for a password.
       const stored = await loadRefreshToken()
       if (!stored) return null
@@ -233,17 +266,27 @@ export function refreshSession(): Promise<string | null> {
         // at all, which is why this must be declared rather than assumed.
         body: { refresh_token: stored, client: 'mobile' },
         skipRefresh: true,
+        // Restoring a session on app launch hits the same cold server.
+        timeoutMs: AUTH_TIMEOUT_MS,
       })
-      if (!response.ok) {
+      // Only a refusal ends the session. A 5xx while the backend wakes or
+      // redeploys, or a 429 from the per-IP refresh limiter (drivers behind one
+      // carrier NAT share it), says nothing about the token: keep it and throw,
+      // so callers retry as they would after a lost signal.
+      if (response.status === 401 || response.status === 403) {
         await clearRefreshToken()
         return null
+      }
+      if (!response.ok) {
+        throw new ApiError(response.status, null, `Session refresh failed with ${response.status}`)
       }
       const data = (await response.json()) as TokenResponse
       accessToken = data.access_token
       if (data.refresh_token) await saveRefreshToken(data.refresh_token)
       return accessToken
-    } catch {
-      return null
+    } catch (error) {
+      // A 200 that is not our JSON is a captive portal, not our server.
+      throw error instanceof ApiError || error instanceof NetworkError ? error : new NetworkError(error)
     } finally {
       refreshInFlight = null
     }
@@ -259,6 +302,8 @@ export async function request<T>(
   let response = await rawRequest(path, options)
 
   if (response.status === 401 && !options.skipRefresh) {
+    // A retryable refresh failure throws from here: the caller sees a lost
+    // signal or a server problem, and the driver stays signed in.
     const renewed = await refreshSession()
     if (renewed) {
       response = await rawRequest(path, { ...options, skipRefresh: true })
@@ -555,6 +600,43 @@ export interface CurrentTrip {
    * `acknowledgeInstruction` records that it was seen.
    */
   pending_instruction?: PendingInstruction | null
+  /** The driver's open break (ACTIVE or OVERDUE), or null. */
+  active_break?: TripBreak | null
+  /**
+   * The official border status for this trip's road (owner decision 2):
+   * data from an official source, never decided by the app. Optional and
+   * absent until the server sends it; absent shows nothing and is never
+   * read as "clear". See components/borderAdvisory.tsx.
+   */
+  border_advisory?: BorderAdvisory | null
+}
+
+export interface BorderAdvisory {
+  status: 'NORMAL' | 'ADVISORY' | 'RESTRICTED' | 'UNKNOWN' | string
+  message?: string | null
+  source?: string | null
+  verified_at?: string | null
+}
+
+export type BreakReason = 'TEA_REST' | 'FOOD' | 'WASHROOM' | 'FUEL' | 'EMERGENCY' | 'OTHER'
+
+/** One break (0017). `status` is the server's: ACTIVE, OVERDUE (open past its
+ *  planned end) or ENDED. */
+export interface TripBreak {
+  id: string
+  trip_id: string
+  status: 'ACTIVE' | 'OVERDUE' | 'ENDED'
+  reason: BreakReason
+  note: string | null
+  planned_minutes: 15 | 30
+  started_at: string
+  expected_end_at: string
+  ended_at: string | null
+  actual_seconds: number | null
+  overdue: boolean
+  location: { lat: number; lon: number } | null
+  location_source: string | null
+  location_at: string | null
 }
 
 export interface PendingInstruction {
@@ -614,7 +696,10 @@ export interface ActiveEmergency {
 }
 
 /** The four service kinds the map offers. Matches the backend enum. */
-export type PlaceCategory = 'EMERGENCY' | 'TYRES' | 'HOTEL' | 'REST'
+/** FUEL added 20 Sep 2026 with the Overpass extract behind it; before
+ *  that the snapshot held no fuel records and an empty layer would have
+ *  read as "no petrol stations here". */
+export type PlaceCategory = 'FUEL' | 'EMERGENCY' | 'TYRES' | 'HOTEL' | 'REST'
 
 /**
  * What the search was centred on, so the screen can say so out loud.
@@ -1117,6 +1202,8 @@ const restApi = {
       method: 'POST',
       body: { identifier, password, client: 'mobile' },
       skipRefresh: true,
+      // The first sign-in of the day may be waking a sleeping server.
+      timeoutMs: AUTH_TIMEOUT_MS,
     })
     accessToken = result.access_token
     if (result.refresh_token) await saveRefreshToken(result.refresh_token)
@@ -1261,6 +1348,63 @@ const restApi = {
       method: 'POST',
       body: { trip_id: tripId },
     }),
+  /**
+   * Ask the manager to stop the trip. A REQUEST, not a cancellation: a
+   * loaded truck with a cancelled job and nobody told is the failure this
+   * avoids.
+   *
+   * `requestId` is generated once when the driver confirms and reused on
+   * every retry, so a lost response on a hill road cannot raise the same
+   * emergency twice.
+   */
+  /**
+   * "I am still here."
+   *
+   * The ONLY thing that makes a driver show as online to a manager. Not the
+   * signal bars, not whether the app is foregrounded - a heartbeat this
+   * server received. The server coalesces repeats, so a beat that arrives
+   * inside its own window costs no write.
+   */
+  heartbeat: () =>
+    request<{ server_time: string; coalesced: boolean }>('/api/presence/heartbeat', {
+      method: 'POST',
+      body: {},
+    }),
+  requestTripStop: (input: {
+    requestId: string
+    reason: string
+    category?: string
+    lat?: number
+    lon?: number
+    /** When the phone took lat/lon (ISO 8601). Sent only with them. */
+    fixAt?: string
+  }) =>
+    request<CurrentTrip>('/api/driver/me/trip/stop-request', {
+      method: 'POST',
+      body: {
+        request_id: input.requestId,
+        reason: input.reason,
+        category: input.category ?? 'OTHER',
+        ...(input.lat != null && input.lon != null
+          ? { lat: input.lat, lon: input.lon, ...(input.fixAt ? { fix_at: input.fixAt } : {}) }
+          : {}),
+      },
+    }),
+  /** Start a planned break. `requestId` is made once per sheet and reused on
+   *  retry, so a lost response cannot start two breaks. The trip stays under way. */
+  startBreak: (input: { requestId: string; minutes: 15 | 30; reason: BreakReason; lat?: number; lon?: number; fixAt?: string }) =>
+    request<CurrentTrip>('/api/driver/me/trip/break', {
+      method: 'POST',
+      body: {
+        request_id: input.requestId,
+        minutes: input.minutes,
+        reason: input.reason,
+        ...(input.lat != null && input.lon != null ? { lat: input.lat, lon: input.lon, ...(input.fixAt ? { fix_at: input.fixAt } : {}) } : {}),
+      },
+    }),
+  /** End the break. Idempotent: an already-ended break returns the trip unchanged. */
+  resumeBreak: (breakId: string) =>
+    request<CurrentTrip>('/api/driver/me/trip/break/resume', { method: 'POST', body: { break_id: breakId } }),
   /** Records that this driver has seen a manager instruction. Idempotent. */
   acknowledgeInstruction: (eventId: number) =>
     request<CurrentTrip>('/api/driver/me/trip/instruction/ack', {

@@ -16,17 +16,31 @@ const mocked = vi.hoisted(() => ({
   refreshSession: vi.fn(),
   setAccessToken: vi.fn(),
   clearRefreshToken: vi.fn(),
+  loadRefreshToken: vi.fn(),
+  readCachedIdentity: vi.fn(),
+  cacheIdentity: vi.fn(),
+  clearSessionCache: vi.fn(),
 }))
 vi.mock('../api/client', () => ({
-  ApiError: class ApiError extends Error { status = 0 },
+  ApiError: class ApiError extends Error {
+    status: number
+    constructor(status = 0) { super(`HTTP ${status}`); this.status = status }
+  },
+  NetworkError: class NetworkError extends Error {},
   api: { login: mocked.login, authMe: mocked.authMe, me: mocked.me, logout: mocked.logout },
   refreshSession: mocked.refreshSession,
   setAccessToken: mocked.setAccessToken,
   setUnauthenticatedHandler: () => {},
 }))
-vi.mock('./tokenStore', () => ({ clearRefreshToken: mocked.clearRefreshToken }))
+vi.mock('./tokenStore', () => ({ clearRefreshToken: mocked.clearRefreshToken, loadRefreshToken: mocked.loadRefreshToken }))
+vi.mock('./sessionCache', () => ({
+  readCachedIdentity: mocked.readCachedIdentity,
+  cacheIdentity: mocked.cacheIdentity,
+  clearSessionCache: mocked.clearSessionCache,
+}))
 
-import { AuthProvider, useAuth } from './AuthProvider'
+import { ApiError, NetworkError } from '../api/client'
+import { AuthProvider, SESSION_RETRY_MS, useAuth } from './AuthProvider'
 
 const manager = { user: { id: 'm', role: 'MANAGER', display_name: 'Dispatch', email: 'd@x', phone: null }, permissions: ['trip:dispatch'] }
 const driver = { user: { id: 'u', role: 'DRIVER', display_name: 'Demo', email: null, phone: '9' }, permissions: ['trip:execute_own'] }
@@ -108,5 +122,79 @@ describe('role-aware session', () => {
     await act(async () => { await expect(ctx!.login('9', 'pw')).rejects.toThrow('suspended') })
     expect(mocked.logout).toHaveBeenCalledTimes(1)
     expect(shell()).toBe('LOGIN')
+  })
+})
+
+describe('cold launch with no signal (FE-01)', () => {
+  const cachedDriver = { ...driver, driver: profile }
+
+  it('opens the cached driver OFFLINE, goes live when the refresh succeeds, and clears the cache on logout', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    try {
+      mocked.refreshSession.mockRejectedValue(new NetworkError('no signal'))
+      mocked.loadRefreshToken.mockResolvedValue('stored')
+      mocked.readCachedIdentity.mockResolvedValue(cachedDriver)
+      await mount()
+      expect(shell()).toBe('DRIVER_SHELL')
+      expect(ctx!.offline).toBe(true)
+      expect(mocked.clearRefreshToken).not.toHaveBeenCalled()
+      expect(mocked.cacheIdentity).not.toHaveBeenCalled() // the cache is never written back as if live
+
+      mocked.refreshSession.mockResolvedValue('t')
+      mocked.authMe.mockResolvedValue({ ...driver, user: { ...driver.user, email: 'drv@x' } })
+      await act(async () => { await vi.advanceTimersByTimeAsync(SESSION_RETRY_MS) })
+      expect(ctx!.offline).toBe(false)
+      // The cache keeps the name for the header, never the licence, phone or email.
+      const written = mocked.cacheIdentity.mock.calls.at(-1)![0]
+      expect(written.driver).toEqual({ id: 'drv', full_name: 'RASTA Demo Driver' })
+      expect(written.user.phone).toBeNull()
+      expect(written.user.email).toBeNull()
+      expect(JSON.stringify(written)).not.toMatch(/licence/)
+
+      await act(async () => { await ctx!.logout() })
+      expect(shell()).toBe('LOGIN')
+      expect(mocked.clearSessionCache).toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a 503 from a waking server with a stored token opens the cached identity OFFLINE', async () => {
+    mocked.refreshSession.mockRejectedValue(new ApiError(503, null, 'waking'))
+    mocked.loadRefreshToken.mockResolvedValue('stored')
+    mocked.readCachedIdentity.mockResolvedValue(cachedDriver)
+    await mount()
+    expect(shell()).toBe('DRIVER_SHELL')
+    expect(ctx!.offline).toBe(true)
+    expect(mocked.clearRefreshToken).not.toHaveBeenCalled()
+  })
+
+  it('while offline, a refused session goes to LOGIN and clears the cache', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    try {
+      mocked.refreshSession.mockRejectedValue(new NetworkError('no signal'))
+      mocked.loadRefreshToken.mockResolvedValue('stored')
+      mocked.readCachedIdentity.mockResolvedValue(cachedDriver)
+      await mount()
+      expect(ctx!.offline).toBe(true)
+      mocked.clearSessionCache.mockClear()
+
+      mocked.refreshSession.mockResolvedValue(null)
+      await act(async () => { await vi.advanceTimersByTimeAsync(SESSION_RETRY_MS) })
+      expect(shell()).toBe('LOGIN')
+      expect(ctx!.offline).toBe(false)
+      expect(mocked.clearSessionCache).toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('without a stored token a network failure is the login screen, not a cached identity', async () => {
+    mocked.refreshSession.mockRejectedValue(new NetworkError('no signal'))
+    mocked.loadRefreshToken.mockResolvedValue(null)
+    mocked.readCachedIdentity.mockResolvedValue(cachedDriver)
+    await mount()
+    expect(shell()).toBe('LOGIN')
+    expect(ctx!.offline).toBe(false)
   })
 })

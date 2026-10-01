@@ -10,8 +10,11 @@
  * backend's own inventory, never from prose typed here.
  */
 
+import { ChevronDown } from 'lucide-react'
+
 import { API_BASE_URL, api, type ProviderHealthRow } from '../api/client'
-import { Card, ErrorState, LoadingState } from '../components/ui'
+import { LoadingState, Panel } from '../components/ui'
+import { InlineError, PageHeader, Pill, type PillTone } from '../components/pageKit'
 import { useResource } from '../hooks/useResource'
 
 export type CapabilityState = 'HEALTHY' | 'DEGRADED' | 'FALLBACK_ACTIVE' | 'UNKNOWN' | 'UNAVAILABLE'
@@ -24,12 +27,14 @@ const STATE_LABEL: Record<CapabilityState, string> = {
   UNAVAILABLE: 'Unavailable',
 }
 
-const STATE_TONE: Record<CapabilityState, { dot: string; text: string }> = {
-  HEALTHY: { dot: 'bg-ok-strong', text: 'text-ok' },
-  DEGRADED: { dot: 'bg-warning-strong', text: 'text-warning' },
-  FALLBACK_ACTIVE: { dot: 'bg-warning-strong', text: 'text-warning' },
-  UNKNOWN: { dot: 'bg-muted', text: 'text-muted' },
-  UNAVAILABLE: { dot: 'bg-danger-strong', text: 'text-danger' },
+// Green = working, amber = working with a caveat, red = not working,
+// neutral = not known yet. Never green for "not called yet".
+const STATE_TONE: Record<CapabilityState, PillTone> = {
+  HEALTHY: 'ok',
+  DEGRADED: 'warning',
+  FALLBACK_ACTIVE: 'warning',
+  UNKNOWN: 'neutral',
+  UNAVAILABLE: 'danger',
 }
 
 /** A capability is a primary provider plus optional fallbacks, in order. */
@@ -81,17 +86,15 @@ function word(row: ProviderHealthRow): string {
   return `${name}: healthy${row.freshness === 'AGING' ? ' (aging)' : row.freshness === 'STALE' || row.freshness === 'EXPIRED' ? ` (${row.freshness.toLowerCase()})` : ''}`
 }
 
-function Row({ label, value, tone, detail }: { label: string; value: string; tone: { dot: string; text: string }; detail?: string | null }) {
+/** One line of a status list: the thing, what it is, and its state as a pill. */
+function Row({ label, value, tone, detail }: { label: string; value: string; tone: PillTone; detail?: string | null }) {
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-line py-3 last:border-b-0">
-      <div className="min-w-0">
-        <div className="text-sm font-medium text-ink">{label}</div>
-        {detail ? <div className="mt-0.5 text-xs text-muted">{detail}</div> : null}
+    <div className="flex min-h-12 flex-wrap items-center justify-between gap-x-4 gap-y-1.5 border-t border-line py-2.5 first:border-t-0">
+      <div className="min-w-0 flex-1 basis-60">
+        <div className="text-sm font-semibold text-ink">{label}</div>
+        {detail ? <div className="mt-0.5 text-[13px] text-muted">{detail}</div> : null}
       </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <span className={`inline-block h-2.5 w-2.5 rounded-full ${tone.dot}`} aria-hidden="true" />
-        <span className={`text-sm font-semibold ${tone.text}`}>{value}</span>
-      </div>
+      <Pill tone={tone}>{value}</Pill>
     </div>
   )
 }
@@ -105,15 +108,15 @@ function ago(epoch: number | null): string {
   return `${Math.round(s / 86400)} d ago`
 }
 
-const OK = STATE_TONE.HEALTHY
-const BAD = STATE_TONE.UNAVAILABLE
-const DIM = STATE_TONE.UNKNOWN
+const OK: PillTone = 'ok'
+const BAD: PillTone = 'danger'
+const DIM: PillTone = 'neutral'
 
 /** One provider row: state + freshness in words, last success, last error CATEGORY. Never a key. */
 function ProviderRow({ row }: { row: ProviderHealthRow }) {
-  const tone = row.state === 'HEALTHY' || row.state === 'STATIC'
-    ? (row.freshness === 'STALE' || row.freshness === 'EXPIRED' ? BAD : row.freshness === 'AGING' ? STATE_TONE.DEGRADED : OK)
-    : row.state === 'RATE_LIMITED' ? STATE_TONE.DEGRADED : row.state === 'UNKNOWN' || row.state === 'NOT_CONFIGURED' ? DIM : BAD
+  const tone: PillTone = row.state === 'HEALTHY' || row.state === 'STATIC'
+    ? (row.freshness === 'STALE' || row.freshness === 'EXPIRED' ? BAD : row.freshness === 'AGING' ? 'warning' : OK)
+    : row.state === 'RATE_LIMITED' ? 'warning' : row.state === 'UNKNOWN' || row.state === 'NOT_CONFIGURED' ? DIM : BAD
   const value = row.state === 'STATIC'
     ? `Static dataset${row.detail.vintage ? ` · ${String(row.detail.vintage)}` : ''}`
     : row.state === 'UNKNOWN'
@@ -135,80 +138,87 @@ export default function SystemPage() {
   const experimental = counts.TRUE_LOCAL_ML_EXPERIMENTAL ?? 0
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-bold text-ink">Diagnostics</h1>
-        <p className="text-xs text-muted">
-          What the console can do right now. A throttled provider whose fallback answers is not an outage: the capability says so, and the provider rows underneath say why.
-        </p>
+    <div className="flex flex-col gap-[14px]">
+      <PageHeader
+        title="Diagnostics"
+        meta="What the console can do right now. A throttled provider whose fallback answers is not an outage: the capability says so, and the provider rows underneath say why."
+      />
+
+      <div className="grid items-start gap-[13px] xl:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)]">
+        <Panel title="System" subtitle="The backend this console talks to, and its database">
+          {ready.status === 'loading' ? (
+            <LoadingState label="Checking backend…" />
+          ) : ready.status === 'error' ? (
+            <>
+              <Row label="Backend" value="Offline" tone={BAD} detail={API_BASE_URL} />
+              <InlineError compact error={ready.error} onRetry={ready.reload} />
+            </>
+          ) : ready.data ? (
+            <>
+              <Row label="Backend" value="Online" tone={OK} detail={API_BASE_URL} />
+              <Row label="Database" value={ready.data.checks.database.ok ? 'Ready' : 'Not ready'} tone={ready.data.checks.database.ok ? OK : BAD} detail={`${ready.data.provider === 'supabase' ? 'Supabase PostgreSQL + PostGIS' : 'Local PostgreSQL'} · ${ready.data.checks.database.detail ?? ''}`} />
+              <Row label="PostGIS" value={ready.data.checks.postgis.ok ? 'Ready' : 'Not ready'} tone={ready.data.checks.postgis.ok ? OK : BAD} detail={ready.data.checks.postgis.detail} />
+            </>
+          ) : null}
+        </Panel>
+
+        <Panel className="xl:row-span-2" title="Capabilities" subtitle="Each one's primary provider, then its fallbacks">
+          {providers.status === 'loading' ? (
+            <LoadingState label="Reading provider health…" />
+          ) : providers.status === 'error' ? (
+            <InlineError error={providers.error} onRetry={providers.reload} />
+          ) : providers.data ? (
+            CAPABILITIES.map((cap) => {
+              const { state, detail } = capabilityState(rows, cap.providers)
+              return <Row key={cap.name} label={cap.name} value={STATE_LABEL[state]} tone={STATE_TONE[state]} detail={`${cap.note} · ${detail}`} />
+            })
+          ) : null}
+          <p className="mt-2 border-t border-line pt-3 text-[13px] text-muted">
+            An input that is missing, throttled or stale is reported UNKNOWN on the route and is never scored as safe. Routing and navigation continue.
+          </p>
+        </Panel>
+
+        {providers.data ? (
+          <Panel title="Intelligence Inventory">
+            <p className="mb-1 text-[13px] text-muted">
+              Counted from the code by the backend, not typed here. Every route decision is a deterministic policy over the evidence; the online models only word answers.
+            </p>
+            {([
+              ['Deterministic route policy', 'ACTIVE', OK],
+              ['Production local ML', String(counts.TRUE_LOCAL_ML ?? 0), DIM],
+              ['Experimental local ML', `${experimental}${experimental > 0 ? ' · not deployed' : ''}`, experimental > 0 ? 'warning' : DIM],
+              ['Deterministic engines', String(counts.DETERMINISTIC_INTELLIGENCE ?? 0), OK],
+              ['Geometric algorithms', String(counts.GEOMETRIC_ALGORITHM ?? 0), OK],
+              ['Offline knowledge systems', String(counts.OFFLINE_KNOWLEDGE_SYSTEM ?? 0), OK],
+              ['Online AI providers', String(counts.ONLINE_LLM ?? 0), OK],
+              ['Provider model outputs', String(counts.PROVIDER_MODEL_OUTPUT ?? 0), OK],
+            ] as [string, string, PillTone][]).map(([label, value, tone]) => (
+              <Row key={label} label={label} value={value} tone={tone} />
+            ))}
+            {experimental > 0 ? (
+              <p className="mt-2 border-t border-line pt-3 text-[13px] text-muted">
+                The experimental landslide model is trained and validated on held-out data (research registry in the repository) but is kept outside routing by the safety-validation gate until its false-positive rate is acceptable. It controls nothing here.
+              </p>
+            ) : null}
+          </Panel>
+        ) : null}
       </div>
 
-      <Card title="System">
-        {ready.status === 'loading' ? (
-          <LoadingState label="Checking backend…" />
-        ) : ready.status === 'error' ? (
-          <>
-            <Row label="Backend" value="Offline" tone={BAD} detail={API_BASE_URL} />
-            <div className="mt-4"><ErrorState error={ready.error} onRetry={ready.reload} /></div>
-          </>
-        ) : ready.data ? (
-          <>
-            <Row label="Backend" value="Online" tone={OK} detail={API_BASE_URL} />
-            <Row label="Database" value={ready.data.checks.database.ok ? 'Ready' : 'Not ready'} tone={ready.data.checks.database.ok ? OK : BAD} detail={`${ready.data.provider === 'supabase' ? 'Supabase PostgreSQL + PostGIS' : 'Local PostgreSQL'} · ${ready.data.checks.database.detail ?? ''}`} />
-            <Row label="PostGIS" value={ready.data.checks.postgis.ok ? 'Ready' : 'Not ready'} tone={ready.data.checks.postgis.ok ? OK : BAD} detail={ready.data.checks.postgis.detail} />
-          </>
-        ) : null}
-        {providers.status === 'loading' ? (
-          <LoadingState label="Reading provider health…" />
-        ) : providers.status === 'error' ? (
-          <div className="mt-3"><ErrorState error={providers.error} onRetry={providers.reload} /></div>
-        ) : providers.data ? (
-          CAPABILITIES.map((cap) => {
-            const { state, detail } = capabilityState(rows, cap.providers)
-            return <Row key={cap.name} label={cap.name} value={STATE_LABEL[state]} tone={STATE_TONE[state]} detail={`${cap.note} · ${detail}`} />
-          })
-        ) : null}
-        <p className="mt-3 text-xs text-muted">
-          An input that is missing, throttled or stale is reported UNKNOWN on the route and is never scored as safe. Routing and navigation continue.
-        </p>
-      </Card>
-
       {providers.data ? (
-        <details className="rounded-[var(--radius-card)] border border-line bg-surface shadow-[var(--shadow-card)]">
-          <summary className="cursor-pointer px-5 py-3 text-sm font-semibold text-ink">Provider details ({rows.length})</summary>
-          <div className="border-t border-line px-5 py-2">
+        <details className="group rounded-[var(--radius-card)] border border-line bg-surface shadow-[var(--shadow-card)]">
+          <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 rounded-[var(--radius-card)] px-4 py-3 text-base font-bold text-ink [&::-webkit-details-marker]:hidden">
+            <span>Provider Details ({rows.length})</span>
+            <ChevronDown className="size-5 shrink-0 text-muted transition-transform group-open:rotate-180" aria-hidden="true" />
+          </summary>
+          <div className="px-4 pb-2">
             {rows.map((row) => <ProviderRow key={row.provider} row={row} />)}
           </div>
         </details>
       ) : null}
 
-      {providers.data ? (
-        <Card title="Intelligence inventory">
-          <p className="mb-2 text-xs text-muted">
-            Counted from the code by the backend, not typed here. Every route decision is a deterministic policy over the evidence; the online models only word answers.
-          </p>
-          {[
-            ['Deterministic route policy', 'ACTIVE', OK],
-            ['Production local ML', String(counts.TRUE_LOCAL_ML ?? 0), DIM],
-            ['Experimental local ML', `${experimental}${experimental > 0 ? ' · not deployed' : ''}`, experimental > 0 ? STATE_TONE.DEGRADED : DIM],
-            ['Deterministic engines', String(counts.DETERMINISTIC_INTELLIGENCE ?? 0), OK],
-            ['Geometric algorithms', String(counts.GEOMETRIC_ALGORITHM ?? 0), OK],
-            ['Offline knowledge systems', String(counts.OFFLINE_KNOWLEDGE_SYSTEM ?? 0), OK],
-            ['Online AI providers', String(counts.ONLINE_LLM ?? 0), OK],
-            ['Provider model outputs', String(counts.PROVIDER_MODEL_OUTPUT ?? 0), OK],
-          ].map(([label, value, tone]) => (
-            <Row key={String(label)} label={String(label)} value={String(value)} tone={tone as { dot: string; text: string }} />
-          ))}
-          {experimental > 0 ? (
-            <p className="mt-3 text-xs text-muted">
-              The experimental landslide model is trained and validated on held-out data (research registry in the repository) but is kept outside routing by the safety-validation gate until its false-positive rate is acceptable. It controls nothing here.
-            </p>
-          ) : null}
-        </Card>
-      ) : null}
-
-      <p className="text-xs leading-relaxed text-muted">
-        SIH26002 — RASTA AI. Route risk is a deterministic rule over eleven evidence factors (weather, terrain, historical landslide exposure, flood context, official warnings, fleet traffic and more). Rerouting proposes; a person authorises. No probability of any hazard is shown on a route.
+      {/* The hackathon brief's code is for demo and certification builds only. */}
+      <p className="text-[13px] leading-relaxed text-muted">
+        {import.meta.env.MODE === 'production' ? '' : 'SIH26002 — '}RASTA AI. Route risk is a deterministic rule over eleven evidence factors (weather, terrain, historical landslide exposure, flood context, official warnings, fleet traffic and more). Rerouting proposes; a person authorises. No probability of any hazard is shown on a route.
       </p>
     </div>
   )

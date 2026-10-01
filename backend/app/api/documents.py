@@ -45,6 +45,7 @@ from app.models.identity import Driver, DriverDocument, User
 from app.schemas.common import APIModel, ReadModel
 from app.schemas.domain import AssignmentRead
 from app.services import audit
+from app.services import drivers as driver_service
 from app.services.driver_self import normalise_registration
 
 router = APIRouter(tags=["documents"])
@@ -86,6 +87,19 @@ class DocumentRead(ReadModel):
 
 
 class DocumentCreate(APIModel):
+    """Metadata for one driver document.
+
+    Dates are ISO `YYYY-MM-DD` on the wire, in both directions, because
+    `13-01-2026` and `01-13-2026` are the same string to a human and
+    different dates to a parser. Clients render whatever their locale wants
+    and send ISO; `date` refuses everything else.
+
+    The cross-field rules live in `_dates_ok`, not here, so the endpoint can
+    answer with `DOCUMENT_DATES_INVALID` and say which rule was broken -
+    a generic VALIDATION_ERROR would tell a driver only that "something
+    about the dates" was wrong.
+    """
+
     doc_type: DriverDocumentType
     doc_number: Annotated[str, Field(min_length=3, max_length=64)] | None = None
     issued_on: date | None = None
@@ -95,6 +109,8 @@ class DocumentCreate(APIModel):
 
 
 class TruckDocumentCreate(APIModel):
+    """The same rules for insurance, fitness, permits and the RC."""
+
     doc_type: TruckDocumentType = TruckDocumentType.INSURANCE
     doc_number: Annotated[str, Field(min_length=3, max_length=64)] | None = None
     issued_on: date | None = None
@@ -135,11 +151,30 @@ async def _own_file(db, driver: Driver, file_id: uuid.UUID | None, kind: str) ->
     return f"/api/files/{row.id}"
 
 
+#: How far ahead a document may claim to be valid.
+#:
+#: A certificate good for fifty years is a typo - 2205 for 2025 - and it is
+#: the worst kind, because the row looks fine and the expiry warning the
+#: document exists to drive never fires again for the life of the fleet.
+MAX_VALIDITY_YEARS = 30
+
+
 def _dates_ok(issued_on: date | None, expires_on: date | None) -> None:
+    """Every rule about the two dates, in one place both endpoints call.
+
+    One error code, with a message that says which rule was broken: a driver
+    told only "invalid dates" has to guess which of the two fields to fix.
+    """
+    today = date.today()
     if issued_on and expires_on and expires_on < issued_on:
         raise BusinessRuleError("Expiry date is before the issue date.", code="DOCUMENT_DATES_INVALID")
-    if issued_on and issued_on > date.today():
+    if issued_on and issued_on > today:
         raise BusinessRuleError("Issue date is in the future.", code="DOCUMENT_DATES_INVALID")
+    if expires_on and expires_on > today.replace(year=today.year + MAX_VALIDITY_YEARS):
+        raise BusinessRuleError(
+            f"Expiry date is more than {MAX_VALIDITY_YEARS} years away. Check the year.",
+            code="DOCUMENT_DATES_INVALID",
+        )
 
 
 async def _current_assignment(db, driver: Driver) -> tuple[DriverTruckAssignment, Truck] | None:
@@ -229,6 +264,13 @@ async def driver_documents(
 ) -> list[DocumentRead]:
     # Masked metadata only: DRIVER_READ is enough. The number itself never
     # leaves the database through this API for any role.
+    #
+    # The driver row is resolved through the scoped getter first: a DRIVER
+    # holds DRIVER_READ for their own row, and without this a driver could read
+    # any other driver's document types, expiry dates and masked numbers by id
+    # (found by the Day 2 Task 2 assessment). Another driver's id is a 404 here
+    # exactly as it is on GET /api/drivers/{id}.
+    await driver_service.get(db, driver_id, actor=actor)
     rows = (await db.execute(select(DriverDocument).where(DriverDocument.driver_id == driver_id).order_by(DriverDocument.created_at.desc()))).scalars().all()
     return [_read(r) for r in rows]
 

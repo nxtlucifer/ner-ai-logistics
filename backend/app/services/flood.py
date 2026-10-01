@@ -14,7 +14,7 @@ from typing import Final
 
 import httpx
 
-from app.services import provider_health
+from app.services import http_clients, provider_health
 
 from app.core.config import get_settings
 from app.domain.flood import FloodContext, flood_context, parse_open_meteo
@@ -45,10 +45,10 @@ async def flood_for(route_id: object, positions: list[tuple[float, float]]) -> F
         "forecast_days": 3,
     }
     try:
-        async with httpx.AsyncClient(timeout=settings.WEATHER_TIMEOUT_SECONDS) as client:
-            response = await client.get(
-                f"{settings.FLOOD_PROVIDER_URL}/v1/flood", params=params, headers={"User-Agent": USER_AGENT}
-            )
+        response = await http_clients.get("glofas").get(
+            f"{settings.FLOOD_PROVIDER_URL}/v1/flood", params=params, headers={"User-Agent": USER_AGENT},
+            timeout=settings.WEATHER_TIMEOUT_SECONDS,
+        )
         response.raise_for_status()
         body = response.json()
     except httpx.HTTPStatusError as exc:

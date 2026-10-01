@@ -42,6 +42,29 @@ describe('dangerAlert', () => {
     expect(a.key).toBe('r1:warning:IN-1')
   })
 
+  // E2E-R3. A dense route (41 vertices, ~500 m apart, along 26.5 N).
+  const LINE: LatLon[] = Array.from({ length: 41 }, (_, i) => [26.5, 91.0 + i * 0.005] as LatLon)
+  const slides = (events: { latitude: number; longitude: number; year: number | null }[]) =>
+    base({ terrain: { usable: true, segments: [] }, landslide_history: { exposure: 'HIGH', inventory_from_year: 2007, inventory_to_year: 2017, events } } as never)
+
+  it('keys one card per stretch of recorded sites, so one acknowledgement covers the stretch', () => {
+    const risk = slides([91.01, 91.015, 91.03, 91.15].map((lon) => ({ latitude: 26.5, longitude: lon, year: 2015 })))
+    // Before the first site, between the first and second, past the second: one card.
+    const keys = [0, 1_200, 1_800].map((m) => dangerAlert(risk, 'r1', LINE, m)!.key)
+    expect(new Set(keys).size).toBe(1)
+    // A site 12 km further on is a new stretch, and a new card.
+    expect(dangerAlert(risk, 'r1', LINE, 13_000)!.key).not.toBe(keys[0])
+  })
+
+  it('says "here" only for a site on the road, and how far off it lies otherwise', () => {
+    // ~2 km north of the road, level with ~5 km along.
+    const off = dangerAlert(slides([{ latitude: 26.518, longitude: 91.05, year: 2015 }]), 'r1', LINE, 4_800)!
+    expect(off.where).toContain('Recorded landslide site 2.0 km off the road, near here')
+    expect(off.where).not.toContain('site here')
+    const on = dangerAlert(slides([{ latitude: 26.5, longitude: 91.05, year: 2015 }]), 'r1', LINE, 4_800)!
+    expect(on.where).toContain('Recorded landslide site here')
+  })
+
   it('needs a route and a fix for segment alerts', () => {
     expect(dangerAlert(base(), null, POINTS, 4_000)).toBeNull()
     expect(dangerAlert(base(), 'r1', POINTS, null)).toBeNull()

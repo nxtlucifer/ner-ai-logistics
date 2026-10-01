@@ -23,7 +23,7 @@ from typing import Any, Annotated, Literal
 from fastapi import APIRouter, Body, status as http_status
 from pydantic import Field
 
-from app.api.deps import CurrentDriver, DbSession
+from app.api.deps import CurrentDriver, DbSession, rate_limit
 from app.core.errors import APIError
 from app.domain import ai_prompts
 from app.schemas.common import APIModel, ReadModel
@@ -107,11 +107,14 @@ async def _trip_facts(db, driver) -> tuple[str, datetime | None]:
 
 
 @router.get("/status", response_model=AiStatusRead, summary="Is a model available")
-async def ai_status(driver: CurrentDriver) -> AiStatusRead:
+async def ai_status(driver: CurrentDriver, db: DbSession) -> AiStatusRead:
     """Checked live, not cached.
 
     Checks Gemini Developer API first, then falls back to local inference status.
     """
+    # The auth lookups are all this request needs from the database: give the
+    # connection back before the local-model probe (DBPOOL-01).
+    await db.commit()
     gemini_res = await gemini.status()
     if gemini_res.available:
         return AiStatusRead(
@@ -143,7 +146,15 @@ async def ai_status(driver: CurrentDriver) -> AiStatusRead:
     )
 
 
-@router.post("/ask", response_model=AskResponse, summary="Ask the AI model")
+@router.post(
+    "/ask",
+    response_model=AskResponse,
+    summary="Ask the AI model",
+    # The hard limit, before the trip facts are read. Under it, the
+    # free-tier gate in gemini.generate still answers offline (200) past
+    # 10 a minute; past 30 a minute this is a 429 (RATE_LIMIT_POLICY.md s.5).
+    dependencies=[rate_limit("ai_ask")],
+)
 async def ask(
     driver: CurrentDriver,
     db: DbSession,
@@ -173,10 +184,18 @@ async def ask(
         user = ai_prompts.assistant_prompt(payload.question, facts)
     system = ai_prompts.in_language(system, payload.language)
 
+    # Everything the model sees is in `user` now. End the transaction before
+    # the provider call (DBPOOL-01): an answer takes seconds, and a pooled
+    # connection held "idle in transaction" for each one starved the pool
+    # (3+2 connections, 20 questions: /api/auth/me p95 27 s). Commit, not
+    # rollback: expire_on_commit=False keeps `driver` readable, a rollback
+    # would expire it. Nothing is written after the answer.
+    driver_id = str(driver.id)
+    await db.commit()
     gemini_res = await gemini.generate(
         system=system,
         user=user,
-        driver_id=str(driver.id),
+        driver_id=driver_id,
         mode=payload.mode,
     )
 

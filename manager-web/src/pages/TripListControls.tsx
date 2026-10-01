@@ -9,15 +9,17 @@
  * of it.
  *
  * Attention is the one filter applied in the browser, and it says so: it is
- * derived from status + whether a route is selected, which the server does not
- * index. It narrows the page you are looking at, not the whole set, so it is
+ * derived from status + whether a route is selected (and whether a driver's
+ * reroute request is waiting), which the server does not index. It narrows the page you are looking at, not the whole set, so it is
  * disabled while "All" is not loaded and the export label changes with it.
  */
 
-import { useId } from 'react'
+import { useId, type KeyboardEvent } from 'react'
+import { ChevronLeft, ChevronRight, Download, Printer, Search } from 'lucide-react'
 
 import type { Driver, Truck } from '../api/client'
 import { Button } from '../components/ui'
+import { REROUTE_ASKED } from './tripExport'
 
 export type PageSize = 20 | 50 | 100 | 'ALL'
 export const PAGE_SIZES: PageSize[] = [20, 50, 100, 'ALL']
@@ -34,9 +36,12 @@ export const ATTENTION_FILTERS = [
   'Needs a route',
   'Ready to dispatch',
   'Awaiting driver',
+  'Accepted — awaiting start',
   'Truck check pending',
   'On the road',
+  REROUTE_ASKED,
   'Delayed',
+  'Incident open',
   'Close to release the truck',
 ] as const
 
@@ -72,7 +77,12 @@ export function describeFilters(
   return parts.join(' · ')
 }
 
-const FIELD = 'rounded-[10px] border border-line bg-surface px-2 py-1.5 text-xs text-ink'
+/** A filter control: the console's 44px field, outlined so it reads as one you may change. */
+const FIELD = 'rounded-[var(--radius-control)] border border-outline bg-surface px-3 text-[13px] text-ink focus:border-route'
+const SCOPES = [
+  ['OPEN', 'Open Trips', 'Everything still being worked'],
+  ['HISTORY', 'Trip History', 'Closed and cancelled — read-only'],
+] as const
 
 export interface TripListControlsProps {
   filters: TripFilters
@@ -102,39 +112,74 @@ export function TripListControls(p: TripListControlsProps) {
   const count = activeFilterCount(p.filters)
   const set = (patch: Partial<TripFilters>) => p.onFilters({ ...p.filters, ...patch })
   const pages = p.total !== null && p.pageSize !== 'ALL' ? Math.max(1, Math.ceil(p.total / p.pageSize)) : null
+  const scope = SCOPES.find(([key]) => key === p.filters.scope) ?? SCOPES[0]
+  const choose = (next: TripFilters['scope']) => set({ scope: next, status: '' })
+  // The tablist's own keys (WAI-ARIA tabs): one Tab stop, arrows move and select.
+  const onTabKey = (e: KeyboardEvent<HTMLButtonElement>) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return
+    e.preventDefault()
+    const target = e.key === 'Home' ? 'OPEN' : e.key === 'End' ? 'HISTORY' : p.filters.scope === 'OPEN' ? 'HISTORY' : 'OPEN'
+    choose(target)
+    document.getElementById(`${id}-tab-${target}`)?.focus()
+  }
+  const noRows = p.shown === 0 ? 'No trips to export' : undefined
 
   return (
-    <div className="space-y-2" data-testid="trip-list-controls">
+    <div className="space-y-3" data-testid="trip-list-controls">
       {/* Two lists, not a status that happens to mean "finished". A closed
           trip has no dispatch and no cancel, so it does not belong beside one
-          that does. */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="inline-flex rounded-[10px] border border-line p-0.5" role="tablist" aria-label="Trip list">
-          {(['OPEN', 'HISTORY'] as const).map((scope) => (
-            <button
-              key={scope}
-              type="button"
-              role="tab"
-              aria-selected={p.filters.scope === scope}
-              className={`min-h-9 rounded-[8px] px-3 text-xs font-semibold ${p.filters.scope === scope ? 'bg-primary text-white' : 'text-muted'}`}
-              onClick={() => set({ scope, status: '' })}
-            >
-              {scope === 'OPEN' ? 'Open trips' : 'History'}
-            </button>
-          ))}
+          that does. The tabs are the card's title, as on the Overview. */}
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+        <div className="min-w-0">
+          <h2 className="sr-only">Trip list</h2>
+          <div className="flex gap-5" role="tablist" aria-label="Trip list">
+            {SCOPES.map(([key, label]) => (
+              <button
+                key={key}
+                id={`${id}-tab-${key}`}
+                type="button"
+                role="tab"
+                aria-selected={p.filters.scope === key}
+                tabIndex={p.filters.scope === key ? 0 : -1}
+                onKeyDown={onTabKey}
+                className={`-mb-px border-b-2 pb-0.5 font-display text-base font-bold leading-tight ${
+                  p.filters.scope === key ? 'border-primary text-ink' : 'border-transparent text-muted hover:text-ink'
+                }`}
+                onClick={() => choose(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-[13px] leading-[18px] text-muted">{scope[2]}</p>
         </div>
+        {/* Says WHAT it writes, so nobody has to guess whether the file is
+            the page or the search. */}
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" size="sm" busy={p.exporting} disabled={p.exporting || p.shown === 0} title={noRows} onClick={p.onExportCsv}>
+            {p.exporting ? null : <Download className="size-4" aria-hidden="true" />}Export CSV
+          </Button>
+          <Button variant="secondary" size="sm" busy={p.exporting} disabled={p.exporting || p.shown === 0} title={noRows} onClick={p.onExportPdf}>
+            {p.exporting ? null : <Printer className="size-4" aria-hidden="true" />}Export PDF
+          </Button>
+        </div>
+      </div>
 
+      <div className="flex flex-wrap items-center gap-2">
         <label className="sr-only" htmlFor={`${id}-search`}>Search trips</label>
-        <input
-          id={`${id}-search`}
-          className={`${FIELD} min-w-[13rem] flex-1`}
-          placeholder="Search trip code or client"
-          value={p.filters.search}
-          onChange={(e) => set({ search: e.target.value })}
-        />
+        <span className="relative min-w-[13rem] flex-[2_1_16rem]">
+          <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
+          <input
+            id={`${id}-search`}
+            className={`${FIELD} w-full pl-9 placeholder:text-muted`}
+            placeholder="Search trip code or client"
+            value={p.filters.search}
+            onChange={(e) => set({ search: e.target.value })}
+          />
+        </span>
 
         <label className="sr-only" htmlFor={`${id}-status`}>Filter by status</label>
-        <select id={`${id}-status`} className={FIELD} value={p.filters.status} onChange={(e) => set({ status: e.target.value })}>
+        <select id={`${id}-status`} className={`${FIELD} flex-1`} value={p.filters.status} onChange={(e) => set({ status: e.target.value })}>
           <option value="">All statuses</option>
           {STATUSES.filter((s) => (p.filters.scope === 'HISTORY') === ['DELIVERED', 'CLOSED', 'CANCELLED'].includes(s)).map((s) => (
             <option key={s} value={s}>{s.replaceAll('_', ' ')}</option>
@@ -142,7 +187,7 @@ export function TripListControls(p: TripListControlsProps) {
         </select>
 
         <label className="sr-only" htmlFor={`${id}-attention`}>Filter by attention</label>
-        <select id={`${id}-attention`} className={FIELD} value={p.filters.attention} onChange={(e) => set({ attention: e.target.value })}>
+        <select id={`${id}-attention`} className={`${FIELD} flex-1`} value={p.filters.attention} onChange={(e) => set({ attention: e.target.value })}>
           <option value="">All attention</option>
           {ATTENTION_FILTERS.map((a) => <option key={a} value={a}>{a}</option>)}
         </select>
@@ -150,7 +195,7 @@ export function TripListControls(p: TripListControlsProps) {
         {p.drivers.length > 0 ? (
           <>
             <label className="sr-only" htmlFor={`${id}-driver`}>Filter by driver</label>
-            <select id={`${id}-driver`} className={FIELD} value={p.filters.driverId} onChange={(e) => set({ driverId: e.target.value })}>
+            <select id={`${id}-driver`} className={`${FIELD} flex-1`} value={p.filters.driverId} onChange={(e) => set({ driverId: e.target.value })}>
               <option value="">All drivers</option>
               {p.drivers.map((d) => <option key={d.id} value={d.id}>{d.full_name}</option>)}
             </select>
@@ -160,7 +205,7 @@ export function TripListControls(p: TripListControlsProps) {
         {p.trucks.length > 0 ? (
           <>
             <label className="sr-only" htmlFor={`${id}-truck`}>Filter by truck</label>
-            <select id={`${id}-truck`} className={FIELD} value={p.filters.truckId} onChange={(e) => set({ truckId: e.target.value })}>
+            <select id={`${id}-truck`} className={`${FIELD} flex-1`} value={p.filters.truckId} onChange={(e) => set({ truckId: e.target.value })}>
               <option value="">All trucks</option>
               {p.trucks.map((t) => <option key={t.id} value={t.id}>{t.registration_number}</option>)}
             </select>
@@ -168,13 +213,13 @@ export function TripListControls(p: TripListControlsProps) {
         ) : null}
 
         {count > 0 ? (
-          <Button variant="secondary" className="min-h-9 px-2 py-1 text-xs" onClick={() => p.onFilters({ ...EMPTY_FILTERS, scope: p.filters.scope })}>
+          <Button variant="secondary" onClick={() => p.onFilters({ ...EMPTY_FILTERS, scope: p.filters.scope })}>
             Clear filters ({count})
           </Button>
         ) : null}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[13px] text-muted">
         <span className="tnum" data-testid="trip-count">
           {p.busy
             ? 'Loading…'
@@ -185,7 +230,7 @@ export function TripListControls(p: TripListControlsProps) {
         </span>
 
         <div className="flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-1" htmlFor={`${id}-size`}>
+          <label className="flex items-center gap-2" htmlFor={`${id}-size`}>
             <span>Rows per page</span>
             <select
               id={`${id}-size`}
@@ -196,15 +241,15 @@ export function TripListControls(p: TripListControlsProps) {
               {PAGE_SIZES.map((s) => <option key={String(s)} value={String(s)}>{s === 'ALL' ? `All (max ${ALL_LIMIT})` : s}</option>)}
             </select>
           </label>
-          <Button variant="secondary" className="min-h-9 px-2 py-1 text-xs" disabled={!p.canPrevious || p.busy} onClick={p.onPrevious}>Previous</Button>
-          <Button variant="secondary" className="min-h-9 px-2 py-1 text-xs" disabled={!p.canNext || p.busy} onClick={p.onNext}>Next</Button>
-          {/* Says WHAT it writes, so nobody has to guess whether the file is
-              the page or the search. */}
-          <Button variant="secondary" className="min-h-9 px-2 py-1 text-xs" busy={p.exporting} disabled={p.exporting || p.shown === 0} onClick={p.onExportCsv}>Export CSV</Button>
-          <Button variant="secondary" className="min-h-9 px-2 py-1 text-xs" busy={p.exporting} disabled={p.exporting || p.shown === 0} onClick={p.onExportPdf}>Export PDF</Button>
+          <Button variant="secondary" className="px-3" disabled={!p.canPrevious || p.busy} title={p.busy ? 'Loading this page' : !p.canPrevious ? 'Already on the first page' : undefined} onClick={p.onPrevious}>
+            <ChevronLeft className="size-4" aria-hidden="true" />Previous
+          </Button>
+          <Button variant="secondary" className="px-3" disabled={!p.canNext || p.busy} title={p.busy ? 'Loading this page' : !p.canNext ? 'This is the last page' : undefined} onClick={p.onNext}>
+            Next<ChevronRight className="size-4" aria-hidden="true" />
+          </Button>
         </div>
       </div>
-      {p.exportNote ? <p className="text-[11px] text-muted" data-testid="export-note">{p.exportNote}</p> : null}
+      {p.exportNote ? <p className="text-[13px] text-muted" role="status" data-testid="export-note">{p.exportNote}</p> : null}
     </div>
   )
 }

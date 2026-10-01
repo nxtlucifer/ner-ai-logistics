@@ -33,6 +33,7 @@ weather are still perfectly good evidence.
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import time
@@ -43,7 +44,7 @@ from typing import Final
 
 import httpx
 
-from app.services import provider_health
+from app.services import http_clients, provider_health
 
 from app.core.config import get_settings
 from app.domain.terrain import TerrainProfile, build_profile, sample_by_distance
@@ -114,9 +115,10 @@ class OpenMeteoElevationProvider:
         must not throw away six good ones.
         """
         out: list[float | None] = []
-        async with httpx.AsyncClient(
-            timeout=self._timeout, headers={"User-Agent": USER_AGENT}
-        ) as client:
+        # Shared, never closed here (app/services/http_clients.py).
+        async with contextlib.nullcontext(http_clients.get(
+            "open_meteo_elevation", timeout=self._timeout, headers={"User-Agent": USER_AGENT}
+        )) as client:
             for start in range(0, len(points), BATCH):
                 chunk = points[start : start + BATCH]
                 try:

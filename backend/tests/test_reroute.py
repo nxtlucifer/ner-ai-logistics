@@ -24,11 +24,14 @@ def _risk(score: int, *, unavailable: tuple[str, ...] = ("landslide",)) -> Route
     reroute DECISION rule, and without it every candidate would be
     REQUIRES_REVIEW - correct policy, but it would quietly turn this suite
     into a test of the eligibility gate. Absence-of-evidence behaviour lives
-    in tests/test_route_eligibility.py.
+    in tests/test_route_eligibility.py. Sufficient now includes a road wholly
+    inside the NER (NER_DEEP); the coverage rule is tested in
+    tests/test_india_trip_policy.py.
     """
     from app.domain.landslide import DataStatus, LandslideAssessment, LandslideRisk
 
     return RouteRisk(
+        intelligence_coverage="NER_DEEP",
         landslide=LandslideAssessment(
             risk=LandslideRisk.LOW, data_status=DataStatus.AVAILABLE
         ),

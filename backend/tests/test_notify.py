@@ -35,6 +35,9 @@ async def test_token_registration_dedupe_and_no_token_rows(api: AsyncClient, ses
     ok = await api.post("/api/driver/me/push-token", json={"token": "ExponentPushToken[xyz]"}, headers=headers)
     assert ok.status_code == 200 and ok.json() == {"registered": True}
 
+    # Sends happen after the caller's commit (DBPOOL-08); the factory's
+    # refreshes left a read transaction open on this session.
+    await session.commit()
     first = await notify.send(session, driver_id=driver.id, event="ROUTE_DANGER_AHEAD", title="High historical landslide exposure ahead", body="b", fingerprint="fp:trip:seg7")
     again = await notify.send(session, driver_id=driver.id, event="ROUTE_DANGER_AHEAD", title="High historical landslide exposure ahead", body="b", fingerprint="fp:trip:seg7")
     await session.commit()

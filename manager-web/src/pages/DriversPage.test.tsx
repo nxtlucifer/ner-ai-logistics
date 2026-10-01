@@ -74,6 +74,10 @@ describe('DriversPage login state', () => {
 
     render(<DriversPage />)
     await screen.findByText('Bipul Das')
+    // The list masks the number to its last two digits (audit 11); the
+    // profile, opened on purpose, shows it (below).
+    expect(screen.getByText('••••••••45')).toBeDefined()
+    expect(screen.queryByText('9435012345')).toBeNull()
     expect(screen.queryByRole('button', { name: /view as driver/i })).toBeNull()
     expect(screen.queryByRole('button', { name: /^deactivate$/i })).toBeNull()
     // The pairing is readable off the row.
@@ -108,6 +112,18 @@ describe('DriversPage login state', () => {
     expect(screen.getByText('Cannot be dispatched')).toBeDefined()
   })
 
+  it('says a driver held by a draft is reserved, as the planner does', async () => {
+    vi.spyOn(api, 'listDrivers').mockResolvedValue({ items: [driver()], next_cursor: null })
+    vi.spyOn(api, 'listTrips').mockImplementation(async (q) => ({
+      items: q?.open_only ? [{ id: 'x', trip_code: 'TRP-2D7425D0', status: 'DRAFT', driver_id: '22222222-2222-4222-8222-222222222222', truck_id: 't1' } as never] : [],
+      next_cursor: null,
+    }))
+
+    render(<DriversPage />)
+
+    expect((await screen.findByText(/Reserved by TRP-2D7425D0/)).textContent).toMatch(/· draft/)
+  })
+
   it('says nothing extra about a driver who can sign in', async () => {
     vi.spyOn(api, 'listDrivers').mockResolvedValue({
       items: [driver()],
@@ -121,5 +137,44 @@ describe('DriversPage login state', () => {
       expect(screen.queryByText('LOGIN INACTIVE')).toBeNull(),
     )
     expect(screen.queryByText('Cannot be dispatched')).toBeNull()
+  })
+})
+
+describe('DriverProfileDrawer', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    vi.spyOn(api, 'listAssignments').mockResolvedValue([])
+    vi.spyOn(api, 'listTrucks').mockResolvedValue({ items: [], next_cursor: null })
+    vi.spyOn(api, 'listTrips').mockResolvedValue({ items: [], next_cursor: null })
+    vi.spyOn(api, 'driverDocuments').mockResolvedValue([])
+    vi.spyOn(api, 'listDrivers').mockResolvedValue({ items: [driver()], next_cursor: null })
+  })
+  afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+
+  it('asks before deactivating, and a cancelled question sends nothing', async () => {
+    const deactivate = vi.spyOn(api, 'deactivateDriver')
+    const confirm = vi.fn(() => false)
+    vi.stubGlobal('confirm', confirm)
+    render(<DriversPage />)
+    ;(await screen.findByRole('button', { name: /view profile/i })).click()
+    const dialog = await screen.findByRole('dialog', { name: /bipul das/i })
+    // A sync time is not in a driver row: the drawer says so instead of guessing one.
+    expect(dialog.textContent).toMatch(/Last syncUNAVAILABLE here/)
+    screen.getByRole('button', { name: 'Deactivate driver' }).click()
+    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(deactivate).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: /bipul das/i })).toBeDefined()
+  })
+
+  it('shows why a shut control is shut, as text and not only as a tooltip', async () => {
+    vi.spyOn(api, 'listDrivers').mockResolvedValue({ items: [driver({ login_is_active: false })], next_cursor: null })
+    render(<DriversPage />)
+    ;(await screen.findByRole('button', { name: /view profile/i })).click()
+    await screen.findByRole('dialog', { name: /bipul das/i })
+    const assign = screen.getByRole('button', { name: 'Assign truck' }) as HTMLButtonElement
+    expect(assign.disabled).toBe(true)
+    expect(assign.getAttribute('aria-disabled')).toBe('true')
+    expect(screen.getByText('Login inactive — reactivate first.')).toBeDefined()
+    expect(screen.getByText(/^Already inactive\. /)).toBeDefined()
   })
 })

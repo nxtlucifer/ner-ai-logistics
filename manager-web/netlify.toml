@@ -21,9 +21,16 @@
   to = "/index.html"
   status = 200
 
+# Same release header set as vercel.json (see its HEADERS note): CSP
+# report-only first, connect-src = VITE_SUPABASE_URL + VITE_INTELLIGENCE_BASE_URL,
+# hashes pinned by src/cspHashes.test.ts. HSTS: Netlify serves HTTPS only.
 [[headers]]
   for = "/*"
   [headers.values]
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
     X-Frame-Options = "DENY"
+    Permissions-Policy = "camera=(), microphone=(), payment=(), geolocation=()"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains"
+    Content-Security-Policy = "frame-ancestors 'none'"
+    Content-Security-Policy-Report-Only = "default-src 'self'; script-src 'self' 'sha256-1ze4e7nqjWdu4+OP5sDxplZhiBs3zQSpHtH4voUP/8k=' 'unsafe-hashes' 'sha256-MhtPZXr7+LpJUY5qtMutB+qWfQtMaPccfe7QXtCcEYc='; style-src 'self' https://fonts.googleapis.com 'sha256-R/y7pZVjL46qC0l0q1ZlqCUve89HwF5U0JLLHqdSMI8='; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://tile.openstreetmap.org https://s3.amazonaws.com; connect-src 'self' https://znaveeefzgfxsblsobdb.supabase.co https://ner-intelligence.onrender.com https://tile.openstreetmap.org https://s3.amazonaws.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"

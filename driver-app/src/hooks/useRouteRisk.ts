@@ -52,14 +52,36 @@ export interface RouteRiskRead {
  *  would be provider abuse for data that does not move that fast. */
 export const RISK_REFRESH_MS = 5 * 60_000
 
+/**
+ * How long the last LIVE read is reused by a remount (FE-16).
+ *
+ * The Map, Trip and Assistant screens each mount this hook, and switching tabs
+ * remounts them - a fetch per tab switch for a read that only moves every few
+ * minutes. Only a READY read is kept, and any failure drops it, so a remount
+ * never shows an assessment a newer read could not confirm.
+ */
+export const RISK_FRESH_MS = 60_000
+
+let lastRead: { key: string; risk: RouteRisk; fetchedAt: number } | null = null
+
+function freshRead(key: string) {
+  return lastRead && lastRead.key === key && Date.now() - lastRead.fetchedAt < RISK_FRESH_MS ? lastRead : null
+}
+
+/** Tests only: forget the shared last read. */
+export function resetRouteRiskMemo(): void {
+  lastRead = null
+}
+
 export function useRouteRisk(
   refetchKey?: unknown,
   /** The current trip id, so a stored package is only used for ITS trip. */
   tripId: string | null = null,
 ): RouteRiskRead {
-  const [risk, setRisk] = useState<RouteRisk | null>(null)
-  const [state, setState] = useState<RouteRiskState>('LOADING')
-  const [fetchedAt, setFetchedAt] = useState<number | null>(null)
+  const key = JSON.stringify([refetchKey ?? null, tripId])
+  const [risk, setRisk] = useState<RouteRisk | null>(() => freshRead(key)?.risk ?? null)
+  const [state, setState] = useState<RouteRiskState>(() => (freshRead(key) ? 'READY' : 'LOADING'))
+  const [fetchedAt, setFetchedAt] = useState<number | null>(() => freshRead(key)?.fetchedAt ?? null)
   const [capturedAt, setCapturedAt] = useState<string | null>(null)
   const [nonce, setNonce] = useState(0)
 
@@ -69,12 +91,15 @@ export function useRouteRisk(
       try {
         const next = await api.routeRisk()
         if (!alive) return
+        const now = Date.now()
+        lastRead = { key, risk: next, fetchedAt: now }
         setRisk(next)
-        setFetchedAt(Date.now())
+        setFetchedAt(now)
         setCapturedAt(null)
         setState('READY')
       } catch (error) {
         if (!alive) return
+        lastRead = null
         // The previous LIVE assessment is dropped on purpose. Holding it while
         // the trip has moved on is how a panel ends up describing a road the
         // truck is no longer on.
@@ -106,13 +131,21 @@ export function useRouteRisk(
         setState('UNAVAILABLE')
       }
     }
-    void load()
+    // A manual recheck always asks; a (re)mount inside the freshness window
+    // reuses the last read and waits for the regular refresh.
+    const cached = nonce === 0 ? freshRead(key) : null
+    if (cached) {
+      setRisk(cached.risk)
+      setFetchedAt(cached.fetchedAt)
+      setCapturedAt(null)
+      setState('READY')
+    } else void load()
     const timer = setInterval(() => void load(), RISK_REFRESH_MS)
     return () => {
       alive = false
       clearInterval(timer)
     }
-  }, [refetchKey, nonce, tripId])
+  }, [key, nonce])
 
   // A manual recheck does NOT go back through LOADING: blanking a screen a
   // driver is reading, to replace it with the same content, reads as a fault.

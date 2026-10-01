@@ -30,6 +30,13 @@ defaulted to zero.
 REROUTING IS INSERT, NEVER UPDATE. A previous route is marked SUPERSEDED and
 kept. Route history is evidence in an incident review, and overwriting it would
 destroy the only record of what the driver was told to do.
+
+A DOMESTIC ROUTE NEVER LEAVES INDIA (owner decision, 29 Sep 2026). Every
+candidate line from every path - plan, recalculate, driver reroute, redirect -
+is checked against the India outline before anything else is judged, and one
+that leaves it is dropped (ROUTE_CROSSES_COUNTRY_BOUNDARY). With none left
+nothing is stored and the answer is 422 HOLD_AND_REVIEW. Without an outline
+the provider is not even asked: 503 GEOGRAPHY_UNAVAILABLE, as for a point.
 """
 
 import logging
@@ -59,14 +66,24 @@ from app.domain.routing import (
     DETOUR_SLACK_M,
     MAX_DETOUR_RATIO,
 )
-from app.models.enums import AuditAction, RouteKind, RouteState, TripStopKind
+from app.models.enums import (
+    AuditAction,
+    NotificationKind,
+    RouteKind,
+    RouteState,
+    TripStatus,
+    TripStopKind,
+)
 from app.models.identity import User
 from app.models.operations import TripRoute, TripStop
-from app.services import audit, trips
+from app.services import audit, geo_classify, notifications, notify, trips
 from app.services.routing import OsrmRoutingProvider, RoutingChain
 from app.services.shipments import SRID
 
 logger = logging.getLogger(__name__)
+
+#: Why a candidate was dropped: its line leaves the India outline.
+CROSSES_COUNTRY_BOUNDARY = "ROUTE_CROSSES_COUNTRY_BOUNDARY"
 
 AUDITED_FIELDS = (
     "id", "trip_id", "kind", "state", "distance_km", "estimated_duration_min",
@@ -223,8 +240,13 @@ async def plan(
             code="ROUTING_DISABLED",
         )
 
-    trip = await trips.get(db, trip_id)  # 404 before anything external is called
+    # 404 before anything external is called - out of scope included, or a
+    # provider would hear about a trip the caller may not even see.
+    trip = await trips.get(db, trip_id, actor=actor)
     pickup, destination = await _endpoints(db, trip_id)
+    # No outline, no plan: the answer could not be checked, so no provider is
+    # sent the trip (or the driver's position) to produce one.
+    await geo_classify.require_country_boundary(db)
     reroute_from = origin
     origin = origin or pickup
     # The road the trip is following - the yardstick for a road planned from
@@ -292,7 +314,28 @@ async def plan(
             "Route planning failed.", code="ROUTING_FAILED"
         ) from exc
 
-    candidate = result.candidates[0]
+    # A DOMESTIC ROUTE NEVER LEAVES INDIA. Judged first, so a road through a
+    # neighbouring country is never stored, never promoted and never offered
+    # as a backup: the next candidate that stays inside becomes the primary.
+    # The public world graph routes Agartala -> Kolkata through Bangladesh
+    # (RG-8). Logged with counts and the trip id only - a candidate's line
+    # starts where the driver is.
+    inside = await geo_classify.lines_inside_india(db, [c.to_wkt() for c in result.candidates])
+    kept = [c for c, ok in zip(result.candidates, inside, strict=True) if ok]
+    dropped = len(result.candidates) - len(kept)
+    if dropped:
+        logger.warning(
+            "route candidates dropped for trip %s: %d of %d leave the country boundary (%s)",
+            trip_id, dropped, len(result.candidates), CROSSES_COUNTRY_BOUNDARY,
+        )
+    if not kept:
+        raise BusinessRuleError(
+            "No route that stays inside India was found for this trip. Nothing "
+            "was stored; it needs a manager's review.",
+            code="HOLD_AND_REVIEW",
+            details={"reason": CROSSES_COUNTRY_BOUNDARY, "candidates_dropped": dropped},
+        )
+    candidate = kept[0]
 
     # THE ANSWER MUST DESCRIBE THE QUESTION. A provider's route is checked
     # against the endpoints it was asked for before anything is stored: a line
@@ -334,7 +377,7 @@ async def plan(
     # NER corridors there is one sensible road and no alternative comes back at
     # all - which is the honest answer, not a gap.
     backups: list[RouteCandidate] = []
-    for other in result.candidates[1:] if kind is RouteKind.PRIMARY else []:
+    for other in kept[1:] if kind is RouteKind.PRIMARY else []:
         if len(backups) >= MAX_EMERGENCY_BACKUPS:
             break
         if endpoint_mismatch(other, origin, destination) is not None:
@@ -351,7 +394,7 @@ async def plan(
     # Taken AFTER the provider call on purpose. Locking first would hold a row
     # lock across an HTTP request to a third party for up to the routing
     # timeout, so one slow provider would block every other write to that trip.
-    locked_trip = await trips.load_for_update(db, trip_id)
+    locked_trip = await trips.load_for_update(db, trip_id, actor=actor)
 
     # THE CURRENT ASSIGNMENT SURVIVES PLANNING (LS-10).
     #
@@ -438,6 +481,7 @@ async def plan(
             f"route planned via {candidate.provider}"
             + (" from reported position" if origin is not pickup else "")
             + (" (fallback)" if result.used_fallback else "")
+            + (f"; {dropped} candidate(s) dropped: {CROSSES_COUNTRY_BOUNDARY}" if dropped else "")
         ),
         ip_address=ip,
     )
@@ -613,7 +657,7 @@ async def apply_selection(
     # otherwise each demote the other's choice and leave the trip pointing at
     # one route while a different one is marked SELECTED. No external call
     # happens here, so holding the lock for the whole operation costs nothing.
-    await trips.load_for_update(db, trip_id)
+    await trips.load_for_update(db, trip_id, actor=actor)
 
     route = (
         await db.execute(
@@ -678,7 +722,7 @@ async def apply_selection(
     route.state = RouteState.SELECTED
     # Already loaded and locked above; `get` here would be a second read of a
     # row this session is holding.
-    locked_trip = await trips.load_for_update(db, trip_id)
+    locked_trip = await trips.load_for_update(db, trip_id, actor=actor)
     locked_trip.selected_route_id = route.id
 
     await db.flush()
@@ -715,6 +759,11 @@ async def select_route(
     # hand in an eligibility of its own.
     from app.services import route_risk as route_risk_service
 
+    # Scope first (RB-02): an out-of-scope trip or a foreign route is the same
+    # 404 as random ids, and costs no hazard-provider I/O. Plain reads; the
+    # lock is still taken after eligibility, inside apply_selection.
+    await trips.get(db, trip_id, actor=actor)
+    await ensure_belongs_to_trip(db, trip_id, route_id)
     decision, assessment = await route_risk_service.eligibility_and_evidence_for_route(
         db, route_id
     )
@@ -728,9 +777,63 @@ async def select_route(
         authorization_id=authorization_id,
         assessment=assessment,
     )
+    # Read before the commit (expire_on_commit=False keeps it loaded): a read
+    # after it would open a transaction that notify.send then holds, pooled
+    # connection and all, through the push.
+    trip = await trips.get(db, trip_id, actor=actor)
+    await db.commit()
+    await announce_route_change(db, trip, route)
     await db.commit()
     await db.refresh(route)
     return route
+
+
+#: Trip states in which a route change is news the driver must act on. A
+#: DRAFT trip's route changing is planning; an ACTIVE trip's route changing
+#: means the road under the wheels is no longer the one in the phone.
+UNDER_WAY = (TripStatus.ASSIGNED, TripStatus.VERIFICATION_PENDING,
+             TripStatus.ACTIVE, TripStatus.DELAYED, TripStatus.INCIDENT)
+
+
+async def announce_route_change(
+    db: AsyncSession, trip, route: TripRoute, *, previous_route_id=None
+) -> None:
+    """Tell the driver, and the districts, that the road changed.
+
+    AFTER the commit, by every caller. A push that fails must never roll back
+    a route change - the route IS changed, and the phone finding out late is
+    a smaller problem than a manager's decision silently disappearing.
+
+    Fingerprinted on the destination route, so a manager who selects the same
+    road twice does not buzz a phone twice, while a genuinely new road always
+    does. The reroute path has its own wording for the case where the DRIVER
+    proposed the road; this is the manager-initiated one.
+    """
+    if trip.status not in UNDER_WAY:
+        return
+    await notify.send(
+        db,
+        driver_id=trip.driver_id,
+        trip_id=trip.id,
+        event="ROUTE_CHANGED",
+        title="Route updated by your manager",
+        body="A new road has been set for this trip. Open Navigate - guidance has switched to it.",
+        fingerprint=f"ROUTE_CHANGED:{trip.id}:{route.id}",
+        data={"screen": "navigate", "route_id": str(route.id)},
+    )
+    people = await notifications.recipients_for_trip(db, trip)
+    await notifications.notify(
+        db,
+        recipients=people,
+        kind=NotificationKind.ROUTE_CHANGED,
+        dedupe_key=f"route-changed:{trip.id}:{route.id}",
+        trip_id=trip.id,
+        payload={
+            "trip_code": trip.trip_code,
+            "route_kind": route.kind.value,
+            "distance_km": str(route.distance_km) if route.distance_km is not None else None,
+        },
+    )
 
 
 async def geometry_wkt(db: AsyncSession, route_id: uuid.UUID) -> str:

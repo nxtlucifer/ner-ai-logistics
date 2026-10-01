@@ -160,6 +160,10 @@ async def accept(
     # manager's client cannot assert that a route is clear.
     from app.services import route_risk as route_risk_service
 
+    # Scope first (RB-02): out of scope reads exactly like a missing trip or
+    # route, with no hazard I/O. Plain reads - no lock until eligibility is in.
+    await trip_service.get(db, trip_id, actor=actor)
+    await route_service.ensure_belongs_to_trip(db, trip_id, to_route_id)
     eligibility, assessment = evidence or (
         await route_risk_service.eligibility_and_evidence_for_route(db, to_route_id)
     )
@@ -176,7 +180,7 @@ async def accept(
         eligibility, offered_authorization=authorization_id is not None
     )
 
-    trip = await trip_service.load_for_update(db, trip_id)
+    trip = await trip_service.load_for_update(db, trip_id, actor=actor)
 
     if trip.status not in IN_PROGRESS_STATUSES:
         # Rerouting a trip that has not started is ordinary planning, and the

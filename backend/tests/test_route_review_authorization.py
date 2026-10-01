@@ -45,7 +45,9 @@ from app.services import routes as route_service
 from tests import factories
 from tests.conftest import auth_headers
 
-pytestmark = pytest.mark.requires_db
+# Planning needs the India outline, and a clear reading counts only on a road
+# inside the NER state shapes: the SYNTHETIC geography (tests/geo_fixtures.py).
+pytestmark = [pytest.mark.requires_db, pytest.mark.usefixtures("fixture_geography")]
 
 GEOMETRY = [(26.1445, 91.7362), (26.4, 92.9), (26.7509, 94.2037)]
 # A second, distinct corridor so an EMERGENCY_BACKUP survives de-duplication.
@@ -712,6 +714,43 @@ class TestManagerApproval:
         assert refused.status_code == 422, refused.text
         assert refused.json()["error"]["code"] == "ROUTE_SUPERSEDED"
         assert await _authorizations(route_id) == [], "a refusal must store nothing"
+
+
+class TestTheRouteChangePushHoldsNoConnection:
+    """select and approve read the trip BEFORE their commit, so the ROUTE_CHANGED
+    push to the driver runs with the request's connection back in the pool."""
+
+    @pytest.mark.parametrize("action", ["select", "approve"])
+    async def test_the_push_runs_with_no_connection_held(
+        self, api: AsyncClient, session: AsyncSession, manager_headers: dict,
+        monkeypatch, action: str,
+    ):
+        from app.db import session as db_session
+        from app.models.identity import Driver
+        from app.services import notify
+
+        trip, route_id = await _planned(api, session, manager_headers)  # ASSIGNED: under way
+        (await session.get(Driver, trip.driver_id)).push_token = "ExponentPushToken[test]"
+        await session.commit()
+        if action == "select":
+            _use(monkeypatch, _ClearSource())
+        pool = db_session.get_engine().pool
+        during: list[int] = []
+
+        async def deliver(*_args) -> str:  # noqa: ANN002
+            during.append(pool.checkedout())
+            return "SENT"
+
+        monkeypatch.setattr(notify, "configured", lambda: True)
+        monkeypatch.setattr(notify, "_deliver", deliver)
+        baseline = pool.checkedout()
+        ok = await api.post(
+            f"/api/trips/{trip.id}/routes/{route_id}/{action}",
+            headers=manager_headers,
+            json=APPROVAL if action == "approve" else None,
+        )
+        assert ok.status_code == 200, ok.text
+        assert during == [baseline], "the push held the request's pooled connection"
 
 
 class TestManagerApprovalOfAReroute:

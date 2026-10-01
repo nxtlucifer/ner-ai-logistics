@@ -27,6 +27,7 @@ import {
   intelligenceOriginProblem,
   releaseConfigProblem,
 } from '../src/api/releaseConfig.mjs'
+import networkSecurity from '../plugins/withDemoNetworkSecurity.js'
 
 const url = process.env.EXPO_PUBLIC_SUPABASE_URL ?? ''
 const key = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? ''
@@ -41,20 +42,23 @@ const problems = []
 // ONE TRANSPORT (12 Sep): the demo profiles talk REST to the hosted FastAPI
 // (EXPO_PUBLIC_BACKEND=local). Then the rule is the opposite of the Supabase
 // one: the API base MUST be set, and it must be a public https origin or a
-// private LAN / loopback http address (the lan-demo profile), never a public
+// private LAN / loopback http address ONLY in the lan-demo profile (SEC-007:
+// the same buildVariant rule the network-security plugin uses), never a public
 // http host. The Supabase checks below do not apply to that transport.
 if (process.env.EXPO_PUBLIC_BACKEND === 'local') {
   let ok = false
+  let lanDemo = false
   try {
+    lanDemo = networkSecurity.buildVariant(process.env).lanDemo
     const u = new URL(legacyApiBase)
     const privateHttp = /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(u.hostname)
-    ok = u.protocol === 'https:' || (u.protocol === 'http:' && privateHttp)
+    ok = u.protocol === 'https:' || (u.protocol === 'http:' && privateHttp && lanDemo)
   } catch {}
   if (!ok) {
-    console.error('Release configuration REJECTED: EXPO_PUBLIC_BACKEND=local needs EXPO_PUBLIC_API_BASE_URL as a public https origin or a private-LAN http address. (value not printed)')
+    console.error('Release configuration REJECTED: EXPO_PUBLIC_BACKEND=local needs EXPO_PUBLIC_API_BASE_URL as a public https origin, or a private-LAN http address in the lan-demo profile only. (value not printed)')
     process.exit(1)
   }
-  console.log(`Release configuration OK -> REST transport, ${new URL(legacyApiBase).hostname}`)
+  console.log(`Release configuration OK -> REST transport, ${new URL(legacyApiBase).hostname}${lanDemo ? ' (LAN DEMO build: cleartext to this host only, never a release)' : ''}`)
   process.exit(0)
 }
 

@@ -8,7 +8,7 @@ with nothing on the other end.
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import Field, field_validator, model_validator
 
@@ -74,7 +74,7 @@ class DriverUpdate(APIModel):
     licence_class: str | None = Field(default=None, max_length=20)
     emergency_contact_name: str | None = Field(default=None, max_length=120)
     emergency_contact_phone: str | None = Field(default=None, pattern=PHONE_PATTERN)
-    photo_url: str | None = None
+    photo_url: Annotated[str, Field(max_length=200)] | None = None
 
 
 class DriverRead(ReadModel):
@@ -103,6 +103,10 @@ class DriverRead(ReadModel):
 
 class TruckCreate(APIModel):
     registration_number: Annotated[str, Field(pattern=REGISTRATION_PATTERN)]
+    #: What the yard calls it. Free text, not unique, never a substitute
+    #: for the registration - which stays on every screen that has to
+    #: identify the vehicle to somebody outside the company.
+    display_name: str | None = Field(default=None, max_length=60)
     max_capacity_kg: Annotated[Decimal, Field(gt=0, le=Decimal("100000"))]
     truck_type: str | None = Field(default=None, max_length=40)
     make: str | None = Field(default=None, max_length=60)
@@ -131,6 +135,10 @@ class TruckUpdate(APIModel):
     walk around the capacity check.
     """
 
+    #: What the yard calls it. Free text, not unique, never a substitute
+    #: for the registration - which stays on every screen that has to
+    #: identify the vehicle to somebody outside the company.
+    display_name: str | None = Field(default=None, max_length=60)
     truck_type: str | None = Field(default=None, max_length=40)
     make: str | None = Field(default=None, max_length=60)
     model: str | None = Field(default=None, max_length=60)
@@ -138,14 +146,15 @@ class TruckUpdate(APIModel):
     baseline_mileage_kmpl: Annotated[Decimal, Field(gt=0, le=Decimal("30"))] | None = None
     odometer_km: Annotated[Decimal, Field(ge=0)] | None = None
     status: TruckStatus | None = None
-    photo_url: str | None = None
+    photo_url: Annotated[str, Field(max_length=200)] | None = None
 
 
 class TruckRead(ReadModel):
     id: uuid.UUID
     registration_number: str
+    display_name: str | None = None
     #: `/api/files/{id}` (a DEMO_REFERENCE or TRUCK_PHOTO upload), or None.
-    photo_url: str | None = None
+    photo_url: Annotated[str, Field(max_length=200)] | None = None
     truck_type: str | None
     make: str | None
     model: str | None
@@ -178,7 +187,7 @@ class AssignmentVerify(APIModel):
     reported_registration: Annotated[str, Field(max_length=20)] | None = None
     reported_odometer_km: Annotated[Decimal, Field(ge=0)] | None = None
     reported_fuel_level_pct: Annotated[int, Field(ge=0, le=100)] | None = None
-    reported_damage_notes: str | None = None
+    reported_damage_notes: Annotated[str, Field(max_length=1000)] | None = None
 
 
 class AssignmentRead(ReadModel):
@@ -208,7 +217,7 @@ class CargoItemCreate(APIModel):
     quantity: Annotated[int, Field(gt=0, le=100000)] = 1
     is_hazardous: bool = False
     is_perishable: bool = False
-    handling_notes: str | None = None
+    handling_notes: Annotated[str, Field(max_length=500)] | None = None
 
 
 class CargoItemRead(ReadModel):
@@ -232,9 +241,11 @@ class ShipmentCreate(APIModel):
     reference_code: Annotated[str, Field(min_length=3, max_length=32)]
     client_name: Annotated[str, Field(min_length=1, max_length=160)]
     client_contact: str | None = Field(default=None, max_length=60)
-    pickup_address: Annotated[str, Field(min_length=1)]
+    # Three characters is the shortest address that names anywhere; refused
+    # here, with a 422, because ShipmentRead must accept whatever is stored.
+    pickup_address: Annotated[str, Field(min_length=3, max_length=500)]
     pickup: Coordinate
-    destination_address: Annotated[str, Field(min_length=1)]
+    destination_address: Annotated[str, Field(min_length=3, max_length=500)]
     destination: Coordinate
     priority: CargoPriority = CargoPriority.NORMAL
     scheduled_pickup_at: datetime | None = None
@@ -254,38 +265,20 @@ class ShipmentCreate(APIModel):
             self.destination.lon,
         ):
             raise ValueError("pickup and destination must be different locations")
-        for label, point in (("pickup", self.pickup), ("destination", self.destination)):
-            if not in_service_region(point):
-                raise ValueError(
-                    f"{label} ({point.lat:.4f}, {point.lon:.4f}) is outside the "
-                    f"North-East service region ({SERVICE_REGION_STATES})"
-                )
+        # WHERE a point may be is not decided here. The bounding box that used
+        # to be (21.5..29.5 N, 88..97.5 E) refused all of India outside the
+        # North-East and admitted parts of Bangladesh; the service now asks
+        # PostGIS (app/services/geo_classify.py): inside India, or 422
+        # OUTSIDE_SUPPORTED_COUNTRY. Coordinate still bounds the numbers.
         return self
-
-
-#: The product's operating scope, as a bounding box: the eight North-Eastern
-#: states with the Siliguri corridor. A box, not state polygons, because no
-#: boundary dataset ships with the backend; it mirrors the console's own check
-#: exactly (manager-web planValidation SERVICE_REGION) so the server never
-#: refuses what the planner allowed. TRP-08726C5F was planned to Ahmedabad
-#: through an older console with no such check anywhere.
-SERVICE_REGION = {"south": 21.5, "north": 29.5, "west": 88.0, "east": 97.5}
-SERVICE_REGION_STATES = (
-    "Assam, Arunachal Pradesh, Manipur, Meghalaya, Mizoram, Nagaland, Sikkim, Tripura"
-)
-
-
-def in_service_region(point: Coordinate) -> bool:
-    return (
-        SERVICE_REGION["south"] <= point.lat <= SERVICE_REGION["north"]
-        and SERVICE_REGION["west"] <= point.lon <= SERVICE_REGION["east"]
-    )
 
 
 class ShipmentRead(ReadModel):
     id: uuid.UUID
     reference_code: str
     client_name: str
+    # No length rule on the way OUT: a read model describes stored rows,
+    # including ones written before any rule existed, and refuses none.
     pickup_address: str
     destination_address: str
     total_weight_kg: Decimal
@@ -304,7 +297,7 @@ class TripStopCreate(APIModel):
     kind: TripStopKind
     location: Coordinate
     name: str | None = Field(default=None, max_length=160)
-    address: str | None = None
+    address: Annotated[str, Field(max_length=500)] | None = None
     geofence_radius_m: Annotated[int, Field(ge=10, le=20000)] = 200
     planned_arrival_at: datetime | None = None
 
@@ -382,6 +375,25 @@ class TripStatusUpdate(APIModel):
     reason: str | None = None
 
 
+class ProposedRerouteRead(ReadModel):
+    """A road the trip's driver asked for from where the truck is, not yet taken.
+
+    Read-only. Taking it is still `POST /api/trips/{id}/reroute/accept` with
+    `to_route_id=route_id`, where eligibility is checked. See
+    `trips.proposed_reroutes` for when it is present.
+    """
+
+    route_id: uuid.UUID
+    proposed_at: datetime
+    #: Null when the provider gave no distance - never rendered as zero.
+    distance_km: float | None
+
+
+#: Which way a trip runs relative to the North-East (app/core/scope.py
+#: `trip_scope_type_sql`). UNKNOWN when either end is unplaced - never a guess.
+TripScopeType = Literal["NER_INTERNAL", "NER_OUTBOUND", "NER_INBOUND", "INDIA_EXTERNAL", "UNKNOWN"]
+
+
 class TripRead(ReadModel):
     #: WHO AND WHERE, carried on the trip itself.
     #:
@@ -401,12 +413,23 @@ class TripRead(ReadModel):
     status: TripStatus
     selected_route_id: uuid.UUID | None
     dispatched_at: datetime | None
+    #: When the driver acknowledged the assignment; null until then. An
+    #: ASSIGNED trip with this set is waiting to start, not on the driver.
+    driver_accepted_at: datetime | None = None
     started_at: datetime | None
     delivered_at: datetime | None
     planned_eta: datetime | None
     current_eta: datetime | None
     delay_minutes: int | None
     created_at: datetime
+    #: The driver's pending road from their position, or null. Filled by the
+    #: list and detail reads; the create/dispatch/cancel/close responses are
+    #: never for a trip under way, so null is their true answer too.
+    proposed_reroute: ProposedRerouteRead | None = None
+    #: Read-only, from where planning placed the two ends. Filled by the list
+    #: and detail reads; null on the create/plan/dispatch/cancel/close
+    #: responses, which do not compute it - read the trip for it.
+    trip_scope_type: TripScopeType | None = None
 
 
 # --- GPS ------------------------------------------------------------------
@@ -486,7 +509,9 @@ class EmergencyRead(ReadModel):
     state: EmergencyState
     triggered_at: datetime
     stationary_since: datetime
-    last_gps_point_id: uuid.UUID | None = None
+    # gps_points.id is a BIGINT. Typed as a UUID, any emergency with a fix
+    # failed validation and took /api/emergencies/active down with it.
+    last_gps_point_id: int | None = None
     check_sent_at: datetime | None = None
     response_deadline_at: datetime | None = None
     driver_response: DriverCheckResponse | None = None
@@ -494,10 +519,79 @@ class EmergencyRead(ReadModel):
     escalated_at: datetime | None = None
     resolved_at: datetime | None = None
     resolved_by_user_id: uuid.UUID | None = None
-    resolution_note: str | None = None
+    resolution_note: Annotated[str, Field(max_length=1000)] | None = None
     briefing_snapshot: dict[str, object] | None = None
 
 
 class EmergencyResolve(APIModel):
     note: Annotated[str, Field(min_length=1, max_length=1000)] | None = None
     is_false_alarm: bool = False
+
+
+# --- Driver breaks (0017) ---------------------------------------------------
+
+
+class BreakStart(APIModel):
+    """The driver starts a planned break. `request_id` is made once per tap
+    and reused on retry, so a lost response cannot start two breaks."""
+
+    request_id: uuid.UUID
+    minutes: Literal[15, 30]
+    reason: Annotated[str, Field(max_length=20, pattern="^(TEA_REST|FOOD|WASHROOM|FUEL|EMERGENCY|OTHER)$")]
+    note: Annotated[str, Field(max_length=200)] | None = None
+    lat: Annotated[float | None, Field(ge=-90, le=90)] = None
+    lon: Annotated[float | None, Field(ge=-180, le=180)] = None
+    fix_at: datetime | None = None
+
+
+class BreakResume(APIModel):
+    break_id: uuid.UUID
+
+
+class BreakRead(ReadModel):
+    """One break. `status` is computed now: ACTIVE, OVERDUE (still open past
+    its planned end) or ENDED; `overdue` stays true on an ENDED break that
+    overran, so history keeps the fact."""
+
+    id: uuid.UUID
+    trip_id: uuid.UUID
+    driver_id: uuid.UUID
+    truck_id: uuid.UUID
+    status: Literal["ACTIVE", "OVERDUE", "ENDED"]
+    reason: str
+    note: str | None
+    planned_minutes: int
+    started_at: datetime
+    expected_end_at: datetime
+    ended_at: datetime | None
+    actual_seconds: int | None
+    overdue: bool
+    #: Where the break started: the phone's fix (PHONE), the trip's newest
+    #: GPS point (LAST_FIX), or null when neither existed.
+    location: Coordinate | None
+    location_source: str | None
+    location_at: datetime | None
+
+
+def break_read(view) -> BreakRead:
+    """From services.breaks.BreakView."""
+    row = view.row
+    over = view.overdue()
+    return BreakRead(
+        id=row.id,
+        trip_id=row.trip_id,
+        driver_id=row.driver_id,
+        truck_id=row.truck_id,
+        status="ENDED" if row.ended_at else ("OVERDUE" if over else "ACTIVE"),
+        reason=row.reason,
+        note=row.note,
+        planned_minutes=row.planned_minutes,
+        started_at=row.started_at,
+        expected_end_at=view.expected_end_at,
+        ended_at=row.ended_at,
+        actual_seconds=view.actual_seconds,
+        overdue=over,
+        location=Coordinate(lat=view.lat, lon=view.lon) if view.lat is not None else None,
+        location_source=row.location_source,
+        location_at=row.location_at,
+    )

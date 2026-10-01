@@ -16,26 +16,23 @@
  */
 
 import { useEffect, useState } from 'react'
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
 import {
   ActivityIndicator,
   Image,
-  Pressable,
-  StyleSheet,
   Text,
   View,
 } from 'react-native'
 
-import { api } from './src/api/client'
 import { AuthProvider, useAuth } from './src/auth/AuthProvider'
-import { Button, Loading } from './src/components/ui'
 import { AppLanguageProvider, useAppLanguage } from './src/i18n/AppLanguageProvider'
 import { useT } from './src/i18n/tx'
 import { type TranslationKey } from './src/i18n/appLanguage'
 import AssistantScreen from './src/screens/AssistantScreen'
 import AssignmentScreen from './src/screens/AssignmentScreen'
 import MoreScreen from './src/screens/MoreScreen'
+import TutorialScreen, { tutorialSeen } from './src/screens/TutorialScreen'
 import MyDetailsScreen from './src/screens/MyDetailsScreen'
 import LoginScreen from './src/screens/LoginScreen'
 import MapScreen from './src/screens/MapScreen'
@@ -46,11 +43,13 @@ import * as Notifications from 'expo-notifications'
 import { TABS, type Tab } from './src/navigation'
 import { registerPush, screenFromResponse } from './src/notify/push'
 import ManagerRoot from './src/manager/ManagerRoot'
-import { Icon, MoreIcon, NavigateIcon, SafetyIcon, TripIcon } from './src/components/icons'
+import { Icon } from './src/components/icons'
+import { FloatingTabBar, StatusChip, TopInset } from './src/components/scenic'
+import { useKeyboardOpen } from './src/components/useKeyboardOpen'
 import { refreshProfilePhoto, useProfilePhotoUrl } from './src/files/profilePhoto'
 import { useAuthImage } from './src/files/useAuthImage'
-import { TripProvider, useTrip } from './src/trip/TripProvider'
-import { TOUCH_TARGET } from './src/theme'
+import { TripProvider } from './src/trip/TripProvider'
+import { useGpsStatus } from './src/map/useGpsStatus'
 import { ThemeProvider, makeStyles, useTheme } from './src/theme-context'
 
 const TAB_TRANSLATIONS: Record<Tab, TranslationKey> = {
@@ -58,21 +57,6 @@ const TAB_TRANSLATIONS: Record<Tab, TranslationKey> = {
   trip: 'nav_trip',
   safety: 'nav_safety',
   more: 'nav_more',
-}
-
-/** One tab's glyph. Colour is passed in so the active tab can tint. */
-function TabIcon({ tab, color }: { tab: Tab; color: string }) {
-  // The heading arrow sits in a ring, as it does on the map's own controls.
-  if (tab === 'navigate') {
-    return (
-      <View style={{ width: 24, height: 24, borderRadius: 12, borderWidth: 1.5, borderColor: color, alignItems: 'center', justifyContent: 'center' }}>
-        <NavigateIcon color={color} size={13} />
-      </View>
-    )
-  }
-  if (tab === 'trip') return <TripIcon color={color} size={21} />
-  if (tab === 'safety') return <SafetyIcon color={color} size={21} />
-  return <MoreIcon color={color} size={21} />
 }
 
 /** `Signed` renders TripProvider, so it cannot read it. The header needs live
@@ -86,27 +70,24 @@ function Signed() {
   )
 }
 
+/** The GPS state as a hero chip: dot AND word, never state by colour alone.
+ *  Not pressable. Every screen's hero carries one (audit s16.2), so the shell
+ *  has no header of its own any more.
+ *  - `browse`: More and its sub-screens read the phone's GPS the way Navigate
+ *    does (useGpsStatus), so they cannot disagree.
+ *  - not `browse`: the Trip tab reads the tracker only - no watch of its own on
+ *    the landing tab - and an idle tracker says "Not tracking". */
+function GpsChip({ browse }: { browse: boolean }) {
+  const status = useGpsStatus(browse)
+  return <StatusChip text={status.text} tone={status.live ? 'live' : 'off'} />
+}
+
 function SignedShell() {
   const styles = useStyles()
-  const { colors: COLORS, mode, toggle } = useTheme()
+  const { colors: COLORS } = useTheme()
   const { driver, supportView } = useAuth()
-  const { tracking, isStale } = useTrip()
   const { t } = useAppLanguage()
-  const isLive = Boolean(tracking?.isTracking) && !isStale
-  /**
-   * What the dot actually measures.
-   *
-   * It was "Online"/"Offline", which is a claim about the NETWORK - and it read
-   * "Offline" on a phone that had just loaded the trip from the server, because
-   * the flag behind it is the GPS watch, not connectivity. Three words for
-   * three real states: the watch is off, it is running but the last fix has
-   * gone stale, or it is live. Stale is not off, and neither is a decision the
-   * driver has not made yet: location sharing starts with the trip.
-   */
   const tr = useT()
-  const gpsLabel = tr(!tracking?.isTracking ? 'GPS off' : isStale ? 'GPS stale' : 'GPS live')
-  const hour = new Date().getHours()
-  const greeting = tr(hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening')
   const initials = (driver?.full_name ?? 'Driver')
     .split(' ')
     .filter(Boolean)
@@ -114,8 +95,26 @@ function SignedShell() {
     .map((w) => w[0]?.toUpperCase() ?? '')
     .join('')
   const [tab, setTab] = useState<Tab>('trip')
+  // Safety's stop-request tool lands on this control, not the top of Trip.
+  const [tripFocus, setTripFocus] = useState<'stop-request' | null>(null)
   const [showAssistant, setShowAssistant] = useState(false)
   const [showDetails, setShowDetails] = useState(false)
+  const [showTutorial, setShowTutorial] = useState(false)
+  // Null while the stored flag is being read. Rendering the tour before
+  // the answer arrives would flash it at a driver who dismissed it weeks
+  // ago, every single launch.
+  const [firstRun, setFirstRun] = useState<boolean | null>(null)
+  useEffect(() => {
+    let live = true
+    void tutorialSeen().then((seen) => {
+      if (!live) return
+      setFirstRun(!seen)
+      if (!seen) setShowTutorial(true)
+    })
+    return () => {
+      live = false
+    }
+  }, [])
   // One photo source for every avatar (files/profilePhoto.ts); seeded once
   // here, updated by My details when a photo is uploaded.
   useEffect(refreshProfilePhoto, [])
@@ -136,83 +135,115 @@ function SignedShell() {
   }, [])
   const photo = useAuthImage(useProfilePhotoUrl())
   const [showAssignment, setShowAssignment] = useState(false)
+  // The Navigate map's full screen hides the tab bar; Exit or Back brings it back.
+  const [mapFull, setMapFull] = useState(false)
+  // Every screen draws its own photo hero with a GPS chip (Navigate's reads
+  // the map's own fix), so the shell has no header. The driver's photo - else
+  // initials, never a stock face next to a real name - rides in Trip's hero.
+  const avatar = (
+    <View style={styles.avatar}>
+      {photo ? (
+        <Image source={{ uri: photo }} style={styles.avatarImage} accessibilityLabel="Your photo" />
+      ) : (
+        <Text style={styles.avatarText} accessible={false}>{initials}</Text>
+      )}
+    </View>
+  )
+  const tripChip = <GpsChip browse={false} />
+  const moreChip = <GpsChip browse />
+  // The bar steps aside while the soft keyboard is up (B3D-R03), as a tab
+  // bar does on Android: it sat over the field being typed into.
+  const keyboardOpen = useKeyboardOpen()
+  const topInset = useSafeAreaInsets().top
 
   return (
-    <SafeAreaView style={styles.flex}>
+    // No top edge: every screen's photo hero runs under the status bar and
+    // moves its own chips and text down by `TopInset` (ScreenHero,
+    // CERT-DRV-08). The support banner has no photo, so with it the shell
+    // keeps the top edge and the screens get 0.
+    <SafeAreaView style={styles.flex} edges={supportView ? undefined : ['left', 'right', 'bottom']}>
+      <TopInset.Provider value={supportView ? 0 : topInset}>
         {supportView ? (
           <View style={styles.supportBanner} accessibilityRole="alert">
-            <Icon name="eye" color="#7A5B12" size={16} />
+            <Icon name="eye" color={COLORS.warning} size={16} />
             <Text style={styles.supportBannerText}>{tr('MANAGER SUPPORT VIEW · read-only')}</Text>
           </View>
         ) : null}
-        {tab !== 'navigate' ? (
-          <View style={styles.header}>
-            <View style={styles.identity}>
-              {/* The driver's own photo (My details), else initials - never a
-                  stock face next to a real person's name. */}
-              <View style={styles.avatar}>
-                {photo ? (
-                  <Image source={{ uri: photo }} style={styles.avatarImage} accessibilityLabel="Your photo" />
-                ) : (
-                  <Text style={styles.avatarText}>{initials}</Text>
-                )}
-              </View>
-              <View style={styles.headerText}>
-                <Text style={styles.greeting} numberOfLines={1}>{greeting},</Text>
-                <Text style={styles.name} numberOfLines={1}>
-                  {driver?.full_name ?? 'Driver'}
-                </Text>
-                <View style={styles.identityMeta}>
-                  {/* Dot AND word - never state by colour alone. */}
-                  <View style={[styles.liveDot, !isLive && styles.liveDotOff]} />
-                  <Text style={styles.licence} numberOfLines={1}>
-                    {gpsLabel} · {driver?.licence_number ?? 'Driver'}
-                  </Text>
-                </View>
-              </View>
-            </View>
-            <View style={styles.headerActions}>
-              {/* Real toggle, not a decoration: it swaps the palette that every
-                  converted stylesheet is built from, with no reload. Labelled
-                  with a word rather than only a glyph so its state is readable
-                  without relying on icon recognition. */}
-              <Pressable
-                onPress={toggle}
-                style={styles.langToggle}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  mode === 'day' ? 'Switch to night theme' : 'Switch to day theme'
-                }
-              >
-                <Text style={styles.langToggleText}>{tr(mode === 'day' ? 'Day' : 'Night')}</Text>
-              </Pressable>
-            </View>
-          </View>
-        ) : null}
-
-
         <View style={styles.flex}>
           {tab === 'navigate' ? (
-            <MapScreen onBack={() => setTab('trip')} />
+            <MapScreen
+              onBack={() => setTab('trip')}
+              onFullscreenChange={setMapFull}
+              // The Trip tab's own gate path: the truck check it opens.
+              onCheckTruck={() => {
+                setShowAssignment(true)
+                setTab('trip')
+              }}
+            />
           ) : null}
-          {tab === 'trip' && !showAssignment ? (
-            <TripScreen onOpenMap={() => setTab('navigate')} onCheckTruck={() => setShowAssignment(true)} />
+          {!showTutorial && tab === 'trip' && !showAssignment ? (
+            <TripScreen
+              onOpenMap={() => setTab('navigate')}
+              onCheckTruck={() => setShowAssignment(true)}
+              focus={tripFocus}
+              onFocused={() => setTripFocus(null)}
+              status={tripChip}
+              avatar={avatar}
+            />
           ) : null}
-          {tab === 'trip' && showAssignment ? (
-            <AssignmentScreen onBack={() => setShowAssignment(false)} />
+          {!showTutorial && tab === 'trip' && showAssignment ? (
+            <AssignmentScreen onBack={() => setShowAssignment(false)} status={tripChip} />
           ) : null}
-          {tab === 'safety' ? <SafetyScreen /> : null}
-          {tab === 'more' && !showAssistant && showDetails ? (
-            <MyDetailsScreen onBack={() => setShowDetails(false)} />
+          {tab === 'safety' ? (
+            <SafetyScreen
+              onOpenTrip={() => {
+                setShowAssignment(false)
+                setTripFocus('stop-request')
+                setTab('trip')
+              }}
+              onOpenNavigate={() => setTab('navigate')}
+              onOpenDetails={() => {
+                setShowAssistant(false)
+                setShowDetails(true)
+                setTab('more')
+              }}
+              onOpenAssistant={() => {
+                setShowDetails(false)
+                setShowAssistant(true)
+                setTab('more')
+              }}
+            />
           ) : null}
-          {tab === 'more' && !showAssistant && !showDetails ? (
-            <MoreScreen onOpenAssistant={() => setShowAssistant(true)} onOpenDetails={() => setShowDetails(true)} />
+          {showTutorial ? (
+            <TutorialScreen
+              // The chip of the screen it opened over: More's when reopened
+              // from More (both read the phone's GPS), the tracker's on first
+              // run, so one path never shows two wordings (B3D-R09).
+              status={firstRun === true ? tripChip : moreChip}
+              firstRun={firstRun === true}
+              onDone={() => {
+                setShowTutorial(false)
+                setFirstRun(false)
+              }}
+            />
           ) : null}
-          {tab === 'more' && showAssistant ? (
+          {!showTutorial && tab === 'more' && !showAssistant && showDetails ? (
+            <MyDetailsScreen onBack={() => setShowDetails(false)} status={moreChip} />
+          ) : null}
+          {!showTutorial && tab === 'more' && !showAssistant && !showDetails ? (
+            <MoreScreen
+              onOpenAssistant={() => setShowAssistant(true)}
+              onOpenDetails={() => setShowDetails(true)}
+              onOpenTutorial={() => setShowTutorial(true)}
+              status={moreChip}
+            />
+          ) : null}
+          {!showTutorial && tab === 'more' && showAssistant ? (
             // The assistant's own hand-offs land on real tabs. Without these
             // its "Open Safety" chip would be a button that did nothing, and
             // there was no way back out of the screen except leaving More.
             <AssistantScreen
+              status={moreChip}
               onBack={() => setShowAssistant(false)}
               onOpenTrip={() => {
                 setShowAssistant(false)
@@ -226,35 +257,19 @@ function SignedShell() {
           ) : null}
         </View>
 
-        <View style={styles.tabs}>
-          {TABS.map((value) => (
-            <Pressable
-              key={value}
-              onPress={() => {
-                if (value !== 'more') setShowAssistant(false)
-                setTab(value)
-              }}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: tab === value }}
-              style={[styles.tab, tab === value && styles.tabActive]}
-            >
-              {/* Drawn, not typed. See src/components/icons.tsx: an emoji
-                  glyph carries its own palette, so an active tab could not
-                  tint its own icon. */}
-              <View style={styles.tabIcon}>
-                <TabIcon tab={value} color={tab === value ? COLORS.accent : COLORS.muted} />
-              </View>
-              <Text
-                style={[
-                  styles.tabLabel,
-                  tab === value && styles.tabLabelActive,
-                ]}
-              >
-                {t(TAB_TRANSLATIONS[value])}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+        {keyboardOpen || (tab === 'navigate' && mapFull) ? null : (
+          <FloatingTabBar
+            tabs={TABS}
+            active={tab}
+            onSelect={(value) => {
+              if (value !== 'more') setShowAssistant(false)
+              setTripFocus(null)
+              setTab(value)
+            }}
+            label={(value) => t(TAB_TRANSLATIONS[value])}
+          />
+        )}
+      </TopInset.Provider>
     </SafeAreaView>
   )
 }
@@ -289,24 +304,12 @@ function Gate() {
   // shown the login again rather than a half-shell.
   if (driver) return <Signed />
   if (user && user.role !== 'DRIVER') return <ManagerRoot />
-  return (
-    // LOGIN IS ALWAYS DAY. Pinned here, not in the screen, so every styled
-    // child (inputs, banners, the language chooser) follows without knowing.
-    <ThemeProvider fixed="day">
-      <LoginSurface />
-    </ThemeProvider>
-  )
-}
-
-/** The login page on its own day-mode surface, with the status bar to match. */
-function LoginSurface() {
-  const styles = useStyles()
-  return (
-    <SafeAreaView style={styles.flex}>
-      <StatusBar style="dark" />
-      <LoginScreen />
-    </SafeAreaView>
-  )
+  // The login follows the driver's stored Light/Dark choice like every other
+  // screen. It used to be pinned to Light, which flashed a light page at a
+  // driver who had chosen Dark every time they signed out.
+  // The status bar is Root's, which follows the theme. The photo runs
+  // full-bleed under it; LoginScreen insets its own content.
+  return <LoginScreen />
 }
 
 /** Inside the provider, so the root surface and the status bar can both follow
@@ -316,9 +319,9 @@ function Root() {
   const { mode } = useTheme()
   return (
     <View style={styles.root}>
-      {/* Dark glyphs on the light day ground, light on night. A fixed
-          style="light" left the clock invisible in day mode. */}
-      <StatusBar style={mode === 'day' ? 'dark' : 'light'} />
+      {/* Dark glyphs on the Light ground, light glyphs on Dark. A fixed
+          style="light" left the clock invisible in Light. */}
+      <StatusBar style={mode === 'light' ? 'dark' : 'light'} />
       <AuthProvider>
         <AppLanguageProvider>
           <Gate />
@@ -353,13 +356,13 @@ const useStyles = makeStyles((COLORS) => ({
   splashCard: {
     width: '100%',
     maxWidth: 380,
-    backgroundColor: COLORS.card,
+    backgroundColor: COLORS.surface,
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: 20,
     padding: 28,
     alignItems: 'center',
-    shadowColor: '#000',
+    shadowColor: COLORS.shadow,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.4,
     shadowRadius: 16,
@@ -373,14 +376,14 @@ const useStyles = makeStyles((COLORS) => ({
     letterSpacing: 2,
   },
   splashTitle: {
-    color: COLORS.aqua,
+    color: COLORS.brand,
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 1.5,
     marginTop: 2,
   },
   splashSubtitle: {
-    color: COLORS.muted,
+    color: COLORS.textMuted,
     fontSize: 13,
     marginTop: 12,
     textAlign: 'center',
@@ -392,127 +395,36 @@ const useStyles = makeStyles((COLORS) => ({
     marginTop: 20,
   },
   splashLoadingText: {
-    color: COLORS.faint,
+    color: COLORS.textFaint,
     fontSize: 12,
     fontWeight: '600',
   },
   splashMotto: {
     position: 'absolute',
     bottom: 32,
-    color: COLORS.dim,
+    color: COLORS.textDim,
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 1,
   },
 
-  supportBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#FDE68A', paddingVertical: 6, paddingHorizontal: 12 },
-  supportBannerText: { color: '#7A5B12', fontSize: 12, fontWeight: '800', letterSpacing: 0.6 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-    backgroundColor: COLORS.card,
-  },
-  // flex:1 + minWidth:0, not flexShrink alone. With only flexShrink the text
-  // block refused to go below its content width, so at 390pt the row overran
-  // the screen and clipped "Sign Out" off the right edge.
-  identity: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 },
+  supportBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: COLORS.warningSoft, borderBottomWidth: 1, borderBottomColor: COLORS.warningBorder, paddingVertical: 6, paddingHorizontal: 12 },
+  supportBannerText: { color: COLORS.warning, fontSize: 12, fontWeight: '800', letterSpacing: 0.6 },
+  // The Trip hero's avatar: 48 dp on the chip row, ringed in the surface
+  // colour so it holds its own against the photo in both themes.
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: COLORS.raised,
-    borderWidth: 1,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: COLORS.surface,
+    // A 3:1 ring, so the disc holds its shape on a dark or bright photo.
+    borderWidth: 2,
     borderColor: COLORS.borderStrong,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
-  avatarText: { color: COLORS.text, fontSize: 14, fontWeight: '800' },
-  avatarImage: { width: 40, height: 40, borderRadius: 20 },
-  greeting: { color: COLORS.muted, fontSize: 12, fontWeight: '600' },
-  identityMeta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
-  liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: COLORS.ok },
-  liveDotOff: { backgroundColor: COLORS.faint },
-  headerText: { flex: 1, minWidth: 0 },
-  brand: {
-    // Brand mint, not action mint. An eyebrow that reads in the same colour as
-    // every button on the screen is claiming to be tappable.
-    color: COLORS.aqua,
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.2,
-    marginBottom: 2,
-  },
-  name: { color: COLORS.text, fontSize: 17, fontWeight: '700' },
-  licence: { color: COLORS.faint, fontSize: 12, marginTop: 1 },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flexShrink: 0,
-  },
-  langToggle: {
-    // `raised`, not `card`: this chip sits ON the header, which is itself
-    // `card` — so it was previously located entirely by its 1px hairline.
-    // minHeight matches the sign-out Button beside it. At paddingVertical 6
-    // this control was ~26dp tall: half the driver touch target, on the one
-    // screen element a driver who cannot read the current language needs to
-    // hit first, in a moving cab.
-    minHeight: TOUCH_TARGET,
-    justifyContent: 'center',
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: COLORS.borderStrong,
-    backgroundColor: COLORS.raised,
-  },
-  langToggleText: {
-    color: COLORS.aqua,
-    fontSize: 12,
-    fontWeight: '700',
-  },
+  avatarText: { color: COLORS.text, fontSize: 15, fontWeight: '800' },
+  avatarImage: { width: 44, height: 44, borderRadius: 22 },
 
-  tabs: {
-    flexDirection: 'row',
-    gap: 6,
-    borderTopWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.card,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-  },
-  tab: {
-    flex: 1,
-    alignItems: 'center',
-    minHeight: TOUCH_TARGET,
-    justifyContent: 'center',
-    paddingVertical: 4,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  tabActive: {
-    backgroundColor: COLORS.soft,
-    borderColor: COLORS.accent,
-  },
-  tabIcon: {
-    height: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 3,
-  },
-  tabLabel: {
-    color: COLORS.muted,
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  tabLabelActive: {
-    color: COLORS.accent,
-    fontWeight: '700',
-  },
 }))

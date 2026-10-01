@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest'
+// @vitest-environment jsdom
+import { cleanup, render, screen, within } from '@testing-library/react'
+import { createElement } from 'react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { ProviderHealthRow } from '../api/client'
-import { capabilityState } from './SystemPage'
+import { api, type ProviderHealthRow } from '../api/client'
+import SystemPage, { capabilityState } from './SystemPage'
 
 function row(provider: string, state: ProviderHealthRow['state'], freshness: ProviderHealthRow['freshness'] = 'FRESH'): ProviderHealthRow {
   return {
@@ -30,5 +33,34 @@ describe('capabilityState — one throttled provider is not a broken system', ()
     expect(capabilityState([row('GOOGLE_GEMINI', 'UNKNOWN', 'UNKNOWN'), row('OPENROUTER', 'UNKNOWN', 'UNKNOWN')], ['GOOGLE_GEMINI', 'OPENROUTER']).state).toBe('UNKNOWN')
     expect(capabilityState([row('OPENROUTER', 'NOT_CONFIGURED', 'UNKNOWN')], ['OPENROUTER']).state).toBe('UNAVAILABLE')
     expect(capabilityState([], ['MISSING']).state).toBe('UNAVAILABLE')
+  })
+})
+
+describe('the Diagnostics page says what is true, in words', () => {
+  afterEach(() => { cleanup(); vi.restoreAllMocks() })
+
+  it('shows fallback-active, rate-limited and not-called-yet as themselves, and keeps the ML wording', async () => {
+    vi.spyOn(api, 'ready').mockResolvedValue({ status: 'ok', provider: 'local', checks: { database: { ok: true, detail: 'PostgreSQL 18' }, postgis: { ok: true, detail: '3.6' } } } as never)
+    vi.spyOn(api, 'systemProviders').mockResolvedValue({
+      providers: [row('OPEN_METEO', 'RATE_LIMITED', 'UNKNOWN'), row('MET_NORWAY', 'HEALTHY'), row('GOOGLE_GEMINI', 'UNKNOWN', 'UNKNOWN')],
+      intelligence: { counts: { TRUE_LOCAL_ML: 0, TRUE_LOCAL_ML_EXPERIMENTAL: 1 }, TOTAL_TRUE_LOCAL_AI: 0, TOTAL_LOCAL_INTELLIGENCE: 0, modules: [] },
+    })
+    render(createElement(SystemPage))
+
+    const weather = (await screen.findByText('Weather')).parentElement!.parentElement!
+    expect(within(weather).getByText('Available via fallback')).toBeDefined()
+    expect(within(weather).getByText(/OPEN METEO: rate limited/)).toBeDefined()
+    // Not called yet is neutral - never the green of Healthy.
+    const ai = screen.getByText('AI assistant').parentElement!.parentElement!
+    const pill = within(ai).getByText('Not called yet')
+    expect(pill.className).toMatch(/text-muted/)
+    expect(pill.className).not.toMatch(/text-ok/)
+    // Routing has no provider row at all: unavailable, in red, not a quiet blank.
+    const routing = screen.getByText('Routing').parentElement!.parentElement!
+    expect(within(routing).getByText('Unavailable').className).toMatch(/text-danger/)
+    expect(screen.getByText('1 · not deployed')).toBeDefined()
+    expect(document.body.textContent).toContain('the online models only word answers')
+    expect(document.body.textContent).toContain('It controls nothing here.')
+    expect(document.body.textContent).toContain('is never scored as safe')
   })
 })

@@ -108,7 +108,7 @@ class RouteCandidate:
         """
         if self.eligibility is not None:
             return self.eligibility
-        return evaluate(landslide=self.risk.landslide)
+        return evaluate(landslide=self.risk.landslide, coverage=self.risk.intelligence_coverage)
 
     @property
     def is_rejected(self) -> bool:

@@ -6,8 +6,9 @@ inspect `user.role` themselves - that pattern spreads authorization logic across
 every endpoint, where one missed check is invisible.
 """
 
+import ipaddress
 from collections.abc import Callable
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -15,11 +16,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.verifier import InvalidToken, TokenVerifier, get_token_verifier
-from app.core.errors import AuthenticationError, PermissionDeniedError
+from app.core.config import get_settings
+from app.core import rate_limit as rate_limit_state
+from app.core.errors import AuthenticationError, PermissionDeniedError, RateLimitedError
 from app.core.permissions import has_permission
+from app.core.rate_limit import POLICIES, GcraLimiter, client_address, limiter_for, rate_key
 from app.db.session import get_session
 from app.models.enums import DriverStatus, UserRole
 from app.models.identity import Driver, User
+from app.services import coordination
 
 # auto_error=False so a missing header raises our own 401 envelope rather than
 # FastAPI's default shape, keeping every error response identical.
@@ -27,7 +32,129 @@ logger = logging.getLogger(__name__)
 
 _bearer = HTTPBearer(auto_error=False)
 
+#: The only paths a must-reset account may reach. Reading your own principal
+#: is on the list because the client has to learn WHY it is being refused;
+#: signing out is, because being unable to leave would be absurd.
+PASSWORD_RESET_ALLOWED = frozenset(
+    {"/api/auth/password", "/api/auth/me", "/api/auth/logout", "/api/auth/refresh"}
+)
+
 DbSession = Annotated[AsyncSession, Depends(get_session)]
+
+# --- Rate limits (docs/RATE_LIMIT_POLICY.md) --------------------------------
+
+#: This process's budgets, one per policy, and one per policy with a per-IP
+#: guard. Module-level so they survive between requests.
+_USER_LIMITERS: dict[str, GcraLimiter] = {n: limiter_for(p) for n, p in POLICIES.items()}
+_IP_LIMITERS: dict[str, GcraLimiter] = {
+    n: limiter_for(p, per_ip=True) for n, p in POLICIES.items() if p.ip_multiple
+}
+
+#: Routes the per-user read/write ceiling never counts, by route template. An
+#: SOS, and a manager resolving one, must never meet a 429 that other traffic
+#: (or a misbehaving app) earned; GPS has its own budget, counted in fixes.
+UNMETERED_ROUTES = frozenset(
+    {
+        "/api/driver/me/location",
+        "/api/driver/me/trip/check-in",
+        "/api/driver/me/trip/stop-request",
+        "/api/emergencies/{emergency_id}/resolve",
+    }
+)
+
+#: One message for every limit: it must not say which budget, or whose.
+TOO_MANY = "Too many attempts. Try again shortly."
+
+
+def reset_rate_limits() -> None:
+    """Drop every in-process budget. Test hook (tests/conftest.py)."""
+    for limiter in (*_USER_LIMITERS.values(), *_IP_LIMITERS.values()):
+        limiter.clear()
+    rate_limit_state.forwarded_header_ignored = False
+
+
+def request_address(request: Request) -> str:
+    """The caller's address for a limit or an audit row: the TCP peer, or the
+    X-Forwarded-For entry TRUSTED_PROXY_HOPS proxies appended, from the right
+    (core/rate_limit.client_address, SEC-006)."""
+    return client_address(
+        request.client.host if request.client else None,
+        request.headers.get("x-forwarded-for"),
+        get_settings().TRUSTED_PROXY_HOPS,
+    )
+
+
+def rate_address(request: Request) -> str:
+    """What a per-address budget is keyed on: `request_address`, with IPv6
+    folded to its /64 (core/rate_limit.rate_key, RB-01)."""
+    return rate_key(request_address(request))
+
+
+async def enforce(
+    limiter: GcraLimiter,
+    key: str,
+    *,
+    shared: bool,
+    local_first: bool = True,
+    cost: int = 1,
+    message: str = TOO_MANY,
+) -> None:
+    """Spend `cost` of `key`'s budget or raise 429 with Retry-After.
+
+    With MULTI_INSTANCE and a `shared` policy the same GCRA runs in Postgres
+    (services/coordination.allow) so every instance spends one budget. This
+    process's own count is checked first (`local_first`): its attempts are part
+    of the shared count, so what it refuses alone is refused without a query,
+    and a flood from one caller takes no connection from the pool everyone
+    needs. A local refusal errs stricter than the shared count, never looser.
+    A budget that is reset across instances (the login identifier) is counted
+    in Postgres only (`local_first=False`).
+    """
+    settings = get_settings()
+    if not settings.RATE_LIMIT_ENABLED:
+        return
+    multi = shared and settings.MULTI_INSTANCE
+    decision = limiter.check(key, cost=cost) if local_first or not multi else None
+    if multi and (decision is None or decision.allowed):
+        decision = await coordination.allow(
+            key, limiter.limit, limiter.window.total_seconds(), burst=limiter.burst, cost=cost
+        )
+    if not decision.allowed:
+        raise RateLimitedError(message, retry_after=decision.retry_after)
+
+
+async def charge(
+    bucket: str,
+    request: Request,
+    subject: object,
+    db: AsyncSession | None = None,
+    *,
+    cost: int = 1,
+    message: str = TOO_MANY,
+) -> None:
+    """Spend `bucket` for `subject` (a user id, or the address for a public
+    policy), then the bucket's coarser per-IP guard.
+
+    User first: a caller refused on their own budget does not spend the IP
+    guard, so one abuser behind a NAT cannot use up everybody else's.
+    """
+    policy = POLICIES[bucket]
+    if policy.shared and db is not None and get_settings().MULTI_INSTANCE:
+        # The shared count borrows a pooled connection of its own. Hand back
+        # the one the auth lookup holds first, so a request never holds two
+        # (DBPOOL-02). Commit, not rollback: the User stays readable.
+        await db.commit()
+    await enforce(
+        _USER_LIMITERS[bucket], f"{bucket}:{subject}", shared=policy.shared, cost=cost, message=message
+    )
+    if policy.ip_multiple:
+        await enforce(
+            _IP_LIMITERS[bucket],
+            f"{bucket}:ip:{rate_address(request)}",
+            shared=policy.shared,
+            cost=cost,
+            message=message,
+        )
 
 
 async def get_current_user(
@@ -64,6 +191,29 @@ async def get_current_user(
         raise AuthenticationError("Account is disabled.")
 
     request.state.actor_id = user.id
+
+    # The per-user ceiling on every authenticated request (classes C, D, F):
+    # here, where every route already passes, so a new route cannot be left
+    # out. In-process only: a query per request would cost more than it
+    # protects. Keyed by user, never by address - a fleet behind one carrier
+    # NAT must not share one budget.
+    if getattr(request.scope.get("route"), "path", None) not in UNMETERED_ROUTES:
+        bucket = "read" if request.method in ("GET", "HEAD") else "write"
+        await enforce(_USER_LIMITERS[bucket], f"{bucket}:{user.id}", shared=False)
+
+    # An account still holding the temporary password it was created with may
+    # do exactly one thing: change it. Enforced here rather than per-route,
+    # because the failure mode is a route somebody forgets to decorate - and
+    # a handed-over credential that keeps working is the whole risk.
+    # scope["path"], not request.url.path: the latter is rebuilt from the
+    # client-controlled Host header, so "Host: x/api/auth/me?" would pass.
+    if user.must_reset_password and request.scope["path"] not in PASSWORD_RESET_ALLOWED:
+        raise PermissionDeniedError(
+            "This account is still using its temporary password. "
+            "Change it before doing anything else.",
+            code="PASSWORD_RESET_REQUIRED",
+        )
+
     if claims.support_by is not None:
         # Manager support view: the driver's screens, none of the driver's
         # actions. One guard here covers every mutating endpoint at once.
@@ -98,6 +248,49 @@ def require_permission(permission: str) -> Callable[..., object]:
         return user
 
     return _dependency
+
+
+def require_permission_then_release(permission: str) -> Callable[..., object]:
+    """`require_permission`, then end the request's transaction (DBPOOL-02).
+
+    For routes whose only database work is authenticating the caller and
+    which then wait on an external provider: the pooled connection goes back
+    before the wait instead of sitting idle in transaction through it.
+    Commit, not rollback, so the returned User stays readable
+    (expire_on_commit=False).
+    """
+    gate = require_permission(permission)
+
+    async def _dependency(user: Annotated[User, Depends(gate)], db: DbSession) -> User:
+        await db.commit()
+        return user
+
+    return _dependency
+
+
+def rate_limit(bucket: str) -> Any:
+    """`dependencies=[rate_limit("geocoding")]`: charge the caller's `bucket`
+    (core/rate_limit.POLICIES) before the handler runs - before any provider
+    call, and before an upload body is read. Declared on the route, like a
+    permission, so the limit is visible where the route is.
+
+    A per-address policy (public endpoints) keys on the client address and
+    needs no authentication; the rest key on the authenticated user, so an
+    anonymous caller is refused 401 before spending anyone's budget.
+    """
+    if POLICIES[bucket].per_address:
+
+        async def _by_address(request: Request) -> None:
+            await charge(bucket, request, rate_address(request))
+
+        _by_address.bucket = bucket  # type: ignore[attr-defined]  # read by the route-coverage test
+        return Depends(_by_address)
+
+    async def _by_user(request: Request, user: CurrentUser, db: DbSession) -> None:
+        await charge(bucket, request, user.id, db)
+
+    _by_user.bucket = bucket  # type: ignore[attr-defined]
+    return Depends(_by_user)
 
 
 def require_role(*roles: UserRole) -> Callable[..., object]:
@@ -165,10 +358,15 @@ CurrentDriver = Annotated[Driver, Depends(require_current_driver)]
 async def get_client_ip(request: Request) -> str | None:
     """Best-effort client address for audit records.
 
-    X-Forwarded-For is client-controlled unless a trusted proxy overwrites it,
-    so this is recorded as a hint and never used for an authorization decision.
+    Read the way the login limiter reads it (`client_address`): only the
+    X-Forwarded-For entries TRUSTED_PROXY_HOPS proxies really appended, from
+    the right. The left-most entry is whatever the caller typed, and it was
+    landing in every audit row, LOGIN_FAILED included. Still a hint, and
+    never used for an authorization decision. A non-address is dropped
+    rather than failing the INET column.
     """
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()[:45] or None
-    return request.client.host if request.client else None
+    address = request_address(request)
+    try:
+        return str(ipaddress.ip_address(address))
+    except ValueError:
+        return None

@@ -21,7 +21,7 @@
  * the catalogue to fill.
  */
 
-import { StyleSheet, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 
 import type { NavigationManeuver } from '../api/client'
 import {
@@ -173,7 +173,7 @@ const useStyles = makeStyles((COLORS) => ({
     gap: 12,
   },
   icon: {
-    color: COLORS.routeOn,
+    color: COLORS.info,
     fontSize: 30,
     fontWeight: '900',
   },
@@ -190,7 +190,7 @@ const useStyles = makeStyles((COLORS) => ({
     fontWeight: '600',
   },
   roadName: {
-    color: COLORS.routeOn,
+    color: COLORS.info,
     fontSize: 13,
     fontWeight: '500',
     marginTop: 1,
@@ -201,7 +201,7 @@ const useStyles = makeStyles((COLORS) => ({
     fontWeight: '700',
   },
   detail: {
-    color: COLORS.muted,
+    color: COLORS.textMuted,
     fontSize: 13,
   },
 }))

@@ -35,6 +35,18 @@ class UserRole(_StrEnum):
     #: Not required for the normal flow - a MANAGER approves and selects in
     #: one step. See app/core/permissions.py and app/services/route_review.py.
     AUTHORISED_REVIEWER = "AUTHORISED_REVIEWER"
+    #: The whole North Eastern Region: all eight states, every district, and
+    #: the State Managers under them. Distinct from ADMIN, which is the
+    #: technical superuser - this is an operational role that still cannot
+    #: read a salary or override a hard route block.
+    NORTH_EAST_MANAGER = "NORTH_EAST_MANAGER"
+    #: Scoped to ONE state. Sees every district in it, and creates and retires
+    #: the District Managers inside it. Cannot touch another state.
+    STATE_MANAGER = "STATE_MANAGER"
+    #: Scoped to ONE district. Sees that district's work, plus any trip whose
+    #: origin or destination is that district - a truck arriving is the
+    #: destination district's business even though it was dispatched elsewhere.
+    DISTRICT_MANAGER = "DISTRICT_MANAGER"
 
 
 class DriverStatus(_StrEnum):
@@ -201,6 +213,10 @@ class TripEventKind(_StrEnum):
     DELIVERED = "DELIVERED"
     CLOSED = "CLOSED"
     CANCELLED = "CANCELLED"
+    #: A driver's planned rest stop (15 or 30 min) and its end. Added in 0017.
+    BREAK_STARTED = "BREAK_STARTED"
+    BREAK_ENDED = "BREAK_ENDED"
+    BREAK_OVERDUE = "BREAK_OVERDUE"
 
 
 # --- Audit ----------------------------------------------------------------
@@ -260,6 +276,70 @@ class DriverCheckResponse(_StrEnum):
     NEED_HELP = "NEED_HELP"
 
 
+class DistrictSource(_StrEnum):
+    """Where a district row came from, and therefore whether it counts.
+
+    A district is a government notification, not a fact about software, and
+    this table can be written by three very different things: a verified
+    gazette, a demo seed, and a test fixture. Free text in `source_name`
+    described them but could not be queried, so a dashboard counted 230
+    fixtures called "Dash Att Other" as configured districts.
+
+    Operational counts accept VERIFIED_OFFICIAL and DEMO. TEST and
+    UNVERIFIED are visible only where somebody has asked to see them.
+    """
+
+    #: From a government notification, with its date recorded.
+    VERIFIED_OFFICIAL = "VERIFIED_OFFICIAL"
+    #: Hand-made for a demo. Real enough to operate against, not a gazette.
+    DEMO = "DEMO"
+    #: Written by a test or a fixture. Never counted, never offered.
+    TEST = "TEST"
+    #: Provenance not established. The default, deliberately: a row that
+    #: nobody classified is not evidence of a district.
+    UNVERIFIED = "UNVERIFIED"
+
+
+class NotificationKind(_StrEnum):
+    """What happened. The client renders the sentence; this names the event.
+
+    Deliberately NOT the same list as TripEventKind. A trip timeline records
+    everything that happened on the road; an inbox holds only what somebody
+    has to act on or be told about. COMMS_LOST belongs in the timeline; it
+    does not belong in four managers' inboxes every time a hill blocks a
+    signal.
+    """
+
+    TRIP_DISPATCHED = "TRIP_DISPATCHED"
+    #: For the destination district: something is on its way to you.
+    INCOMING_TRIP = "INCOMING_TRIP"
+    ROUTE_CHANGED = "ROUTE_CHANGED"
+    TRIP_DELAYED = "TRIP_DELAYED"
+    TRIP_ARRIVED = "TRIP_ARRIVED"
+    TRIP_DELIVERED = "TRIP_DELIVERED"
+    #: The driver asked to stop mid-trip and gave a reason. Always URGENT.
+    DRIVER_EMERGENCY_STOP = "DRIVER_EMERGENCY_STOP"
+    #: A manager answered that request - resume, hold, return, cancel.
+    EMERGENCY_RESOLVED = "EMERGENCY_RESOLVED"
+    ROUTE_APPROVED = "ROUTE_APPROVED"
+    #: A driver started, ended or overran a planned break (0017).
+    DRIVER_BREAK_STARTED = "DRIVER_BREAK_STARTED"
+    DRIVER_BREAK_ENDED = "DRIVER_BREAK_ENDED"
+    DRIVER_BREAK_OVERDUE = "DRIVER_BREAK_OVERDUE"
+
+
+class NotificationSeverity(_StrEnum):
+    """How hard to interrupt someone.
+
+    URGENT is reserved for a person asking for help. If routine dispatch is
+    urgent, nothing is.
+    """
+
+    INFO = "INFO"
+    WARNING = "WARNING"
+    URGENT = "URGENT"
+
+
 ENUM_TYPE_NAMES: dict[type[_StrEnum], str] = {
     UserRole: "user_role",
     DriverStatus: "driver_status",
@@ -281,4 +361,7 @@ ENUM_TYPE_NAMES: dict[type[_StrEnum], str] = {
     RouteReviewBasis: "route_review_basis",
     EmergencyState: "emergency_state",
     DriverCheckResponse: "driver_check_response",
+    DistrictSource: "district_source",
+    NotificationKind: "notification_kind",
+    NotificationSeverity: "notification_severity",
 }

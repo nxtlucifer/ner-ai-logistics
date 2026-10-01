@@ -51,9 +51,13 @@ export interface RouteGeometry {
   stops: OfflineStop[]
   routeId: string | null
   distanceKm: number | null
+  /** The routing provider's time for the whole route: the planned pace, not
+   *  an ETA. Null when the provider gave none. */
+  durationMin: number | null
   source: GeometrySource
   /** When the server built this package. Null when nothing has loaded. */
   capturedAt: string | null
+  /** A fetch is in flight - also while a CACHED package stands in for it. */
   isLoading: boolean
   /** Set when the fetch failed AND no usable cache stood in for it. */
   error: unknown
@@ -70,6 +74,7 @@ const EMPTY: Omit<RouteGeometry, 'reload'> = {
   stops: [],
   routeId: null,
   distanceKm: null,
+  durationMin: null,
   source: 'NONE',
   capturedAt: null,
   isLoading: false,
@@ -119,15 +124,23 @@ export function useRouteGeometry(
         stops: packageData.stops,
         routeId: packageData.selected_route?.route_id ?? null,
         distanceKm: packageData.selected_route?.distance_km ?? null,
+        durationMin: packageData.selected_route?.estimated_duration_min ?? null,
         source,
         capturedAt: packageData.captured_at,
-        isLoading: false,
+        // CACHED is only ever applied before the fetch: still checking.
+        isLoading: source === 'CACHED',
         error: null,
       })
     }
 
     async function load() {
       setState((prev) => ({ ...(prev.scope === scope ? prev : EMPTY), scope, isLoading: true, error: null }))
+      // Cache first (FE-02): the stored package for THIS trip and route is
+      // drawn at once, labelled CACHED, and replaced when the network answers.
+      const stored = await store.read()
+      if (cancelled) return
+      const cached = stored && matches(stored.packageData) ? stored.packageData : null
+      if (cached) apply(cached, 'CACHED')
       try {
         const fresh = await api.offlinePackage()
         if (cancelled) return
@@ -138,21 +151,23 @@ export function useRouteGeometry(
           setState({ ...EMPTY, scope })
           return
         }
-        apply(fresh, 'LIVE')
+        // The server sends risk: null when the assessment overran its budget.
+        // That is "not assessed this time", not "no risk": keep the stored
+        // snapshot for this same trip and route, still labelled by its own
+        // risk_captured_at. package_hash excludes risk, so it stays true.
+        const kept = fresh.risk === null && cached?.risk
+          ? { ...fresh, risk: cached.risk, risk_captured_at: cached.risk_captured_at }
+          : fresh
+        apply(kept, 'LIVE')
         // Best effort. A phone with no space still gets a working map now;
         // it just will not have one after losing the network.
-        void store.write(fresh).catch(() => {})
+        void store.write(kept).catch(() => {})
       } catch (error) {
+        // Network gone. A stored package for this trip and route is already on
+        // screen - it stays, and stops "checking"; without one there is
+        // nothing honest to draw.
         if (cancelled) return
-        // Network gone. Fall back to the stored package ONLY if it is for this
-        // trip and this route - see the header.
-        const stored = await store.read()
-        if (cancelled) return
-        if (stored && matches(stored.packageData)) {
-          apply(stored.packageData, 'CACHED')
-          return
-        }
-        setState({ ...EMPTY, scope, error })
+        setState(cached ? (prev) => ({ ...prev, isLoading: false }) : { ...EMPTY, scope, error })
       }
     }
 

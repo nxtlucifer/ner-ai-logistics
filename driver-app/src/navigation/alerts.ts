@@ -15,7 +15,7 @@
  */
 
 import type { RouteRisk } from '../api/client'
-import { nextHazard } from '../map/ahead'
+import { hazardSites, siteWords } from '../map/ahead'
 import type { LatLon } from '../map/geo'
 import { nextTerrainRun } from './routeAi'
 
@@ -37,6 +37,13 @@ export interface DangerAlert {
 export const ALERT_AHEAD_M = 3_000
 
 const km = (m: number) => (m >= 950 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m / 100) * 100} m`)
+
+/** Where the run of sites that `index` belongs to begins. */
+function clusterStart(sites: readonly { at: number }[], index: number): number {
+  let i = index
+  while (i > 0 && sites[i].at - sites[i - 1].at < ALERT_AHEAD_M) i -= 1
+  return sites[i].at
+}
 
 export function dangerAlert(
   risk: RouteRisk | null,
@@ -75,7 +82,9 @@ export function dangerAlert(
   // same run the card's "Next terrain" names, so the two never disagree.
   const run = nextTerrainRun(risk.terrain?.usable ? risk.terrain.segments : null, travelledM)
   const steep = run && run.cls === 'STEEP' && run.start_m - travelledM <= ALERT_AHEAD_M ? run : null
-  const slide = nextHazard(points, risk.landslide_history?.events, travelledM)
+  const sites = hazardSites(points, risk.landslide_history?.events)
+  const next = sites.findIndex((s) => s.at >= travelledM)
+  const slide = next === -1 ? null : sites[next]
   const slideAhead = slide && slide.at - travelledM <= ALERT_AHEAD_M ? slide : null
   if (!steep && !slideAhead) return null
 
@@ -87,9 +96,13 @@ export function dangerAlert(
   }
   if (slideAhead) {
     const ahead = slideAhead.at - travelledM
-    parts.push(`${ahead < 500 ? 'Recorded landslide site here' : `Recorded landslide site in ${km(ahead)}`}${slideAhead.year ? ` (${slideAhead.year})` : ''}`)
+    parts.push(`${siteWords(slideAhead, ahead, km)}${slideAhead.year ? ` (${slideAhead.year})` : ''}`)
   }
-  const anchor = steep ? Math.round(steep.start_m) : Math.round(slideAhead!.at)
+  // One card per STRETCH of recorded sites, not per site: sites closer than
+  // the approach window to each other are one stretch, keyed on its first
+  // site, so one "OK, SEEN" covers it. Keyed per site, a new card came at
+  // km 0.44, 0.55, 0.99, 1.52, 1.72 and 2.89 through Guwahati (E2E-R3).
+  const anchor = steep ? Math.round(steep.start_m) : Math.round(clusterStart(sites, next))
   const hold = risk.decision === 'HOLD_AND_REVIEW' || risk.decision === 'REROUTE_RECOMMENDED'
   return {
     key: `${routeId}:${steep ? 'steep' : 'slide'}:${anchor}`,

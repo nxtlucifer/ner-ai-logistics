@@ -42,6 +42,11 @@ from typing import Final
 
 from typing import TYPE_CHECKING
 
+from app.domain.route_eligibility import (
+    COVERAGE_LIMITED,
+    COVERAGE_UNKNOWN,
+    REASON_INDIA_BASE_ROUTING,
+)
 from app.domain.weather import FRESHNESS_CURRENT, WeatherObservation
 
 # --- Factor availability --------------------------------------------------
@@ -253,6 +258,10 @@ class RouteRisk:
     #: they have not.
     traffic: "TrafficEstimate | None" = None
     assessed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    #: How much of the corridor NER intelligence covers: NER_DEEP /
+    #: LIMITED_EVIDENCE / UNKNOWN (route_eligibility). Defaulted to UNKNOWN,
+    #: so a RouteRisk nobody placed can never read as ELIGIBLE.
+    intelligence_coverage: str = COVERAGE_UNKNOWN
 
     @property
     def weather_available(self) -> bool:
@@ -377,11 +386,16 @@ def assess(
     warnings: "OfficialWarnings | None" = None,
     traffic: "TrafficEstimate | None" = None,
     now: datetime | None = None,
+    intelligence_coverage: str = COVERAGE_UNKNOWN,
 ) -> RouteRisk:
     """Score one route from the evidence available for it.
 
     `observations` are weather readings sampled along the route geometry. Stale
     ones are counted and reported but never scored - see the module docstring.
+
+    `intelligence_coverage` travels on the result, where eligibility reads it
+    (route_eligibility.within_coverage). A road partly outside the NER polygons
+    says INDIA_BASE_ROUTING, which the driver's decision reads as CAUTION.
     """
     moment = now or datetime.now(UTC)
     supplied = list(observations or [])
@@ -391,6 +405,8 @@ def assess(
 
     components: list[RiskComponent] = []
     codes: list[str] = []
+    if intelligence_coverage == COVERAGE_LIMITED:
+        codes.append(REASON_INDIA_BASE_ROUTING)
 
     weather_ok = len(current) >= MIN_OBSERVATIONS
     if weather_ok:
@@ -579,4 +595,5 @@ def assess(
         observations_used=len(current),
         observations_stale=stale_count,
         assessed_at=moment,
+        intelligence_coverage=intelligence_coverage,
     )

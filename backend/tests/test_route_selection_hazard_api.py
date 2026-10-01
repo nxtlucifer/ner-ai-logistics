@@ -51,7 +51,9 @@ from app.services import routes as route_service
 from tests import factories
 from tests.conftest import auth_headers
 
-pytestmark = pytest.mark.requires_db
+# Planning needs the India outline, and a clear reading counts only on a road
+# inside the NER state shapes: the SYNTHETIC geography (tests/geo_fixtures.py).
+pytestmark = [pytest.mark.requires_db, pytest.mark.usefixtures("fixture_geography")]
 
 NOW = datetime(2026, 9, 5, tzinfo=UTC)
 

@@ -40,6 +40,24 @@ export function upcomingManeuver(
   return null
 }
 
+/** OSRM's step for leaving a ring, by the ring it leaves. */
+const RING_EXIT: Record<string, string> = { 'exit roundabout': 'roundabout', 'exit rotary': 'rotary' }
+
+/**
+ * The maneuvers a driver is told, in order.
+ *
+ * OSRM follows a roundabout entry with its own "exit roundabout" step a few
+ * metres on (6.5 m and 67 m on the Guwahati-Shillong package), and both read
+ * "At the roundabout, take exit N": the card said it twice, once as the turn
+ * and once as "Then", and said it again just after the entry (FV-DRV-02).
+ * The entry already carries the exit number, so an exit step that directly
+ * follows its own entry is dropped. An exit step with no entry before it is
+ * kept: it is then the only word about that ring.
+ */
+export function toldManeuvers(maneuvers: NavigationManeuver[]): NavigationManeuver[] {
+  return maneuvers.filter((m, i) => !(i > 0 && RING_EXIT[m.type] !== undefined && maneuvers[i - 1].type === RING_EXIT[m.type]))
+}
+
 /**
  * Why guidance is being held, or null when it may run.
  *
@@ -160,7 +178,10 @@ export function formatTurnDistance(metres: number): string {
  */
 export function instructionFor(maneuver: NavigationManeuver, t: (en: string) => string = (en) => en): string {
   const road = maneuver.name ? ` ${t('onto')} ${maneuver.name}` : ''
-  const mod = maneuver.modifier ? t(maneuver.modifier.replace(/_/g, ' ')) : ''
+  // OSRM sends "straight" with several verbs; "Turn straight" was shown word
+  // for word at Byrnihat (E2E-R6). Straight on is a continue, whatever the verb.
+  const straight = maneuver.modifier === 'straight'
+  const mod = maneuver.modifier && !straight ? t(maneuver.modifier.replace(/_/g, ' ')) : ''
 
   switch (maneuver.type) {
     case 'depart':
@@ -169,6 +190,10 @@ export function instructionFor(maneuver: NavigationManeuver, t: (en: string) => 
       return t('Arrive')
     case 'roundabout':
     case 'rotary':
+    // OSRM's own step for leaving the ring; its raw words ("exit roundabout
+    // straight") were the only other thing the panel printed verbatim.
+    case 'exit roundabout':
+    case 'exit rotary':
       // The exit number is the whole instruction at a roundabout, and it is
       // absent often enough that "take the exit" has to be a real answer.
       return maneuver.exit
@@ -177,15 +202,19 @@ export function instructionFor(maneuver: NavigationManeuver, t: (en: string) => 
     case 'merge':
       return mod ? `${t('Merge')} ${mod}${road}` : `${t('Merge')}${road}`
     case 'fork':
+    case 'on ramp':
+    case 'off ramp':
       return mod ? `${t('Keep')} ${mod}${road}` : `${t('Keep ahead')}${road}`
     case 'end of road':
       return mod ? `${t('Turn')} ${mod}${road}` : `${t('Continue')}${road}`
     case 'new name':
     case 'continue':
-      return maneuver.modifier === 'straight' || !mod
-        ? `${t('Continue')}${road}`
-        : `${t('Continue')} ${mod}${road}`
+    case 'notification':
+    case 'use lane':
+      return mod ? `${t('Continue')} ${mod}${road}` : `${t('Continue')}${road}`
     case 'turn':
+    case 'roundabout turn':
+      if (straight) return `${t('Continue')}${road}`
       return mod ? `${t('Turn')} ${mod}${road}` : `${t('Turn')}${road}`
     default:
       return mod
@@ -199,7 +228,9 @@ export function instructionFor(maneuver: NavigationManeuver, t: (en: string) => 
  * the app, so the next-turn card and the map controls share one stroke.
  */
 export function maneuverIcon(maneuver: NavigationManeuver): IconName {
-  const mod = maneuver.modifier ?? ''
+  // OSRM spells modifiers with a space ("slight left", "sharp right"), and
+  // every one of those drew the straight-ahead arrow beside its words.
+  const mod = (maneuver.modifier ?? '').replace(/ /g, '_')
   switch (maneuver.type) {
     case 'depart':
       return 'navigation'

@@ -16,14 +16,16 @@ import assistantSource from './assistant.ts?raw'
 
 import {
   QUESTIONS,
+  RISK_FRESH_MS,
   TOOLS,
   answer,
+  contextForModel,
   type AssistantContext,
   type Intent,
 } from './assistant'
 import { assessBreak } from '../safety/breaks'
 import type { CurrentTrip } from '../api/client'
-import type { StoredPackage } from '../offline/packageStore'
+import { PACKAGE_FRESH_MS, type StoredPackage } from '../offline/packageStore'
 import type { TrackerState } from '../tracking/tracker'
 
 const NOW = Date.parse('2026-09-05T10:00:00Z')
@@ -218,6 +220,7 @@ describe('driver assistant — cached is never called live', () => {
     expect(a.freshness).not.toBeNull()
     expect(a.freshness!.cached).toBe(true)
     expect(a.freshness!.ageMinutes).toBe(60)
+    expect(a.freshness!.stale).toBe(false)
   })
 
   it('carries the datasets the risk score was made WITHOUT', () => {
@@ -236,6 +239,20 @@ describe('driver assistant — cached is never called live', () => {
   it('propagates a stale package into the answer', () => {
     const stale = { ...storedPackage, freshness: 'STALE' } as StoredPackage
     expect(answer('ROUTE_RISK', ctx({ offlinePackage: stale })).freshness!.stale).toBe(true)
+  })
+
+  it('calls an old risk STALE inside a freshly downloaded package', () => {
+    // useRouteGeometry carries the stored risk into a new package whose own
+    // assessment timed out: package CURRENT, risk two days old.
+    const carried = {
+      packageData: { ...storedPackage.packageData, captured_at: new Date(NOW).toISOString(), risk_captured_at: '2026-09-03T10:00:00Z' },
+      ageMs: 0,
+      freshness: 'CURRENT',
+    } as StoredPackage
+    const c = ctx({ offlinePackage: carried, online: false })
+    expect(answer('ROUTE_RISK', c).freshness).toMatchObject({ ageMinutes: 2880, cached: true, stale: true })
+    expect(contextForModel(c)).toContain('Risk assessed 2880 min ago (stored copy) (STALE)')
+    expect(RISK_FRESH_MS).toBe(PACKAGE_FRESH_MS)
   })
 
   it('marks trip answers as cached when offline', () => {

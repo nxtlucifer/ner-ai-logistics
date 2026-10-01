@@ -89,6 +89,8 @@ def candidate(
     duration_min: float = 120.0,
     kind: str = "PRIMARY",
 ) -> RouteCandidate:
+    # A corridor wholly inside the NER (NER_DEEP), so these tests are about
+    # the landslide policy; coverage has its own file, test_india_trip_policy.
     return RouteCandidate(
         route_id=route_id,
         kind=kind,
@@ -99,6 +101,7 @@ def candidate(
             duration_min=duration_min,
             landslide=landslide,
             now=NOW,
+            intelligence_coverage="NER_DEEP",
         ),
     )
 
@@ -179,7 +182,7 @@ class TestTheMutationPathRefuses:
         from app.domain.route_eligibility import evaluate
         from app.services.routes import refuse_if_ineligible
 
-        refuse_if_ineligible(evaluate(landslide=_clear_assessment()))
+        refuse_if_ineligible(evaluate(landslide=_clear_assessment(), coverage="NER_DEEP"))
 
     def test_a_missing_decision_is_refused_not_allowed(self):
         # REVERSED IN LS-5, deliberately. This test previously asserted that a
@@ -233,7 +236,8 @@ class TestEligibilityPolicy:
             return evaluate(
                 landslide=LandslideAssessment(
                     risk=risk, data_status=DataStatus.AVAILABLE
-                )
+                ),
+                coverage="NER_DEEP",
             ).eligibility
 
         from app.domain.landslide import LandslideRisk

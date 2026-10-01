@@ -66,6 +66,17 @@ services:
       - key: DATABASE_PROVIDER
         value: supabase
 
+      # SEC-006. Render terminates TLS and adds exactly ONE hop, so the
+      # rate limiter reads the last entry of X-Forwarded-For as the client.
+      # Without this the limiter keys on Render's proxy and one per-address
+      # budget is shared by every caller on the internet.
+      #
+      # Do not raise this number. Each extra hop is one more position of a
+      # client-controlled header that becomes trusted, and at two hops on a
+      # one-hop deployment an attacker chooses their own rate-limit key.
+      - key: TRUSTED_PROXY_HOPS
+        value: "1"
+
       # Sized for Supabase's session pooler, which allows 15 clients per
       # project across every connected service. A larger pool here starves the
       # rest of the project rather than making this one faster.
@@ -97,8 +108,20 @@ services:
         value: "true"
       - key: ROUTE_WATCH_ENABLED
         value: "true"
+      - key: BREAK_WATCH_ENABLED
+        value: "true"
       - key: DEMO_SIMULATION_ENABLED
         value: "true"
+      # One instance. Before scaling out set this true (it forces the demo
+      # simulation off); see app/services/coordination.py.
+      # Connection budget once it is true: (DB_POOL_SIZE + DB_MAX_OVERFLOW + 1
+      # coordination connection) x instances must stay <= the pooler's 15
+      # clients (see DB_POOL_SIZE above), counting old and new instances side
+      # by side during a deploy and anything else on the project. At 3+2+1 =
+      # 6 each, two instances (12) fit but not their deploy overlap (24):
+      # lower DB_MAX_OVERFLOW / DB_POOL_SIZE first (e.g. 2+0+1 = 3 each).
+      - key: MULTI_INSTANCE
+        value: "false"
 
       # Secrets. Never in this file - it is committed.
       - key: DATABASE_URL
@@ -130,6 +153,46 @@ services:
       - type: rewrite
         source: /*
         destination: /index.html
+    # The manager release header set (manager-web/vercel.json and netlify.toml
+    # carry the same, with their own backend origin in connect-src).
+    #
+    # HSTS is not set here: Render's static host already sends
+    # "max-age=315360000; includeSubdomains; preload" and serves HTTPS only
+    # (docs/submission/day2/task2/evidence/headers_before_after.txt). A second
+    # HSTS header would be ignored (browsers take the first).
+    #
+    # CSP rollout: the full policy ships REPORT-ONLY first (violations appear in
+    # the browser console; no report-uri on purpose). The enforced header keeps
+    # frame-ancestors, which report-only cannot carry. To enforce: rename the
+    # report-only header to Content-Security-Policy and delete the short one.
+    # The three sha256 values are pinned by manager-web/src/cspHashes.test.ts:
+    # when that test fails, update the policy here, in vercel.json and in
+    # netlify.toml in the same change. connect-src is VITE_API_BASE_URL below.
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Content-Security-Policy
+        value: frame-ancestors 'none'
+      - path: /*
+        name: Content-Security-Policy-Report-Only
+        value: "default-src 'self'; script-src 'self' 'sha256-1ze4e7nqjWdu4+OP5sDxplZhiBs3zQSpHtH4voUP/8k=' 'unsafe-hashes' 'sha256-MhtPZXr7+LpJUY5qtMutB+qWfQtMaPccfe7QXtCcEYc='; style-src 'self' https://fonts.googleapis.com 'sha256-R/y7pZVjL46qC0l0q1ZlqCUve89HwF5U0JLLHqdSMI8='; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://tile.openstreetmap.org https://s3.amazonaws.com; connect-src 'self' https://ner-intelligence.onrender.com https://tile.openstreetmap.org https://s3.amazonaws.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: Permissions-Policy
+        value: camera=(), microphone=(), payment=(), geolocation=()
+      # Vite names every built asset by its content hash: a new build is a new
+      # file name, so a cached copy can never be stale. index.html (which names
+      # them) keeps Render's default and is revalidated on every load.
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
 
   # The driver app's web build: what "View as driver" opens (read-only support
   # token in the URL fragment) and a judge's fallback when no phone is at hand.
@@ -146,3 +209,20 @@ services:
       - type: rewrite
         source: /*
         destination: /index.html
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: Content-Security-Policy
+        value: frame-ancestors 'none'
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /*
+        name: Permissions-Policy
+        value: camera=(self), microphone=(self), geolocation=(self), payment=()
+      # Expo's web export content-hashes its bundles the same way.
+      - path: /_expo/static/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable

@@ -30,6 +30,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { Route as RouteIcon } from 'lucide-react'
 
 import {
   api,
@@ -40,7 +41,7 @@ import {
   unavailableReason,
 } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
-import { Button, Card, EmptyState, ErrorState, LoadingState } from '../components/ui'
+import { Button, Card, EmptyState, ErrorState, LoadingState, PageHeader, StatusPill } from '../components/ui'
 import { translateReasonCodes } from '../i18n/reasonCodes'
 
 /** Long enough that "ok" cannot pass, matching the server's own floor. */
@@ -48,9 +49,9 @@ const MIN_RATIONALE = 20
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex justify-between gap-4 border-b border-line py-1 text-xs">
-      <span className="text-muted">{label}</span>
-      <span className="text-right text-ink">{value}</span>
+    <div className="flex justify-between gap-4 border-b border-line py-1.5 text-[13px] last:border-0">
+      <dt className="text-muted">{label}</dt>
+      <dd className="text-right text-ink">{value}</dd>
     </div>
   )
 }
@@ -174,32 +175,27 @@ export default function ReviewPage() {
     }
   }
 
-  if (loadError) return <ErrorState error={loadError} />
-  if (trips === null) return <LoadingState label="Loading trips…" />
+  const header = (
+    <PageHeader
+      title="Route Review"
+      meta={<>The optional second-level review, and the record of what was accepted. Managers approve routes from the trip itself (Trips › Review &amp; approve route).</>}
+    />
+  )
+  if (loadError) return <div className="space-y-4">{header}<Card><ErrorState centered error={loadError} /></Card></div>
+  if (trips === null) return <div className="space-y-4">{header}<Card><LoadingState label="Loading trips…" /></Card></div>
 
   const byRoute = new Map(candidates.map((c) => [c.route_id, c]))
   const live = routes.filter((r) => r.state !== 'SUPERSEDED')
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1>Route review</h1>
-        <p className="mt-1 max-w-3xl text-xs leading-relaxed text-muted">
-          Authorising a route records that <strong>you accepted incomplete
-          hazard evidence</strong> for one dispatch. It does not mark the road
-          checked, and the route continues to report its evidence as missing
-          afterwards. A road an authority has closed cannot be authorised by
-          anyone. Managers approve routes from the trip itself (Trips ›
-          Review &amp; approve route); this page is the optional second-level
-          review and the record of what was accepted.
-        </p>
-      </div>
+      {header}
 
-      <Card>
-        <label className="block text-xs">
-          <span className="mb-1 block text-muted">Trip</span>
+      <Card title="Trip" subtitle="Open trips whose route can still be chosen or changed.">
+        <label className="block max-w-2xl">
+          <span className="sr-only">Trip</span>
           <select
-            className="w-full rounded border border-line bg-surface px-2 py-1.5 text-ink"
+            className="w-full rounded-[var(--radius-control)] border border-outline bg-surface px-3 py-2 text-sm text-ink focus:border-route"
             value={tripId ?? ''}
             onChange={(e) => void loadTrip(e.target.value)}
           >
@@ -211,33 +207,41 @@ export default function ReviewPage() {
             ))}
           </select>
         </label>
+        <p className="mt-3 max-w-4xl text-[13px] leading-5 text-muted">
+          Authorising a route records that <strong className="font-semibold text-ink">you accepted incomplete
+          hazard evidence</strong> for one dispatch. It does not mark the road
+          checked, and the route continues to report its evidence as missing
+          afterwards. A road an authority has closed cannot be authorised by
+          anyone.
+        </p>
       </Card>
 
-      {detailError ? <ErrorState error={detailError} /> : null}
+      {detailError ? <Card><ErrorState error={detailError} /></Card> : null}
 
       {tripId ? (
-        <Card>
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-primary">
-              Routes on this trip
-            </h3>
+        <Card
+          title="Routes on This Trip"
+          subtitle="Hazard evidence is read only when you ask: each check costs a weather lookup per route."
+          action={
             <Button
               variant="secondary"
+              size="sm"
               busy={isAssessing}
               disabled={isAssessing}
               onClick={() => void assess()}
             >
               {isAssessing ? 'Checking…' : 'Check hazard evidence'}
             </Button>
-          </div>
-
+          }
+        >
           {live.length === 0 ? (
             <EmptyState
+              icon={RouteIcon}
               title="No live routes"
               description="Plan a route for this trip first."
             />
           ) : (
-            <ul className="space-y-3">
+            <ul className="divide-y divide-line">
               {live.map((route) => {
                 const assessed = byRoute.get(route.id)
                 const held = authorizations[route.id] ?? null
@@ -251,18 +255,16 @@ export default function ReviewPage() {
                 return (
                   <li
                     key={route.id}
-                    className="rounded border border-line bg-surface/40 p-3"
+                    className="space-y-2 py-4 first:pt-1 last:pb-1"
                   >
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="text-xs font-semibold text-ink">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="flex flex-wrap items-center gap-2 text-sm font-semibold text-ink">
                         {route.kind.replace(/_/g, ' ')}
                         {route.is_current ? (
-                          <span className="ml-2 font-normal text-ok">
-                            currently followed
-                          </span>
+                          <StatusPill status="SELECTED" label="CURRENTLY FOLLOWED" tone="route" />
                         ) : null}
                       </span>
-                      <span className="text-[11px] text-muted">
+                      <span className="tnum text-[13px] text-muted">
                         {route.distance_km
                           ? `${Number(route.distance_km).toLocaleString()} km`
                           : 'distance unavailable'}
@@ -270,19 +272,22 @@ export default function ReviewPage() {
                     </div>
 
                     {/* The evidence, in words, never a bare score. */}
-                    <p className="mt-2 text-[11px] text-muted">
-                      {assessed === undefined
-                        ? 'Hazard evidence not checked yet.'
-                        : assessed.eligibility === 'REQUIRES_REVIEW'
-                          ? 'Hazard data incomplete — this route needs review.'
-                          : assessed.eligibility === 'REJECTED'
-                            ? 'Blocked by an active hazard. This cannot be authorised by anyone.'
-                            : assessed.eligibility === 'ELIGIBLE'
-                              ? 'Eligible under the checks that ran. No authorisation needed.'
-                              : 'Could not be assessed. This is a fault to fix, not a risk to accept.'}
+                    <p className="flex flex-wrap items-center gap-2 text-[13px] text-ink">
+                      <StatusPill status={assessed === undefined ? 'NOT_CHECKED' : assessed.eligibility} />
+                      <span>
+                        {assessed === undefined
+                          ? 'Hazard evidence not checked yet.'
+                          : assessed.eligibility === 'REQUIRES_REVIEW'
+                            ? 'Hazard data incomplete — this route needs review.'
+                            : assessed.eligibility === 'REJECTED'
+                              ? 'Blocked by an active hazard. This cannot be authorised by anyone.'
+                              : assessed.eligibility === 'ELIGIBLE'
+                                ? 'Eligible under the checks that ran. No authorisation needed.'
+                                : 'Could not be assessed. This is a fault to fix, not a risk to accept.'}
+                      </span>
                     </p>
                     {assessed ? (
-                      <p className="mt-1 text-[11px] text-muted">
+                      <p className="text-xs text-muted">
                         {translateReasonCodes(
                           assessed.risk.reason_codes,
                           'en',
@@ -291,28 +296,31 @@ export default function ReviewPage() {
                     ) : null}
 
                     {held ? (
-                      <div className="mt-3 rounded border border-warning/40 bg-warning-strong/10 p-2">
-                        <p className="text-[11px] font-semibold text-warning">
+                      <div className="border-l-4 border-warning py-1 pl-4">
+                        <p className="text-[13px] font-semibold text-warning">
                           {spent
                             ? `Accepted and used for the selection that stands — by ${held.reviewer_name ?? 'a reviewer'}${held.reviewer_role ? ` (${held.reviewer_role.toLowerCase().replace(/_/g, ' ')})` : ''}`
                             : expired
                               ? 'Authorisation expired — a fresh review is needed'
                               : 'Hazard data incomplete — authorized for this selection'}
                         </p>
-                        <Field label="Basis" value={held.basis.replace(/_/g, ' ')} />
-                        {spent ? (
-                          <Field label="Used" value={new Date(held.consumed_at as string).toLocaleString()} />
-                        ) : (
-                          <Field
-                            label="Expires"
-                            value={new Date(held.expires_at).toLocaleString()}
-                          />
-                        )}
-                        <Field label="Rationale" value={held.rationale} />
+                        <dl className="mt-1 max-w-3xl">
+                          <Field label="Basis" value={held.basis.replace(/_/g, ' ')} />
+                          {spent ? (
+                            <Field label="Used" value={new Date(held.consumed_at as string).toLocaleString()} />
+                          ) : (
+                            <Field
+                              label="Expires"
+                              value={new Date(held.expires_at).toLocaleString()}
+                            />
+                          )}
+                          <Field label="Rationale" value={held.rationale} />
+                        </dl>
                         {!spent && mayAuthorize ? (
                           <div className="mt-2">
                             <Button
                               variant="secondary"
+                              size="sm"
                               busy={busy}
                               disabled={busy || revokeBlocked !== null}
                               title={revokeBlocked ?? undefined}
@@ -324,18 +332,18 @@ export default function ReviewPage() {
                         ) : null}
                       </div>
                     ) : reviewable && !mayAuthorize ? (
-                      <p className="mt-3 text-[11px] text-warning">
+                      <p className="text-[13px] text-warning">
                         Approve this from the trip itself: Trips › open the trip › Review &amp; approve route. This page only pre-issues an authorisation for a separate reviewer.
                       </p>
                     ) : reviewable ? (
-                      <div className="mt-3 space-y-2">
-                        <label className="block text-[11px]">
-                          <span className="mb-1 block text-muted">
-                            Why are you accepting this? Required — this is the
-                            only record of the reason.
+                      <div className="max-w-3xl space-y-2">
+                        <label className="block text-[13px]">
+                          <span className="mb-1 block text-ink">
+                            Why are you accepting this? <span className="text-muted">Required — this is the
+                            only record of the reason.</span>
                           </span>
                           <textarea
-                            className="w-full rounded border border-line bg-surface px-2 py-1.5 text-xs text-ink"
+                            className="w-full rounded-[var(--radius-control)] border border-outline bg-surface px-3 py-2 text-sm text-ink focus:border-route"
                             rows={2}
                             value={text}
                             onChange={(e) =>
@@ -346,18 +354,22 @@ export default function ReviewPage() {
                             }
                           />
                         </label>
-                        <Button
-                          busy={busy}
-                          disabled={busy || text.trim().length < MIN_RATIONALE}
-                          onClick={() => void authorize(route.id)}
-                        >
-                          {busy ? 'Recording…' : 'Authorise one selection'}
-                        </Button>
-                        {text.trim().length < MIN_RATIONALE ? (
-                          <p className="text-[11px] text-muted">
-                            At least {MIN_RATIONALE} characters of reasoning.
-                          </p>
-                        ) : null}
+                        <div className="flex flex-wrap items-center gap-3">
+                          <Button
+                            size="sm"
+                            busy={busy}
+                            disabled={busy || text.trim().length < MIN_RATIONALE}
+                            describedBy={text.trim().length < MIN_RATIONALE ? `rationale-${route.id}` : undefined}
+                            onClick={() => void authorize(route.id)}
+                          >
+                            {busy ? 'Recording…' : 'Authorise one selection'}
+                          </Button>
+                          {text.trim().length < MIN_RATIONALE ? (
+                            <p id={`rationale-${route.id}`} className="text-[13px] text-muted">
+                              At least {MIN_RATIONALE} characters of reasoning.
+                            </p>
+                          ) : null}
+                        </div>
                       </div>
                     ) : null}
                   </li>

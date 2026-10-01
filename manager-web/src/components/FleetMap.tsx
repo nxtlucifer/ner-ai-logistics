@@ -23,71 +23,73 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
+import { Navigation2 } from 'lucide-react'
 import {
   LngLatBounds,
   Map as MapLibreMap,
   Marker,
   NavigationControl,
-  setWorkerUrl,
   type GeoJSONSource,
-  type StyleSpecification,
+  type PaddingOptions,
 } from 'maplibre-gl'
-import 'maplibre-gl/dist/maplibre-gl.css'
-// Point MapLibre at a worker the bundler actually emits.
-//
-// Left alone, MapLibre derives the worker URL at RUNTIME from its own
-// `import.meta.url` and guesses a sibling file:
-//
-//     new URL('./maplibre-gl-worker.mjs', import.meta.url)
-//
-// That string is built at runtime, so no bundler can see it and none emits the
-// file. In a production build the request resolves to /assets/…-worker.mjs,
-// which does not exist, and the SPA fallback answers it with index.html - a
-// 200 with `Content-Type: text/html`, which the browser rejects for a module
-// worker. MapLibre then has no worker, so every GeoJSON source stays unparsed:
-// `isSourceLoaded()` never turns true and nothing is drawn. Raster tiles and
-// DOM markers never touch the worker, so the map still LOOKS healthy while the
-// planned route and the observed GPS track are silently missing.
-//
-// `?worker&url` makes the reference static, so Vite bundles the worker with its
-// shared chunks and hands back the emitted asset's URL. This is one statement
-// at module scope, not an effect: it must run before any Map is constructed,
-// and this module is the only place that constructs one.
-import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 
-setWorkerUrl(maplibreWorkerUrl)
+import { applyMapMode, HILLSHADE_PAINT, type MapMode } from './mapTerrain'
+import { usePlacesLayer } from './PlacesLayer'
+import { PoiChips } from './PoiChips'
+import type { PlaceCategory } from '../api/client'
+// MapLibre's stylesheet and worker URL are set in ./mapSetup, before any Map
+// is constructed; every module that constructs one imports it.
+import {
+  BASEMAP_PAINT,
+  followTheme,
+  NER_CENTRE,
+  NER_ZOOM,
+  paintFromTokens,
+  themedStyle,
+  type ThemedPaint,
+} from './mapSetup'
 
 import type { FleetTrip, Freshness, Position } from '../api/client'
 import { drawableSegments, isolatedFixes, splitTrack } from './track'
+import { labelsToHide } from './markerLabels'
 import { sliceRoute, terrainOverlays } from './terrain'
 
-/** Assam, so an empty map still opens somewhere meaningful to these operators. */
-export const NER_CENTRE: [number, number] = [92.9376, 26.2006]
-export const NER_ZOOM = 6
-
+/** Freshness hues, from the theme tokens (index.css, REG-1). In Dark, LIVE
+ *  is the accent itself rather than a green of its own. */
 const MARKER_COLOUR: Record<Freshness, string> = {
-  LIVE: '#34d399',
-  STALE: '#fbbf24',
-  NO_CONTACT: '#f87171',
+  LIVE: 'var(--marker-live)',
+  STALE: 'var(--marker-stale)',
+  NO_CONTACT: 'var(--marker-no-contact)',
   // Never rendered - a trip with no position is not placed. Present so the
   // record is total and a future freshness value cannot silently fall through.
-  NO_LOCATION: '#64748b',
+  NO_LOCATION: 'var(--marker-none)',
 }
 
-export const OSM_STYLE: StyleSpecification = {
-  version: 8,
-  sources: {
-    osm: {
-      type: 'raster',
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-      tileSize: 256,
-      maxzoom: 19,
-      // Required by the OSM tile usage policy.
-      attribution: '© OpenStreetMap contributors',
-    },
-  },
-  layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
-}
+/**
+ * Overlay colours, from the theme tokens (index.css). The layers below are
+ * added without colour; these paint them in the same 'load' dispatch and
+ * again on every theme change. In Light every value is the one this map
+ * always drew; in Dark the route is the lighter blue at full opacity (at
+ * 0.7 it fell under 3:1 on the grey the forest turns into) and the observed
+ * track goes from ink to near-white, which is what stays readable on a dark
+ * basemap.
+ */
+const OVERLAY_PAINT: ThemedPaint[] = [
+  ['planned-route', 'line-color', (t) => t('route')],
+  ['planned-route', 'line-opacity', (t) => Number(t('map-route-opacity'))],
+  ['terrain-overlay', 'line-color', (t) => ['match', ['get', 'cls'], 'STEEP', t('map-steep'), t('map-hilly')]],
+  [
+    'traffic-overlay',
+    'line-color',
+    (t) => ['match', ['get', 'state'], 'CONGESTED', t('map-congested'), 'SLOW', t('map-slow'), t('map-flowing')],
+  ],
+  ['hazard-sites', 'circle-color', (t) => t('surface-raised')],
+  ['hazard-sites', 'circle-stroke-color', (t) => t('map-steep')],
+  ['observed-track', 'line-color', (t) => t('text')],
+  ['observed-fixes', 'circle-color', (t) => t('text')],
+  ['observed-fixes', 'circle-stroke-color', (t) => t('surface-raised')],
+]
+const THEMED_PAINT = [...BASEMAP_PAINT, ...OVERLAY_PAINT, ...HILLSHADE_PAINT]
 
 export interface FleetMapProps {
   trips: FleetTrip[]
@@ -117,6 +119,19 @@ export interface FleetMapProps {
   trafficSegments?: { start_m: number; end_m: number; state: string }[]
   /** Draft preview: frame once when the chosen route changes. */
   previewRouteId?: string
+  /**
+   * The roadside-services layer, when the PAGE owns its toggles (the Fleet
+   * map card puts them in its header, clear of the map). Left undefined, the
+   * map shows its own chips at the top; null with no chips means "none".
+   */
+  placeCategory?: PlaceCategory | null
+  /**
+   * A glance, not a workbench (the Overview card): no trip tools, no route
+   * toggles, no 2D/3D - there is no selected trip for them to act on.
+   */
+  compact?: boolean
+  /** The frame's size and edge; the default is the Fleet page's map-first clamp. */
+  frameClassName?: string
 }
 
 interface MarkerHandle {
@@ -124,6 +139,8 @@ interface MarkerHandle {
   element: HTMLButtonElement
   dot: HTMLSpanElement
   label: HTMLSpanElement
+  /** Stacking and label priority: selected, then LIVE, STALE, NO CONTACT. */
+  z: number
 }
 
 /**
@@ -139,18 +156,87 @@ function paintMarker(
   isSelected: boolean,
 ): void {
   const colour = MARKER_COLOUR[trip.freshness]
+  // ISSUE 6b. A manager looking at the map is looking for a PERSON - "where
+  // is Bipul" - not for a plate. The plate is one click away in the drawer,
+  // and stays in the accessible name so a screen reader still gets the
+  // identity that matters to anyone outside the company.
   handle.element.setAttribute(
     'aria-label',
-    `${trip.registration_number}, ${trip.freshness}`,
+    `${trip.driver_name}, ${trip.registration_number}, ${trip.freshness}${trip.on_break ? `, ${trip.on_break.status === 'OVERDUE' ? 'break overran' : 'on break'}` : ''}`,
   )
-  handle.element.style.background = isSelected ? '#0f172a' : 'rgba(15,23,42,0.82)'
-  handle.element.style.border = `2px solid ${isSelected ? '#f1f5f9' : colour}`
+  // Opaque: at 0.82 a light basemap showed through and the red (No
+  // contact) name fell to 3.7:1 in Light. On the solid marker chip every
+  // freshness colour clears 4.5:1 at 11px (theme.test.tsx); selection is the
+  // light edge and ring.
+  handle.element.style.background = 'var(--marker-bg)'
+  handle.element.style.border = `2px solid ${isSelected ? 'var(--marker-selected)' : colour}`
   handle.element.style.color = colour
   handle.element.style.boxShadow = isSelected
-    ? '0 0 0 4px rgba(241,245,249,0.25)'
+    ? '0 0 0 4px var(--marker-selected-ring)'
     : 'none'
   handle.dot.style.background = colour
-  handle.label.textContent = trip.registration_number
+  // A truck on a break is stopped ON PURPOSE: the label says so and the chip
+  // is dashed, while the colour stays the GPS freshness - so "on break" is
+  // never mistaken for offline or stale, and stale GPS on a break still shows.
+  handle.element.style.borderStyle = trip.on_break ? 'dashed' : 'solid'
+  handle.label.textContent =
+    (trip.driver_name || trip.registration_number) + (trip.on_break ? (trip.on_break.status === 'OVERDUE' ? ' · break overran' : ' · on break') : '')
+  // Fresher on top (MAP-1): at one depot a NO CONTACT label hid the only
+  // LIVE truck. The selected one is above them all.
+  handle.z = isSelected ? 4 : (FRESHNESS_Z[trip.freshness] ?? 0)
+  handle.element.style.zIndex = String(handle.z)
+  handle.element.title = handle.label.textContent
+}
+
+const FRESHNESS_Z: Partial<Record<Freshness, number>> = { LIVE: 3, STALE: 2, NO_CONTACT: 1 }
+
+/** Fold every label that would cover a more important one to its dot
+ *  (markerLabels.ts). Measured with every label shown, then written once. */
+function declutter(handles: Iterable<MarkerHandle>): void {
+  const list = [...handles]
+  for (const h of list) h.label.style.display = ''
+  const hide = labelsToHide(
+    list.map((h, i) => {
+      const r = h.element.getBoundingClientRect()
+      return { id: String(i), priority: h.z, left: r.left, top: r.top, right: r.right, bottom: r.bottom }
+    }),
+  )
+  list.forEach((h, i) => { h.label.style.display = hide.has(String(i)) ? 'none' : '' })
+}
+
+/**
+ * Camera padding that keeps a framed route clear of the map's own overlays:
+ * the tool and chip column (top-left), the legend (top-right) and the zoom
+ * and view controls along the foot. A flat 64 put the Pickup pin under the
+ * review map's chip row. Measured, not assumed: the chips wrap with the
+ * width, and on a phone-width frame they make a tall column, so the route
+ * goes under both, or beside the column, whichever leaves it more room.
+ */
+function overlayPadding(instance: MapLibreMap): PaddingOptions {
+  const frame = instance.getContainer().parentElement
+  const F = frame?.getBoundingClientRect()
+  if (!frame || !F?.height) return { top: 64, bottom: 64, left: 64, right: 64 }
+  const boxes = (selector: string) =>
+    [...frame.querySelectorAll(selector)].map((el) => el.getBoundingClientRect()).filter((r) => r.width > 0)
+  // A pin is centred on its point: half its height (or width) plus a gap.
+  const PIN_H = 28
+  const PIN_W = 64
+  const [tools] = boxes('[data-map-overlay="tools"]')
+  const [legend] = boxes('[data-map-overlay="legend"]')
+  const under = (r?: DOMRect) => (r ? r.bottom - F.top : 0) + PIN_H
+  const foot =
+    Math.max(0, ...boxes('[data-map-overlay="foot"], .maplibregl-ctrl-bottom-left, .maplibregl-ctrl-bottom-right').map((r) => F.bottom - r.top)) + PIN_H
+  const candidates = [
+    { top: Math.max(under(tools), under(legend)), bottom: foot, left: PIN_W, right: PIN_W },
+    { top: under(legend), bottom: foot, left: (tools ? tools.right - F.left : 0) + PIN_W, right: PIN_W },
+    { top: under(tools), bottom: foot, left: PIN_W, right: (legend ? F.right - legend.left : 0) + PIN_W },
+  ]
+  const room = (p: (typeof candidates)[number]) =>
+    Math.max(0, F.width - p.left - p.right) * Math.max(0, F.height - p.top - p.bottom)
+  const best = candidates.reduce((a, c) => (room(c) > room(a) ? c : a))
+  // A frame too small for any of them still gets framed, overlays or not:
+  // MapLibre refuses a fit whose padding leaves no room.
+  return room(best) > 0 ? best : { top: 16, bottom: 16, left: 16, right: 16 }
 }
 
 function createMarkerElement(): {
@@ -194,6 +280,9 @@ export default function FleetMap({
   trafficSegments,
   hazards,
   previewRouteId,
+  placeCategory: pagePlaceCategory,
+  compact = false,
+  frameClassName = 'h-[clamp(420px,calc(100dvh-300px),760px)] rounded-[14px] border border-line',
 }: FleetMapProps) {
   const container = useRef<HTMLDivElement | null>(null)
   const map = useRef<MapLibreMap | null>(null)
@@ -208,6 +297,27 @@ export default function FleetMap({
   // separable: the only way to be sure a break in the observed track is a hole
   // in the data rather than the planned route showing through is to turn the
   // other one off.
+  /**
+   * 2D / Terrain / 3D.
+   *
+   * `standard` is the default and stays the default: the flat map with a
+   * route on it is the product, and terrain is an inspection aid on top of
+   * it. `terrainNote` carries a failure back to the operator in words
+   * rather than leaving them wondering why nothing happened.
+   */
+  /**
+   * Which service layer is on, or null for none.
+   *
+   * One at a time, deliberately. Four categories at once is 700 pins over
+   * a corridor a dispatcher is trying to read, and the question is always
+   * "where is the nearest X", never "show me everything".
+   */
+  const [ownPlaceCategory, setPlaceCategory] = useState<PlaceCategory | null>(null)
+  const placeCategory = pagePlaceCategory === undefined ? ownPlaceCategory : pagePlaceCategory
+
+  const [mapMode, setMapMode] = useState<MapMode>('standard')
+  const [terrainNote, setTerrainNote] = useState<string | null>(null)
+
   const [showPlanned, setShowPlanned] = useState(true)
   const [showObserved, setShowObserved] = useState(true)
 
@@ -220,13 +330,18 @@ export default function FleetMap({
 
     const instance = new MapLibreMap({
       container: container.current,
-      style: OSM_STYLE,
+      style: themedStyle(),
       center: NER_CENTRE,
       zoom: NER_ZOOM,
       attributionControl: { compact: true },
     })
-    instance.addControl(new NavigationControl({}), 'top-right')
+    // Zoom bottom-left, as the reference has it. The compass is our own
+    // button in the top-left tool row, so Tab reaches the tools before the
+    // markers and the zoom after them - the order the eye reads the map in.
+    instance.addControl(new NavigationControl({ showCompass: false }), 'bottom-left')
     instance.on('error', () => setMapError(true))
+    // A zoom moves markers towards or away from each other.
+    instance.on('moveend', () => declutter(handles.values()))
     instance.on('load', () => {
       ready.current = true
       setLoaded(true)
@@ -245,11 +360,8 @@ export default function FleetMap({
           // Terrain route blue, dashed, against the observed track's solid ink.
           // The DASH is what carries the distinction, not the hue: a dispatcher
           // with a red-green or blue-yellow deficiency still reads "planned"
-          // from the broken line. The colour comment used to say violet and sky
-          // blue, neither of which had been on this map for some time.
-          'line-color': '#2563EB',
+          // from the broken line. Colour and opacity: OVERLAY_PAINT (tokens).
           'line-width': 4,
-          'line-opacity': 0.7,
           'line-dasharray': [2, 2],
         },
       })
@@ -266,7 +378,6 @@ export default function FleetMap({
         source: 'terrain-overlay',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': ['match', ['get', 'cls'], 'STEEP', '#B42318', '#B45309'],
           'line-width': 5,
           'line-opacity': 0.9,
         },
@@ -281,7 +392,6 @@ export default function FleetMap({
         source: 'traffic-overlay',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': ['match', ['get', 'state'], 'CONGESTED', '#DC2626', 'SLOW', '#D97706', '#16A34A'],
           'line-width': 2.5,
           'line-opacity': 0.95,
         },
@@ -296,9 +406,7 @@ export default function FleetMap({
         source: 'hazard-sites',
         paint: {
           'circle-radius': 5,
-          'circle-color': '#FFFFFF',
           'circle-stroke-width': 2,
-          'circle-stroke-color': '#B42318',
         },
       })
 
@@ -312,7 +420,6 @@ export default function FleetMap({
         source: 'observed-track',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': '#101820',
           'line-width': 3,
           'line-opacity': 0.85,
         },
@@ -331,16 +438,17 @@ export default function FleetMap({
         source: 'observed-fixes',
         paint: {
           'circle-radius': 4,
-          'circle-color': '#101820',
           'circle-opacity': 0.9,
           'circle-stroke-width': 1,
-          'circle-stroke-color': '#FFFFFF',
         },
       })
     })
+    // After the listener above, so its layers exist when this paints them.
+    const stopTheme = followTheme(instance, THEMED_PAINT)
     map.current = instance
 
     return () => {
+      stopTheme()
       instance.remove()
       map.current = null
       ready.current = false
@@ -374,6 +482,7 @@ export default function FleetMap({
           element,
           dot,
           label,
+          z: 0,
         }
         markers.current.set(trip.trip_id, handle)
       } else {
@@ -390,6 +499,7 @@ export default function FleetMap({
         markers.current.delete(tripId)
       }
     }
+    declutter(markers.current.values())
   }, [trips, selectedTripId])
 
   // The observed breadcrumb for the selected trip.
@@ -543,150 +653,250 @@ export default function FleetMap({
     if (!instance || !loaded || !previewRouteId || !plannedRoute?.length) return
     const corners = plannedRoute.map(([lat, lon]) => [lon, lat] as [number, number])
     const bounds = corners.reduce((b, point) => b.extend(point), new LngLatBounds(corners[0], corners[0]))
-    instance.fitBounds(bounds, { padding: 64, maxZoom: 14, duration: 0 })
+    instance.fitBounds(bounds, { padding: overlayPadding(instance), maxZoom: 14, duration: 0 })
     const pins = [corners[0], corners.at(-1)!].map((point, index) => {
       const label = document.createElement('span')
-      label.textContent = index === 0 ? 'Pickup' : 'Destination'
-      label.style.cssText = 'background:white;color:#14282F;padding:6px 10px;border:2px solid #2457D6;border-radius:20px;font:600 12px system-ui'
+      const isDestination = index !== 0
+      label.textContent = isDestination ? 'Destination' : 'Pickup'
+      // The destination is the end of the job and is drawn to be found at a
+      // glance: filled, darker, and a size up. Pickup stays the quiet one -
+      // by the time a manager is watching the map, the load is already on.
+      label.style.cssText = isDestination
+        ? 'background:var(--pin-destination);color:var(--on-pin-destination);padding:7px 13px;border:2px solid var(--pin-edge);border-radius:20px;font:700 13px system-ui;box-shadow:0 2px 8px var(--pin-shadow)'
+        : 'background:var(--pin-pickup);color:var(--on-pin-pickup);padding:6px 10px;border:2px solid var(--pin-destination);border-radius:20px;font:600 12px system-ui'
       return new Marker({ element: label }).setLngLat(point).addTo(instance)
     })
     return () => { pins.forEach(pin => pin.remove()) }
     // Camera follows a deliberate corridor change, never a GPS poll.
   }, [previewRouteId, loaded])
 
+  const places = usePlacesLayer(loaded ? map.current : null, placeCategory)
+
+  // Applying the mode is an effect, not a click handler: the map may not
+  // exist yet on first paint, and a style reload would otherwise drop the
+  // hillshade silently.
+  useEffect(() => {
+    const m = map.current
+    if (!m || !loaded) return
+    const result = applyMapMode(m, mapMode)
+    // A hillshade just added takes the current theme's colours.
+    paintFromTokens(m, HILLSHADE_PAINT)
+    setTerrainNote(result.failure)
+    // A refused mode must not leave the toggle claiming it is on.
+    if (result.mode !== mapMode) setMapMode(result.mode)
+  }, [mapMode, loaded])
+
+  const fitFleet = () => {
+    const instance = map.current
+    if (!instance) return
+    const located = trips.filter((t) => t.position)
+    if (located.length === 0) {
+      instance.easeTo({ center: NER_CENTRE, zoom: NER_ZOOM })
+      return
+    }
+    const bounds = located.reduce(
+      (acc, t) => acc.extend([t.position!.location.lon, t.position!.location.lat]),
+      new LngLatBounds(
+        [located[0].position!.location.lon, located[0].position!.location.lat],
+        [located[0].position!.location.lon, located[0].position!.location.lat],
+      ),
+    )
+    // Clear of the legend and tools, as "Fit trip" is.
+    instance.fitBounds(bounds, { padding: overlayPadding(instance), maxZoom: 12, duration: 600 })
+  }
+
+  // Fitting the SELECTED trip, not the fleet. "Fit fleet" frames the markers -
+  // where each truck is now - which for one truck is a street view. Reviewing
+  // what a trip did needs its whole planned corridor and its whole observed
+  // track in frame at once.
+  const fitTrip = () => {
+    const instance = map.current
+    if (!instance) return
+    const corners: [number, number][] = [
+      ...(plannedRoute ?? []).map(([lat, lon]) => [lon, lat] as [number, number]),
+      ...track.map((p) => [p.location.lon, p.location.lat] as [number, number]),
+    ]
+    if (corners.length === 0) return
+    const bounds = corners.reduce((acc, c) => acc.extend(c), new LngLatBounds(corners[0], corners[0]))
+    instance.fitBounds(bounds, { padding: overlayPadding(instance), duration: 600 })
+  }
+
+  const TOOL =
+    'min-h-8 rounded-[var(--radius-control)] border border-line bg-surface px-3 text-xs font-semibold text-ink shadow-[var(--shadow-card)] hover:bg-soft disabled:cursor-not-allowed disabled:opacity-40'
+
   return (
     // MAP-FIRST. A fixed 460px made the GIS canvas about half the viewport on a
     // laptop and left it unchanged on a 1080p desk monitor, where there was
-    // room to spare. The clamp keeps it at roughly two thirds of the viewport
-    // across the whole supported range - ~61% at 1366x768, ~67% at 1440x900,
-    // ~70% at 1920x1080 - with a floor so it never collapses on a short window
-    // and a ceiling so it does not dwarf the fleet list beneath it.
-    <div className="relative h-[clamp(420px,calc(100dvh-300px),760px)] overflow-hidden rounded-[14px] border border-line">
-      <div ref={container} className="h-full w-full" />
-      {mapError ? <p role="status" className="absolute top-16 left-3 right-12 rounded-lg bg-warning-soft p-3 text-xs text-warning">Some map data could not load. Check your connection. Route details remain available.</p> : null}
+    // room to spare. The default clamp keeps it at roughly two thirds of the
+    // viewport - ~61% at 1366x768, ~67% at 1440x900, ~70% at 1920x1080 - with
+    // a floor and a ceiling. A card that frames the map passes its own size.
+    <div className={`@container relative overflow-hidden ${frameClassName}`}>
       {/*
         TWO HARDCODED HAZARD BANNERS WERE REMOVED FROM HERE.
 
         They read "Monitored Monsoon Corridor: Kaziranga Sector" and "Landslide
-        Hazard Exposure: NH715 Sector 4", pinned to the top-right of the map on
-        every screen, for every trip, in every region. Neither was derived from
-        anything: no snapshot, no assessment, no trip. They carried honest
-        qualifiers - HISTORICAL HAZARD AREA, STATIC REFERENCE - but a fixed
-        string dressed as a hazard readout on an operational GIS console is the
-        same class of thing this codebase refuses to do with weather and GPS,
-        and a viewer has no way to tell it apart from a live detection.
-
-        They also sat over the corridor a dispatcher is trying to read, on a
-        screen whose whole design goal is map dominance.
-
-        Real hazard rendering already exists and is data-driven: risk segments
-        come through the route assessment and are drawn on the line itself.
+        Hazard Exposure: NH715 Sector 4", pinned to the map on every screen, for
+        every trip, in every region. Neither was derived from anything. Real
+        hazard rendering is data-driven: risk segments come through the route
+        assessment and are drawn on the line itself.
       */}
-      {/* One row, not two absolute offsets. The second button used to be pinned
-          at left-24, which assumed the first was under 6rem wide - "Region
-          overview" is not, so they overlapped on the review panel. */}
-      <div className="absolute left-3 top-3 flex flex-wrap items-start gap-2">
-      <button
-        type="button"
-        onClick={() => {
-          const instance = map.current
-          if (!instance) return
-          const located = trips.filter((t) => t.position)
-          if (located.length === 0) {
-            instance.easeTo({ center: NER_CENTRE, zoom: NER_ZOOM })
-            return
-          }
-          const bounds = located.reduce(
-            (acc, t) =>
-              acc.extend([t.position!.location.lon, t.position!.location.lat]),
-            new LngLatBounds(
-              [
-                located[0].position!.location.lon,
-                located[0].position!.location.lat,
-              ],
-              [
-                located[0].position!.location.lon,
-                located[0].position!.location.lat,
-              ],
-            ),
-          )
-          instance.fitBounds(bounds, {
-            padding: 64,
-            maxZoom: 12,
-            duration: 600,
-          })
-        }}
-        className="rounded-md border border-line bg-surface/90 px-3 py-1.5 text-xs font-medium text-ink hover:bg-soft"
-      >
-        {previewRouteId ? 'Region overview' : 'Fit fleet'}
-      </button>
-      {/* Fitting the SELECTED trip, not the fleet. "Fit fleet" frames the
-          markers - where each truck is now - which for one truck is a street
-          view. Reviewing what a trip did needs its whole planned corridor and
-          its whole observed track in frame at once. */}
-      <button
-        type="button"
-        disabled={!selectedTripId}
-        title={selectedTripId ? 'Frame the whole planned route and observed track' : 'Select a trip first to frame its route'}
-        onClick={() => {
-          const instance = map.current
-          if (!instance) return
-          const corners: [number, number][] = [
-            ...(plannedRoute ?? []).map(
-              ([lat, lon]) => [lon, lat] as [number, number],
-            ),
-            ...track.map(
-              (p) => [p.location.lon, p.location.lat] as [number, number],
-            ),
-          ]
-          if (corners.length === 0) return
-          const bounds = corners.reduce(
-            (acc, c) => acc.extend(c),
-            new LngLatBounds(corners[0], corners[0]),
-          )
-          instance.fitBounds(bounds, { padding: 48, duration: 600 })
-        }}
-        className="rounded-md border border-line bg-surface/90 px-3 py-1.5 text-xs font-medium text-ink hover:bg-soft disabled:cursor-not-allowed disabled:opacity-40"
-      >
-        Fit trip
-      </button>
+
+      {/* THE MAP'S CONTROLS, WHERE THE REFERENCE PUTS THEM (manager_03):
+          compass and framing top-left, the legend top-right, zoom
+          bottom-left. Nothing else sits in the lower map, where the roads
+          a dispatcher is reading usually are. */}
+      <div data-map-overlay="tools" className="pointer-events-none absolute left-2.5 top-2.5 z-10 flex max-w-[calc(100%-15.5rem)] flex-col items-start gap-1.5 @max-lg:max-w-[calc(100%-12.25rem)]">
+        <div className="pointer-events-auto flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            aria-label="Compass: turn the map north up and flat"
+            title="North up, no tilt"
+            onClick={() => map.current?.resetNorthPitch()}
+            className={`${TOOL} flex w-8 flex-col items-center justify-center gap-0 !px-0 leading-none`}
+          >
+            <span aria-hidden="true" className="text-[9px] font-bold">N</span>
+            <Navigation2 aria-hidden="true" className="size-3.5 fill-current" />
+          </button>
+          <button type="button" onClick={fitFleet} className={TOOL}>
+            {previewRouteId ? 'Region overview' : 'Fit fleet'}
+          </button>
+          {compact ? null : (
+            <button
+              type="button"
+              disabled={!selectedTripId}
+              title={selectedTripId ? 'Frame the whole planned route and observed track' : 'Select a trip first to frame its route'}
+              onClick={fitTrip}
+              className={TOOL}
+            >
+              Fit trip
+            </button>
+          )}
+        </div>
+        {pagePlaceCategory === undefined ? (
+          <PoiChips
+            value={placeCategory}
+            onChange={setPlaceCategory}
+            className="pointer-events-auto rounded-[var(--radius-control)] border border-line bg-surface/95 p-1.5 shadow-[var(--shadow-card)]"
+          />
+        ) : null}
+        {/* The source line names the snapshot and its date: a map of hotels
+            with no date on it is indistinguishable from a live one. */}
+        {placeCategory ? (
+          <p role="status" className="pointer-events-auto max-w-[22rem] rounded-[6px] bg-surface/95 px-2 py-1 text-[10.5px] leading-snug text-muted shadow-[var(--shadow-card)]">
+            {places.loading
+              ? 'Looking…'
+              : places.notice
+                ? places.notice
+                : places.places.length === 0
+                  ? 'None of this kind is mapped in this view.'
+                  : `${places.places.length} mapped${places.truncated ? ' (more exist — zoom in)' : ''}. ` +
+                    'Mapped, not verified: nothing here says a place is open or reachable.'}
+            {places.attribution && !places.notice ? (
+              <span className="mt-0.5 block text-faint">
+                {places.attribution}
+                {places.retrievedAt ? ` · snapshot ${places.retrievedAt.slice(0, 10)}` : ''}
+              </span>
+            ) : null}
+          </p>
+        ) : null}
+        {terrainNote ? (
+          <p role="status" className="pointer-events-auto max-w-[22rem] rounded-lg bg-warning-soft p-2.5 text-xs text-warning">
+            {terrainNote}
+          </p>
+        ) : null}
+        {mapError ? (
+          <p role="status" className="pointer-events-auto max-w-[22rem] rounded-lg bg-warning-soft p-2.5 text-xs text-warning">
+            Some map data could not load. Check your connection. Route details remain available.
+          </p>
+        ) : null}
       </div>
-      {/* The legend is not decoration. Two lines on one map that mean
-          different things need saying which is which, and the gap rule is a
-          claim about the data that the operator is entitled to see stated. */}
-      <div className="absolute bottom-3 left-3 max-w-[15rem] rounded-md border border-line bg-surface/90 px-3 py-2 text-[11px] leading-relaxed text-ink">
-        <label className="flex cursor-pointer items-center gap-2">
-          <input
-            type="checkbox"
-            checked={showPlanned}
-            onChange={(e) => setShowPlanned(e.target.checked)}
-            className="h-3.5 w-3.5 !min-h-0 accent-route"
-          />
-          <span
-            aria-hidden
-            className="h-0 w-6 shrink-0 border-t-2 border-dashed"
-            style={{ borderColor: '#2563EB' }}
-          />
-          <span>Planned route</span>
-        </label>
-        <label className="mt-1 flex cursor-pointer items-center gap-2">
-          <input
-            type="checkbox"
-            checked={showObserved}
-            onChange={(e) => setShowObserved(e.target.checked)}
-            className="h-3.5 w-3.5 !min-h-0 accent-ink"
-          />
-          <span
-            aria-hidden
-            className="h-0 w-6 shrink-0 border-t-2"
-            style={{ borderColor: '#101820' }}
-          />
-          <span>Observed track</span>
-        </label>
-        <p className="mt-1.5 text-muted">
-          The observed track breaks where GPS stopped. A gap is not a road.
-        </p>
+
+      {/* The legend is not decoration. Marker colour is the server's
+          freshness label, and two lines on one map that mean different
+          things need saying which is which. A single-trip review
+          (previewRouteId) plots no fleet, so it has no freshness to key. */}
+      <div
+        data-testid="map-legend"
+        data-map-overlay="legend"
+        className="absolute right-2.5 top-2.5 z-10 w-[13.5rem] rounded-[var(--radius-control)] border border-line bg-surface/95 px-3 py-2 text-[11.5px] leading-relaxed text-ink shadow-[var(--shadow-card)] @max-lg:w-[10rem] @max-lg:px-2 @max-lg:text-[10.5px] @max-lg:leading-snug"
+      >
+        <p className="sr-only">Map legend</p>
+        {previewRouteId ? null : <ul>
+          {(['LIVE', 'STALE', 'NO_CONTACT'] as const).map((f) => (
+            <li key={f} className="flex items-center gap-2">
+              <span aria-hidden="true" className="size-2.5 shrink-0 rounded-full" style={{ background: MARKER_COLOUR[f] }} />
+              {f === 'LIVE' ? 'Live position' : f === 'STALE' ? 'Stale position' : 'No contact'}
+            </li>
+          ))}
+          <li className="flex items-center gap-2 text-muted">
+            <span aria-hidden="true" className="size-2.5 shrink-0 rounded-full border border-outline" />
+            No location: not placed
+          </li>
+        </ul>}
+        {compact ? null : (
+          <div className={previewRouteId ? '' : 'mt-1.5 border-t border-line pt-1.5'}>
+            <label className="flex min-h-6 cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                checked={showPlanned}
+                onChange={(e) => setShowPlanned(e.target.checked)}
+                className="h-3.5 w-3.5 !min-h-0 accent-route"
+              />
+              <span aria-hidden className="h-0 w-6 shrink-0 border-t-2 border-dashed border-route" />
+              <span>Planned route</span>
+            </label>
+            <label className="flex min-h-6 cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                checked={showObserved}
+                onChange={(e) => setShowObserved(e.target.checked)}
+                className="h-3.5 w-3.5 !min-h-0 accent-ink"
+              />
+              <span aria-hidden className="h-0 w-6 shrink-0 border-t-2 border-ink" />
+              <span>Observed track</span>
+            </label>
+            <p className="mt-1 text-[11px] leading-snug text-muted">
+              The observed track breaks where GPS stopped. A gap is not a road.
+            </p>
+          </div>
+        )}
       </div>
+
+      {/* After the tools and the legend in the DOM, so Tab meets them first;
+          absolutely placed overlays still draw on top of it. */}
+      <div ref={container} className="h-full w-full" />
+
+      {/* 2D / Terrain / 3D. Bottom-right, clear of the attribution strip: the
+          Terrain Tiles licence requires the elevation credit to stay visible. */}
+      {compact ? null : (
+        <div
+          data-map-overlay="foot"
+          // No overflow clip: it cut each button's focus ring (A11Y-3). The
+          // end buttons carry the rounding instead.
+          className="absolute bottom-9 right-3 z-10 flex rounded-[var(--radius-control)] border border-line bg-surface shadow-[var(--shadow-card)]"
+          role="group"
+          aria-label="Map view"
+        >
+          {([
+            ['standard', '2D', 'Flat map. Always available.'],
+            ['terrain', 'Terrain', 'Shaded relief from SRTM elevation.'],
+            ['terrain3d', '3D', 'Tilted, with the ground raised. Falls back to 2D if it cannot load.'],
+          ] as const).map(([value, label, title]) => (
+            <button
+              key={value}
+              type="button"
+              title={title}
+              aria-pressed={mapMode === value}
+              onClick={() => setMapMode(value)}
+              className={`px-3 py-1.5 text-xs font-semibold transition-colors first:rounded-l-[7px] last:rounded-r-[7px] focus-visible:relative focus-visible:z-10 ${
+                mapMode === value ? 'bg-primary text-on-primary' : 'text-ink hover:bg-soft'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

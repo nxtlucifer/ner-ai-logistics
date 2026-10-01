@@ -48,6 +48,7 @@ from app.domain.route_eligibility import (
     EligibilityDecision,
     evaluate as evaluate_eligibility,
     not_assessed,
+    within_coverage,
 )
 from app.domain.route_risk import RouteRisk, assess
 from app.domain.routing import parse_wkt_linestring, sample_positions
@@ -59,12 +60,17 @@ from app.services.landslide.history import build_inventory
 from app.services.flood import flood_for
 from app.services.warnings import warnings_for
 from app.services.terrain import profile_for as terrain_profile_for
+from app.services import geo_classify
 from app.services import simulation
 from app.services import traffic as traffic_service
 from app.domain.traffic import estimate as traffic_estimate
 from app.services.weather import OpenMeteoWeatherProvider
 
 logger = logging.getLogger(__name__)
+
+#: Evidence reads still running after their caller stopped waiting. Held here
+#: because the loop keeps only a weak reference to a task.
+_background: set[asyncio.Task] = set()
 
 #: How many points along the route to ask about. Weather varies over tens of
 #: kilometres, not hundreds of metres, so more samples buy precision nobody
@@ -108,8 +114,11 @@ async def observations_for(
         return []
 
     provider = build_provider()
+    # Each point on its own deadline: a slow point is dropped below like any
+    # other failure, and the points that did answer are still scored.
+    limit = get_settings().EVIDENCE_TIMEOUT_SECONDS
     results = await asyncio.gather(
-        *(provider.current(lat, lon) for lat, lon in positions),
+        *(asyncio.wait_for(provider.current(lat, lon), limit) for lat, lon in positions),
         return_exceptions=True,
     )
 
@@ -117,7 +126,7 @@ async def observations_for(
     for position, result in zip(positions, results, strict=True):
         if isinstance(result, WeatherObservation):
             observations.append(result)
-        elif isinstance(result, WeatherError):
+        elif isinstance(result, (WeatherError, TimeoutError)):
             logger.info(
                 "weather unavailable at %.4f,%.4f: %s",
                 position[0],
@@ -270,14 +279,55 @@ async def evidence_for(route_id: uuid.UUID, geometry, positions: list[tuple[floa
     river discharge are cached per route; the others are live. The ONE list:
     `route_recommendation` scores through this too, so a source wired here
     cannot be missed on the second path again (LS-7).
+
+    Each source gets its own deadline (EVIDENCE_TIMEOUT_SECONDS). One that
+    runs past it, or an external provider that raises, resolves to what its
+    own failure path already returns - no weather, an UNKNOWN landslide read,
+    None - so that factor reads NOT_AVAILABLE and the rest still arrives.
+    Landslide and history are our own code and never raise by contract; an
+    exception from them is a bug and propagates, so eligibility reads
+    NOT_ASSESSED (refuse) rather than UNKNOWN (one-step approval).
     """
+    timeout = get_settings().EVIDENCE_TIMEOUT_SECONDS
+    failed = IncidentQueryResult(state=SourceState.UNAVAILABLE, error="provider_error")
+
+    async def bounded(name: str, coro, fallback, *, internal: bool = False, limit: float = timeout):
+        # Shielded: terrain's fetch is ONE task shared by every caller of the
+        # route, so cancelling it on this caller's deadline (or the offline
+        # package's) would cancel it for all of them. Past the deadline only
+        # this caller stops waiting; the read finishes and fills its cache.
+        task = asyncio.ensure_future(coro)
+        waited = asyncio.shield(task)
+        _background.add(task)
+
+        def settle(t: asyncio.Task) -> None:
+            _background.discard(t)
+            # A failure after this caller stopped waiting has no one left to
+            # await it: retrieve and name it here, not as asyncio's anonymous
+            # "Task exception was never retrieved".
+            if waited.cancelled() and not t.cancelled() and t.exception() is not None:
+                logger.warning("evidence source %s failed after its deadline", name, exc_info=t.exception())
+
+        task.add_done_callback(settle)
+        try:
+            return await asyncio.wait_for(waited, limit)
+        except TimeoutError:
+            logger.warning("evidence source %s unavailable: TimeoutError", name)
+            return fallback()
+        except Exception:  # noqa: BLE001 - one provider must not sink the assessment
+            if internal:
+                raise
+            logger.warning("evidence source %s unavailable", name, exc_info=True)
+            return fallback()
+
     return await asyncio.gather(
-        observations_for(positions),
-        landslide_for(positions),
-        terrain_profile_for(route_id, geometry),
-        history_for(positions),
-        flood_for(route_id, positions),
-        warnings_for(route_id, positions),
+        # Backstop only: observations_for bounds each point at `timeout`.
+        bounded("weather", observations_for(positions), list, limit=timeout + 1),
+        bounded("landslide", landslide_for(positions), lambda: assess_corridor(failed, route=positions), internal=True),
+        bounded("terrain", terrain_profile_for(route_id, geometry), lambda: None),
+        bounded("history", history_for(positions), lambda: assess_history(failed, route=positions), internal=True),
+        bounded("flood", flood_for(route_id, positions), lambda: None),
+        bounded("warnings", warnings_for(route_id, positions), lambda: None),
     )
 
 
@@ -291,8 +341,12 @@ async def assess_route(db: AsyncSession, route_id: uuid.UUID) -> RouteRisk:
     wkt, distance_km, duration_min = await _route_facts(db, route_id)
     geometry = parse_wkt_linestring(wkt)
     positions = sample_positions(geometry, ROUTE_SAMPLES)
-    # Fleet probes come from OUR database, so they are read while the
-    # session is still held - before the provider fan-out below.
+    # NER coverage and fleet probes come from OUR database, so they are read
+    # while the session is still held - before the provider fan-out below.
+    # Coverage first: it decides eligibility and must fail loudly (NOT_ASSESSED),
+    # while a failed probe read is swallowed and would leave the transaction
+    # aborted under it.
+    coverage = await geo_classify.route_coverage(db, route_id)
     probes = await traffic_service.samples_for(db, route_id)
 
     # Release the connection BEFORE the provider fan-out. See module docstring.
@@ -314,6 +368,7 @@ async def assess_route(db: AsyncSession, route_id: uuid.UUID) -> RouteRisk:
         flood=flood,
         warnings=warnings,
         traffic=traffic_estimate(geometry=geometry, samples=probes, distance_km=distance, duration_min=duration),
+        intelligence_coverage=coverage,
     ))
 
 
@@ -331,13 +386,21 @@ async def eligibility_and_evidence_for_route(
 
     `None` for the assessment means no assessment was produced at all, which is
     the NOT_ASSESSED integration failure, not an UNKNOWN road.
+
+    The assessment returned is the reading AS FAR AS IT REACHES
+    (`within_coverage`): the one the decision was made on, so a review digests
+    what was decided.
     """
     try:
         risk = await assess_route(db, route_id)
     except Exception:  # noqa: BLE001 - refuse rather than guess
         logger.warning("route eligibility could not be assessed", exc_info=True)
         return not_assessed(), None
-    return evaluate_eligibility(landslide=risk.landslide), risk.landslide
+    coverage = risk.intelligence_coverage
+    return (
+        evaluate_eligibility(landslide=risk.landslide, coverage=coverage),
+        within_coverage(risk.landslide, coverage) if risk.landslide is not None else None,
+    )
 
 
 async def eligibility_for_route(

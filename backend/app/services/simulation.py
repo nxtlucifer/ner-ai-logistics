@@ -14,7 +14,7 @@ and clearing it is the recovery.
 Never mixed with a live warning: the simulated codes are added, the real ones
 are kept, and the label says which world the score came from.
 ponytail: in-process registry (one API instance); off unless
-DEMO_SIMULATION_ENABLED. No LLM anywhere here.
+DEMO_SIMULATION_ENABLED, and forced off under MULTI_INSTANCE. No LLM anywhere here.
 """
 
 from __future__ import annotations
@@ -58,7 +58,10 @@ _active: dict[uuid.UUID, Scenario] = {}
 
 
 def enabled() -> bool:
-    return get_settings().DEMO_SIMULATION_ENABLED
+    # The registry below is per process, so with more than one instance a
+    # scenario started on one would be invisible to the others: forced off.
+    settings = get_settings()
+    return settings.DEMO_SIMULATION_ENABLED and not settings.MULTI_INSTANCE
 
 
 def start(trip_id: uuid.UUID, route_id: uuid.UUID, name: str, minutes: int = 30) -> Scenario:

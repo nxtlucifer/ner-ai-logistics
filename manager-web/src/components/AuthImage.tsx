@@ -42,7 +42,7 @@ export default function AuthImage({ src, alt, fallback, className, label }: {
       {url ? (
         <img src={url} alt={alt} className={`${box} shrink-0 object-cover bg-soft`} />
       ) : (
-        <span aria-label={alt} className={`${box} shrink-0 inline-flex items-center justify-center bg-soft text-[11px] font-bold text-muted`}>{fallback ?? <Truck className="h-4 w-4" aria-hidden="true" />}</span>
+        <span role="img" aria-label={alt} className={`${box} shrink-0 inline-flex items-center justify-center bg-soft text-[11px] font-bold text-muted`}>{fallback ?? <Truck className="h-4 w-4" aria-hidden="true" />}</span>
       )}
       {label && url ? <span className="text-[9px] uppercase tracking-wide text-muted">{label}</span> : null}
     </span>

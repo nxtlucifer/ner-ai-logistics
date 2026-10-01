@@ -7,11 +7,9 @@ document untrustworthy to read.
 **Section 15 is the authority on what exists.** It lists the implemented surface in one place and
 is checked against the routers mounted in `backend/app/main.py`.
 
-In summary: sections 2-8, 9 (except `/api/routes/preview`), 13a and 15 are **implemented and
-covered by the backend test suite**. Sections 10, 11, 12, 13 and 14 - weather, incidents, fuel,
-payments, alerts, emergencies and the fleet WebSocket - are **not routed at all**; they are
-contracts for a later phase. Tables that mix the two carry an explicit `Status` column. Anything
-below without an "implemented" marker is not running code.
+In summary (verified against the mounted routers on 19 Sep 2026 — 86 routes, listed one by one in section 15): sections 2-8, 9 (except `/api/routes/preview`), 13a-13d and 15 are **implemented and covered by the backend test suite** (1210 passed). Emergencies ARE routed (`/api/emergencies/active`, `/sweep`, `/{id}/resolve` and the driver's `/api/driver/me/trip/check-in`; migration 0010) - section 13 below is the original design and its `/api/alerts` half plus `GET /api/emergencies/{id}` are **not** routed. Sections 10, 11, 12 and 14 - weather/incident feeds as standalone endpoints, fuel, payments/expenses/deliveries and the fleet WebSocket - are **not routed at all**; they are contracts for a later phase (weather, flood and warning feeds are consumed inside the route risk assessment and `/api/system/providers` instead). Tables that mix the two carry an explicit `Status` column. Anything below without an "implemented" marker is not running code.
+
+The one-page CRUD view of the same surface is `docs/DAY2_TASK1_CRUD_DOCUMENTATION.md`; the HTTP run that exercised it is `docs/DAY2_TASK1_API_TEST_RESULTS.md`.
 
 ---
 
@@ -265,7 +263,7 @@ illegal move is `409 ILLEGAL_TRIP_TRANSITION`, never a silent write.
 | `DELIVERED` | `CLOSED` | manager | — | `closed_at` | `CLOSED` |
 | `DRAFT`/`ASSIGNED`/`ACTIVE`/`DELAYED` | `CANCELLED` | manager | **before pickup**: none. **After pickup** (pickup stop `COMPLETED`): `reason` ≥ 10 chars **and** `disposition = CARGO_UNLOADED`; else `422 CANCEL_REASON_REQUIRED` / `422 POST_PICKUP_RESOLUTION_REQUIRED` | driver and truck released; driver notified (`TRIP_CANCELLED`) | `CANCELLED` (payload: reason, disposition) |
 | `ACTIVE`/`INCIDENT` | `DELAYED` | manager, via `/cancel` with `disposition = HOLD_FOR_INSTRUCTION` | reason ≥ 10 chars, cargo on board | driver notified (`HOLD_AND_REVIEW`); instruction awaits driver ack | `DELAY_DETECTED` (payload: instruction, reason, requires_ack) |
-| `ACTIVE`/`DELAYED` | *(unchanged)* | manager, via `/cancel` with `RETURN_TO_DEPOT` or `NEW_DESTINATION` | reason ≥ 10 chars; NEW_DESTINATION needs a confirmed in-region point (`422 LOCATION_CONFIRMATION_REQUIRED` / `422 OUTSIDE_SERVICE_REGION`) | pending drop-off → `SKIPPED`, new `DROPOFF` stop appended (old rows kept); current route untouched; candidates planned for the new destination; driver notified (`CRITICAL_ROUTE_CHANGE`) | `ROUTE_CHANGED` (payload: instruction, reason, previous/new destination, previous_route_id, requires_ack) |
+| `ACTIVE`/`DELAYED` | *(unchanged)* | manager, via `/cancel` with `RETURN_TO_DEPOT` or `NEW_DESTINATION` | reason ≥ 10 chars; NEW_DESTINATION needs a confirmed point inside India (`422 LOCATION_CONFIRMATION_REQUIRED` / `422 OUTSIDE_SUPPORTED_COUNTRY`; `503 GEOGRAPHY_UNAVAILABLE` with no India outline) | pending drop-off → `SKIPPED`, new `DROPOFF` stop appended (old rows kept); current route untouched; candidates planned for the new destination, through the India route guard (§9; a hold there leaves the redirect intact); driver notified (`CRITICAL_ROUTE_CHANGE`) | `ROUTE_CHANGED` (payload: instruction, reason, previous/new destination, previous_route_id, requires_ack) |
 | `ACTIVE`/`DELAYED` | *(unchanged)* | manager, via `/cancel` with `COMPLETE_CURRENT_LEG` | reason ≥ 10 chars | audit row only | — |
 
 A loaded truck is never left guessing: every post-pickup outcome above is an
@@ -341,10 +339,22 @@ authorisation in the same transaction that writes `SELECTED`), not re-run with
 a weather fan-out on every dispatch. A retried dispatch of an ASSIGNED trip is
 the state machine's `409 ILLEGAL_TRIP_TRANSITION` and changes nothing.
 
-Shipment creation (`POST /api/shipments`, `POST /api/trips/plan`) refuses a
-pickup or destination outside the North-East service region (bounding box
-21.5–29.5 N, 88–97.5 E, the console's own `SERVICE_REGION`) as a
-`422 VALIDATION_ERROR` naming the endpoint.
+Shipment creation (`POST /api/shipments`, `POST /api/trips/plan`) places both
+ends with PostGIS (`app/services/geo_classify.py`; owner decisions 29 Sep 2026:
+India-wide logistics, NER-centred) and refuses:
+
+| Code | HTTP | When |
+| --- | --- | --- |
+| `OUTSIDE_SUPPORTED_COUNTRY` | 422, `details.field` = `pickup` or `destination` | the point is not covered by the India outline. `ST_Covers` is a closed test: the boundary itself is inside, a metre over it is not, and no buffer ever widens India |
+| `NOT_NER_CONNECTED` | 422, `details.scope_type` | neither end is in the North-East (`INDIA_EXTERNAL`) while `ALLOW_INDIA_EXTERNAL_TRIPS` is off (the default). An end whose region is unknown is not refused |
+| `GEOGRAPHY_UNAVAILABLE` | 503, `details.retryable: true` | no India outline is loaded. Nothing is accepted, and nothing is called inside |
+| `BORDER_AMBIGUOUS` | 422 | only when a GPS accuracy circle reaches the boundary. No planning path passes an accuracy today |
+
+The retired bounding box (21.5–29.5 N, 88–97.5 E, `OUTSIDE_SERVICE_REGION`) is
+not a policy input anywhere. The geography authority is the Survey of India
+OVSF/1M/7 layer once it is imported; until then only SYNTHETIC `FIXTURE_*`
+shapes exist, in tests and scratch databases, so a real database answers
+planning with 503.
 
 Re-checking is not redundancy: a licence lapses, a truck breaks down and an
 assignment ends between planning a trip and dispatching it. Dispatch **never**
@@ -372,6 +382,130 @@ When routing arrives it will add a `routes` array. `estimated_fuel_*` being
 must render "unavailable", never `0` and never a guess, and
 `fuel_estimate_source` says whether a number came from the model or the km/l
 baseline.
+
+### `proposed_reroute`: the driver's pending road (on `TripRead`, `TripDetail`, `FleetTripRead`)
+
+*Implemented 28 Sep 2026. Additive and read-only; no migration.* Pinned by
+`tests/test_driver_reroute_api.py`.
+
+`POST /api/driver/me/trip/reroute` stores the road a driver asks for from where
+the truck is (a `PROPOSED` `EMERGENCY_BACKUP` route) and writes no trip event and
+no manager notification. This field is how a manager learns of it without
+opening the trip's route options.
+
+| Read | Carried on |
+| --- | --- |
+| `GET /api/trips` | every item of `items[]` (`TripRead`) |
+| `GET /api/trips/{id}` | the `TripDetail`; `POST /api/trips/{id}/stops` returns the same detail |
+| `GET /api/fleet/active` | every item of `trips[]` (`FleetTripRead`) |
+
+```json
+"proposed_reroute": { "route_id": "uuid", "proposed_at": "2026-09-28T16:22:24Z",
+                      "distance_km": 88.12 }
+```
+
+or `null`. `route_id` is the `trip_routes` row; `proposed_at` is that row's
+`created_at`; `distance_km` is a JSON **number** (not the decimal string
+`TripRouteRead` uses) and is `null` when the provider gave no distance, which a
+client renders as unavailable, never `0`. The create, plan, dispatch, cancel and
+close responses always carry `null`: none of them is ever for a trip under way.
+
+**Non-null only when every one of these holds** for a route of the trip:
+
+1. the trip is in progress, `ACTIVE` or `DELAYED`;
+2. the route is `PROPOSED` and its kind is `EMERGENCY_BACKUP`;
+3. it was planned after the route the trip currently has selected (`created_at`
+   later than the selected route's);
+4. its `CREATE` audit row (`audit_logs`, `entity_type = 'trip_routes'`) was
+   written by the trip's own driver (`drivers.user_id`). A backup that a
+   manager's re-plan stored is not the driver asking;
+5. it has no `STATUS_CHANGE` audit row, i.e. it was never selected. A driver's
+   road that a manager took and later left is demoted back to `PROPOSED`; that is
+   a decision already made, not a pending ask.
+
+If more than one route matches, the newest wins (`routes.plan` leaves at most one).
+
+**How it is derived.** `app/services/trips.py` `proposed_reroutes(db, trip_ids)`:
+one `SELECT` per request whatever the page size (`trip_routes` joined to the trip,
+its selected route and its driver, with two correlated `EXISTS` on `audit_logs`,
+served by `ix_audit_logs_entity`). No stored column, no N+1. Scope is inherited:
+the list and fleet reads pass only the trips their scoped queries already
+returned, and the detail runs after `trips.get`, which is `404` for a trip
+outside the caller's scope. A district manager outside the trip's districts gets
+`404` on the detail, an empty list for the trip code and no fleet row.
+
+**It fails closed.** There is no `proposed_by` column (adding one is a
+migration), so who proposed a route is read from the audit trail. If the
+`trip_routes` audit rows were missing or pruned, the field says `null`; it never
+guesses a proposal. A manager re-plan, a destination redirect or another driver
+reroute marks the pending row `SUPERSEDED` through `routes.plan`, and the field
+goes `null`. Nothing on the timeline records the request, its supersession or
+the manager's decision on it: no `trip_event_kind` value says so honestly today
+(the same gap as `docs/migrations/PENDING_reroute_decision_events.sql`), and
+adding values is a migration the owner has to approve.
+
+**Taking the road is unchanged.** The field is information only. A manager takes
+the road through `POST /api/trips/{id}/reroute/accept` with
+`to_route_id = proposed_reroute.route_id`, or, when its evidence is incomplete,
+through `POST /api/trips/{id}/routes/{route_id}/approve` with `from_route_id`;
+both check eligibility and review as before, and the field reads `null` once the
+route is selected. The manager console shows it as "Driver asked for a new road"
+(warning tone) on Trips, the trip review and Fleet, with a button to Fleet's
+Route tab.
+
+### `trip_scope_type` (on `TripRead`, `TripDetail`, `FleetTripRead`)
+
+*Implemented 30 Sep 2026 (P1R-16). Additive and read-only; no migration.* Pinned
+by `tests/test_india_trip_policy.py`.
+
+Which way the trip runs relative to the North-East, from where planning placed
+its two ends:
+
+| Value | Origin | Destination |
+| --- | --- | --- |
+| `NER_INTERNAL` | NER | NER |
+| `NER_OUTBOUND` | NER | India, not NER |
+| `NER_INBOUND` | India, not NER | NER |
+| `INDIA_EXTERNAL` | India, not NER | India, not NER (exists only if `ALLOW_INDIA_EXTERNAL_TRIPS` admitted it) |
+| `UNKNOWN` | either end not placed | |
+
+Carried on every item of `GET /api/trips`, on `GET /api/trips/{id}` (and the
+detail `POST /api/trips/{id}/stops` returns), and on every item of
+`GET /api/fleet/active`. It is `null` on the create, plan, dispatch, cancel and
+close responses, which do not compute it; read the trip.
+
+**How it is derived.** `app/core/scope.py` `trip_scope_type_sql()`: one SQL
+expression over the shipment's `origin_state_id` / `destination_state_id`,
+`states.is_ner` and `geography_source`, evaluated inside the list, detail and
+fleet queries. An end is NER when its state is an NER state. It is *not* NER only
+when PostGIS placed it (`geography_source = POSTGIS_ADMIN_BOUNDARY`) in a non-NER
+state: the OSM fallback can confirm the NER but never deny it, so from it (and
+from rows written before either) a non-NER state reads as unknown. An end nobody
+placed makes the trip `UNKNOWN`, never a guess.
+
+### Who sees a trip (scope by geography)
+
+*North-East Manager clause implemented 30 Sep 2026 (P1R-12).* One predicate per
+role (`app/core/scope.py`), used by the trip list and its `total`, the single
+read, every mutation that loads a trip, the shipment list, the fleet map, the
+dashboard and emergencies. The single read evaluates the list's clause for its
+one row, so the two cannot disagree.
+
+| Role | Sees a trip when |
+| --- | --- |
+| `DISTRICT_MANAGER` | its origin or destination district is theirs |
+| `STATE_MANAGER` | its origin or destination state is theirs |
+| `NORTH_EAST_MANAGER` | its `trip_scope_type` is anything but `INDIA_EXTERNAL`: every trip touching the NER, and every trip whose ends nobody placed (an emergency on one of those reaches only this role, so it must be able to open it) |
+| `ADMIN`, `MANAGER` | always (fleet-wide) |
+| `DRIVER` | their own trip, through `/api/driver/me/*` only |
+
+Out of scope is `404` with the same body as a trip that does not exist, never
+`403`, so the id space is not an oracle. That includes
+`POST /api/trips/{id}/routes/recalculate`: scope is checked before any routing
+provider is asked. On the synthetic fixture geometry, a Kamrup → Delhi trip is
+visible to the North-East Manager, the Assam state manager and the Kamrup
+district manager, and `404` for the Meghalaya state manager and the East Khasi
+Hills district manager.
 
 ---
 
@@ -439,14 +573,21 @@ Contract rules that make offline operation safe:
                              "age_seconds": 12.4, "freshness": "LIVE",
                              "speed_kmph": 42.5, "is_mock_location": false },
                "freshness": "LIVE",
-               "next_stop_sequence": 1, "stops_done": 1, "stops_total": 2 } ],
+               "next_stop_sequence": 1, "stops_done": 1, "stops_total": 2,
+               "proposed_reroute": null, "trip_scope_type": "NER_INTERNAL" } ],
   "fresh_seconds": 90, "stale_seconds": 600, "server_time": "…" }
 ```
+
+`trip_scope_type` is the same value `GET /api/trips` returns for that trip (§7).
 
 Freshness is `LIVE` | `STALE` | `NO_CONTACT` | `NO_LOCATION`, decided by the
 server and returned with the threshold behind it. `NO_LOCATION` means no fix has
 **ever** arrived, which is a different fact from a stale one and is rendered
 differently.
+
+`proposed_reroute` is the road the trip's driver asked for and no manager has
+taken yet, or `null`; the rules are in §7 ("`proposed_reroute`"). It is the same
+value `GET /api/trips` and `GET /api/trips/{id}` return for that trip.
 
 `age_seconds` is measured from `received_at`, the **server** clock — a phone with
 a wrong or manipulated clock cannot make an old position look current. And
@@ -506,7 +647,7 @@ to `AVAILABLE` or `NOT_AVAILABLE`, and `unavailable` lists the absent ones, so
   "unavailable": ["landslide", "road_quality", "truck_restrictions", "fuel_model"],
   "reason_codes": ["HEAVY_RAIN_ON_ROUTE"],
   "observations_used": 5, "observations_stale": 0,
-  "assessed_at": "2026-08-31T09:00:00Z" }
+  "assessed_at": "2026-08-31T09:00:00Z", "intelligence_coverage": "NER_DEEP" }
 ```
 
 The components sum to the score — asserted by test, so the breakdown is an explanation rather
@@ -515,6 +656,25 @@ than decoration.
 `reason_codes` are **codes, not sentences**, so the driver app can render Hindi or Assamese from
 local translation files with no LLM in the loop. A sentence composed here would arrive on the
 phone untranslatable.
+
+**`intelligence_coverage`** *(implemented 30 Sep 2026, P1R-16)*: how much of the route the NER
+state polygons cover (`app/services/geo_classify.py` `route_coverage`, PostGIS):
+
+| Value | Meaning |
+| --- | --- |
+| `NER_DEEP` | the whole line lies inside the NER state polygons |
+| `LIMITED_EVIDENCE` | part of it runs outside them, on India base routing and data. `reason_codes` carries `INDIA_BASE_ROUTING` |
+| `UNKNOWN` | no NER polygon is loaded, so nobody can say. Never SAFE |
+
+**Only `NER_DEEP` can be `ELIGIBLE`.** A hazard source that watches the North-East saying
+"nothing found" says nothing about a road outside it, so elsewhere a clearing landslide
+reading (LOW, CAUTION) counts as UNKNOWN (`route_eligibility.within_coverage`): the route is
+`REQUIRES_REVIEW` (`ROUTE_HAZARD_DATA_UNKNOWN`, plus `INDIA_BASE_ROUTING` when limited), which
+a manager may accept for one selection through `/approve`, and a reported hazard (HIGH,
+CRITICAL) stands wherever it is. `INDIA_BASE_ROUTING` also raises the driver's `decision` from
+`CONTINUE` to `CAUTION`. The field is on every `RouteRiskRead`: this endpoint, each
+recommendation candidate, the driver's route risk and the offline package (optional there,
+for cached packages).
 
 **Stale observations are never scored.** A reading past the freshness window is counted in
 `observations_stale` and excluded from the score — a stale calm reading must not dilute live
@@ -528,6 +688,15 @@ after it stopped being true. `route_id` is scoped by `trip_id`, so another trip'
 
 `recalculate` inserts new `trip_routes` rows and marks obsolete **unselected** ones
 SUPERSEDED — it never mutates history. Route history is evidence in an incident review.
+
+**Trip status is not checked (known gap, A3-01, open).** `recalculate` (and `routes.plan`
+behind it) plans for a trip in any status, CANCELLED, CLOSED and DELIVERED included: it
+calls the provider and stores a PROPOSED candidate, supersedes the older unselected ones, and
+never selects anything. The manager console offers "Plan route" only while its fresh read of
+the trip says DRAFT or ASSIGNED and the list row does not say the trip ended, and an open
+review re-reads the trip when its row changes (FV-E2E-1), so no screen reaches a finished
+trip. A direct API call still can. The proposed server fix is a refusal on terminal trips
+(`409 TRIP_NOT_PLANNABLE`) with a test.
 
 **Planning does not change the route a trip is following (LS-10).** The row
 `trips.selected_route_id` points at is left alone, because `SUPERSEDED` is terminal here —
@@ -545,7 +714,45 @@ real `state`; they are shown honestly and are still refused for re-selection
 Errors: `503 ROUTING_UNAVAILABLE` (every provider unreachable; a retry may succeed) and
 `422 NO_VIABLE_ROUTE` (a provider answered and no route exists). Those are deliberately
 different: collapsing them would tell a manager a trip is unroutable when the provider is
-merely having a bad minute.
+merely having a bad minute. The India guard below adds `422 HOLD_AND_REVIEW` and
+`503 GEOGRAPHY_UNAVAILABLE`.
+
+### A domestic route never leaves India (every planning path)
+
+*Implemented 30 Sep 2026 (NF-05, RG-8; owner decision 29 Sep 2026).* Pinned by
+`tests/test_india_trip_policy.py`.
+
+`routes.plan` is the one function behind `POST /api/trips/{id}/routes/recalculate`,
+`POST /api/driver/me/trip/reroute` and the replanning after a `NEW_DESTINATION` or
+`RETURN_TO_DEPOT` redirect. Before a provider is asked it checks the caller's scope
+(`404`) and that the India outline is loaded (`503 GEOGRAPHY_UNAVAILABLE`,
+`details.retryable: true`), so no provider hears about a trip whose answer could not be
+checked. After the provider answers, every candidate LINE is checked against the outline
+with the endpoint gate's closed `ST_Covers` test (a road along the boundary is inside,
+one that leaves it by a metre is not) **before** anything else is judged:
+
+- A candidate that leaves India is dropped (`ROUTE_CROSSES_COUNTRY_BOUNDARY`). It is never
+  stored, never promoted to `PRIMARY` and never offered as `EMERGENCY_BACKUP`; the next
+  candidate that stays inside becomes the primary. The drop is logged with the trip id and
+  counts only (no coordinate: a candidate starts where the driver is) and appended to the
+  stored route's `CREATE` audit reason.
+- With none left the answer is `422 HOLD_AND_REVIEW`. Nothing is stored or superseded, and
+  the road the trip is on stays untouched:
+
+```json
+{ "error": { "code": "HOLD_AND_REVIEW",
+             "message": "No route that stays inside India was found for this trip. Nothing was stored; it needs a manager's review.",
+             "details": { "reason": "ROUTE_CROSSES_COUNTRY_BOUNDARY", "candidates_dropped": 1 } } }
+```
+
+A trip with no selected route cannot be dispatched (`422 ROUTE_SELECTION_REQUIRED`), so a
+held plan is not dispatchable; a trip under way keeps its current road. A redirect keeps
+the redirect and logs the hold; the manager re-plans from the Fleet route tab. No manager
+is notified when a driver's own reroute request is held.
+
+Precision is the boundary data's. On 1:1M Survey of India shapes, a road that hugs the
+border can read a few hundred metres outside it; that road is refused (the safe
+direction), never admitted by a buffer.
 
 **`PRIMARY` always; `EMERGENCY_BACKUP` conditionally; `FUEL_EFFICIENT` never.**
 
@@ -965,6 +1172,9 @@ the flag is surfaced to the manager.
 
 ## 13. `/api/alerts` and `/api/emergencies`
 
+> **Status (19 Sep 2026):** the emergency half of this section is implemented in a different shape than designed here - `GET /api/emergencies/active`, `POST /api/emergencies/sweep`, `POST /api/emergencies/{id}/resolve` (`{note?, is_false_alarm}`) for managers, and `POST /api/driver/me/trip/check-in` (`{response, note?}`) for the driver; table `emergencies`, migration 0010, `backend/app/services/sentinel.py`, tests `test_emergency_api.py`, `test_sentinel*.py`. `/api/alerts*` and `GET /api/emergencies/{id}` are **not** routed. The table below is kept as the original design.
+
+
 | Method | Path | Perms | Notes |
 | --- | --- | --- | --- |
 | GET | `/api/alerts` | M A, D(own) | `?unacknowledged=true` |
@@ -1167,7 +1377,7 @@ only narrow the request.
 
 ---
 
-## 13b. `/api/geocoding` — address search *(implemented, never executed)*
+## 13b. `/api/geocoding` — address search *(implemented; Nominatim/OSM by default, Google Places only when `GOOGLE_PLACES_API_KEY` is set - the Google path has never been executed; used by the manager planner's AddressPicker; tests `test_geocoding.py`, `test_maplink.py`)*
 
 Behind the server so the browser never holds a Google credential. Gated on
 `trip:create`: address search is a billed external call, and an endpoint any
@@ -1259,24 +1469,101 @@ polling gives the same state.
 
 ## 15. Implemented Today
 
-As of the route-intelligence work (P7-P11), the implemented surface is:
+**Generated from the running application on 19 Sep 2026** (`app.routes` of `backend/app/main.py`, commit `7c176f3`): **86 routes**. Permission strings come from `backend/app/core/permissions.py`; `DRIVER (own)` means the route resolves the caller to their own driver row and never accepts a driver id. All of them are exercised by `backend/tests/` except `POST /api/ai/ask`, `GET /api/ai/status` and `GET /api/driver/me/trip/places` (external providers; marked below).
 
-| Area | Paths |
-| --- | --- |
-| System | `/health`, `/ready` |
-| Auth | `/api/auth/login`, `/refresh`, `/logout`, `/me` |
-| Manager CRUD | `/api/drivers*`, `/api/trucks*`, `/api/assignments*` |
-| Planning | `/api/shipments`, `/api/trips*` (create, dispatch, cancel, close) |
-| Driver self-service | `/api/driver/me*` — profile, assignment, trip, location |
-| Fleet location | `/api/fleet/active`, `/api/trips/{id}/track` |
-| Detail reads (P6) | `GET /api/drivers/{id}`, `GET /api/trucks/{id}`, `GET /api/trips/{id}` — the last now carries a `shipment` summary (client, reference, load, priority) so an operations screen does not need a second lookup for what a truck is carrying |
-| Route planning (P7) | `GET /api/trips/{id}/routes`, `POST /api/trips/{id}/routes/recalculate`, `POST /api/trips/{id}/routes/{route_id}/select` — see §9. `POST /api/routes/preview` is **not** implemented |
-| Route risk (P8) | `GET /api/trips/{id}/routes/{route_id}/risk` — deterministic weighted rule over weather sampled along the route. Reports which datasets it did **not** have. Not a model |
-| Route recommendation | `GET /api/trips/{id}/routes/recommendation` — compares this trip's live routes and advises one, in points/minutes/km. Refuses to recommend when the candidates were scored on different evidence. No percentages. Not a model |
-| Reroute | `GET /api/trips/{id}/reroute`, `POST /api/trips/{id}/reroute/accept` — three outcomes including `ALERT_ONLY`. The POST is the **only** way a moving trip's route changes, and nothing applies a proposal on its own |
-| Offline corridor | `GET /api/driver/me/trip/offline-package` — the journey packaged to survive losing the network. Declares `basemap: BUNDLED_NONE`; the OSM tile policy prohibits prefetching tiles for offline use |
-| Route progress | `progress` on `GET /api/driver/me/trip` — the observed fix projected onto the planned line, with `off_route_m`. Deliberately carries **no ETA** |
-| Rate limiting (P7) | `/api/auth/login` and `/api/auth/refresh` only, per route, in-process — see `backend/app/core/rate_limit.py` |
+| Area | Method | Path | Permission | Status |
+| --- | --- | --- | --- | --- |
+| System | `GET` | `/api/system/providers` | any signed-in user | implemented |
+| System | `GET` | `/api/system/simulation` | any signed-in user | implemented (DEMO tooling, `DEMO_SIMULATION_ENABLED`) |
+| System | `GET` | `/health` | public | implemented |
+| System | `GET` | `/ready` | public | implemented |
+| System | `GET` | `/api/system/readiness` | audit:read | implemented (30 Sep 2026, after this table was generated) |
+| Auth | `POST` | `/api/auth/login` | public | implemented |
+| Auth | `POST` | `/api/auth/logout` | public | implemented |
+| Auth | `GET` | `/api/auth/me` | any signed-in user | implemented |
+| Auth | `POST` | `/api/auth/refresh` | public | implemented |
+| Drivers | `GET` | `/api/drivers` | driver:read | implemented |
+| Drivers | `POST` | `/api/drivers` | driver:create | implemented |
+| Drivers | `GET` | `/api/drivers/{driver_id}` | driver:read | implemented |
+| Drivers | `PATCH` | `/api/drivers/{driver_id}` | driver:update | implemented |
+| Drivers | `POST` | `/api/drivers/{driver_id}/deactivate` | driver:deactivate | implemented |
+| Drivers | `GET` | `/api/drivers/{driver_id}/documents` | driver:read | implemented |
+| Drivers | `POST` | `/api/drivers/{driver_id}/support-session` | driver:support_view | implemented |
+| Trucks | `GET` | `/api/trucks` | truck:read | implemented |
+| Trucks | `POST` | `/api/trucks` | truck:create | implemented |
+| Trucks | `GET` | `/api/trucks/{truck_id}` | truck:read | implemented |
+| Trucks | `PATCH` | `/api/trucks/{truck_id}` | truck:update | implemented |
+| Trucks | `POST` | `/api/trucks/{truck_id}/retire` | truck:retire | implemented |
+| Assignments | `GET` | `/api/assignments` | assignment:read | implemented |
+| Assignments | `POST` | `/api/assignments` | assignment:create | implemented |
+| Assignments | `GET` | `/api/assignments/{assignment_id}` | assignment:read | implemented |
+| Assignments | `POST` | `/api/assignments/{assignment_id}/end` | assignment:end | implemented |
+| Assignments | `POST` | `/api/assignments/{assignment_id}/verify` | DRIVER (own), assignment:verify_own | implemented |
+| Assignments | `POST` | `/api/assignments/{assignment_id}/verify-manual` | assignment:review | implemented |
+| Shipments | `GET` | `/api/shipments` | shipment:read | implemented |
+| Shipments | `POST` | `/api/shipments` | shipment:create | implemented |
+| Trips, routes and governance | `GET` | `/api/trips` | trip:read | implemented |
+| Trips, routes and governance | `POST` | `/api/trips` | trip:create | implemented |
+| Trips, routes and governance | `POST` | `/api/trips/plan` | trip:create | implemented |
+| Trips, routes and governance | `GET` | `/api/trips/{trip_id}` | trip:read | implemented |
+| Trips, routes and governance | `POST` | `/api/trips/{trip_id}/cancel` | trip:cancel | implemented |
+| Trips, routes and governance | `POST` | `/api/trips/{trip_id}/close` | trip:close | implemented |
+| Trips, routes and governance | `POST` | `/api/trips/{trip_id}/dispatch` | trip:dispatch | implemented |
+| Trips, routes and governance | `GET` | `/api/trips/{trip_id}/events` | trip:read | implemented |
+| Trips, routes and governance | `GET` | `/api/trips/{trip_id}/reroute` | route:read | implemented |
+| Trips, routes and governance | `POST` | `/api/trips/{trip_id}/reroute/accept` | route:select | implemented |
+| Trips, routes and governance | `GET` | `/api/trips/{trip_id}/routes` | route:read | implemented |
+| Trips, routes and governance | `POST` | `/api/trips/{trip_id}/routes/recalculate` | route:plan | implemented |
+| Trips, routes and governance | `GET` | `/api/trips/{trip_id}/routes/recommendation` | route:read | implemented |
+| Trips, routes and governance | `POST` | `/api/trips/{trip_id}/routes/{route_id}/approve` | route:select | implemented |
+| Trips, routes and governance | `GET` | `/api/trips/{trip_id}/routes/{route_id}/review-authorization` | route:read | implemented |
+| Trips, routes and governance | `POST` | `/api/trips/{trip_id}/routes/{route_id}/review-authorization` | route:review_authorize | implemented |
+| Trips, routes and governance | `DELETE` | `/api/trips/{trip_id}/routes/{route_id}/review-authorization/{authorization_id}` | route:review_authorize | implemented |
+| Trips, routes and governance | `GET` | `/api/trips/{trip_id}/routes/{route_id}/risk` | route:read | implemented |
+| Trips, routes and governance | `POST` | `/api/trips/{trip_id}/routes/{route_id}/select` | route:select | implemented |
+| Trips, routes and governance | `DELETE` | `/api/trips/{trip_id}/simulation` | trip:dispatch | implemented (DEMO tooling, `DEMO_SIMULATION_ENABLED`) |
+| Trips, routes and governance | `POST` | `/api/trips/{trip_id}/simulation` | trip:dispatch | implemented (DEMO tooling, `DEMO_SIMULATION_ENABLED`) |
+| Trips, routes and governance | `POST` | `/api/trips/{trip_id}/stops` | trip:create | implemented |
+| Trips, routes and governance | `GET` | `/api/trips/{trip_id}/track` | fleet:location_read | implemented |
+| Fleet location | `GET` | `/api/fleet/active` | fleet:location_read | implemented |
+| Driver self-service (`/api/driver/me*`) | `GET` | `/api/driver/me` | DRIVER (own) | implemented |
+| Driver self-service (`/api/driver/me*`) | `GET` | `/api/driver/me/assignment` | DRIVER (own) | implemented |
+| Driver self-service (`/api/driver/me*`) | `POST` | `/api/driver/me/assignment/verify` | DRIVER (own) | implemented |
+| Driver self-service (`/api/driver/me*`) | `GET` | `/api/driver/me/documents` | DRIVER (own) | implemented |
+| Driver self-service (`/api/driver/me*`) | `POST` | `/api/driver/me/documents` | DRIVER (own) | implemented |
+| Driver self-service (`/api/driver/me*`) | `POST` | `/api/driver/me/location` | DRIVER (own) | implemented |
+| Driver self-service (`/api/driver/me*`) | `GET` | `/api/driver/me/notices` | DRIVER (own) | implemented |
+| Driver self-service (`/api/driver/me*`) | `GET` | `/api/driver/me/profile` | DRIVER (own) | implemented |
+| Driver self-service (`/api/driver/me*`) | `POST` | `/api/driver/me/push-token` | DRIVER (own) | implemented |
+| Driver self-service (`/api/driver/me*`) | `GET` | `/api/driver/me/trip` | DRIVER (own) | implemented |
+| Driver self-service (`/api/driver/me*`) | `POST` | `/api/driver/me/trip/accept` | DRIVER (own) | implemented |
+| Driver self-service (`/api/driver/me*`) | `POST` | `/api/driver/me/trip/check-in` | DRIVER (own) | implemented |
+| Driver self-service (`/api/driver/me*`) | `POST` | `/api/driver/me/trip/complete` | DRIVER (own) | implemented |
+| Driver self-service (`/api/driver/me*`) | `POST` | `/api/driver/me/trip/instruction/ack` | DRIVER (own) | implemented |
+| Driver self-service (`/api/driver/me*`) | `GET` | `/api/driver/me/trip/navigation` | DRIVER (own) | implemented |
+| Driver self-service (`/api/driver/me*`) | `GET` | `/api/driver/me/trip/offline-package` | DRIVER (own) | implemented |
+| Driver self-service (`/api/driver/me*`) | `GET` | `/api/driver/me/trip/places` | DRIVER (own) | implemented, no HTTP test |
+| Driver self-service (`/api/driver/me*`) | `POST` | `/api/driver/me/trip/reroute` | DRIVER (own) | implemented |
+| Driver self-service (`/api/driver/me*`) | `GET` | `/api/driver/me/trip/route-risk` | DRIVER (own) | implemented |
+| Driver self-service (`/api/driver/me*`) | `POST` | `/api/driver/me/trip/start` | DRIVER (own) | implemented |
+| Driver self-service (`/api/driver/me*`) | `POST` | `/api/driver/me/trip/stops/{stop_id}/arrive` | DRIVER (own) | implemented |
+| Driver self-service (`/api/driver/me*`) | `POST` | `/api/driver/me/trip/stops/{stop_id}/complete` | DRIVER (own) | implemented |
+| Driver self-service (`/api/driver/me*`) | `GET` | `/api/driver/me/truck-documents` | DRIVER (own) | implemented |
+| Driver self-service (`/api/driver/me*`) | `POST` | `/api/driver/me/truck-documents` | DRIVER (own) | implemented |
+| Emergencies (Fleet Sentinel) | `GET` | `/api/emergencies/active` | emergency:read | implemented |
+| Emergencies (Fleet Sentinel) | `POST` | `/api/emergencies/sweep` | emergency:resolve | implemented |
+| Emergencies (Fleet Sentinel) | `POST` | `/api/emergencies/{emergency_id}/resolve` | emergency:resolve | implemented |
+| Files | `POST` | `/api/files` | any signed-in user | implemented |
+| Files | `GET` | `/api/files/{file_id}` | any signed-in user | implemented |
+| Geocoding | `GET` | `/api/geocoding/details` | trip:create | implemented |
+| Geocoding | `POST` | `/api/geocoding/resolve-link` | trip:create | implemented |
+| Geocoding | `GET` | `/api/geocoding/suggest` | trip:create | implemented |
+| AI assistant (advisory only) | `POST` | `/api/ai/ask` | DRIVER (own) | implemented, no HTTP test |
+| AI assistant (advisory only) | `GET` | `/api/ai/status` | DRIVER (own) | implemented, no HTTP test |
+
+Not routed (design only): `/api/routes/preview`, `/api/weather*`, `/api/incidents*`, `/api/fuel*`, `/api/payments*`, `/api/expenses*`, `/api/deliveries*`, `/api/alerts*`, `GET /api/emergencies/{id}`, `POST /api/emergencies/{id}/respond` (the driver check-in lives at `/api/driver/me/trip/check-in`), WebSocket `/ws/fleet`.
+
+Rate limiting: since 30 Sep 2026 every operation belongs to a bucket (GCRA, per user, per address for public routes; shared through PostgreSQL under `MULTI_INSTANCE`). The per-bucket table and the 101-operation list are `docs/RATE_LIMIT_POLICY.md` sections 5 and 8; `/health` is never limited.
 
 Everything else in this document is a specification for a later phase and is not
 routed. The system endpoints:
@@ -1284,19 +1571,46 @@ routed. The system endpoints:
 | Method | Path | Response |
 | --- | --- | --- |
 | GET | `/health` | `200 {"status":"ok"}` — liveness, no dependency check |
-| GET | `/ready` | `200` when DB reachable and PostGIS present, else `503` |
+| GET | `/ready` | `200` when the DB is reachable, PostGIS is present **and** the schema is at this code's alembic head, else `503` |
+| GET | `/api/system/readiness` | the same decision for managers (`audit:read`), with what `/ready` must not say in public |
+
+`checks.schema.detail` (since 30 Sep 2026, P1R-14) is `at_head`, `schema_behind` (a
+known older revision of this code's own history) or `schema_unknown` (none, one
+this code does not know, or unreadable). Only `at_head` is ready. `/ready` never
+names a revision id. `checks.proxy` is advisory and never part of the decision:
+`trusted_hops_set`, `direct`, or `forwarded_header_ignored` (an `X-Forwarded-For`
+arrived while `TRUSTED_PROXY_HOPS` is 0; see `docs/RATE_LIMIT_POLICY.md`).
+
+```json
+// GET /api/system/readiness  -> 200 (managers)
+{ "status": "ready",
+  "checks": { "database": { "ok": true, "detail": "PostgreSQL 17.6" },
+              "postgis":  { "ok": true, "detail": "3.5 USE_GEOS=1 USE_PROJ=1 USE_STATS=1" },
+              "schema":   { "ok": true, "detail": "at_head" } },
+  "schema": { "database": ["0016_geography_boundaries"], "code_heads": ["0016_geography_boundaries"] },
+  "pool":   { "size": 3, "max_overflow": 2, "checked_out": 1, "overflow_in_use": 0, "timeout_s": 10.0 },
+  "proxy":  { "ok": true, "detail": "trusted_hops_set", "trusted_hops": 1 } }
+```
+
+`pool` is `null` until the engine exists. With the pool exhausted this endpoint
+queues like any other request, for `DB_POOL_TIMEOUT_SECONDS`, because signing in
+needs a connection; that wait is itself the answer.
 
 ```json
 // GET /ready  -> 200
 { "status": "ready",
   "provider": "supabase",
   "checks": { "database": { "ok": true, "detail": "PostgreSQL 17.6" },
-              "postgis":  { "ok": true, "detail": "3.3 USE_GEOS=1 USE_PROJ=1 USE_STATS=1" } } }
+              "postgis":  { "ok": true, "detail": "3.3 USE_GEOS=1 USE_PROJ=1 USE_STATS=1" },
+              "schema":   { "ok": true, "detail": "at_head" },
+              "proxy":    { "ok": true, "detail": "trusted_hops_set" } } }
 // GET /ready  -> 503
 { "status": "not_ready",
   "provider": "supabase",
   "checks": { "database": { "ok": false, "detail": "unreachable (OperationalError)" },
-              "postgis":  { "ok": false, "detail": "not checked" } } }
+              "postgis":  { "ok": false, "detail": "not checked" },
+              "schema":   { "ok": false, "detail": "not checked" },
+              "proxy":    { "ok": true, "detail": "direct" } } }
 ```
 
 `provider` is `"supabase"` or `"local"`. It is the **only** connection information

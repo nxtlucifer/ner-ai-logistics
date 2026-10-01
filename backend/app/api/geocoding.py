@@ -17,13 +17,20 @@ from pydantic import BaseModel, Field
 
 from app.core.errors import APIError
 
-from app.api.deps import require_permission
+from app.api.deps import rate_limit, require_permission_then_release
 from app.core import permissions as perm
 from app.models.identity import User
 from app.schemas.common import ReadModel
 from app.services import geocoding
 
 router = APIRouter(prefix="/api/geocoding", tags=["geocoding"])
+
+#: Every route here reads the database only to authenticate, then waits on a
+#: provider (Nominatim at one request a second, Google, a Maps short link).
+#: The gate ends that transaction first, so no pooled connection sits idle in
+#: transaction behind the Nominatim lock (DBPOOL-02: 3+2 pool, 10 searches,
+#: /api/auth/me p95 4.9 s).
+_PLANNER = Depends(require_permission_then_release(perm.TRIP_CREATE))
 
 
 class SuggestionRead(ReadModel):
@@ -56,10 +63,15 @@ GOOGLE_ATTRIBUTION = "Powered by Google"
 
 
 @router.get(
-    "/suggest", response_model=SuggestionsRead, summary="Address suggestions"
+    "/suggest",
+    response_model=SuggestionsRead,
+    summary="Address suggestions",
+    # Nominatim is paced at 1 req/s for the whole service: one user must
+    # not be able to take all of it (RATE_LIMIT_POLICY.md s.5).
+    dependencies=[rate_limit("geocoding")],
 )
 async def suggest(
-    actor: Annotated[User, Depends(require_permission(perm.TRIP_CREATE))],
+    actor: Annotated[User, _PLANNER],
     q: Annotated[str, Query(min_length=3, max_length=200)],
     session_token: Annotated[str, Query(min_length=8, max_length=64)],
 ) -> SuggestionsRead:
@@ -99,10 +111,13 @@ async def suggest(
 
 
 @router.get(
-    "/details", response_model=PlaceDetailRead, summary="Resolve one suggestion"
+    "/details",
+    response_model=PlaceDetailRead,
+    summary="Resolve one suggestion",
+    dependencies=[rate_limit("geocoding")],
 )
 async def resolve(
-    actor: Annotated[User, Depends(require_permission(perm.TRIP_CREATE))],
+    actor: Annotated[User, _PLANNER],
     place_id: Annotated[str, Query(min_length=1, max_length=512)],
     session_token: Annotated[str, Query(min_length=8, max_length=64)],
 ) -> PlaceDetailRead:
@@ -145,9 +160,14 @@ class MapLinkRead(ReadModel):
     attribution: str
 
 
-@router.post("/resolve-link", response_model=MapLinkRead, summary="Resolve a pasted Google Maps link")
+@router.post(
+    "/resolve-link",
+    response_model=MapLinkRead,
+    summary="Resolve a pasted Google Maps link",
+    dependencies=[rate_limit("geocoding")],
+)
 async def resolve_link(
-    actor: Annotated[User, Depends(require_permission(perm.TRIP_CREATE))],
+    actor: Annotated[User, _PLANNER],
     body: MapLinkBody,
 ) -> MapLinkRead:
     """URL in, coordinate out - see `app/services/maplink.py` for what is and

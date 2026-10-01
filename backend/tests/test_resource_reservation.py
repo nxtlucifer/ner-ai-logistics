@@ -31,7 +31,9 @@ from app.services import trips as trip_service
 from tests import factories
 from tests.conftest import auth_headers
 
-pytestmark = pytest.mark.requires_db
+# Planning needs an India boundary (fails closed without one): the synthetic
+# outline from tests/geo_fixtures.py, no state shapes.
+pytestmark = [pytest.mark.requires_db, pytest.mark.usefixtures("fixture_india")]
 
 PICKUP = {"lat": 26.1445, "lon": 91.7362}
 DROP = {"lat": 25.5788, "lon": 91.8933}

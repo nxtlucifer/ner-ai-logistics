@@ -10,6 +10,7 @@
         "buildType": "apk"
       },
       "env": {
+        "NER_BUILD_PROFILE": "preview",
         "EXPO_PUBLIC_BACKEND": "supabase",
         "EXPO_PUBLIC_SUPABASE_URL": "https://znaveeefzgfxsblsobdb.supabase.co",
         "EXPO_PUBLIC_SUPABASE_PROJECT_REF": "znaveeefzgfxsblsobdb",
@@ -22,6 +23,7 @@
         "buildType": "app-bundle"
       },
       "env": {
+        "NER_BUILD_PROFILE": "production",
         "EXPO_PUBLIC_BACKEND": "supabase",
         "EXPO_PUBLIC_SUPABASE_URL": "https://znaveeefzgfxsblsobdb.supabase.co",
         "EXPO_PUBLIC_SUPABASE_PROJECT_REF": "znaveeefzgfxsblsobdb",
@@ -35,6 +37,7 @@
         "buildType": "apk"
       },
       "env": {
+        "NER_BUILD_PROFILE": "lan-demo",
         "EXPO_PUBLIC_BACKEND": "local",
         "EXPO_PUBLIC_API_BASE_URL": "http://192.168.1.6:8010"
       },
@@ -47,6 +50,7 @@
         "buildType": "apk"
       },
       "env": {
+        "NER_BUILD_PROFILE": "remote-demo",
         "EXPO_PUBLIC_BACKEND": "local",
         "EXPO_PUBLIC_API_BASE_URL": "https://ner-intelligence.onrender.com"
       },

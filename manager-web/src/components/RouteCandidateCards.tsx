@@ -77,6 +77,13 @@ export function candidateMessage(c: Candidate, state: CandidateState, inTransit:
   }
 }
 
+/** Two starts within about a kilometre are the same place. An unknown start
+ *  (no geometry) is not evidence of a different one. */
+function sameStart(a: [number, number] | undefined, b: [number, number] | undefined): boolean {
+  if (!a || !b) return true
+  return Math.abs(a[0] - b[0]) < 0.01 && Math.abs(a[1] - b[1]) < 0.01
+}
+
 function minutes(m: number | null): string {
   if (m === null) return 'time unavailable'
   return `${Math.floor(m / 60)}h ${m % 60}m free-flow`
@@ -119,26 +126,34 @@ export function RouteCandidateCards({
   approveError = null,
 }: RouteCandidateCardsProps) {
   const n = candidates.length
+  // A road re-planned mid-trip from where the truck was (a driver's reroute)
+  // starts somewhere else than a road from the pickup: its kilometres cover a
+  // different journey. Such a card says so, and no card is called FASTEST or
+  // SHORTEST across different starts (E2E-R2: a 75 km backup was chipped
+  // SHORTEST against a 97 km full route while 72 km of that road remained).
+  const reference = (candidates.find((c) => c.route.is_current) ?? candidates[0])?.route
+  const startsElsewhere = (r: TripRoute) => !sameStart(r.geometry[0], reference?.geometry[0])
+  const comparable = !candidates.some((c) => startsElsewhere(c.route))
   // Labels come from the figures, never from a fixed slot. A unique minimum
   // earns FASTEST or SHORTEST; a tie earns nothing, because "fastest" of two
   // equal times is not information.
   const durations = candidates.map((c) => c.route.estimated_duration_min).filter((v): v is number => v !== null)
   const distances = candidates.map((c) => Number(c.route.distance_km)).filter((v) => Number.isFinite(v) && v > 0)
-  const fastest = durations.length > 1 && durations.filter((v) => v === Math.min(...durations)).length === 1 ? Math.min(...durations) : null
-  const shortest = distances.length > 1 && distances.filter((v) => v === Math.min(...distances)).length === 1 ? Math.min(...distances) : null
+  const fastest = comparable && durations.length > 1 && durations.filter((v) => v === Math.min(...durations)).length === 1 ? Math.min(...durations) : null
+  const shortest = comparable && distances.length > 1 && distances.filter((v) => v === Math.min(...distances)).length === 1 ? Math.min(...distances) : null
 
   return (
     <div data-testid="route-options">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-primary">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
           Planned route options
         </h3>
-        <span className="tnum text-[11.5px] text-muted">
+        <span className="tnum text-xs text-muted">
           {n} distinct road route{n === 1 ? '' : 's'} available
         </span>
       </div>
       {n === 1 ? (
-        <p className="mt-1 text-[11.5px] leading-snug text-muted">
+        <p className="mt-1 text-[13px] leading-snug text-muted">
           The routing provider found one sensible road for this corridor. That is the answer, not a shortfall.
         </p>
       ) : null}
@@ -162,30 +177,33 @@ export function RouteCandidateCards({
             <li
               key={r.id}
               data-testid={`route-card-${r.id}`}
-              className={`rounded-xl border p-3 ${
+              // Soft tiles, not cards inside the panel's card. The route the
+              // truck follows is marked in route blue down its edge; the one on
+              // the map has an outline.
+              className={`rounded-[10px] border-l-4 p-3 ${
                 state === 'SELECTED'
                   ? 'border-route bg-route-soft'
                   : previewId === r.id
-                    ? 'border-outline bg-surface'
-                    : 'border-line bg-surface'
+                    ? 'border-outline bg-soft'
+                    : 'border-transparent bg-soft'
               }`}
             >
               <div className="flex flex-wrap items-center gap-1.5">
                 {chips.map((chip) => (
                   <span
                     key={chip}
-                    className={`rounded-md border px-1.5 py-0.5 text-[10px] font-bold tracking-wider ${
+                    className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold tracking-wide ${
                       chip === 'CURRENT'
                         ? 'border-route/30 bg-route/10 text-route'
                         : chip === 'RECOMMENDED'
                           ? 'border-ok/30 bg-ok-soft text-ok'
-                          : 'border-line bg-soft text-muted'
+                          : 'border-line bg-surface text-muted'
                     }`}
                   >
                     {chip}
                   </span>
                 ))}
-                <span className="text-[11px] text-muted">
+                <span className="text-xs text-muted">
                   planned {new Date(r.created_at).toLocaleTimeString()}
                 </span>
               </div>
@@ -194,36 +212,42 @@ export function RouteCandidateCards({
                 <span className="tnum">{Number.isFinite(km) && km > 0 ? `${km.toLocaleString()} km` : 'distance unavailable'}</span>
                 <span className="font-normal text-muted"> · {minutes(r.estimated_duration_min)}</span>
               </p>
-              <p className="text-[11px] text-muted">
+              <p className="text-xs text-muted">
                 Free-flow travel time from {r.routing_provider ?? 'the routing provider'} — not an ETA: no departure time, traffic or stop dwell.
               </p>
+              {startsElsewhere(r) ? (
+                <p data-testid="starts-elsewhere" className="mt-1 text-xs font-medium text-warning">
+                  Starts at a different point from the {r.id === reference?.id ? 'other routes' : 'current route'}, so its distance and time are not compared with theirs.
+                </p>
+              ) : null}
 
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <StatusPill status={state} />
-                <span className="tnum text-[11px] text-muted">
+                <span className="tnum text-xs text-muted">
                   {risk && risk.score !== null ? `Risk ${Math.round(risk.score)} · ${risk.band}` : 'Risk not checked'}
                 </span>
               </div>
-              <p className="mt-1 text-[12px] leading-snug text-ink">{message}</p>
+              <p className="mt-1 text-[13px] leading-snug text-ink">{message}</p>
               {risk && risk.reason_codes.length > 0 ? (
-                <p className="mt-1 text-[11px] leading-snug text-muted">
+                <p className="mt-1 text-xs leading-snug text-muted">
                   {translateReasonCodes(risk.reason_codes, 'en').join(' · ')}
                 </p>
               ) : null}
               {risk && risk.unavailable.length > 0 ? (
-                <p className="mt-1 text-[11px] text-muted">Assessed without: {risk.unavailable.join(', ')}.</p>
+                <p className="mt-1 text-xs text-muted">Assessed without: {risk.unavailable.join(', ')}.</p>
               ) : null}
 
               <div className="mt-2 flex flex-wrap gap-2">
                 {state === 'REVIEW_REQUIRED' ? (
                   approvingId === r.id ? null : (
-                    <Button variant="secondary" disabled={choosingId !== null} onClick={() => onApproving(r.id)}>
+                    <Button variant="secondary" size="sm" disabled={choosingId !== null} onClick={() => onApproving(r.id)}>
                       Review & approve route
                     </Button>
                   )
                 ) : state === 'NOT_CHECKED' ? null // "Check route conditions" above is the way forward, not a greyed button
                 : state !== 'SELECTED' && state !== 'STALE' ? (
                   <Button
+                    size="sm"
                     busy={busy}
                     disabled={!actionable || (choosingId !== null && !busy)}
                     title={actionable ? undefined : message}
@@ -232,12 +256,12 @@ export function RouteCandidateCards({
                     {busy ? 'Applying…' : state === 'BLOCKED' ? 'Route blocked' : rerouting ? 'Reroute onto this' : 'Use this route'}
                   </Button>
                 ) : null}
-                <Button variant="secondary" onClick={() => onPreview(previewId === r.id ? null : r.id)}>
+                <Button variant="secondary" size="sm" onClick={() => onPreview(previewId === r.id ? null : r.id)}>
                   {previewId === r.id ? 'Shown on map' : 'Show on map'}
                 </Button>
               </div>
               {state === 'REVIEW_REQUIRED' && approvingId === r.id && c.assessed ? (
-                <div className="mt-2">
+                <div className="mt-3">
                   <RouteApprovalDialog
                     risk={c.assessed.risk}
                     reasons={translateReasonCodes(c.assessed.risk.reason_codes, 'en')}

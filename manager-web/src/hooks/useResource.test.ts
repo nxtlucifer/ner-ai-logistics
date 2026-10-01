@@ -80,4 +80,24 @@ describe('useResource with a cacheKey', () => {
     expect(fetcher).toHaveBeenCalledTimes(3)
     vi.useRealTimers()
   })
+
+  it('does not start a poll tick while the previous fetch is still running', async () => {
+    vi.useFakeTimers()
+    let running = 0
+    let peak = 0
+    const fetcher = vi.fn(async () => {
+      running += 1
+      peak = Math.max(peak, running)
+      // Three intervals long: a serial walk of cursor pages on a slow link.
+      await new Promise((r) => setTimeout(r, 3_000))
+      running -= 1
+      return ['x']
+    })
+    renderHook(() => useResource(fetcher, [], 'trips:slow', 1_000))
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000) })
+    expect(peak).toBe(1)
+    // Polling resumed after each walk finished: not stuck, just not stacked.
+    expect(fetcher.mock.calls.length).toBeGreaterThan(1)
+    vi.useRealTimers()
+  })
 })

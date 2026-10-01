@@ -8,9 +8,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import BusinessRuleError, ConflictError, NotFoundError
-from app.models.enums import AuditAction, TruckStatus
-from app.models.fleet import Truck
-from app.models.identity import User
+from app.models.enums import AssignmentStatus, AuditAction, TruckStatus, UserRole
+from app.models.fleet import DriverTruckAssignment, Truck
+from app.models.identity import Driver, User
 from app.schemas.domain import TruckCreate, TruckUpdate
 from app.services import audit
 from app.services.pagination import (
@@ -27,12 +27,25 @@ AUDITED_FIELDS = (
 )
 
 
-async def get(db: AsyncSession, truck_id: uuid.UUID) -> Truck:
-    truck = (
-        await db.execute(
-            select(Truck).where(Truck.id == truck_id, Truck.deleted_at.is_(None))
-        )
-    ).scalar_one_or_none()
+def _own_trucks(actor: User):
+    """Trucks a DRIVER may see: the ones currently assigned to them.
+
+    Same shape as drivers.list_drivers: scoped in the query, never by filtering
+    afterwards. Without this, TRUCK_READ (which a driver holds so they can read
+    their truck's photo) let any driver page through the whole fleet register.
+    """
+    return Truck.id.in_(
+        select(DriverTruckAssignment.truck_id)
+        .join(Driver, Driver.id == DriverTruckAssignment.driver_id)
+        .where(Driver.user_id == actor.id, DriverTruckAssignment.status != AssignmentStatus.ENDED)
+    )
+
+
+async def get(db: AsyncSession, truck_id: uuid.UUID, *, actor: User | None = None) -> Truck:
+    stmt = select(Truck).where(Truck.id == truck_id, Truck.deleted_at.is_(None))
+    if actor is not None and actor.role is UserRole.DRIVER:
+        stmt = stmt.where(_own_trucks(actor))
+    truck = (await db.execute(stmt)).scalar_one_or_none()
     if truck is None:
         raise NotFoundError("Truck not found.")
     return truck
@@ -41,6 +54,7 @@ async def get(db: AsyncSession, truck_id: uuid.UUID) -> Truck:
 async def list_trucks(
     db: AsyncSession,
     *,
+    actor: User,
     limit: int | None = None,
     cursor: str | None = None,
     status: TruckStatus | None = None,
@@ -48,6 +62,8 @@ async def list_trucks(
 ) -> tuple[list[Truck], str | None]:
     page_size = clamp_limit(limit)
     stmt = select(Truck).where(Truck.deleted_at.is_(None))
+    if actor.role is UserRole.DRIVER:
+        stmt = stmt.where(_own_trucks(actor))
 
     if status is not None:
         stmt = stmt.where(Truck.status == status)

@@ -1,10 +1,6 @@
 # Data Model
 
-**Status: partially implemented.** Migrations `0001_bootstrap` and `0002_core_domain` are applied
-to Supabase — 15 tables covering the operational spine. The financial, alerting and environmental
-entities (`payments`, `expenses`, `payroll`, `deliveries`, `alerts`, `emergencies`,
-`road_incidents`, `weather_events`) remain design-only and arrive with the phases that use them.
-§13 states exactly what exists. Tables are introduced phase by phase per
+**Status: implemented through Alembic `0012_push_notifications` (head, linear chain 0001 → 0012).** 20 domain tables are live and verified against a running database on 19 Sep 2026 (`alembic current` = head; 41 foreign keys, 36 named CHECK constraints, 75 indexes, 20 PostgreSQL enum types, RLS on every table, PostGIS geography on 5 tables). Beyond the P2 spine this adds `refresh_tokens` (0003), `route_review_authorizations` (0007), `emergencies` (0010), `stored_files` (0011) and `driver_notifications` (0012). The financial and standalone environmental entities (`payments`, `expenses`, `payroll`, `deliveries`, `alerts`, `road_incidents`, `weather_events`) remain design-only and arrive with the phases that use them. The one-page current schema with an ER diagram is `docs/DAY2_TASK1_ER_DIAGRAM.md`. §13 states exactly what exists. Tables are introduced phase by phase per
 [DEVELOPMENT_ROADMAP.md](DEVELOPMENT_ROADMAP.md).
 
 ---
@@ -457,6 +453,23 @@ Implemented and tested against isolated cluster `127.0.0.1:55432/ner_logistics_t
 - PostgreSQL enum types `emergency_state` and `driver_check_response`
 - Row Level Security (RLS) enabled on `emergencies`
 
+### Migrations 0003 - 0012 (the rest of the chain, all applied)
+
+| Migration | What it adds | Enforced by |
+| --- | --- | --- |
+| `0003_refresh_tokens` | `refresh_tokens` - rotating session tokens with `family_id`, `replaced_by_id`, `revoked_at`, `ip_address` | `uq_refresh_tokens_hash`, `ck_refresh_expiry_after_issue` |
+| `0004_audit_actor_restrict` | `audit_logs.actor_user_id` → `users.id` ON DELETE RESTRICT (an actor cannot vanish from history) | FK |
+| `0005_trip_event_location_null` | `trip_events.location` nullable (an operational event need not carry a fix) | column change |
+| `0006_current_assignment_unique` | one OPEN pairing per driver and per truck | partial unique indexes `uq_current_assignment_driver/truck` |
+| `0007_route_review_authorizations` | `route_review_authorizations` - single-use, expiring authorisation to select a REQUIRES_REVIEW route; enum `route_review_basis` | `uq_rra_one_live_per_route` (partial), 5 CHECKs (rationale ≥ 20 chars, expiry, consumed/revoked exclusivity and completeness) |
+| `0008_trip_driver_acceptance` | `trips.driver_accepted_at`, `trips.driver_accepted_by` | FK → `drivers` |
+| `0009_route_maneuvers` | `trip_routes.maneuvers` JSONB (turn-by-turn for the driver's offline package) | column |
+| `0010_emergencies` | `emergencies`; enums `emergency_state`, `driver_check_response` | `uq_open_emergency_per_trip` (partial), FK → `gps_points` |
+| `0011_files_verification` | `stored_files` (private BYTEA files ≤ 5 MiB) and `driver_truck_assignments.verification_source` | `ck_stored_files_size` |
+| `0012_push_notifications` | `drivers.push_token`, `driver_notifications` (push/notice log with de-duplication fingerprint) | `ix_driver_notifications_fingerprint` |
+
+`tests/test_schema_drift.py::test_no_drift_between_models_and_database` fails whenever the SQLAlchemy models and the Alembic head disagree.
+
 Still not implemented, deliberately: `road_incidents`, `weather_events`, `payments`, `expenses`,
 `payroll`, `deliveries`, `alerts`. Each arrives with the phase that uses it.
 
@@ -473,5 +486,4 @@ against **Supabase** (PostgreSQL 17.6, PostGIS 3.3):
    end-to-end rather than merely installed.
 3. `ALTER TABLE system_info ENABLE ROW LEVEL SECURITY` - see the RLS rule in section 1.
 
-No domain table above exists yet. Phase P2 introduces `users`, `drivers`, `trucks` and
-`driver_truck_assignments` — see [DEVELOPMENT_ROADMAP.md](DEVELOPMENT_ROADMAP.md).
+Every domain table above was introduced by the later migrations (0002 - 0012); this bootstrap only proves PostGIS and RLS work on both providers.

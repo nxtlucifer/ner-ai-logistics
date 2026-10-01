@@ -7,6 +7,9 @@ from typing import Annotated, Literal
 from pydantic import Field
 
 from app.models.enums import UserRole
+
+#: One floor for every sign-in a person gets. Matches scripts/create_user.py.
+MIN_PASSWORD_LENGTH = 8
 from app.schemas.common import APIModel, ReadModel
 
 #: How the caller will hold its refresh token. Declared by the client, never
@@ -27,6 +30,10 @@ from app.schemas.common import APIModel, ReadModel
 #: neither. See docs/SECURITY.md section 1.
 ClientKind = Literal["web", "mobile"]
 
+#: Which console the person is asking for. Checked against the account, not
+#: trusted from it.
+Workspace = Literal["NORTH_EAST", "STATE", "DISTRICT"]
+
 
 class LoginRequest(APIModel):
     """Email for managers, phone for drivers - one field, resolved server-side.
@@ -39,6 +46,20 @@ class LoginRequest(APIModel):
     identifier: Annotated[str, Field(min_length=3, max_length=255)]
     password: Annotated[str, Field(min_length=8, max_length=200)]
     client: ClientKind = "web"
+
+    # --- Workspace, which is a HINT and never a grant --------------------
+    #
+    # The picker on the login page tells the server which console the person
+    # believes they are signing in to. The server checks it against the
+    # account's real scope and refuses a mismatch with the same generic
+    # error as a wrong password - because a distinct message would turn the
+    # form into an oracle for "which state is this address a manager of".
+    #
+    # Sending nothing skips the check entirely, so every existing client,
+    # the driver app included, keeps working unchanged.
+    workspace: Workspace | None = None
+    workspace_state_id: uuid.UUID | None = None
+    workspace_district_id: uuid.UUID | None = None
 
 
 class RefreshRequest(APIModel):
@@ -64,6 +85,14 @@ class AuthenticatedUser(ReadModel):
     display_name: str
     email: str | None
     phone: str | None
+    #: Administrative scope, for a manager the hierarchy applies to. Null for
+    #: ADMIN, DRIVER and the pre-existing fleet-wide MANAGER.
+    state_id: uuid.UUID | None = None
+    district_id: uuid.UUID | None = None
+    #: True while the account still holds the temporary password it was
+    #: created with. Every route except the password change refuses, so the
+    #: client must send the user straight to that screen.
+    must_reset_password: bool = False
 
 
 class TokenResponse(ReadModel):
@@ -96,3 +125,16 @@ class MeResponse(ReadModel):
 
     user: AuthenticatedUser
     permissions: list[str]
+
+
+class PasswordChange(APIModel):
+    """Change your own password.
+
+    `current_password` is required even when the account is in the forced
+    reset: a phone left unlocked on a seat must not be enough to take over an
+    account, and the temporary password is exactly the credential most likely
+    to have been read over someone's shoulder.
+    """
+
+    current_password: Annotated[str, Field(min_length=1, max_length=200)]
+    new_password: Annotated[str, Field(min_length=MIN_PASSWORD_LENGTH, max_length=200)]

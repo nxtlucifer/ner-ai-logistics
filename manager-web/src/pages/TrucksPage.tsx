@@ -1,21 +1,20 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { Camera, Plus, Truck as TruckIcon } from 'lucide-react'
 
 import AssignTruckDialog from '../components/AssignTruckDialog'
 
 import { api, type Truck, fieldErrors as fieldErrorsOf, unavailableReason } from '../api/client'
 import { useAuth } from '../auth/AuthProvider'
 import AuthImage from '../components/AuthImage'
-import {
-  Button,
-  Card,
-  EmptyState,
-  ErrorState,
-  Field,
-  LoadingState,
-  StatusPill,
-} from '../components/ui'
+import { ActionButton, InlineError, PageHeader, Quiet, STACK, SearchInput, TH } from '../components/pageKit'
+import { Field, LoadingState, Panel, Spinner, StatusPill } from '../components/ui'
 import { useMutation, useResource } from '../hooks/useResource'
+import { heldBy } from './planValidation'
+
+/** Trip states that commit a driver to a truck: the server refuses a pairing
+ *  change only for these (backend/app/domain/trip_state.py). */
+const COMMITTED = new Set(['ACTIVE', 'DELAYED', 'INCIDENT', 'DELIVERED'])
 
 const BLANK = {
   registration_number: '',
@@ -42,7 +41,9 @@ export default function TrucksPage() {
   // the pairing itself is changed from the driver's profile.
   const assignments = useResource(() => api.listAssignments({ activeOnly: true }), [], 'assignments:active')
   const drivers = useResource(() => api.listDrivers({ limit: 100 }), [], 'drivers:100')
-  const trips = useResource(() => api.listTrips({ limit: 50 }), [], 'trips:50')
+  // Every open trip, the list the planner reads (same query, same cache): a
+  // draft reserves its truck there, so it must here too.
+  const trips = useResource(() => api.listTrips({ open_only: true, limit: 100 }), [], 'trips:open:100')
   const driverFor = (truckId: string) => {
     const live = assignments.data?.find((a) => a.truck_id === truckId && (a.status === 'ACTIVE' || a.status === 'PENDING_VERIFICATION'))
     if (!live) return null
@@ -63,7 +64,21 @@ export default function TrucksPage() {
       setEndingId(null)
     }
   }
-  const tripFor = (truckId: string) => trips.data?.items.find((t) => t.truck_id === truckId && ['ASSIGNED', 'VERIFICATION_PENDING', 'ACTIVE', 'DELAYED'].includes(t.status)) ?? null
+  const tripFor = (truckId: string) => heldBy(trips.data?.items, { truckId })
+
+  // A reference photo upload, one row at a time: it says it is working and
+  // says when it failed (audit 11.3 D6 - failures used to vanish).
+  const [photo, setPhoto] = useState<{ id: string; error?: unknown } | null>(null)
+  async function uploadPhoto(truck: Truck, file: File) {
+    setPhoto({ id: truck.id })
+    try {
+      await api.uploadTruckPhoto(truck.id, file)
+      setPhoto(null)
+      trucks.reload()
+    } catch (error) {
+      setPhoto({ id: truck.id, error })
+    }
+  }
 
   const create = useMutation(async (payload: typeof BLANK) => {
     const body: Record<string, unknown> = {
@@ -114,39 +129,39 @@ export default function TrucksPage() {
   }
 
   const canCreate = can('truck:create')
+  const rows = trucks.data?.items ?? []
+  const headerNote = [canCreate ? addBlocked : null, can('truck:retire') && retireBlocked ? `Retire: ${retireBlocked}` : null].filter(Boolean).join(' · ')
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-ink">Trucks</h1>
-          <p className="text-xs text-muted">
+    <div className="flex flex-col gap-[14px]">
+      <PageHeader
+        title="Trucks"
+        meta={
+          <>
             Capacity is a safety limit enforced by the database. Pair a truck with a driver from the driver's profile;{' '}
-            <Link to="/assignments" className="text-route hover:underline">assignment records</Link> keep the history.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search registration"
-            className="w-56 rounded-[var(--radius-control)] border border-outline bg-surface px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-route focus:ring-1 focus:ring-route"
-          />
-          {canCreate ? (
-            <Button
-              onClick={() => setShowForm((v) => !v)}
-              variant="secondary"
-              disabled={addBlocked !== null}
-              title={addBlocked ?? undefined}
-            >
-              {showForm ? 'Cancel' : 'Add truck'}
-            </Button>
-          ) : null}
-        </div>
-      </div>
+            <Link to="/assignments" className="font-medium text-ink underline underline-offset-2 hover:text-accent">assignment records</Link> keep the history.
+          </>
+        }
+        actions={
+          <>
+            <SearchInput value={search} onChange={setSearch} placeholder="Search registration" label="Search trucks by registration" />
+            {canCreate ? (
+              <ActionButton
+                icon={showForm ? undefined : Plus}
+                onClick={() => setShowForm((v) => !v)}
+                disabled={addBlocked !== null}
+                title={addBlocked ?? undefined}
+              >
+                {showForm ? 'Cancel' : 'Add truck'}
+              </ActionButton>
+            ) : null}
+          </>
+        }
+        note={headerNote || null}
+      />
 
       {showForm && canCreate ? (
-        <Card title="New truck">
+        <Panel title="New Truck" subtitle="The capacity is the most a trip on this truck may carry.">
           <div className="grid gap-3 sm:grid-cols-2">
             <Field
               label="Registration number"
@@ -198,147 +213,171 @@ export default function TrucksPage() {
             />
           </div>
 
-          {create.error && !Object.keys(fieldErrors).length ? (
-            <div className="mt-3">
-              <ErrorState error={create.error} />
-            </div>
-          ) : null}
+          {create.error && !Object.keys(fieldErrors).length ? <InlineError compact error={create.error} /> : null}
 
-          <div className="mt-4 flex gap-2">
-            <Button onClick={handleCreate} busy={create.isSubmitting}>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <ActionButton variant="primary" onClick={handleCreate} busy={create.isSubmitting}>
               {create.isSubmitting ? 'Creating…' : 'Create truck'}
-            </Button>
-            <Button variant="secondary" onClick={() => setShowForm(false)}>
-              Cancel
-            </Button>
+            </ActionButton>
+            <ActionButton onClick={() => setShowForm(false)}>Cancel</ActionButton>
           </div>
-        </Card>
+        </Panel>
       ) : null}
 
-      <Card>
+      <Panel
+        title="Fleet Register"
+        subtitle={
+          trucks.data
+            ? `${search ? `Matching “${search}” · ` : ''}${rows.length} truck${rows.length === 1 ? '' : 's'}${trucks.data.next_cursor ? ' shown, more exist · search to narrow' : ''}`
+            : 'Registration, capacity, and who holds each truck'
+        }
+      >
         {trucks.status === 'loading' ? (
           <LoadingState label="Loading trucks…" />
         ) : trucks.status === 'error' ? (
-          <ErrorState error={trucks.error} onRetry={trucks.reload} />
-        ) : trucks.data && trucks.data.items.length === 0 ? (
-          <EmptyState
+          <InlineError what="Trucks could not be loaded" error={trucks.error} onRetry={trucks.reload} />
+        ) : trucks.data && rows.length === 0 ? (
+          <Quiet
+            icon={TruckIcon}
             title={search ? 'No trucks match that search' : 'No trucks yet'}
-            description={
-              search
-                ? 'Try a different registration number.'
-                : 'Add your first truck to start building the fleet.'
-            }
             action={
               !search && canCreate ? (
-                <Button
+                <ActionButton
+                  variant="primary"
+                  icon={Plus}
                   onClick={() => setShowForm(true)}
                   disabled={addBlocked !== null}
                   title={addBlocked ?? undefined}
                 >
                   Add truck
-                </Button>
+                </ActionButton>
               ) : null
             }
-          />
+          >
+            {search ? 'Try a different registration number.' : 'Add your first truck to start building the fleet.'}
+          </Quiet>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="text-xs uppercase tracking-wide text-muted">
+          <div className="relative -mx-4 overflow-x-auto px-4">
+            <table className={STACK.table}>
+              <thead className={STACK.head}>
                 <tr>
-                  <th className="pb-2 font-medium">Registration</th>
-                  <th className="pb-2 font-medium">Type</th>
-                  <th className="pb-2 font-medium">Capacity</th>
-                  <th className="pb-2 font-medium">Status</th>
-                  <th className="pb-2 font-medium">Assigned driver</th>
-                  <th className="pb-2 font-medium">Current trip</th>
-                  <th className="pb-2" />
+                  <th className={TH}>Registration</th>
+                  <th className={TH}>Capacity</th>
+                  <th className={TH}>Status</th>
+                  <th className={TH}>Assigned driver</th>
+                  <th className={TH}>Current trip</th>
+                  <th className={TH}><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-line">
-                {trucks.data?.items.map((truck) => {
+              <tbody className={STACK.body}>
+                {rows.map((truck) => {
                   const holder = driverFor(truck.id)
                   const open = tripFor(truck.id)
-                  // The truck's own status is authoritative: the trips list is
-                  // the newest 50, and a long-running trip ages out of it.
-                  const busy = open !== null || truck.status === 'ON_TRIP'
-                  const busyWhy = open ? `On ${open.trip_code}` : 'On a trip'
+                  // The truck's own status is authoritative: the open list is
+                  // the first 100 in the caller's scope, and a truck can be on
+                  // a trip outside it.
+                  const busyWhy = open ? `${open.status === 'DRAFT' ? 'Reserved by' : 'On'} ${open.trip_code}` : 'On a trip'
+                  // The server lets a pairing change until the trip commits the
+                  // driver to the truck (backend/app/domain/trip_state.py
+                  // COMMITS_DRIVER_TO_TRUCK); a draft only reserves them.
+                  const pairLocked = truck.status === 'ON_TRIP' || (open !== null && COMMITTED.has(open.status))
+                  const reservedNote = open && !pairLocked ? ` · ${open.status.toLowerCase()} ${open.trip_code} holds this truck` : ''
+                  const canPair = can('assignment:create') && assignments.status === 'success' && truck.status !== 'RETIRED'
+                  const canEnd = can('assignment:end') && holder !== null
+                  const canRetire = can('truck:retire')
+                  // The tooltips' reason, as text, under the trip that causes it.
+                  const why = !(canPair || canEnd || canRetire)
+                    ? null
+                    : pairLocked
+                      ? 'Locked until that trip ends'
+                      : open && canRetire
+                        ? 'Retire waits for that trip; the pairing can still change'
+                        : null
+                  const uploading = photo?.id === truck.id && !photo.error
+                  // Make and model (or the type) under the plate, when recorded: a
+                  // column of its own was all dashes and pushed the row actions out
+                  // of the card on a laptop.
+                  const kind = [truck.make, truck.model].filter(Boolean).join(' ') || truck.truck_type
                   return (
-                  <tr key={truck.id}>
-                    <td className="py-3 font-mono font-medium text-ink">
-                      <span className="inline-flex items-center gap-2">
+                  <tr key={truck.id} className={STACK.row}>
+                    <td className={STACK.lead}>
+                      <span className="inline-flex items-center gap-3">
                         <AuthImage src={truck.photo_url} alt={`${truck.registration_number} photo`} className="h-10 w-14 rounded-md" label="reference" />
-                        {truck.registration_number}
-                        {can('truck:update') ? (
-                          <label className="cursor-pointer text-[11px] font-normal text-route hover:underline">
-                            photo
-                            <input type="file" accept="image/jpeg,image/png" className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; if (f) void api.uploadTruckPhoto(truck.id, f).then(() => trucks.reload()) }} />
-                          </label>
-                        ) : null}
+                        <span className="inline-flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                          <span className="font-mono font-semibold text-ink">{truck.registration_number}</span>
+                          {can('truck:update') ? (
+                            <label className={`inline-flex min-h-7 items-center gap-1 rounded-[6px] border border-line bg-surface px-2 text-xs font-semibold text-ink hover:border-outline hover:bg-soft focus-within:ring-2 focus-within:ring-route ${uploading ? 'pointer-events-none' : 'cursor-pointer'}`}>
+                              {uploading ? <Spinner /> : <Camera className="size-3.5" aria-hidden="true" />}
+                              {uploading ? 'Uploading…' : truck.photo_url ? 'Replace photo' : 'Photo'}
+                              <input
+                                type="file"
+                                accept="image/jpeg,image/png"
+                                className="sr-only"
+                                disabled={uploading}
+                                aria-label={`Upload a reference photo for ${truck.registration_number}`}
+                                onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void uploadPhoto(truck, f) }}
+                              />
+                            </label>
+                          ) : null}
+                          {kind ? <span className="basis-full text-xs text-muted">{kind}</span> : null}
+                        </span>
                       </span>
+                      {photo?.id === truck.id && photo.error ? <InlineError compact what="The photo was not saved" error={photo.error} /> : null}
                     </td>
-                    <td className="py-3 text-muted">
-                      {[truck.make, truck.model].filter(Boolean).join(' ') ||
-                        truck.truck_type || (
-                          <span className="text-muted">—</span>
-                        )}
-                    </td>
-                    <td className="py-3 tabular-nums text-muted">
+                    <td className={`${STACK.cell} tnum whitespace-nowrap text-ink`} data-label="Capacity">
                       {Number(truck.max_capacity_kg).toLocaleString()} kg
                     </td>
-                    <td className="py-3">
+                    <td className={STACK.cell} data-label="Status">
                       <StatusPill status={truck.status} />
                     </td>
-                    <td className="py-3 text-xs">
+                    <td className={`${STACK.cell} text-[13px]`} data-label="Assigned driver">
                       {assignments.status === 'success' ? (
                         holder ? (
                           <span className="text-ink">
                             {holder.name}
-                            <span className={`block text-[11px] ${holder.mismatch ? 'text-warning' : holder.verified ? 'text-ok' : 'text-muted'}`}>
+                            <span className={`block text-xs ${holder.mismatch ? 'text-warning' : holder.verified ? 'text-ok' : 'text-muted'}`}>
                               {holder.mismatch ? 'plate mismatch — needs review' : holder.verified ? 'truck verified by driver' : 'awaiting driver check'}
                             </span>
                           </span>
                         ) : <span className="text-muted">none</span>
                       ) : <span className="text-muted">—</span>}
                     </td>
-                    <td className="py-3 text-xs">
-                      {trips.status === 'success' ? (open ? <span className="text-ink">{open.trip_code} <span className="text-muted">· {open.status.replaceAll('_', ' ').toLowerCase()}</span></span> : truck.status === 'ON_TRIP' ? <span className="text-ink">on a trip <span className="text-muted">· older than the newest 50</span></span> : <span className="text-muted">none</span>) : <span className="text-muted">—</span>}
+                    <td className={`${STACK.cell} text-[13px]`} data-label="Current trip">
+                      {trips.status === 'success' ? (open ? <span className="text-ink">{open.status === 'DRAFT' ? 'Reserved by ' : ''}{open.trip_code} <span className="text-muted">· {open.status.replaceAll('_', ' ').toLowerCase()}</span></span> : truck.status === 'ON_TRIP' ? <span className="text-ink">on a trip <span className="text-muted">· not in your open trip list</span></span> : <span className="text-muted">none</span>) : <span className="text-muted">—</span>}
+                      {/* Why the buttons at the end of the row are shut, beside the trip that shuts them. */}
+                      {why ? <span className="block text-xs text-muted">{why}</span> : null}
                     </td>
-                    <td className="py-3 text-right">
-                      <div className="flex flex-wrap justify-end gap-2">
-                      {can('assignment:create') && assignments.status === 'success' && truck.status !== 'RETIRED' ? (
-                        <Button
-                          variant={holder ? 'secondary' : 'primary'}
-                          className="min-h-9 px-2 py-1 text-xs"
-                          disabled={busy}
-                          title={busy ? `${busyWhy} — the pairing cannot change until it ends` : holder ? 'Move this truck to another driver - the current pairing ends in the same step' : 'Pair a driver with this truck'}
+                    <td className={STACK.actions}>
+                      <div className={STACK.actionRow}>
+                      {canPair ? (
+                        <ActionButton
+                          disabled={pairLocked}
+                          title={pairLocked ? `${busyWhy} — the pairing cannot change until it ends` : (holder ? 'Move this truck to another driver - the current pairing ends in the same step' : 'Pair a driver with this truck') + reservedNote}
                           onClick={() => setAssignFor(truck.id)}
                         >
                           {holder ? 'Change driver' : 'Assign driver'}
-                        </Button>
+                        </ActionButton>
                       ) : null}
-                      {can('assignment:end') && holder ? (
-                        <Button
-                          variant="secondary"
-                          className="min-h-9 px-2 py-1 text-xs"
+                      {canEnd ? (
+                        <ActionButton
                           busy={endingId === truck.id}
-                          disabled={busy || endingId !== null}
-                          title={busy ? `${busyWhy} — cannot end while the trip is open` : 'Free this truck and its driver from each other'}
+                          disabled={pairLocked || (endingId !== null && endingId !== truck.id)}
+                          title={pairLocked ? `${busyWhy} — cannot end while the trip is under way` : 'Free this truck and its driver from each other' + reservedNote}
                           onClick={() => void handleEndAssignment(truck)}
                         >
                           End assignment
-                        </Button>
+                        </ActionButton>
                       ) : null}
-                      {can('truck:retire') ? (
-                        <Button
+                      {canRetire ? (
+                        <ActionButton
                           variant="danger"
-                          className="min-h-9 px-2 py-1 text-xs"
                           onClick={() => handleRetire(truck)}
                           busy={retire.isSubmitting}
                           disabled={retireBlocked !== null || truck.status === 'ON_TRIP' || open !== null}
-                          title={retireBlocked ?? (open ? `On ${open.trip_code} — finish or cancel it first` : 'Removes the truck from the active fleet. Trip history is kept.')}
+                          title={retireBlocked ?? (open ? `${busyWhy} — finish or cancel it first` : 'Removes the truck from the active fleet. Trip history is kept.')}
                         >
                           Retire
-                        </Button>
+                        </ActionButton>
                       ) : null}
                       </div>
                     </td>
@@ -350,17 +389,9 @@ export default function TrucksPage() {
           </div>
         )}
 
-        {retire.error ? (
-          <div className="mt-3">
-            <ErrorState error={retire.error} />
-          </div>
-        ) : null}
-        {endAssignment.error ? (
-          <div className="mt-3">
-            <ErrorState error={endAssignment.error} />
-          </div>
-        ) : null}
-      </Card>
+        {retire.error ? <InlineError compact what="The truck was not retired" error={retire.error} /> : null}
+        {endAssignment.error ? <InlineError compact what="The assignment did not end" error={endAssignment.error} /> : null}
+      </Panel>
       {assignFor ? (
         <AssignTruckDialog truckId={assignFor} onClose={() => setAssignFor(null)} onChanged={() => { assignments.reload(); drivers.reload(); trucks.reload() }} />
       ) : null}

@@ -2,7 +2,7 @@
 
 Two layers, deliberately:
 
-  unit        `FixedWindowLimiter` with an INJECTED clock, so window expiry is
+  unit        `GcraLimiter` with an INJECTED clock, so window expiry is
               stepped through rather than slept through (TESTING_STRATEGY §0.5).
   integration the real endpoints, so the thing being proven is what a caller
               actually meets - status, envelope, and the Retry-After header.
@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import auth as auth_api
 from app.core.config import get_settings
-from app.core.rate_limit import FixedWindowLimiter
+from app.core.rate_limit import GcraLimiter
 from app.models.enums import UserRole
 from tests import factories
 from tests.conftest import auth_headers
@@ -29,18 +29,18 @@ from tests.conftest import auth_headers
 BASE = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 
 
-class TestFixedWindowLimiter:
+class TestGcraLimiter:
     """Pure logic. No database, no HTTP, no sleeping."""
 
     def test_allows_up_to_the_limit(self) -> None:
-        limiter = FixedWindowLimiter(limit=3, window=timedelta(seconds=60))
+        limiter = GcraLimiter(limit=3, window=timedelta(seconds=60))
         for i in range(3):
             decision = limiter.check("k", now=BASE + timedelta(seconds=i))
             assert decision.allowed, f"attempt {i + 1} of 3 should be allowed"
             assert decision.used == i + 1
 
     def test_refuses_past_the_limit(self) -> None:
-        limiter = FixedWindowLimiter(limit=2, window=timedelta(seconds=60))
+        limiter = GcraLimiter(limit=2, window=timedelta(seconds=60))
         limiter.check("k", now=BASE)
         limiter.check("k", now=BASE)
         decision = limiter.check("k", now=BASE)
@@ -50,7 +50,7 @@ class TestFixedWindowLimiter:
 
     def test_retry_after_is_never_zero(self) -> None:
         """A Retry-After of 0 invites the immediate retry being limited."""
-        limiter = FixedWindowLimiter(limit=1, window=timedelta(seconds=60))
+        limiter = GcraLimiter(limit=1, window=timedelta(seconds=60))
         limiter.check("k", now=BASE)
         # Right at the last instant of the window.
         decision = limiter.check("k", now=BASE + timedelta(seconds=59, milliseconds=999))
@@ -58,20 +58,20 @@ class TestFixedWindowLimiter:
         assert decision.retry_after >= 1
 
     def test_the_window_reopens(self) -> None:
-        limiter = FixedWindowLimiter(limit=1, window=timedelta(seconds=60))
+        limiter = GcraLimiter(limit=1, window=timedelta(seconds=60))
         assert limiter.check("k", now=BASE).allowed
         assert not limiter.check("k", now=BASE + timedelta(seconds=30)).allowed
         assert limiter.check("k", now=BASE + timedelta(seconds=60)).allowed
 
     def test_keys_are_isolated(self) -> None:
         """One caller exhausting their budget must not lock out everyone else."""
-        limiter = FixedWindowLimiter(limit=1, window=timedelta(seconds=60))
+        limiter = GcraLimiter(limit=1, window=timedelta(seconds=60))
         assert limiter.check("a", now=BASE).allowed
         assert not limiter.check("a", now=BASE).allowed
         assert limiter.check("b", now=BASE).allowed, "b was punished for a's attempts"
 
     def test_reset_clears_one_key_only(self) -> None:
-        limiter = FixedWindowLimiter(limit=1, window=timedelta(seconds=60))
+        limiter = GcraLimiter(limit=1, window=timedelta(seconds=60))
         limiter.check("a", now=BASE)
         limiter.check("b", now=BASE)
         limiter.reset("a")
@@ -80,7 +80,7 @@ class TestFixedWindowLimiter:
 
     def test_a_limited_key_stays_limited_while_it_keeps_trying(self) -> None:
         """Hammering must not be rewarded with a fresh window."""
-        limiter = FixedWindowLimiter(limit=1, window=timedelta(seconds=60))
+        limiter = GcraLimiter(limit=1, window=timedelta(seconds=60))
         limiter.check("k", now=BASE)
         for second in range(1, 30):
             assert not limiter.check("k", now=BASE + timedelta(seconds=second)).allowed
@@ -89,7 +89,7 @@ class TestFixedWindowLimiter:
         """The limiter must not become the memory exhaustion it prevents."""
         from app.core.rate_limit import MAX_TRACKED_KEYS
 
-        limiter = FixedWindowLimiter(limit=1, window=timedelta(seconds=60))
+        limiter = GcraLimiter(limit=1, window=timedelta(seconds=60))
         for i in range(MAX_TRACKED_KEYS + 50):
             limiter.check(f"k{i}", now=BASE)
         # All still inside the window, so nothing is pruned yet.

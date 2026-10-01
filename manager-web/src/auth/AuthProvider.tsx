@@ -22,6 +22,7 @@ import {
   setAccessToken,
   setUnauthenticatedHandler,
   type AuthenticatedUser,
+  type WorkspaceChoice,
 } from '../api/client'
 import { clearCache } from '../api/connectivity'
 
@@ -35,7 +36,19 @@ import { clearCache } from '../api/connectivity'
 // The authorised reviewer is a console user by design (Review screen): they
 // hold trip:read / route:read / route:review_authorize and nothing else, and
 // the nav + Guarded routes already scope them. Drivers stay refused.
-export const CONSOLE_ROLES: readonly string[] = ['MANAGER', 'ADMIN', 'AUTHORISED_REVIEWER']
+export const CONSOLE_ROLES: readonly string[] = [
+  'MANAGER',
+  'ADMIN',
+  'AUTHORISED_REVIEWER',
+  // The scoped hierarchy. Every one of these is a console account whose
+  // reach is decided by app/core/scope.py, not by this list - leaving them
+  // out did not restrict anything, it simply refused them the door while
+  // the server was happily answering their requests. A browser run caught
+  // it: "Manager account required." on a valid North-East Manager.
+  'NORTH_EAST_MANAGER',
+  'STATE_MANAGER',
+  'DISTRICT_MANAGER',
+]
 export const MANAGER_ACCOUNT_REQUIRED = 'Manager account required.'
 
 export class ManagerAccountRequiredError extends Error {
@@ -62,7 +75,13 @@ interface AuthState {
   isInitialising: boolean
   /** Why the last restore/login was refused by this console (role), if it was. */
   deniedReason: string | null
-  login: (identifier: string, password: string) => Promise<void>
+  login: (
+    identifier: string,
+    password: string,
+    /** The console the person asked for. A hint the server
+     *  verifies against the account; it can only refuse. */
+    workspace?: WorkspaceChoice,
+  ) => Promise<void>
   logout: () => Promise<void>
   can: (permission: string) => boolean
 }
@@ -123,8 +142,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [clear])
 
-  const login = useCallback(async (identifier: string, password: string) => {
-    const result = await api.login(identifier, password)
+  const login = useCallback(async (identifier: string, password: string, workspace?: WorkspaceChoice) => {
+    const result = await api.login(identifier, password, workspace)
     setAccessToken(result.access_token)
     try {
       const me = await consoleIdentity()

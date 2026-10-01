@@ -22,10 +22,18 @@ from app.domain.weather import (
     WeatherRejected,
     WeatherUnavailable,
 )
-from app.services.weather import OpenMeteoWeatherProvider
+from app.services.weather import OpenMeteoWeatherProvider, open_meteo
 
 GUWAHATI = (26.1445, 91.7362)
 BASE = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _no_weather_cache():
+    """Every test here asks about GUWAHATI with a different canned answer."""
+    open_meteo._cache.clear()
+    yield
+    open_meteo._cache.clear()
 
 
 def _body(**overrides) -> dict:
@@ -300,3 +308,36 @@ class TestMetNorwayFallback:
 
         with pytest.raises(WeatherUnavailable):
             await self._current(monkeypatch, handler)
+
+
+async def test_a_point_is_asked_once_per_ttl_and_a_failure_is_not_remembered(monkeypatch) -> None:
+    calls: list[int] = []
+    status = [503]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(status[0])
+        return httpx.Response(status[0], json=_body())
+
+    transport = httpx.MockTransport(handler)
+    real_init = httpx.AsyncClient.__init__
+
+    def patched(self, *args, **kwargs):
+        kwargs["transport"] = transport
+        real_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(httpx.AsyncClient, "__init__", patched)
+    provider = OpenMeteoWeatherProvider("https://weather.test", name="om-test")
+
+    with pytest.raises(WeatherUnavailable):
+        await provider.current(*GUWAHATI)
+    status[0] = 200
+    first = await provider.current(*GUWAHATI)  # the 503 was not cached
+    again = await provider.current(26.1447, 91.7359)  # same ~1 km cell
+    assert again is first
+    assert calls == [503, 200]
+
+    key = (round(GUWAHATI[0], 2), round(GUWAHATI[1], 2))
+    stamped, observation = open_meteo._cache[key]
+    open_meteo._cache[key] = (stamped - open_meteo.CACHE_TTL_SECONDS, observation)
+    await provider.current(*GUWAHATI)  # expired: asked again
+    assert calls == [503, 200, 200]

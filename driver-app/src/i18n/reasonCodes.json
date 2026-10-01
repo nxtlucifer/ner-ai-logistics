@@ -140,9 +140,9 @@
     },
     "LANDSLIDE_DATA_NOT_CONFIGURED": {
       "speak": false,
-      "en": "Landslide data is not available - no source is connected.",
-      "hi": "भूस्खलन का डेटा उपलब्ध नहीं है - कोई स्रोत जुड़ा नहीं है।",
-      "as": "ভূমিস্খলনৰ তথ্য নাই - কোনো উৎস সংযোগ কৰা হোৱা নাই।"
+      "en": "Live landslide reports are not available - no source is connected.",
+      "hi": "भूस्खलन की ताज़ा रिपोर्ट उपलब्ध नहीं है - कोई स्रोत जुड़ा नहीं है।",
+      "as": "ভূমিস্খলনৰ শেহতীয়া প্ৰতিবেদন নাই - কোনো উৎস সংযোগ কৰা হোৱা নাই।"
     },
     "LANDSLIDE_INCIDENT_LOCATION_UNKNOWN": {
       "speak": false,
@@ -527,6 +527,12 @@
       "en": "Official disaster alerts could not be checked for this route.",
       "hi": "इस मार्ग के लिए आधिकारिक आपदा चेतावनियाँ जाँची नहीं जा सकीं।",
       "as": "এই পথৰ বাবে চৰকাৰী দুৰ্যোগ সতৰ্কবাণী পৰীক্ষা কৰিব পৰা নগ'ল।"
+    },
+    "INDIA_BASE_ROUTING": {
+      "speak": false,
+      "en": "Part of this route is outside North-East coverage, where hazard data is limited. Treat that part as unchecked, not as safe.",
+      "hi": "इस मार्ग का कुछ हिस्सा पूर्वोत्तर कवरेज से बाहर है, जहाँ खतरे की जानकारी सीमित है। उस हिस्से को सुरक्षित नहीं, अनजांचा मानें।",
+      "as": "এই পথৰ কিছু অংশ উত্তৰ-পূৱৰ আওতাৰ বাহিৰত, য'ত বিপদৰ তথ্য সীমিত। সেই অংশ নিৰাপদ নহয়, পৰীক্ষা নকৰা বুলি ধৰক।"
     }
   }
 }

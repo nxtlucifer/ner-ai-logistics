@@ -36,6 +36,12 @@ class Truck(TimestampMixin, SoftDeleteMixin, Base):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     registration_number: Mapped[str] = mapped_column(sa.String(20), nullable=False)
+    #: What the yard calls this truck - "Hill Runner 2", "the blue Tata".
+    #: NOT unique and NOT a replacement for the registration: the plate is
+    #: the legal identity and stays on every screen that needs to identify
+    #: the vehicle to somebody outside the company. This is for the screens
+    #: where a human is picking one truck out of six.
+    display_name: Mapped[str | None] = mapped_column(sa.String(60), nullable=True)
     photo_url: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     truck_type: Mapped[str | None] = mapped_column(sa.String(40), nullable=True)
     make: Mapped[str | None] = mapped_column(sa.String(60), nullable=True)

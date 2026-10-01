@@ -146,43 +146,9 @@ describe('supabaseManagerApi', () => {
     })
   })
 
-  it('delegates planTrip to public.plan_trip RPC', async () => {
-    const mockRpc = vi.fn().mockResolvedValue({
-      data: {
-        id: 't-123',
-        trip_code: 'TRP-TEST',
-        status: 'DRAFT',
-      },
-      error: null,
-    })
-
-    vi.spyOn(supabaseClient, 'getSupabase').mockReturnValue({
-      rpc: mockRpc,
-    } as any)
-
-    const payload: any = {
-      shipment: { client_name: 'Test Client', pickup: { lat: 26, lon: 91 }, destination: { lat: 26.5, lon: 92 } },
-      trip: { trip_code: 'TRP-TEST', truck_id: 'truck-1', driver_id: 'driver-1' },
-    }
-
-    const result = await supabaseManagerApi.planTrip(payload)
-    expect(mockRpc).toHaveBeenCalledWith('plan_trip', { p_payload: payload })
-    expect(result.id).toBe('t-123')
-    expect(result.status).toBe('DRAFT')
-  })
-
-  it('handles planTrip RPC errors gracefully', async () => {
-    const mockRpc = vi.fn().mockResolvedValue({
-      data: null,
-      error: { message: 'Cargo weight exceeds truck capacity' },
-    })
-
-    vi.spyOn(supabaseClient, 'getSupabase').mockReturnValue({
-      rpc: mockRpc,
-    } as any)
-
-    await expect(supabaseManagerApi.planTrip({} as any)).rejects.toThrow('Cargo weight exceeds truck capacity')
-  })
+  // planTrip no longer calls public.plan_trip, which checks no geography
+  // (P1R-15): it runs on the intelligence plane or refuses. Pinned in
+  // supabasePlanning.test.ts, with planRoute (RG-7).
 
   it('delegates dispatchTrip to public.dispatch_trip RPC', async () => {
     const mockRpc = vi.fn().mockResolvedValue({

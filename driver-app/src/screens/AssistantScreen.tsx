@@ -25,9 +25,14 @@
  * IT CANNOT ACT. `AllowedAction` is a closed set of navigation targets, a
  * break record on this phone, and the dialler on 112 (the driver still
  * presses call). There is no reroute, no trip close, no dispatch send.
+ *
+ * LAYOUT (Phase B3; no own reference, so the driver system): More's photo in a
+ * compact hero - the way back to More and the GPS chip - that scrolls away with
+ * the conversation, so the composer keeps the foot of the screen when the
+ * keyboard is up. The translator view gets the same hero, back to here.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Linking, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
@@ -43,6 +48,9 @@ import {
 } from '../assistant/assistant'
 import { classifyIntent } from '../assistant/intents'
 import { Icon } from '../components/icons'
+import { PHOTOS } from '../components/photoCredits'
+import { HeroBack, ScreenHero } from '../components/scenic'
+import { useKeyboardOpen } from '../components/useKeyboardOpen'
 import { useAppLanguage } from '../i18n/AppLanguageProvider'
 import { matchLanguage } from '../i18n/language'
 import { isKnownReasonCode, translateReasonCode } from '../i18n/reasonCodes'
@@ -133,10 +141,13 @@ export default function AssistantScreen({
   onBack,
   onOpenTrip,
   onOpenSafety,
+  status,
 }: {
   onBack?: () => void
   onOpenTrip?: () => void
   onOpenSafety?: () => void
+  /** The shell's GPS chip for the hero. */
+  status?: ReactNode
 }) {
   const styles = useStyles()
   const { colors: COLORS } = useTheme()
@@ -151,8 +162,13 @@ export default function AssistantScreen({
   const { trip, loadedAt, phase, tracking, isStale } = useTrip()
   // The same live read the Navigation card shows, so "is my route risky"
   // here and the card there cannot disagree. Falls back to the package.
-  const live = useRouteRisk(trip?.id ?? null, trip?.id ?? null)
+  // Keyed like MapScreen and TripScreen (route, trip) so all three share one read.
+  const live = useRouteRisk(trip?.selected_route_id ?? null, trip?.id ?? null)
 
+  // Typing: the composer folds to its input row (the quick questions and the
+  // speech note return with the keyboard down), so the conversation keeps
+  // the screen above it (B3D-R03).
+  const typing = useKeyboardOpen()
   const [view, setView] = useState<'chat' | 'phrasebook'>('chat')
   const [turns, setTurns] = useState<Turn[]>([])
   const [lastBreakAt, setLastBreakAt] = useState<string | null>(null)
@@ -308,16 +324,22 @@ export default function AssistantScreen({
   if (view === 'phrasebook') {
     return (
       <View style={styles.flex}>
-        <Pressable
-          onPress={() => setView('chat')}
-          accessibilityRole="button"
-          accessibilityLabel="Back to the assistant"
-          style={({ pressed }) => [styles.backRow, pressed && styles.pressed]}
-        >
-          <Icon name="chevron-left" size={20} color={COLORS.muted} />
-          <Text style={styles.backLabel}>{t('Assistant')}</Text>
-        </Pressable>
-        <PhrasebookScreen />
+        <PhrasebookScreen
+          header={
+            <ScreenHero
+              photo={PHOTOS.more}
+              title={t('Translator')}
+              subtitle={t('Phrasebook and translation')}
+              status={status}
+              themeChip="icon"
+              compact
+              height={176}
+              overlap={14}
+              creditAt="bottom"
+              leading={<HeroBack label="Back to the assistant" text={t('Assistant')} onPress={() => setView('chat')} />}
+            />
+          }
+        />
       </View>
     )
   }
@@ -329,21 +351,26 @@ export default function AssistantScreen({
       <ScrollView
         ref={scroller}
         onContentSizeChange={toEnd}
+        // And when the scroll itself changes size - the keyboard coming up -
+        // so the newest turn, not the hero, sits above the composer.
+        onLayout={toEnd}
         contentContainerStyle={styles.content}
       >
-        {onBack ? (
-          <Pressable
-            onPress={onBack}
-            accessibilityRole="button"
-            accessibilityLabel="Back to More"
-            style={({ pressed }) => [styles.backRow, pressed && styles.pressed]}
-          >
-            <Icon name="chevron-left" size={20} color={COLORS.muted} />
-            <Text style={styles.backLabel}>{t('More')}</Text>
-          </Pressable>
-        ) : null}
-
-        <Text style={styles.title}>{t('Assistant')}</Text>
+        <View style={styles.heroBleed}>
+          <ScreenHero
+            photo={PHOTOS.more}
+            title={t('Driver Assistant')}
+            subtitle={t('Offline guidance and the translator')}
+            status={status}
+            // The Light/Dark chip the shell header gave this screen (B3D-R01).
+            themeChip="icon"
+            compact
+            height={176}
+            overlap={14}
+            creditAt="bottom"
+            leading={onBack ? <HeroBack label="Back to More" text={t('More')} onPress={onBack} /> : null}
+          />
+        </View>
 
         {/* The opening line is a claim about how this screen works, and it is
             a true one: trip, route, risk, break and health answers are computed
@@ -444,20 +471,24 @@ export default function AssistantScreen({
 
       {/* The composer: quick questions, then a box, a microphone and send. */}
       <View style={styles.composer}>
-        <Text style={styles.composerLabel}>{tk('ask_label')}</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-          {QUESTIONS.map((q) => (
-            <Pressable
-              key={q.id}
-              onPress={() => ask(tk(q.labelKey), q.intent, lastBreakAt)}
-              accessibilityRole="button"
-              testID={`ask-${q.id}`}
-              style={({ pressed }) => [styles.chip, pressed && styles.pressed]}
-            >
-              <Text style={styles.chipLabel}>{tk(q.labelKey)}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
+        {typing ? null : (
+          <>
+            <Text style={styles.composerLabel}>{tk('ask_label')}</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+              {QUESTIONS.map((q) => (
+                <Pressable
+                  key={q.id}
+                  onPress={() => ask(tk(q.labelKey), q.intent, lastBreakAt)}
+                  accessibilityRole="button"
+                  testID={`ask-${q.id}`}
+                  style={({ pressed }) => [styles.chip, pressed && styles.pressed]}
+                >
+                  <Text style={styles.chipLabel}>{tk(q.labelKey)}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </>
+        )}
         <View style={styles.inputRow}>
           <Pressable
             onPress={() => (speech.listening ? speech.stop() : speech.start(appLanguage))}
@@ -471,17 +502,18 @@ export default function AssistantScreen({
                   : 'Speak your question'
             }
             accessibilityState={{ disabled: !speech.available, selected: speech.listening }}
+            aria-disabled={!speech.available}
             style={[styles.micBtn, speech.listening && styles.micBtnOn, !speech.available && styles.micBtnOff]}
             testID="assistant-mic"
           >
-            <Icon name={speech.listening ? 'square' : 'mic'} size={20} color={!speech.available ? COLORS.faint : speech.listening ? COLORS.bad : COLORS.text} />
+            <Icon name={speech.listening ? 'square' : 'mic'} size={20} color={!speech.available ? COLORS.textFaint : speech.listening ? COLORS.danger : COLORS.text} />
           </Pressable>
           <TextInput
             value={draft}
             onChangeText={setDraft}
             onSubmitEditing={() => submit(draft)}
             placeholder={speech.listening ? tk('ask_listening') : tk('ask_placeholder')}
-            placeholderTextColor={COLORS.faint}
+            placeholderTextColor={COLORS.textFaint}
             returnKeyType="send"
             blurOnSubmit={false}
             editable={!speech.listening}
@@ -495,14 +527,17 @@ export default function AssistantScreen({
             accessibilityRole="button"
             accessibilityLabel="Send"
             accessibilityState={{ disabled: !canSend }}
+            aria-disabled={!canSend}
+            // The same Send at 50% while the box is empty (audit s16.3 #12);
+            // the placeholder is the reason.
             style={[styles.sendBtn, !canSend && styles.sendBtnOff]}
             testID="assistant-send"
           >
-            <Icon name="send" size={18} color={canSend ? COLORS.onAccent : COLORS.faint} />
+            <Icon name="send" size={18} color={COLORS.onPrimary} />
           </Pressable>
         </View>
         {speech.error ? <Text style={styles.speechNote}>{speech.error}</Text> : null}
-        {speech.confidence !== null && speech.transcript ? (
+        {typing ? null : speech.confidence !== null && speech.transcript ? (
           <Text style={styles.speechNote}>{t('Heard with')} {Math.round(speech.confidence * 100)}% {t('confidence (engine figure)')}</Text>
         ) : speech.available ? (
           <Text style={styles.speechNote}>{t(speech.listening ? 'Listening…' : 'Device speech · needs a connection · typing always works')}</Text>
@@ -517,48 +552,40 @@ export default function AssistantScreen({
 const useStyles = makeStyles((COLORS) => ({
   flex: { flex: 1, backgroundColor: COLORS.bg },
   content: {
-    padding: 16,
+    paddingHorizontal: 13,
     paddingBottom: 24,
     maxWidth: 640,
     width: '100%',
     alignSelf: 'center',
   },
+  // Full-bleed; the first answer card rides up over the hero's foot.
+  heroBleed: { marginHorizontal: -13, marginBottom: -24 },
 
-  backRow: { minHeight: TOUCH_TARGET, flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 12 },
-  backLabel: { color: COLORS.muted, fontSize: 16, fontWeight: '600' },
   pressed: { opacity: 0.75 },
-
-  title: {
-    color: COLORS.text,
-    fontSize: 26,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-    marginBottom: 14,
-  },
 
   /** Theirs: a card on the left, full width, because an answer is a document
    *  with facts in it - not a speech bubble that has to stay narrow. */
   bubbleThem: {
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: COLORS.border,
-    backgroundColor: COLORS.card,
+    backgroundColor: COLORS.surface,
     padding: 16,
     marginBottom: 12,
   },
-  bubbleUrgent: { borderColor: COLORS.badBorder, backgroundColor: COLORS.badBg },
+  bubbleUrgent: { borderColor: COLORS.dangerBorder, backgroundColor: COLORS.dangerSoft },
   opener: { color: COLORS.text, fontSize: 15, lineHeight: 22 },
-  openerNote: { color: COLORS.muted, fontSize: 13, lineHeight: 19, marginTop: 8 },
+  openerNote: { color: COLORS.textMuted, fontSize: 13, lineHeight: 19, marginTop: 8 },
   prose: { color: COLORS.text, fontSize: 15, lineHeight: 22 },
 
   /** Mine: right-aligned, tinted, and short. */
   bubbleMeRow: { alignItems: 'flex-end', marginBottom: 8 },
   bubbleMe: {
     maxWidth: '85%',
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: COLORS.borderStrong,
-    backgroundColor: COLORS.raised,
+    backgroundColor: COLORS.surfaceRaised,
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
@@ -566,9 +593,9 @@ const useStyles = makeStyles((COLORS) => ({
   rtl: { writingDirection: 'rtl' },
 
   headline: { color: COLORS.text, fontSize: 19, fontWeight: '800', letterSpacing: -0.3 },
-  headlineUrgent: { color: COLORS.bad },
-  freshness: { color: COLORS.faint, fontSize: 12, marginTop: 4 },
-  staleText: { color: COLORS.warn },
+  headlineUrgent: { color: COLORS.danger },
+  freshness: { color: COLORS.textFaint, fontSize: 12, marginTop: 4 },
+  staleText: { color: COLORS.warning },
 
   fact: {
     flexDirection: 'row',
@@ -576,7 +603,7 @@ const useStyles = makeStyles((COLORS) => ({
     gap: 12,
     marginTop: 10,
   },
-  factLabel: { color: COLORS.muted, fontSize: 14, flexShrink: 1 },
+  factLabel: { color: COLORS.textMuted, fontSize: 14, flexShrink: 1 },
   factValue: {
     color: COLORS.text,
     fontSize: 15,
@@ -591,33 +618,35 @@ const useStyles = makeStyles((COLORS) => ({
   },
   reason: { color: COLORS.text, fontSize: 14, lineHeight: 20 },
 
-  unavailable: { color: COLORS.faint, fontSize: 12, lineHeight: 18, marginTop: 12 },
+  unavailable: { color: COLORS.textFaint, fontSize: 12, lineHeight: 18, marginTop: 12 },
 
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
   action: {
-    minHeight: 44,
+    minHeight: TOUCH_TARGET - 4,
     justifyContent: 'center',
     paddingHorizontal: 14,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: COLORS.accent,
-    backgroundColor: COLORS.card,
+    backgroundColor: COLORS.surface,
   },
-  actionUrgent: { borderColor: COLORS.bad, backgroundColor: COLORS.bad },
+  // dangerStrong, the fill that carries white: white on Dark's readable
+  // `danger` ink is 3.0:1.
+  actionUrgent: { borderColor: COLORS.dangerStrong, backgroundColor: COLORS.dangerStrong },
   actionLabel: { color: COLORS.accent, fontSize: 14, fontWeight: '700' },
-  actionLabelUrgent: { color: '#FFFFFF' },
+  actionLabelUrgent: { color: COLORS.onFill },
 
   composer: {
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
-    backgroundColor: COLORS.card,
+    backgroundColor: COLORS.surface,
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 16,
     gap: 10,
   },
   composerLabel: {
-    color: COLORS.faint,
+    color: COLORS.textFaint,
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1.1,
@@ -644,24 +673,24 @@ const useStyles = makeStyles((COLORS) => ({
     borderRadius: TOUCH_TARGET / 2,
     borderWidth: 1,
     borderColor: COLORS.border,
-    backgroundColor: COLORS.raised,
+    backgroundColor: COLORS.surfaceRaised,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  micBtnOn: { backgroundColor: COLORS.badBg, borderColor: COLORS.bad },
-  micBtnOff: { opacity: 0.45 },
+  micBtnOn: { backgroundColor: COLORS.dangerSoft, borderColor: COLORS.danger },
+  micBtnOff: { opacity: 0.5 },
   sendBtn: {
     width: TOUCH_TARGET,
     height: TOUCH_TARGET,
     borderRadius: TOUCH_TARGET / 2,
-    backgroundColor: COLORS.accent,
+    backgroundColor: COLORS.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sendBtnOff: { backgroundColor: COLORS.raised, borderWidth: 1, borderColor: COLORS.border },
-  speechNote: { color: COLORS.faint, fontSize: 11 },
+  sendBtnOff: { opacity: 0.5, backgroundColor: COLORS.primaryDisabled },
+  speechNote: { color: COLORS.textFaint, fontSize: 11 },
   chip: {
-    minHeight: 44,
+    minHeight: TOUCH_TARGET - 4,
     justifyContent: 'center',
     paddingHorizontal: 14,
     borderRadius: 10,

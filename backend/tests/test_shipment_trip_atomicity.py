@@ -38,7 +38,9 @@ from app.models.operations import Shipment, Trip
 from tests import factories
 from tests.conftest import auth_headers
 
-pytestmark = pytest.mark.requires_db
+# Planning needs an India boundary (fails closed without one): the synthetic
+# outline from tests/geo_fixtures.py, no state shapes.
+pytestmark = [pytest.mark.requires_db, pytest.mark.usefixtures("fixture_india")]
 
 
 @pytest.fixture

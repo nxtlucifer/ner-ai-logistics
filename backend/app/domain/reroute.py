@@ -41,6 +41,7 @@ from app.domain.route_recommendation import (
     RouteCandidate,
     recommend,
 )
+from app.domain.route_eligibility import REASON_INDIA_BASE_ROUTING
 from app.domain.route_risk import BAND_HIGH, BAND_HIGH_AT, BAND_MODERATE
 
 VERSION: Final[str] = "reroute-assessment-v1"
@@ -151,6 +152,8 @@ DECISION_REROUTE: Final[str] = "REROUTE_RECOMMENDED"
 
 
 #: Reason codes that raise a LOW journey to CAUTION on their own.
+#: INDIA_BASE_ROUTING: part of the road is outside the NER's intelligence, so a
+#: LOW there is partly unchecked - never "continue" (owner decisions 29 Sep).
 CAUTION_CODES: Final[frozenset[str]] = frozenset(
     {
         "STEEP_GRADIENT_ON_ROUTE",
@@ -158,6 +161,7 @@ CAUTION_CODES: Final[frozenset[str]] = frozenset(
         "HIGH_WIND_GUSTS",
         "RIVER_DISCHARGE_ELEVATED",
         "OFFICIAL_WARNING_ON_ROUTE",
+        REASON_INDIA_BASE_ROUTING,
     }
 )
 

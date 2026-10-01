@@ -134,6 +134,21 @@ const REQUEST_TIMEOUT_MS = 15_000
  * The answer arrives; it needs the time it costs.
  */
 const SLOW_READ_TIMEOUT_MS = 90_000
+/**
+ * Sign-in, sized for a SLEEPING backend rather than a warm one.
+ *
+ * Render's free tier stops the service when idle. Measured on 20 September
+ * 2026, the first request after a sleep took **32.9 s** to first byte; the
+ * next four averaged 0.28 s. At the 15 s default the first sign-in of the
+ * day aborted before the server had finished starting, and the manager was
+ * told the backend could not be reached - by a request that would have
+ * succeeded seventeen seconds later.
+ *
+ * 60 s is twice the observed wake with room for a slow network. It applies
+ * only to the auth calls: everything else runs against a server that is,
+ * by then, awake.
+ */
+const AUTH_TIMEOUT_MS = 60_000
 
 async function rawRequest(path: string, options: RequestOptions): Promise<Response> {
   const headers: Record<string, string> = { Accept: 'application/json' }
@@ -263,8 +278,15 @@ export function refreshSession(): Promise<string | null> {
         method: 'POST',
         body: {},
         skipRefresh: true,
+        // A page reload restores the session through here first; on a
+        // sleeping backend the 15 s default logged the manager out.
+        timeoutMs: AUTH_TIMEOUT_MS,
       })
-      if (!response.ok) return null
+      if (!response.ok) {
+        // An unread body keeps the request open until the timeout fires.
+        await response.body?.cancel()
+        return null
+      }
       const data = (await response.json()) as { access_token: string }
       accessToken = data.access_token
       return accessToken
@@ -282,19 +304,24 @@ export function refreshSession(): Promise<string | null> {
 
 /** GETs already on the wire, keyed by path. Cleared the moment each settles.
  *
- *  NOT a response cache - nothing is stored, nothing goes stale, and a read
- *  that arrives after the first has returned still hits the network. It only
- *  stops the SAME read being asked for twice while the first ask is in
- *  flight. Measured: opening Trips fired `/api/trips` seven times in 2.6 s
- *  against a five-second poll, because every list page loads the same four
- *  resources and each component asked independently.
+ *  NOT a response cache - nothing is stored, nothing goes stale, and a
+ *  second call that arrives after the first has returned still hits the
+ *  network. It only stops the SAME read being asked for twice while the
+ *  first ask is still in flight.
+ *
+ *  Measured before writing it: opening Trips fired `/api/trips` seven times
+ *  in 2.6 seconds against a five-second poll, plus drivers, trucks and
+ *  assignments three or four times each. Every list page loads the same four
+ *  resources, several components mount at once, and each one asked
+ *  independently. Deduplicating in the shared `request` is one guard; doing
+ *  it per page would be six, and the seventh page would be born broken.
  */
 const inFlight = new Map<string, Promise<unknown>>()
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   // Only plain reads. A mutation must never be coalesced - two Dispatches
-  // that look alike are two decisions - and a caller with its own signal
-  // must not have another component's unmount cancel its request.
+  // that happen to look alike are two decisions, and an aborted caller must
+  // not cancel somebody else's request.
   const shareable =
     (options.method ?? 'GET') === 'GET' && options.body === undefined && !options.signal
   if (shareable) {
@@ -325,6 +352,8 @@ async function requestUncoalesced<T>(path: string, options: RequestOptions = {})
   if (response.status === 401 && !options.skipRefresh) {
     const renewed = await refreshSession()
     if (renewed) {
+      // The 401 is replaced, never read: let its request finish now.
+      await response.body?.cancel().catch(() => {})
       response = await rawRequest(path, { ...options, skipRefresh: true })
     } else {
       accessToken = null
@@ -363,7 +392,18 @@ async function requestUncoalesced<T>(path: string, options: RequestOptions = {})
 // --- Types ----------------------------------------------------------------
 
 export type DatabaseProvider = 'supabase' | 'local'
-export type UserRole = 'ADMIN' | 'MANAGER' | 'DRIVER'
+/** Every role the server can put in a token.
+ *
+ * This union was left at three while the server grew to six, so a comparison
+ * against one of the new roles typechecked as impossible and the compiler
+ * could not tell a real role from a typo. It follows app/models/enums.py. */
+export type UserRole =
+  | 'ADMIN'
+  | 'MANAGER'
+  | 'NORTH_EAST_MANAGER'
+  | 'STATE_MANAGER'
+  | 'DISTRICT_MANAGER'
+  | 'DRIVER'
 export type DriverStatus = 'AVAILABLE' | 'ON_TRIP' | 'OFF_DUTY' | 'SUSPENDED'
 export type TruckStatus =
   | 'AVAILABLE'
@@ -394,6 +434,9 @@ export interface AuthenticatedUser {
   display_name: string
   email: string | null
   phone: string | null
+  /** Administrative scope, as the server sends it; null for fleet-wide roles. */
+  state_id?: string | null
+  district_id?: string | null
 }
 
 export interface TokenResponse {
@@ -438,6 +481,9 @@ export interface Driver {
 export interface Truck {
   id: string
   registration_number: string
+  /** What the yard calls it. Never replaces the plate on screens that have
+   *  to identify the vehicle to somebody outside the company. */
+  display_name?: string | null
   /** `/api/files/{id}` - a reference or trip photo; read with AuthImage. */
   photo_url?: string | null
   truck_type: string | null
@@ -448,6 +494,132 @@ export interface Truck {
   status: TruckStatus
   baseline_mileage_kmpl: string | null
   created_at: string
+}
+
+/** One durable, addressed notification. Structured, so the UI renders the
+ *  sentence - the server never sends a pre-written English one. */
+export interface StateRow {
+  id: string
+  name: string
+  slug: string
+  source_name: string
+  district_count: number
+}
+
+/** What the sign-in region picker gets, and all it gets. */
+export interface RegionRow {
+  id: string
+  name: string
+  slug: string
+  districts: { id: string; name: string; disputed_or_recently_changed: boolean }[]
+}
+
+export interface DistrictRow {
+  id: string
+  state_id: string
+  name: string
+  slug: string
+  source_name: string
+  /** Only VERIFIED_OFFICIAL and DEMO reach an operational screen; the
+   *  server filters, and this says which one survived. */
+  source_status: 'VERIFIED_OFFICIAL' | 'DEMO' | 'TEST' | 'UNVERIFIED'
+  disputed_or_recently_changed: boolean
+}
+
+export interface StateSummary {
+  state_id: string
+  name: string
+  /** Districts whose provenance is accepted. Can read 0 while the table
+   *  holds rows - that is the honest answer, not a bug. */
+  districts_configured: number
+  trips_under_way: number
+  trips_needing_attention: number
+}
+
+export interface DistrictSummary {
+  district_id: string
+  name: string
+  incoming: number
+  outgoing: number
+}
+
+/** Every field is a COUNT of rows that exist. No rate, no prediction. */
+export interface Dashboard {
+  role: string
+  scope_label: string
+  state_id: string | null
+  district_id: string | null
+  trips_under_way: number
+  trips_needing_attention: number
+  trips_awaiting_route: number
+  /** Null for a district manager: their boundary is the district. */
+  cross_state_trips: number | null
+  drivers_in_scope: number
+  drivers_online: number
+  drivers_with_stale_gps: number
+  trucks_in_transit: number
+  unread_notifications: number
+  urgent_notifications: number
+  states: StateSummary[]
+  districts: DistrictSummary[]
+}
+
+export interface PersonPresence {
+  user_id: string
+  display_name: string
+  role: string
+  state_id: string | null
+  district_id: string | null
+  /** Derived from a heartbeat this server received. Never navigator.onLine. */
+  presence: 'ONLINE' | 'IDLE' | 'OFFLINE'
+  /** A separate fact: a driver in a gorge is ONLINE with no position. */
+  location: 'FRESH' | 'AGEING' | 'STALE' | 'UNAVAILABLE'
+  seen_seconds_ago: number | null
+  gps_seconds_ago: number | null
+  driver_id: string | null
+}
+
+export interface ManagerRow {
+  id: string
+  email: string | null
+  display_name: string
+  role: 'STATE_MANAGER' | 'DISTRICT_MANAGER'
+  state_id: string | null
+  district_id: string | null
+  is_active: boolean
+  must_reset_password: boolean
+}
+
+/** What the login page asks for. The account decides what it gets. */
+export type Workspace = 'NORTH_EAST' | 'STATE' | 'DISTRICT'
+
+export interface WorkspaceChoice {
+  workspace: Workspace | ''
+  stateId?: string
+  districtId?: string
+}
+
+export interface Notification {
+  id: string
+  trip_id: string | null
+  kind:
+    | 'TRIP_DISPATCHED'
+    | 'INCOMING_TRIP'
+    | 'ROUTE_CHANGED'
+    | 'TRIP_DELAYED'
+    | 'TRIP_ARRIVED'
+    | 'TRIP_DELIVERED'
+    | 'DRIVER_EMERGENCY_STOP'
+    | 'EMERGENCY_RESOLVED'
+    | 'ROUTE_APPROVED'
+    | 'DRIVER_BREAK_STARTED'
+    | 'DRIVER_BREAK_ENDED'
+    | 'DRIVER_BREAK_OVERDUE'
+  severity: 'INFO' | 'WARNING' | 'URGENT'
+  payload: Record<string, string | null>
+  is_read: boolean
+  created_at: string
+  read_at: string | null
 }
 
 export interface Assignment {
@@ -564,12 +736,36 @@ export interface Trip {
   status: TripStatus
   selected_route_id: string | null
   dispatched_at: string | null
+  /** When the driver acknowledged the assignment; null until then. Optional:
+   *  a server older than the field leaves it out. */
+  driver_accepted_at?: string | null
   started_at: string | null
   delivered_at: string | null
   planned_eta: string | null
   current_eta: string | null
   delay_minutes: number | null
   created_at: string
+  /** Set while a driver's off-route reroute request waits for a manager
+   *  (E2E-R2); null otherwise. Optional: a server older than the field
+   *  leaves it out, and nothing is shown. */
+  proposed_reroute?: ProposedReroute | null
+  /** Which way the trip runs relative to the North-East, as the server
+   *  classified its two ends. Optional: a server that does not send it, or an
+   *  end whose region is unknown (null), shows nothing - never a guess. */
+  trip_scope_type?: TripScopeType | null
+}
+
+export type TripScopeType = 'NER_INTERNAL' | 'NER_OUTBOUND' | 'NER_INBOUND' | 'INDIA_EXTERNAL' | 'UNKNOWN'
+
+/**
+ * A road the driver asked for from where the truck was: a PROPOSED
+ * EMERGENCY_BACKUP route that changes nothing until a manager accepts it
+ * through the ordinary reroute path (Fleet, Route tab).
+ */
+export interface ProposedReroute {
+  route_id: string
+  proposed_at: string
+  distance_km: number | null
 }
 
 export interface TripStop {
@@ -636,15 +832,24 @@ export interface BriefingSnapshot {
     priority?: string | null
     weight_kg?: number | string | null
   }
-  corridor?: {
+  /** sentinel.build_briefing_snapshot's keys. Null is unknown: no fix, no stop. */
+  route?: {
     origin?: string | null
     destination?: string | null
   }
-  last_known_location?: {
-    latitude?: number
-    longitude?: number
-    fix_at?: string
-    minutes_stationary?: number
+  location?: {
+    lat?: number | null
+    lon?: number | null
+    fix_recorded_at?: string | null
+    fix_age_seconds?: number | null
+    stopped_since?: string | null
+    stopped_duration_minutes?: number | null
+  }
+  /** Present only when the driver raised the SOS from the phone. */
+  driver_request?: {
+    request_id: string
+    reason: string
+    category: string
   }
   suggested_actions?: string[]
 }
@@ -655,7 +860,7 @@ export interface Emergency {
   state: EmergencyState
   triggered_at: string
   stationary_since: string
-  last_gps_point_id?: string | null
+  last_gps_point_id?: number | null
   check_sent_at?: string | null
   response_deadline_at?: string | null
   driver_response?: DriverCheckResponse | null
@@ -681,6 +886,27 @@ export interface Position {
   is_mock_location: boolean
 }
 
+/** A driver's planned break (0017). `status` is the server's, computed now:
+ *  ACTIVE, OVERDUE (open past its planned end) or ENDED. */
+export interface TripBreak {
+  id: string
+  trip_id: string
+  driver_id: string
+  truck_id: string
+  status: 'ACTIVE' | 'OVERDUE' | 'ENDED'
+  reason: 'TEA_REST' | 'FOOD' | 'WASHROOM' | 'FUEL' | 'EMERGENCY' | 'OTHER'
+  note: string | null
+  planned_minutes: number
+  started_at: string
+  expected_end_at: string
+  ended_at: string | null
+  actual_seconds: number | null
+  overdue: boolean
+  location: { lat: number; lon: number } | null
+  location_source: string | null
+  location_at: string | null
+}
+
 export interface FleetTrip {
   trip_id: string
   trip_code: string
@@ -697,6 +923,43 @@ export interface FleetTrip {
   next_stop_name: string | null
   stops_done: number
   stops_total: number
+  /** A driver's reroute request still waiting for a manager (E2E-R2).
+   *  Optional: a server older than the field leaves it out. */
+  proposed_reroute?: ProposedReroute | null
+  /** The driver's open break, or null: stopped on purpose, not offline. */
+  on_break?: TripBreak | null
+}
+
+/**
+ * The service kinds the snapshot holds.
+ *
+ * FUEL was added on 20 September 2026 together with the data behind it —
+ * a bounded Overpass extract across the eight states. Before that the
+ * category was deliberately absent, because an empty fuel layer reads as
+ * "no petrol stations on this corridor" rather than "we did not collect
+ * them".
+ */
+export type PlaceCategory = 'FUEL' | 'EMERGENCY' | 'TYRES' | 'HOTEL' | 'REST'
+
+export interface MapPlace {
+  provider_id: string
+  category: string
+  name: string | null
+  lat: number
+  lon: number
+  /** Straight line, never a driving distance. A shop across a river is
+   *  200 m away and 20 km to reach. */
+  straight_line_m: number | null
+}
+
+export interface PlacesAnswer {
+  /** AVAILABLE with an empty list means nothing of that kind is mapped
+   *  here — which is a real finding, and different from a failed lookup. */
+  state: string
+  places: MapPlace[]
+  source: { attribution: string; licence: string; retrieved_at: string; is_live: boolean } | null
+  truncated: boolean
+  error: string | null
 }
 
 export interface FleetSnapshot {
@@ -704,6 +967,17 @@ export interface FleetSnapshot {
   fresh_seconds: number
   stale_seconds: number
   server_time: string
+  /**
+   * Trucks that could be carrying something — the denominator for
+   * utilisation.
+   *
+   * **Null for a scoped manager.** A truck belongs to the fleet; only a
+   * trip carries districts. So for a district manager the numerator is
+   * scoped and the denominator is not, and the ratio would describe
+   * nothing. Null means the question has no answer for this caller, and
+   * the card is omitted rather than shown as 0%.
+   */
+  trucks_total: number | null
 }
 
 export interface TrackSnapshot {
@@ -1147,14 +1421,27 @@ export const restApi = {
   /** Data-source health + the code-audited intelligence inventory (System page). */
   systemProviders: () => request<SystemProviders>('/api/system/providers'),
 
-  login: (identifier: string, password: string) =>
+  /**
+   * `workspace` is a HINT the server verifies against the account, never a
+   * grant. Sending the wrong one is refused exactly like a wrong password -
+   * so the form cannot be used to discover which state an address manages.
+   */
+  login: (identifier: string, password: string, workspace?: WorkspaceChoice) =>
     request<TokenResponse>('/api/auth/login', {
       method: 'POST',
-      body: { identifier, password },
+      body: {
+        identifier,
+        password,
+        ...(workspace?.workspace ? { workspace: workspace.workspace } : {}),
+        ...(workspace?.stateId ? { workspace_state_id: workspace.stateId } : {}),
+        ...(workspace?.districtId ? { workspace_district_id: workspace.districtId } : {}),
+      },
       skipRefresh: true,
+      timeoutMs: AUTH_TIMEOUT_MS,
     }),
   logout: () => request<void>('/api/auth/logout', { method: 'POST', body: {} }),
-  me: () => request<MeResponse>('/api/auth/me'),
+  // Session restore on a cold load hits the same sleeping server.
+  me: () => request<MeResponse>('/api/auth/me', { timeoutMs: AUTH_TIMEOUT_MS }),
 
   listDrivers: (params: { limit?: number; cursor?: string; search?: string } = {}) =>
     request<Page<Driver>>(`/api/drivers${toQuery(params)}`),
@@ -1204,6 +1491,43 @@ export const restApi = {
   createShipment: (body: ShipmentCreate) =>
     request<Shipment>('/api/shipments', { method: 'POST', body }),
 
+  /** This caller's own notifications, newest first. */
+  /** The caller's own overview, shaped and scoped by the server. The
+   *  browser never receives rows it may not see and hides them. */
+  dashboard: () => request<Dashboard>('/api/dashboard'),
+  presence: () => request<PersonPresence[]>('/api/presence'),
+  heartbeat: () => request<{ server_time: string; coalesced: boolean }>('/api/presence/heartbeat', { method: 'POST', body: {} }),
+
+  listStates: () => request<StateRow[]>('/api/org/states'),
+  /** PUBLIC — the only call the sign-in screen can make before a token
+   *  exists. Names and ids only: no counts, no provenance, nothing about
+   *  any account. See `app/api/org.py:list_regions`. */
+  listRegions: () => request<RegionRow[]>('/api/org/regions'),
+  listManagers: () => request<ManagerRow[]>('/api/org/managers'),
+  /** The temporary password comes back ONCE. There is no endpoint that can
+   *  return it again - only a hash is stored. */
+  createManager: (body: {
+    email: string
+    display_name: string
+    role: 'STATE_MANAGER' | 'DISTRICT_MANAGER'
+    state_id?: string
+    district_id?: string
+  }) =>
+    request<{ manager: ManagerRow; temporary_password: string }>('/api/org/managers', {
+      method: 'POST',
+      body,
+    }),
+  deactivateManager: (id: string) =>
+    request<ManagerRow>(`/api/org/managers/${id}/deactivate`, { method: 'POST', body: {} }),
+  listDistricts: (stateId?: string) =>
+    request<DistrictRow[]>(`/api/org/districts${stateId ? `?state_id=${stateId}` : ''}`),
+
+  listNotifications: (params: { unread_only?: boolean; limit?: number } = {}) =>
+    request<Notification[]>(`/api/notifications${toQuery(params as Record<string, unknown>)}`),
+  /** Mark some of your own read. Someone else's id is simply not found. */
+  markNotificationsRead: (ids: string[]) =>
+    request<{ marked: number }>('/api/notifications/read', { method: 'POST', body: { ids } }),
+
   listTrips: ({ open_only, ...params }: TripQuery = {}) =>
     request<Page<Trip>>(
       `/api/trips${toQuery({
@@ -1215,6 +1539,8 @@ export const restApi = {
       } as Record<string, unknown>)}`,
     ),
   /** The trip's timeline, oldest first. Read-only. */
+  /** The trip's break history, newest first (needs fleet:location_read). */
+  tripBreaks: (tripId: string) => request<TripBreak[]>(`/api/trips/${tripId}/breaks`),
   tripEvents: (tripId: string, limit = 100) =>
     request<TripEvent[]>(`/api/trips/${tripId}/events?limit=${limit}`),
   /**
@@ -1399,6 +1725,18 @@ export const restApi = {
   // than resolving into a component that is gone.
   activeFleet: (signal?: AbortSignal) =>
     request<FleetSnapshot>('/api/fleet/active', { signal }),
+  /** Mapped services inside a map area. The server refuses a box that asks
+   *  for the whole region rather than returning a truncated region. */
+  placesInArea: (
+    category: PlaceCategory,
+    box: { south: number; west: number; north: number; east: number },
+    signal?: AbortSignal,
+  ) =>
+    request<PlacesAnswer>(
+      `/api/places?category=${category}&south=${box.south}&west=${box.west}` +
+        `&north=${box.north}&east=${box.east}`,
+      { signal },
+    ),
   tripTrack: (id: string, limit = 200) =>
     request<TrackSnapshot>(`/api/trips/${id}/track?limit=${limit}`),
   aiStatus: async (): Promise<AiStatus> => {
@@ -1484,8 +1822,12 @@ export interface SupportSession {
   driver_id: string
 }
 
-/** Where the driver app's web build lives; the support token rides in its URL fragment. */
-export const DRIVER_WEB_URL: string = import.meta.env.VITE_DRIVER_WEB_URL ?? 'http://localhost:8123'
+/** Where the driver app's web build lives; the support token rides in its URL
+ *  fragment. The localhost default is the dev server's only: a build without
+ *  VITE_DRIVER_WEB_URL has no driver web app to open, and the support control
+ *  says so instead of opening a developer's machine. */
+export const DRIVER_WEB_URL: string =
+  import.meta.env.VITE_DRIVER_WEB_URL ?? (import.meta.env.DEV ? 'http://localhost:8123' : '')
 
 export function unavailableReason(operation: string): string | null {
   if (BACKEND_TARGET !== 'supabase') return null

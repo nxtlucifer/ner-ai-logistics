@@ -43,7 +43,7 @@ from typing import Any, Final
 
 import httpx
 
-from app.services import provider_health
+from app.services import http_clients, provider_health
 
 from app.domain.routing import (
     Coordinate,
@@ -170,10 +170,9 @@ class OsrmRoutingProvider:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                response = await client.get(
-                    url, params=params, headers={"User-Agent": USER_AGENT}
-                )
+            response = await http_clients.get("osrm").get(
+                url, params=params, headers={"User-Agent": USER_AGENT}, timeout=self._timeout
+            )
         except httpx.TimeoutException as exc:
             provider_health.fail("OSRM", "timeout")
             raise RoutingUnavailable(f"{self.name} timed out") from exc

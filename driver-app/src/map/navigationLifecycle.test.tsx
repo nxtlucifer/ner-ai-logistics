@@ -92,6 +92,59 @@ describe('route identity at the render boundary', () => {
   })
 })
 
+describe('stored route package, cache first (FE-02)', () => {
+  it('draws the matching stored package at once as CACHED, then LIVE when the network answers', async () => {
+    const pending = deferred<ReturnType<typeof offline>>()
+    mocks.read.mockResolvedValue({ packageData: offline('route-a') })
+    mocks.offline.mockReturnValueOnce(pending.promise)
+    let current!: ReturnType<typeof useRouteGeometry>
+    function Harness() { current = useRouteGeometry('trip-a', 'route-a'); return null }
+    await act(async () => root.render(createElement(Harness)))
+    expect(current.source).toBe('CACHED')
+    expect(current.points).toHaveLength(2)
+    // Still checking: the map must not say "no connection" yet.
+    expect(current.isLoading).toBe(true)
+    await act(async () => pending.resolve(offline('route-a')))
+    expect(current.source).toBe('LIVE')
+    expect(current.isLoading).toBe(false)
+  })
+
+  it('keeps the CACHED route with no error when the network fails, and never draws another route', async () => {
+    mocks.read.mockResolvedValue({ packageData: offline('route-a') })
+    mocks.offline.mockRejectedValue(new Error('no signal'))
+    let current!: ReturnType<typeof useRouteGeometry>
+    function Harness({ route }: { route: string }) { current = useRouteGeometry('trip-a', route); return null }
+    await act(async () => root.render(createElement(Harness, { route: 'route-a' })))
+    expect(current.source).toBe('CACHED')
+    expect(current.error).toBeNull()
+    expect(current.isLoading).toBe(false)
+    await act(async () => root.render(createElement(Harness, { route: 'route-b' })))
+    expect(current.source).toBe('NONE')
+    expect(current.error).not.toBeNull()
+  })
+})
+
+describe('risk snapshot survives a package whose assessment timed out', () => {
+  const risk = { score: 40, band: 'MODERATE', assessed_at: '2026-09-07T00:00:00Z' }
+  it('keeps the stored risk and its own timestamp when the fresh package for the same route has risk null', async () => {
+    mocks.read.mockResolvedValue({ packageData: { ...offline('route-a'), risk, risk_captured_at: '2026-09-07T00:00:00Z' } })
+    mocks.offline.mockResolvedValue({ ...offline('route-a'), captured_at: '2026-09-08T00:00:00Z', risk: null, risk_captured_at: null })
+    function Harness() { useRouteGeometry('trip-a', 'route-a'); return null }
+    await act(async () => root.render(createElement(Harness)))
+    expect(mocks.write).toHaveBeenCalledWith(expect.objectContaining({
+      captured_at: '2026-09-08T00:00:00Z', risk, risk_captured_at: '2026-09-07T00:00:00Z',
+    }))
+  })
+
+  it('does not carry risk across to a different route', async () => {
+    mocks.read.mockResolvedValue({ packageData: { ...offline('route-a'), risk, risk_captured_at: '2026-09-07T00:00:00Z' } })
+    mocks.offline.mockResolvedValue({ ...offline('route-b'), risk: null, risk_captured_at: null })
+    function Harness() { useRouteGeometry('trip-a', 'route-b'); return null }
+    await act(async () => root.render(createElement(Harness)))
+    expect(mocks.write).toHaveBeenCalledWith(expect.objectContaining({ risk: null, risk_captured_at: null }))
+  })
+})
+
 describe('place search ownership', () => {
   it('removes old pins as soon as a different category starts loading', async () => {
     const pending = deferred<object>()

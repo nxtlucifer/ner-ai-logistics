@@ -111,12 +111,35 @@ def _closure() -> IncidentQueryResult:
 
 @pytest.fixture
 def geometry(monkeypatch):
-    """The one database read `assess_route` needs, stubbed at its own seam."""
+    """The database reads `assess_route` needs - the geometry, and how much of
+    it the NER state shapes cover - stubbed at their own seams. NER_DEEP: this
+    file is about the guard's order, not the coverage rule
+    (tests/test_india_trip_policy.py)."""
+    from app.services import geo_classify
 
     async def _facts(db, route_id):  # noqa: ANN001
         return CORRIDOR_WKT, 100.0, 120
 
+    async def _coverage(db, route_id):  # noqa: ANN001
+        return "NER_DEEP"
+
     monkeypatch.setattr(risk_service, "_route_facts", _facts)
+    monkeypatch.setattr(geo_classify, "route_coverage", _coverage)
+
+
+@pytest.fixture(autouse=True)
+def in_scope(monkeypatch):
+    """RB-02: both paths now read the trip's scope and the route's ownership
+    BEFORE eligibility. Those reads are stubbed at their own seams (scope has
+    its own tests, tests/test_demo_blockers.py), so the tripwire below still
+    proves the refusal lands before the lock and every write."""
+    from app.services import trips as trip_service
+
+    async def _ok(*a, **k):  # noqa: ANN002, ANN003
+        return None
+
+    monkeypatch.setattr(trip_service, "get", _ok)
+    monkeypatch.setattr(route_service, "ensure_belongs_to_trip", _ok)
 
 
 def use_provider(monkeypatch, result: IncidentQueryResult) -> None:

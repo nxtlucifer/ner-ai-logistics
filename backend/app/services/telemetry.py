@@ -30,17 +30,18 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from geoalchemy2 import WKTElement
-from sqlalchemy import func, select
+from sqlalchemy import func, select, true
 from sqlalchemy import text as sa_text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import scope
 from app.domain import telemetry_policy as policy
 from app.domain.routing import haversine_m
 from app.models.enums import TripStatus
 from app.models.fleet import Truck
 from app.models.identity import Driver
-from app.models.operations import GpsPoint, Trip, TripStop
+from app.models.operations import GpsPoint, Shipment, Trip, TripStop
 from app.schemas.domain import GpsFixIn
 from app.services.shipments import SRID
 
@@ -131,6 +132,42 @@ async def latest_position(db: AsyncSession, trip_id: uuid.UUID) -> Position | No
     if row is None:
         return None
     return _position_from_row(row)
+
+
+def last_fix_by_driver_query(driver_ids):
+    """driver_id -> newest `received_at` over all of that driver's trips.
+
+    GPS freshness only: presence (`users.last_seen_at`) is a separate fact
+    from a separate source and is not read here. `received_at`, the server
+    clock, so a phone with a wrong clock cannot make a stale fix look fresh.
+
+    Per trip, the newest fix is ONE probe of ix_gps_trip_received (trip_id,
+    received_at DESC): a LATERAL with LIMIT 1. The driver's answer is the max
+    over their trips. The previous shape, max(received_at) over a join of
+    every fix, sequentially scanned gps_points at fleet scope: 414 ms p50 at
+    500 drivers and 1M fixes, against 26 ms for this one, same answer
+    (SEC-P1B; security lane bench, 30 Sep 2026). No new index.
+    """
+    newest = (
+        select(GpsPoint.received_at)
+        .where(GpsPoint.trip_id == Trip.id)
+        .order_by(GpsPoint.received_at.desc())
+        .limit(1)
+        .lateral("newest_fix")
+    )
+    return (
+        select(Trip.driver_id, func.max(newest.c.received_at))
+        .join(newest, true())
+        .where(Trip.driver_id.in_(driver_ids))
+        .group_by(Trip.driver_id)
+    )
+
+
+async def last_fix_by_driver(db: AsyncSession, driver_ids: list[uuid.UUID]) -> dict[uuid.UUID, datetime]:
+    """The Overview/presence read (see `last_fix_by_driver_query`)."""
+    if not driver_ids:
+        return {}
+    return {d: at for d, at in (await db.execute(last_fix_by_driver_query(driver_ids))).all()}
 
 
 def _parse_point_wkt(wkt: str) -> tuple[float, float]:
@@ -295,6 +332,8 @@ class FleetRow:
     next_stop_name: str | None
     stops_done: int
     stops_total: int
+    #: scope.trip_scope_type_sql, as on TripRead.
+    trip_scope_type: str | None = None
 
     @property
     def freshness(self) -> str:
@@ -303,7 +342,7 @@ class FleetRow:
         )
 
 
-async def active_fleet(db: AsyncSession, *, limit: int = 100) -> list[FleetRow]:
+async def active_fleet(db: AsyncSession, *, limit: int = 100, actor=None) -> list[FleetRow]:
     """Every trip currently on the road, with its last known position.
 
     Two queries, not one per trip. The trip list uses the partial index
@@ -314,10 +353,14 @@ async def active_fleet(db: AsyncSession, *, limit: int = 100) -> list[FleetRow]:
     trip_rows = list(
         (
             await db.execute(
-                select(Trip, Driver.full_name, Truck.registration_number)
+                select(Trip, Driver.full_name, Truck.registration_number, scope.trip_scope_type_sql())
                 .join(Driver, Driver.id == Trip.driver_id)
                 .join(Truck, Truck.id == Trip.truck_id)
+                .outerjoin(Shipment, Shipment.id == Trip.shipment_id)
                 .where(Trip.status.in_((TripStatus.ACTIVE, TripStatus.DELAYED)))
+                # A scoped manager's fleet map shows only the trips their
+                # district, state or region has a claim on (app/core/scope.py).
+                .where(*([scope.trip_scope_clause(actor)] if actor is not None and scope.has_trip_scope(actor) else []))
                 .order_by(Trip.started_at.desc().nullslast(), Trip.id)
                 .limit(limit)
             )
@@ -331,7 +374,7 @@ async def active_fleet(db: AsyncSession, *, limit: int = 100) -> list[FleetRow]:
     progress = await _stop_progress(db, trip_ids)
 
     out: list[FleetRow] = []
-    for trip, driver_name, registration in trip_rows:
+    for trip, driver_name, registration, scope_type in trip_rows:
         done, total, next_seq, next_name = progress.get(
             trip.id, (0, 0, None, None)
         )
@@ -350,6 +393,7 @@ async def active_fleet(db: AsyncSession, *, limit: int = 100) -> list[FleetRow]:
                 next_stop_name=next_name,
                 stops_done=done,
                 stops_total=total,
+                trip_scope_type=scope_type,
             )
         )
     return out

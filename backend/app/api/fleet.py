@@ -193,7 +193,7 @@ async def list_trucks(
     search: Annotated[str | None, Query(max_length=100)] = None,
 ) -> TruckPage:
     rows, next_cursor = await truck_service.list_trucks(
-        db, limit=limit, cursor=cursor, status=truck_status, search=search
+        db, actor=actor, limit=limit, cursor=cursor, status=truck_status, search=search
     )
     return TruckPage(
         items=[TruckRead.model_validate(r) for r in rows], next_cursor=next_cursor
@@ -221,7 +221,7 @@ async def get_truck(
     db: DbSession,
     actor: Annotated[User, Depends(require_permission(perm.TRUCK_READ))],
 ) -> TruckRead:
-    return TruckRead.model_validate(await truck_service.get(db, truck_id))
+    return TruckRead.model_validate(await truck_service.get(db, truck_id, actor=actor))
 
 
 @trucks_router.patch("/{truck_id}", response_model=TruckRead, summary="Update a truck")

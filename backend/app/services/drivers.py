@@ -1,14 +1,14 @@
 """Driver service: business rules, transactions and audit for drivers."""
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import ConflictError, NotFoundError
-from app.core.security import hash_password
+from app.core.errors import BusinessRuleError, ConflictError, NotFoundError
+from app.core.security import hash_password_async
 from app.domain.trip_state import REQUIRES_DRIVER_LOGIN
 from app.models.enums import AuditAction, DriverStatus, UserRole
 from app.models.identity import Driver, User
@@ -135,12 +135,25 @@ async def create(
     user = User(
         email=payload.email,
         phone=payload.phone,
-        password_hash=hash_password(payload.initial_password),
+        password_hash=await hash_password_async(payload.initial_password),
         role=UserRole.DRIVER,
         display_name=payload.full_name,
     )
     db.add(user)
     await db.flush()
+
+    # LICENCE FIRST. The licence is the one document that says this person
+    # may drive, and it was being checked only later - at assignment and at
+    # dispatch. A driver could therefore be added with a licence that
+    # expired last year and sit in the fleet looking normal until somebody
+    # tried to give them a job. Refuse at the door instead.
+    if payload.licence_expiry < date.today():
+        raise BusinessRuleError(
+            f"{payload.full_name}'s licence expired on {payload.licence_expiry}. "
+            "Add a driver only once their licence is valid.",
+            code="LICENCE_EXPIRED",
+            details={"licence_expiry": payload.licence_expiry.isoformat()},
+        )
 
     driver = Driver(
         user_id=user.id,

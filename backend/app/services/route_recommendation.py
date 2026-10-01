@@ -47,10 +47,12 @@ from app.domain.route_recommendation import (
     RouteCandidate,
     recommend,
 )
+from app.domain.route_eligibility import COVERAGE_UNKNOWN
 from app.domain.route_risk import RouteRisk, assess
 from app.domain.routing import parse_wkt_linestring, sample_positions
 from app.models.enums import RouteKind, RouteState
 from app.models.operations import Trip, TripRoute
+from app.services import geo_classify
 from app.services import route_risk as route_risk_service
 from app.services import simulation
 from app.services import traffic as traffic_service
@@ -119,7 +121,7 @@ async def _live_route_facts(
 
 async def _risk_for(
     route_id: uuid.UUID, wkt: str, distance_km: Decimal | None, duration_min: int | None,
-    probes: list[TrafficSample] | None = None,
+    probes: list[TrafficSample] | None = None, coverage: str = COVERAGE_UNKNOWN,
 ) -> RouteRisk:
     """Score one route from geometry already read out of the database.
 
@@ -154,6 +156,7 @@ async def _risk_for(
         flood=flood,
         warnings=warnings,
         traffic=traffic_estimate(geometry=geometry, samples=probes or [], distance_km=distance, duration_min=duration),
+        intelligence_coverage=coverage,
     ))
 
 
@@ -173,7 +176,9 @@ async def candidates_for_trip(
     an open transaction afterwards.
     """
     facts = await _live_route_facts(db, trip_id)
-    # Fleet probes per route, while the session is still held.
+    # NER coverage and fleet probes per route, while the session is still held.
+    # Coverage first: see route_risk.assess_route.
+    coverage = {route_id: await geo_classify.route_coverage(db, route_id) for route_id, *_ in facts}
     probes = {route_id: await traffic_service.samples_for(db, route_id) for route_id, *_ in facts}
 
     # Release the connection BEFORE the provider fan-out. See module docstring.
@@ -185,7 +190,10 @@ async def candidates_for_trip(
     # Concurrent across routes as well as within one: two serial assessments
     # would stack their timeouts, and the routes are independent.
     risks = await asyncio.gather(
-        *(_risk_for(route_id, wkt, distance, duration, probes.get(route_id)) for route_id, _, wkt, distance, duration in facts)
+        *(
+            _risk_for(route_id, wkt, distance, duration, probes.get(route_id), coverage[route_id])
+            for route_id, _, wkt, distance, duration in facts
+        )
     )
 
     return [

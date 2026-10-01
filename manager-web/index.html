@@ -5,16 +5,41 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!--
+      The theme, before the first paint: the stored choice, or Light when there
+      is none or storage is blocked. Set here rather than from the app bundle
+      so a Dark console never flashes Light while the bundle loads. Mirrors
+      src/theme.ts (same key; ensureTheme there is the fallback if this does not
+      run); src/theme.test.tsx runs this script.
+    -->
+    <!--
+      One line on purpose: the release Content-Security-Policy allows this
+      script by its SHA-256 (src/cspHashes.test.ts), and a line break would
+      hash differently in a CRLF checkout (Windows) and an LF one (the host).
+    -->
+    <script>(function () { var theme = 'light'; try { if (localStorage.getItem('rasta:theme') === 'dark') theme = 'dark' } catch (e) {} document.documentElement.dataset.theme = theme; document.documentElement.style.colorScheme = theme })()</script>
+    <!--
       Sora for display, Inter for operational UI. `display=swap` so a slow or
       blocked font never blanks a dispatcher's screen - the system stack in
       index.css renders immediately and is replaced when these arrive. Both
       degrade to Segoe UI / system-ui with no layout change worth noticing.
+      Ms Madi (OFL) is the decorative script on the two sign-in screens only;
+      the browser fetches it only where a tagline uses it.
+      Not render-blocking (PERF-5): preloaded at full priority, applied as a
+      print sheet and switched on when it lands, so the first paint never
+      waits on a third-party round trip. (No script, no app: no noscript.)
     -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=Inter:wght@400;500;600;700&display=swap"
+      rel="preload"
+      as="style"
+      href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=Inter:wght@400;500;600;700&family=Ms+Madi&display=swap"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=Inter:wght@400;500;600;700&family=Ms+Madi&display=swap"
       rel="stylesheet"
+      media="print"
+      onload="this.media='all'"
     />
     <title>RASTA AI · Fleet console</title>
   </head>

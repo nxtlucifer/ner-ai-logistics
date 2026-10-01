@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { guidanceHold, upcomingManeuver, maneuverIcon, instructionFor } from './maneuvers'
+import { guidanceHold, upcomingManeuver, maneuverIcon, instructionFor, toldManeuvers } from './maneuvers'
 import type { NavigationManeuver } from '../api/client'
 
 function maneuver(
@@ -237,5 +237,71 @@ describe('maneuverIcon', () => {
     expect(instructionFor({ type: 'turn', modifier: 'left', name: 'NH 27' } as any, hi)).toBe('मुड़ें बाएँ पर NH 27')
     expect(instructionFor({ type: 'turn', modifier: 'sharp_right', name: null } as any)).toBe('Turn sharp right')
   })
+  it('says continue, never "Turn straight", for an OSRM turn with modifier straight (E2E-R6)', () => {
+    expect(instructionFor({ type: 'turn', modifier: 'straight', name: null } as any)).toBe('Continue')
+    expect(instructionFor({ type: 'turn', modifier: 'straight', name: 'NH 6' } as any)).toBe('Continue onto NH 6')
+    expect(instructionFor({ type: 'new name', modifier: 'straight', name: 'NH 6' } as any)).toBe('Continue onto NH 6')
+  })
+  it('never prints an OSRM verb or "straight" raw, whatever the verb (E2E-R6 class)', () => {
+    // Types and modifiers as the live navigation package sends them.
+    const say = (type: string, modifier: string | null, name: string | null = 'NH 6') => instructionFor({ type, modifier, name } as any)
+    expect(say('end of road', 'straight')).toBe('Continue onto NH 6')
+    expect(say('merge', 'straight')).toBe('Merge onto NH 6')
+    expect(say('fork', 'straight')).toBe('Keep ahead onto NH 6')
+    expect(say('roundabout turn', 'straight')).toBe('Continue onto NH 6')
+    expect(say('exit roundabout', 'straight')).toBe('At the roundabout, take the exit onto NH 6')
+    expect(say('exit roundabout', 'left', null)).toBe('At the roundabout, take the exit')
+    expect(say('off ramp', 'slight right')).toBe('Keep slight right onto NH 6')
+    expect(say('notification', 'straight')).toBe('Continue onto NH 6')
+    for (const type of ['turn', 'new name', 'continue', 'end of road', 'merge', 'fork', 'on ramp', 'off ramp', 'roundabout turn', 'exit roundabout', 'exit rotary', 'notification', 'use lane']) {
+      const words = say(type, 'straight')
+      expect(words, type).not.toMatch(/straight|roundabout straight|ramp|notification|use lane|^exit/)
+    }
+  })
+  it('draws the arrow the words say for OSRM modifiers spelt with a space', () => {
+    // Live: "Keep slight right onto Bhangagarh Flyover" beside a straight-up arrow.
+    expect(maneuverIcon({ type: 'fork', modifier: 'slight right' } as any)).toBe('arrow-up-right')
+    expect(maneuverIcon({ type: 'new name', modifier: 'slight left' } as any)).toBe('arrow-up-left')
+    expect(maneuverIcon({ type: 'turn', modifier: 'sharp left' } as any)).toBe('corner-up-left')
+    expect(maneuverIcon({ type: 'turn', modifier: 'sharp right' } as any)).toBe('corner-up-right')
+    expect(maneuverIcon({ type: 'turn', modifier: 'straight' } as any)).toBe('arrow-up')
+  })
 })
 
+
+describe('toldManeuvers', () => {
+  // The two rings on the recorded Guwahati-Shillong package (FV-DRV-02):
+  // entry, then its own exit step 6.5 m and 67.1 m on.
+  const step = (type: string, modifier: string | null, exit: number | null, name: string | null, at: number) =>
+    ({ type, modifier, exit, name, lat: 26, lon: 91, geometry_index: 0, distance_from_start_m: at, step_distance_m: 0 }) as unknown as NavigationManeuver
+  const recorded = [
+    step('new name', 'straight', null, 'Sixmile Flyover', 7566.5),
+    step('roundabout', 'slight left', 1, null, 9868.5),
+    step('exit roundabout', 'straight', 1, null, 9875),
+    step('new name', 'slight left', null, 'NH37', 10157.7),
+    step('fork', 'slight left', null, null, 94532.7),
+    step('roundabout', 'left', 2, null, 95175.6),
+    step('exit roundabout', 'left', 2, null, 95242.7),
+    step('turn', 'slight left', null, 'MG road', 96048.7),
+  ]
+
+  it('says a roundabout once: its exit step never follows it as the next turn or the Then line', () => {
+    const told = toldManeuvers(recorded)
+    expect(told.map((m) => m.type)).toEqual(['new name', 'roundabout', 'new name', 'fork', 'roundabout', 'turn'])
+    // Approaching the first ring: the turn, then the road after it.
+    const next = upcomingManeuver(told, 9000)!
+    expect(instructionFor(next.maneuver)).toBe('At the roundabout, take exit 1')
+    expect(instructionFor(told[told.indexOf(next.maneuver) + 1])).toBe('Continue slight left onto NH37')
+    // Just inside the ring the exit is not announced a second time.
+    expect(instructionFor(upcomingManeuver(told, 9870)!.maneuver)).toBe('Continue slight left onto NH37')
+    expect(instructionFor(upcomingManeuver(told, 95200)!.maneuver)).toBe('Turn slight left onto MG road')
+  })
+
+  it('keeps an exit step that follows no entry of its own, and changes nothing else', () => {
+    const lone = [step('turn', 'left', null, 'A', 10), step('exit rotary', 'right', 3, 'B', 20)]
+    expect(toldManeuvers(lone)).toEqual(lone)
+    const mixed = [step('rotary', 'left', 2, null, 10), step('exit roundabout', 'left', 2, null, 20)]
+    expect(toldManeuvers(mixed)).toHaveLength(2)
+    expect(toldManeuvers([])).toEqual([])
+  })
+})

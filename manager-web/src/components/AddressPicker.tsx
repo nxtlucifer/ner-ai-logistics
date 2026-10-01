@@ -35,13 +35,47 @@
  * strip names which one produced the number on screen.
  */
 
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
-import { Map as MapLibreMap, Marker } from 'maplibre-gl'
+import { Suspense, lazy, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 
 import { ApiError, api, type AddressSuggestion } from '../api/client'
+import { asked, quietly } from '../staleChunk'
 import { parseGoogleMapsUrl } from '../utils/googleMapsUrl'
-import { wrapTab } from './focusTrap'
-import { NER_CENTRE, NER_ZOOM, OSM_STYLE } from './FleetMap'
+import { Link2, MapPin, SlidersHorizontal } from 'lucide-react'
+
+import { LoadingState, MapLoadBoundary } from './ui'
+
+// MapLibre is most of a megabyte. The planner opens with this picker, so a
+// static import put the library in the entry chunk of every page; the map
+// dialog is the only part that needs it, and only once somebody asks.
+const loadMapPicker = () => import('./MapPointPicker')
+// Re-made after a failed load: React.lazy keeps a rejection for good, and the
+// next click, back online, has to try the network again. `asked`: a click
+// that fails reloads a stale tab even while its hover's prefetch is out.
+let MapPointPicker = lazy(() => asked(loadMapPicker))
+/** Hover or focus on "Choose on map" starts the download, so the loading
+ *  stand-in is rarely seen. A failure is left for the click to report, and
+ *  never reloads a stale tab: tabbing past this button must not lose the
+ *  planner. */
+const prefetchMap = () => void quietly(loadMapPicker).catch(() => {})
+const focusOnMount = (el: HTMLElement | null) => el?.focus()
+
+/** Stylesheet links whose fetch failed, seen by one capture-phase listener (a
+ *  link's error does not bubble). Only these are asked for again: a link still
+ *  loading has no sheet either, and replacing it would strand the load that
+ *  waits on it. */
+const failedSheets = new Set<HTMLLinkElement>()
+globalThis.document?.addEventListener('error', (event) => {
+  if (event.target instanceof HTMLLinkElement && event.target.rel === 'stylesheet') failedSheets.add(event.target)
+}, true)
+
+/** Vite's preload helper asks for each stylesheet once per page, so the map's
+ *  CSS that failed with its chunk would stay missing after the chunk itself
+ *  loads on a retry. A link that failed is put back fresh, which makes the
+ *  browser fetch it again. */
+function refetchFailedStylesheets() {
+  failedSheets.forEach((link) => link.replaceWith(link.cloneNode()))
+  failedSheets.clear()
+}
 
 export type CoordinateSource = 'GOOGLE' | 'MAP' | 'GOOGLE_MAPS_LINK' | 'MANUAL'
 
@@ -103,6 +137,20 @@ export interface AddressPickerProps {
   placeholder?: string
 }
 
+/** Rows with the same words are one choice (E2E-D7): OpenStreetMap can return
+ *  a town's point and its boundary under one label, and two rows nobody can
+ *  tell apart are not a choice. The first is kept; the map preview confirms it. */
+export function distinctSuggestions(list: AddressSuggestion[]): AddressSuggestion[] {
+  const seen = new Set<string>()
+  return list.filter((s) => {
+    const key = `${s.primary_text}
+${s.secondary_text}`.trim().toLowerCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 export default function AddressPicker({
   label,
   name,
@@ -123,6 +171,15 @@ export default function AddressPicker({
     return () => clearTimeout(t)
   }, [search.kind])
   const [pickingOnMap, setPickingOnMap] = useState(false)
+  const [mapError, setMapError] = useState<string | null>(null)
+  // The map dialog, or its loading stand-in, holds focus while open; however
+  // it closes, focus goes back to the button that opened it.
+  const mapButton = useRef<HTMLButtonElement | null>(null)
+  const wasPicking = useRef(false)
+  useEffect(() => {
+    if (wasPicking.current && !pickingOnMap) mapButton.current?.focus()
+    wasPicking.current = pickingOnMap
+  }, [pickingOnMap])
   const [advancedOpen, setAdvancedOpen] = useState(false)
 
   const session = useRef(newSessionToken())
@@ -267,7 +324,7 @@ export default function AddressPicker({
           setSearch(
             result.suggestions.length === 0
               ? { kind: 'EMPTY' }
-              : { kind: 'RESULTS', suggestions: result.suggestions, provider: result.provider },
+              : { kind: 'RESULTS', suggestions: distinctSuggestions(result.suggestions), provider: result.provider },
           )
         })
         .catch((error: unknown) => {
@@ -380,19 +437,17 @@ export default function AddressPicker({
       </label>
 
       {search.kind === 'LOADING' ? (
-        <p className="text-xs text-muted">
+        <p role="status" className="text-[13px] text-muted">
           {slowSearch ? 'Address search is taking longer than usual — Choose on map or paste a Maps link works too.' : 'Searching…'}
         </p>
       ) : null}
 
       {suggestions.length > 0 ? (
-        <ul
-          id={listId}
-          role="listbox"
-          className="max-h-56 overflow-y-auto rounded-[var(--radius-control)] border border-outline bg-surface"
-        >
+        <div className="overflow-hidden rounded-[var(--radius-control)] border border-outline bg-surface-raised shadow-[var(--shadow-panel)]">
+        <ul id={listId} role="listbox" className="max-h-56 overflow-y-auto">
           {suggestions.map((s, i) => (
-            <li key={s.place_id}>
+            // role="none": a listbox owns options, and an <li> would be a listitem.
+            <li key={s.place_id} role="none">
               <button
                 id={`${listId}-${i}`}
                 type="button"
@@ -400,8 +455,8 @@ export default function AddressPicker({
                 aria-selected={i === highlighted}
                 onMouseEnter={() => setHighlighted(i)}
                 onClick={() => void choose(s)}
-                className={`w-full px-3 py-2 text-left text-sm ${
-                  i === highlighted ? 'bg-soft' : ''
+                className={`min-h-11 w-full px-3 py-2 text-left text-sm ${
+                  i === highlighted ? 'bg-soft' : 'hover:bg-soft'
                 }`}
               >
                 <span className="block text-ink">{s.primary_text}</span>
@@ -413,20 +468,22 @@ export default function AddressPicker({
               </button>
             </li>
           ))}
-          <li className="border-t border-line px-3 py-1 text-[11px] text-muted">
-            {search.kind === 'RESULTS' && search.provider === 'NOMINATIM' ? '© OpenStreetMap contributors · India, Nepal, Bhutan, Bangladesh, Myanmar' : 'Powered by Google'}
-          </li>
         </ul>
+        {/* The provider credit sits outside the listbox: it is not a choice. */}
+        <p className="border-t border-line px-3 py-1.5 text-xs text-muted">
+          {search.kind === 'RESULTS' && search.provider === 'NOMINATIM' ? '© OpenStreetMap contributors · India, Nepal, Bhutan, Bangladesh, Myanmar' : 'Powered by Google'}
+        </p>
+        </div>
       ) : null}
 
       {search.kind === 'EMPTY' ? (
-        <p className="text-xs text-muted">
+        <p className="text-[13px] text-muted">
           No matching address. Try fewer words, or choose the point on the map.
         </p>
       ) : null}
 
       {search.kind === 'UNCONFIGURED' ? (
-        <p className="text-xs text-warning">
+        <p className="text-[13px] text-warning">
           Address search is not configured on this server, so there are no
           suggestions to show. Use <strong>Choose on map</strong> below — it
           gives the same coordinate.
@@ -434,21 +491,27 @@ export default function AddressPicker({
       ) : null}
 
       {search.kind === 'PROVIDER_ERROR' ? (
-        <p className="text-xs text-warning">
+        <p className="text-[13px] text-warning">
           Address search is unavailable right now. Use{' '}
           <strong>Choose on map</strong>, or try again.
         </p>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-2 pt-0.5">
+      <div className="flex flex-wrap items-center gap-2 pt-1">
         <button
+          ref={mapButton}
           type="button"
+          onMouseEnter={prefetchMap}
+          onFocus={prefetchMap}
           onClick={() => {
             dismissSearch()
+            refetchFailedStylesheets()
+            setMapError(null)
             setPickingOnMap(true)
           }}
-          className="rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink hover:bg-soft"
+          className="inline-flex min-h-9 items-center gap-1.5 rounded-[var(--radius-control)] border px-3 text-[13px] font-medium border-line bg-surface text-ink hover:bg-soft"
         >
+          <MapPin className="size-4" aria-hidden="true" />
           Choose on map
         </button>
         <button
@@ -458,13 +521,14 @@ export default function AddressPicker({
             setLinkInputOpen((v) => !v)
           }}
           aria-expanded={linkInputOpen}
-          className={`rounded-md border px-3 py-1.5 text-xs font-medium ${
+          className={`inline-flex min-h-9 items-center gap-1.5 rounded-[var(--radius-control)] border px-3 text-[13px] font-medium ${
             linkInputOpen
-              ? 'border-route bg-route-soft text-route'
+              ? 'border-outline bg-soft text-ink'
               : 'border-line bg-surface text-ink hover:bg-soft'
           }`}
           data-testid={`${name}-paste-link-button`}
         >
+          <Link2 className="size-4" aria-hidden="true" />
           Paste Google Maps link
         </button>
         <button
@@ -474,19 +538,26 @@ export default function AddressPicker({
             setAdvancedOpen((v) => !v)
           }}
           aria-expanded={advancedOpen}
-          className="rounded-md px-2 py-1.5 text-xs text-muted hover:text-ink"
+          className="inline-flex min-h-9 items-center gap-1.5 rounded-[var(--radius-control)] border px-3 text-[13px] font-medium border-transparent text-muted hover:bg-soft hover:text-ink"
         >
+          <SlidersHorizontal className="size-4" aria-hidden="true" />
           {advancedOpen ? 'Hide advanced' : 'Advanced'}
         </button>
       </div>
 
+      {mapError ? (
+        <p role="alert" className="text-[13px] text-warning">
+          {mapError}
+        </p>
+      ) : null}
+
       {linkInputOpen ? (
         <div
-          className="space-y-2 rounded-md border border-route/25 bg-route-soft p-3"
+          className="space-y-2 rounded-[10px] bg-soft p-3"
           data-testid={`${name}-link-panel`}
         >
           <label className="block">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-route">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted">
               Paste Google Maps URL or Short Link
             </span>
             <div className="mt-1 flex gap-2">
@@ -494,14 +565,15 @@ export default function AddressPicker({
                 value={linkText}
                 onChange={(e) => setLinkText(e.target.value)}
                 placeholder="e.g. https://maps.app.goo.gl/... or https://maps.google.com/?q=..."
-                className="flex-1 rounded-[var(--radius-control)] border border-outline bg-surface px-2.5 py-1.5 text-sm text-ink placeholder:text-muted focus:border-route focus:ring-1 focus:ring-route"
+                className="min-w-0 flex-1 rounded-[var(--radius-control)] border border-outline bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-muted focus:border-route focus:ring-1 focus:ring-route"
                 data-testid={`${name}-link-input`}
               />
               <button
                 type="button"
                 disabled={resolvingLink || !linkText.trim()}
                 onClick={() => void handleResolveLink(linkText)}
-                className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-hover disabled:opacity-50"
+                className="shrink-0 rounded-[var(--radius-control)] bg-primary px-4 text-[13px] font-semibold text-on-primary hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+                aria-disabled={resolvingLink || !linkText.trim() || undefined}
                 data-testid={`${name}-resolve-link-button`}
               >
                 {resolvingLink ? 'Resolving…' : 'Use Location'}
@@ -509,9 +581,9 @@ export default function AddressPicker({
             </div>
           </label>
           {linkError ? (
-            <p className="text-xs text-danger">{linkError}</p>
+            <p className="text-[13px] text-danger">{linkError}</p>
           ) : (
-            <p className="text-[11px] text-muted">
+            <p className="text-xs text-muted">
               Supports standard map links, short links (maps.app.goo.gl, goo.gl), and coordinates with labels.
             </p>
           )}
@@ -522,7 +594,7 @@ export default function AddressPicker({
           absent otherwise - so an unset endpoint looks unset rather than
           looking like a default somebody meant. */}
       {value.source !== null && hasCoordinate ? (
-        <p className="text-xs text-ok" data-testid={`${name}-confirmed`}>
+        <p className="text-[13px] text-ok" data-testid={`${name}-confirmed`}>
           <span className="font-semibold">✓ {value.address.trim() || 'Location set'}</span>
           <span className="ml-1 text-muted">
             · {SOURCE_LABEL[value.source]} · {Number(value.lat).toFixed(5)}, {Number(value.lon).toFixed(5)}
@@ -530,20 +602,20 @@ export default function AddressPicker({
           </span>
         </p>
       ) : value.source !== null ? (
-        <p className="text-xs text-warning">
+        <p className="text-[13px] text-warning">
           Coordinates are incomplete or out of range. Enter latitude from −90 to
           90 and longitude from −180 to 180, or choose the point on the map.
         </p>
       ) : (
-        <p className="text-xs text-muted">
+        <p className="text-[13px] text-muted">
           No location set yet. Pick a suggestion or choose the point on the map.
         </p>
       )}
 
       {advancedOpen ? (
-        <div className="grid grid-cols-2 gap-2 rounded-[var(--radius-control)] border border-outline bg-surface/60 p-2">
+        <div className="grid grid-cols-2 gap-2 rounded-[10px] bg-soft p-3">
           <label className="block">
-            <span className="text-[11px] font-medium text-muted">
+            <span className="text-xs font-medium text-ink">
               Latitude
             </span>
             <input
@@ -561,7 +633,7 @@ export default function AddressPicker({
             />
           </label>
           <label className="block">
-            <span className="text-[11px] font-medium text-muted">
+            <span className="text-xs font-medium text-ink">
               Longitude
             </span>
             <input
@@ -578,7 +650,7 @@ export default function AddressPicker({
               className="mt-1 w-full rounded-[var(--radius-control)] border border-outline bg-surface px-2 py-1.5 text-sm text-ink"
             />
           </label>
-          <p className="col-span-2 text-[11px] text-muted">
+          <p className="col-span-2 text-xs text-muted">
             Typed coordinates are not checked against the address above. They go
             to the router exactly as entered.
           </p>
@@ -586,47 +658,77 @@ export default function AddressPicker({
       ) : null}
 
       {pickingOnMap ? (
-        <MapPointPicker
-          title={label}
-          // Opens where the manager already is: the pin, or the point a
-          // search resolved - unless that result came from Google, whose
-          // results may only be shown on a Google map.
-          initial={hasCoordinate && !(value.source === 'GOOGLE' && /google/i.test(value.attribution ?? '')) ? [Number(value.lon), Number(value.lat)] : lastPin.current}
-          onCancel={() => setPickingOnMap(false)}
-          onConfirm={([lon, lat]) => {
-            lastPin.current = [lon, lat]
-            // A pin with no words is a location the server refuses (blank
-            // address) and a row nobody can read. The manager's own words win;
-            // otherwise a coordinate label goes in at once and the reverse
-            // lookup replaces it with a place name when it answers.
-            const typed = value.address.trim()
-            const placeholder = `Pinned location ${lat.toFixed(5)}, ${lon.toFixed(5)}`
-            const pinned: EndpointValue = {
-              ...value,
-              address: typed || placeholder,
-              lat: String(lat),
-              lon: String(lon),
-              source: 'MAP',
-              attribution: '© OpenStreetMap contributors',
-            }
-            changeEndpoint(pinned)
+        <MapLoadBoundary
+          instead="enter coordinates under Advanced instead"
+          onError={(message) => {
+            MapPointPicker = lazy(() => asked(loadMapPicker))
             setPickingOnMap(false)
-            if (!typed) {
-              api
-                .resolveAddress(`osm:${lat},${lon}`, newSessionToken())
-                .then((named) => {
-                  const now = latest.current
-                  // Only if this pin is still the value and still unlabelled.
-                  if (now.source === 'MAP' && now.lat === pinned.lat && now.lon === pinned.lon && now.address === placeholder && named.address.trim()) {
-                    onChange({ ...now, address: named.address })
-                  }
-                })
-                .catch(() => {
-                  // The coordinate label stays. Honest, and still a valid endpoint.
-                })
-            }
+            setMapError(message)
           }}
-        />
+        >
+        <Suspense
+          fallback={
+            <div
+              ref={focusOnMount}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Loading map"
+              tabIndex={-1}
+              onKeyDown={(event) => {
+                if (event.key !== 'Escape') return
+                event.preventDefault()
+                event.stopPropagation()
+                setPickingOnMap(false)
+              }}
+              className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] focus:outline-none"
+            >
+              <LoadingState label="Loading map…" />
+            </div>
+          }
+        >
+          <MapPointPicker
+            title={label}
+            // Opens where the manager already is: the pin, or the point a
+            // search resolved - unless that result came from Google, whose
+            // results may only be shown on a Google map.
+            initial={hasCoordinate && !(value.source === 'GOOGLE' && /google/i.test(value.attribution ?? '')) ? [Number(value.lon), Number(value.lat)] : lastPin.current}
+            onCancel={() => setPickingOnMap(false)}
+            onConfirm={([lon, lat]) => {
+              lastPin.current = [lon, lat]
+              // A pin with no words is a location the server refuses (blank
+              // address) and a row nobody can read. The manager's own words win;
+              // otherwise a coordinate label goes in at once and the reverse
+              // lookup replaces it with a place name when it answers.
+              const typed = value.address.trim()
+              const placeholder = `Pinned location ${lat.toFixed(5)}, ${lon.toFixed(5)}`
+              const pinned: EndpointValue = {
+                ...value,
+                address: typed || placeholder,
+                lat: String(lat),
+                lon: String(lon),
+                source: 'MAP',
+                attribution: '© OpenStreetMap contributors',
+              }
+              changeEndpoint(pinned)
+              setPickingOnMap(false)
+              if (!typed) {
+                api
+                  .resolveAddress(`osm:${lat},${lon}`, newSessionToken())
+                  .then((named) => {
+                    const now = latest.current
+                    // Only if this pin is still the value and still unlabelled.
+                    if (now.source === 'MAP' && now.lat === pinned.lat && now.lon === pinned.lon && now.address === placeholder && named.address.trim()) {
+                      onChange({ ...now, address: named.address })
+                    }
+                  })
+                  .catch(() => {
+                    // The coordinate label stays. Honest, and still a valid endpoint.
+                  })
+              }
+            }}
+          />
+        </Suspense>
+        </MapLoadBoundary>
       ) : null}
     </div>
   )
@@ -637,141 +739,4 @@ const SOURCE_LABEL: Record<CoordinateSource, string> = {
   MAP: 'Pinned on map',
   GOOGLE_MAPS_LINK: 'From Google Maps link',
   MANUAL: 'Typed by hand',
-}
-
-/**
- * Drop a pin and read its coordinate.
- *
- * Deliberately a separate map instance rather than a mode on the fleet map: the
- * fleet map is a live operational view that must not change meaning when
- * somebody opens a planning form, and clicking it already selects a truck.
- */
-function MapPointPicker({
-  title,
-  initial,
-  onCancel,
-  onConfirm,
-}: {
-  title: string
-  initial: [number, number] | null
-  onCancel: () => void
-  onConfirm: (point: [number, number]) => void
-}) {
-  const container = useRef<HTMLDivElement | null>(null)
-  const dialog = useRef<HTMLDivElement | null>(null)
-  const closeButton = useRef<HTMLButtonElement | null>(null)
-  const [point, setPoint] = useState<[number, number] | null>(initial)
-
-  useEffect(() => {
-    const previousFocus = document.activeElement
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    closeButton.current?.focus()
-    const keepFocusInside = (event: FocusEvent) => {
-      if (event.target instanceof Node && !dialog.current?.contains(event.target)) {
-        closeButton.current?.focus()
-      }
-    }
-    document.addEventListener('focusin', keepFocusInside)
-    return () => {
-      document.removeEventListener('focusin', keepFocusInside)
-      document.body.style.overflow = previousOverflow
-      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
-        previousFocus.focus()
-      }
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!container.current) return
-    const map = new MapLibreMap({
-      container: container.current,
-      style: OSM_STYLE,
-      center: initial ?? NER_CENTRE,
-      zoom: initial ? 12 : NER_ZOOM,
-      attributionControl: { compact: true },
-    })
-    const marker = new Marker({ color: '#34d399', draggable: true })
-    if (initial) marker.setLngLat(initial).addTo(map)
-
-    map.on('click', (event) => {
-      const next: [number, number] = [event.lngLat.lng, event.lngLat.lat]
-      marker.setLngLat(next).addTo(map)
-      setPoint(next)
-    })
-    // Dragging is how a pin gets nudged onto the actual gate rather than the
-    // road outside it, so the value follows the drag rather than the click.
-    marker.on('dragend', () => {
-      const at = marker.getLngLat()
-      setPoint([at.lng, at.lat])
-    })
-
-    return () => {
-      marker.remove()
-      map.remove()
-    }
-    // Mount-only: re-creating the map would drop the manager's pan and pin.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  return (
-    <div
-      ref={dialog}
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Choose ${title} on the map`}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') {
-          event.preventDefault()
-          event.stopPropagation()
-          onCancel()
-        } else {
-          wrapTab(event)
-        }
-      }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-canvas/80 p-4"
-    >
-      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-line bg-surface">
-        <div className="flex items-center justify-between border-b border-line px-4 py-3">
-          <h2 className="text-sm font-semibold text-ink">
-            Choose {title.toLowerCase()}
-          </h2>
-          <button
-            ref={closeButton}
-            type="button"
-            onClick={onCancel}
-            className="rounded-md px-2 py-1 text-sm text-muted hover:text-ink"
-          >
-            Close
-          </button>
-        </div>
-        <div ref={container} className="h-[55vh] min-h-[280px] w-full" />
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-3">
-          <p className="text-xs text-muted">
-            {point
-              ? `${point[1].toFixed(5)}, ${point[0].toFixed(5)} — drag the pin to adjust.`
-              : 'Click the map to place the pin.'}
-          </p>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onCancel}
-              className="rounded-md border border-line px-3 py-1.5 text-xs text-ink hover:bg-soft"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              disabled={point === null}
-              title={point === null ? 'Click the map to place the pin first' : 'Use this pin as the location'}
-              onClick={() => point && onConfirm(point)}
-              className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Use this point
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
 }

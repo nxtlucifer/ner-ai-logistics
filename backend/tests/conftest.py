@@ -530,7 +530,7 @@ async def auth_headers(api: AsyncClient, identifier: str, password: str) -> dict
 
 
 @pytest.fixture
-def clear_hazard_evidence(monkeypatch):
+def clear_hazard_evidence(monkeypatch, fixture_geography):
     """A labelled SYNTHETIC hazard source that answered and found nothing.
 
     LS-7 made landslide REQUIRED safety evidence, so a route with no hazard
@@ -544,6 +544,12 @@ def clear_hazard_evidence(monkeypatch):
     and reported no incidents, which is the ONE route to ELIGIBLE. It is
     injected at the provider seam - the same place a real source would sit -
     so the whole assessment, eligibility and guard chain still runs for real.
+
+    Since the India-wide policy (29 Sep 2026) a clear reading counts only
+    where the route is wholly inside the NER state polygons, so "sufficient"
+    also loads the SYNTHETIC outline and state shapes (`fixture_geography`):
+    the suite's Guwahati-Jorhat corridors lie inside the FIXTURE Assam
+    rectangle, NER_DEEP. See tests/test_india_trip_policy.py.
 
     It is TEST-ONLY. Production uses NullLandslideProvider, asserted in
     tests/test_landslide_provider.py.
@@ -562,3 +568,58 @@ def clear_hazard_evidence(monkeypatch):
     monkeypatch.setattr(
         _risk, "build_landslide_provider", lambda: _AnsweredNothingFound()
     )
+
+
+@pytest.fixture(autouse=True)
+def _no_reverse_geocoding(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Creating a shipment reverse-geocodes its endpoints. No test may reach
+    Nominatim: by default the lookup is unavailable, so geography stays unknown
+    exactly as before, and tests that need an answer patch one in."""
+    from app.services import geocoding
+
+    async def unavailable(lat: float, lon: float):
+        raise geocoding.GeocodingUnavailable("reverse geocoding is stubbed in tests")
+
+    monkeypatch.setattr(geocoding, "reverse_admin", unavailable)
+
+
+@pytest.fixture(autouse=True)
+def _fixture_geometry_counts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The suite runs with the developer's APP_ENV (usually development), yet
+    its FIXTURE_* shapes must classify. Production code honours them only under
+    APP_ENV=test; tests/test_demo_blockers.py checks that rule unpatched."""
+    from app.services import geo_classify
+
+    monkeypatch.setattr(geo_classify, "fixture_geometry_allowed", lambda: True)
+
+
+async def _with_fixture_geography(admin: bool) -> AsyncGenerator[None, None]:
+    from tests import geo_fixtures
+
+    async with db_session.get_sessionmaker()() as s:
+        await geo_fixtures.load(s, admin=admin)
+    try:
+        yield
+    finally:
+        async with db_session.get_sessionmaker()() as s:
+            await geo_fixtures.unload(s)
+
+
+@pytest_asyncio.fixture
+async def fixture_india() -> AsyncGenerator[None, None]:
+    """The SYNTHETIC India outline only (tests/geo_fixtures.py).
+
+    Country acceptance fails closed without an India boundary (503
+    GEOGRAPHY_UNAVAILABLE), so any test that creates a shipment or adds a stop
+    needs one. No state geometry: state/district stay on the OSM fallback,
+    which the suite stubs as unavailable - exactly the pre-0016 behaviour.
+    """
+    async for _ in _with_fixture_geography(admin=False):
+        yield
+
+
+@pytest_asyncio.fixture
+async def fixture_geography() -> AsyncGenerator[None, None]:
+    """The synthetic India outline plus synthetic state and district shapes."""
+    async for _ in _with_fixture_geography(admin=True):
+        yield

@@ -25,7 +25,7 @@ import httpx
 
 from app.core.config import get_settings
 from app.domain import ai_prompts
-from app.services import provider_health
+from app.services import http_clients, provider_health
 
 log = logging.getLogger(__name__)
 
@@ -100,8 +100,10 @@ async def _openrouter(system: str, user: str, max_tokens: int) -> GeminiResponse
             "reasoning": {"enabled": False},
         }
         try:
-            async with httpx.AsyncClient(timeout=settings.OPENROUTER_TIMEOUT_SECONDS) as client:
-                resp = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
+            resp = await http_clients.get("openrouter").post(
+                "https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload,
+                timeout=settings.OPENROUTER_TIMEOUT_SECONDS,
+            )
             if resp.status_code == 429:
                 last = f"{model}: rate-limited"
                 continue
@@ -265,7 +267,7 @@ async def generate(
 
     # 1. Security Filter: Prompt Injection
     if ai_prompts.is_injection_attempt(user):
-        log.warning("Blocked prompt injection attempt: %s...", user[:50])
+        log.warning("Blocked prompt injection attempt (%d chars, driver %s)", len(user), driver_id)
         return GeminiResponse(
             answer="I am your logistics helper and follow strict safety boundaries. I cannot ignore my operating guidelines.",
             severity="WARNING",
@@ -275,7 +277,7 @@ async def generate(
 
     # 2. Security Filter: Credential Exfiltration
     if ai_prompts.is_credential_request(user):
-        log.warning("Blocked credential request: %s...", user[:50])
+        log.warning("Blocked credential request (%d chars, driver %s)", len(user), driver_id)
         return GeminiResponse(
             answer="Access to internal database credentials, secret keys, and system tokens is strictly prohibited.",
             severity="WARNING",
@@ -320,7 +322,10 @@ async def generate(
 
     # 7. Construct Request to Gemini Developer API
     model = settings.GEMINI_MODEL
-    url = f"{GEMINI_API_BASE}/{model}:generateContent?key={key}"
+    # The key goes in a header, never the URL: httpx logs request URLs, and a
+    # query-string key would land in the server logs.
+    url = f"{GEMINI_API_BASE}/{model}:generateContent"
+    headers = {"x-goog-api-key": key}
     timeout = settings.GEMINI_TIMEOUT_SECONDS
     max_tokens = max_output_tokens or settings.GEMINI_MAX_OUTPUT_TOKENS
 
@@ -341,13 +346,13 @@ async def generate(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(url, json=payload)
-            # Google answers 503 "model overloaded" in bursts; one patient
-            # retry clears most of them and is cheaper than a failover.
-            if resp.status_code in (503, 429):
-                await asyncio.sleep(1.5)
-                resp = await client.post(url, json=payload)
+        client = http_clients.get("gemini")
+        resp = await client.post(url, json=payload, headers=headers, timeout=timeout)
+        # Google answers 503 "model overloaded" in bursts; one patient
+        # retry clears most of them and is cheaper than a failover.
+        if resp.status_code in (503, 429):
+            await asyncio.sleep(1.5)
+            resp = await client.post(url, json=payload, headers=headers, timeout=timeout)
 
         if resp.status_code == 429:
             log.warning("Gemini API quota exhausted (HTTP 429). Falling back gracefully.")

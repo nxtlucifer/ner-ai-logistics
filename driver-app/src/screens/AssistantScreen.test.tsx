@@ -101,9 +101,13 @@ vi.mock('react-native', async () => {
     Text: box,
     TextInput: input,
     ActivityIndicator: () => h('span', null, 'Loading...'),
+    // The photo hero (components/scenic) draws More's photo.
+    Image: () => null,
     Linking: { openURL: vi.fn() },
     Platform: { OS: 'android' },
     StyleSheet: { create: (v: unknown) => v },
+    // components/useKeyboardOpen: the composer folds while the keyboard is up.
+    Keyboard: { addListener: () => ({ remove: () => {} }) },
   }
 })
 

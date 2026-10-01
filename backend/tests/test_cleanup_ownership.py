@@ -335,8 +335,13 @@ class TestFailureDoesNotBroadenTheDelete:
                 "the truck went even though the transaction failed"
             )
         finally:
-            factories.OWNED.clear()
+            # Forget only the id this test injected. Clearing the whole ledger
+            # leaked the truck above: one residue truck per suite run.
+            factories.OWNED["drivers"].remove(blocked["driver"])
             await _drop_unowned_graph(session, blocked)
+        assert truck_id in factories.OWNED.get("trucks", ()), (
+            "the truck left the ledger, so teardown will never delete it"
+        )
 
     async def test_a_row_deleted_by_the_test_itself_is_tolerated(
         self, session: AsyncSession

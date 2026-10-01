@@ -37,11 +37,13 @@ def _risk(score: int, *, unavailable: tuple[str, ...] = ("landslide",)) -> Route
     REQUIRES_REVIEW and nothing would ever be recommended - which is correct
     policy but would silently turn this whole suite into a test of the
     eligibility gate instead of the comparison. Absence-of-evidence behaviour
-    is covered in tests/test_route_eligibility.py.
+    is covered in tests/test_route_eligibility.py. Sufficient now includes a
+    road wholly inside the NER (NER_DEEP; tests/test_india_trip_policy.py).
     """
     from app.domain.landslide import DataStatus, LandslideAssessment, LandslideRisk
 
     return RouteRisk(
+        intelligence_coverage="NER_DEEP",
         landslide=LandslideAssessment(
             risk=LandslideRisk.LOW, data_status=DataStatus.AVAILABLE
         ),
@@ -313,6 +315,7 @@ class TestAgainstRealScores:
             observations=[obs(9.0) for _ in range(5)],
             landslide=checked,
             now=NOW,
+            intelligence_coverage="NER_DEEP",
         )
         dry = assess(
             distance_km=326.0,
@@ -320,6 +323,7 @@ class TestAgainstRealScores:
             observations=[obs(0.0) for _ in range(5)],
             landslide=checked,
             now=NOW,
+            intelligence_coverage="NER_DEEP",
         )
         assert wet.score > dry.score
 

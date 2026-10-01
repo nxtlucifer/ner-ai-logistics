@@ -6,14 +6,14 @@
  * - Drivers & Trucks listing and inspection
  * - Assignments listing and creation
  * - Trips listing and detail
- * - Atomic Trip Planning (via public.plan_trip RPC)
+ * - Trip and route planning (via the intelligence plane, never the browser)
  * - Fleet GPS live monitoring (via gps_points and trips)
  * - Trip GPS track history
  */
 
-import { ApiError } from './client'
+import { ApiError, type ApiErrorBody } from './client'
 import { getSupabase } from './supabaseClient'
-import { IntelligenceUnavailableError, intelligenceFetch } from './intelligence'
+import { IntelligenceUnavailableError, intelligenceConfigured, intelligenceFetch } from './intelligence'
 
 import type {
   Driver,
@@ -150,7 +150,51 @@ function rpcError(
  * selected routes. Adding six more of those to make buttons light up would
  * trade a visible gap for an invisible corruption.
  */
+/**
+ * Planning writes a trip or its routes, and WHERE they may go is the server's
+ * decision: both ends inside India, one of them in the North-East, and a
+ * domestic road that stays inside India (owner decisions, 29 Sep 2026).
+ *
+ * public.plan_trip checks none of that - only auth, permissions and that the
+ * truck and driver exist (P1R-15) - and the client's old North-East box is
+ * gone for good: it refused Guwahati to Delhi, and a box can only disagree
+ * with the server. Route planning used to run in the browser against the
+ * public OSRM demo server and, when that failed, stored a made-up
+ * Guwahati-Jorhat corridor as the trip's route, whatever its stops (RG-7).
+ *
+ * So on this transport both run on the intelligence plane (the FastAPI
+ * service, which does check, on the same database), or not at all. With no
+ * plane configured the controls say so and nothing is sent; an unreachable
+ * plane is a 503 PLANNING_UNAVAILABLE / ROUTING_UNAVAILABLE and the browser
+ * writes nothing. The plane's own refusals (422 OUTSIDE_SUPPORTED_COUNTRY,
+ * NOT_NER_CONNECTED, 503 GEOGRAPHY_UNAVAILABLE, ...) keep their codes.
+ */
+const PLANNING_NEEDS_PLANE = {
+  planTrip:
+    'Trip planning needs the RASTA API service, which checks on the server that both places are in India and that the trip starts or ends in the North-East. It is not connected to this console.',
+  planRoute:
+    'Route planning needs the RASTA API service, which finds roads with its own routing providers and keeps a domestic route inside India. It is not connected to this console.',
+} as const
+
+async function planOnPlane<T>(operation: keyof typeof PLANNING_NEEDS_PLANE, path: string, body?: unknown): Promise<T> {
+  const code = operation === 'planTrip' ? 'PLANNING_UNAVAILABLE' : 'ROUTING_UNAVAILABLE'
+  if (!intelligenceConfigured) {
+    throw new ApiError(503, { error: { code, message: `${PLANNING_NEEDS_PLANE[operation]} Nothing was saved.` } }, code)
+  }
+  try {
+    return await intelligenceFetch<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) })
+  } catch (error) {
+    if (!(error instanceof IntelligenceUnavailableError)) throw error
+    if (error.status !== undefined) {
+      const envelope = (error.body as ApiErrorBody | null)?.error ? (error.body as ApiErrorBody) : null
+      throw new ApiError(error.status, envelope, `The RASTA API service could not do this (HTTP ${error.status}).`)
+    }
+    throw new ApiError(503, { error: { code, message: `The RASTA API service could not be reached (${error.reason}).` } }, code)
+  }
+}
+
 export const UNAVAILABLE_OPERATIONS: Readonly<Record<string, string>> = {
+  ...(intelligenceConfigured ? {} : PLANNING_NEEDS_PLANE),
   createDriver: 'Creating drivers needs an account service that is not connected yet.',
   updateDriver: 'Editing drivers is not available on the hosted service yet.',
   deactivateDriver: 'Deactivating drivers is not available on the hosted service yet.',
@@ -476,13 +520,10 @@ export const supabaseManagerApi = {
 
   createTrip: (_body: any) => notMigrated('createTrip'),
 
-  /** Atomic trip planning via public.plan_trip RPC */
-  planTrip: async (body: TripPlanCreate): Promise<Trip> => {
-    const supabase = getSupabase()
-    const { data, error } = await supabase.rpc('plan_trip', { p_payload: body })
-    if (error) throw new Error(error.message)
-    return data as Trip
-  },
+  /** Shipment and trip in one transaction, on the intelligence plane, which
+   *  checks the country and the North-East first (see PLANNING_NEEDS_PLANE).
+   *  Never public.plan_trip: it checks neither. */
+  planTrip: (body: TripPlanCreate): Promise<Trip> => planOnPlane<Trip>('planTrip', '/api/trips/plan', body),
 
   dispatchTrip: async (id: string): Promise<Trip> => {
     const supabase = getSupabase()
@@ -508,162 +549,11 @@ export const supabaseManagerApi = {
     })) as TripRoute[]
   },
 
-  planRoute: async (tripId: string): Promise<RoutePlanResult> => {
-    const supabase = getSupabase()
-
-    // 1. Verify trip and stops
-    const { data: tripStops, error: stopsErr } = await supabase
-      .from('trip_stops')
-      .select('sequence, kind, location, address, name')
-      .eq('trip_id', tripId)
-      .order('sequence')
-
-    if (stopsErr) throw new Error(stopsErr.message)
-
-    let origin: [number, number] = [26.1445, 91.7362]
-    let destination: [number, number] = [26.7509, 94.2037]
-
-    if (tripStops && tripStops.length >= 2) {
-      const pStart = parseEwkbPoint(tripStops[0]?.location)
-      const pEnd = parseEwkbPoint(tripStops[tripStops.length - 1]?.location)
-      if (pStart) origin = pStart
-      if (pEnd) destination = pEnd
-    }
-
-    // 2. Fetch trip info for vehicle payload
-    const { data: tripRow } = await supabase
-      .from('trips')
-      .select('truck_id, shipment_id, shipments(total_weight_kg)')
-      .eq('id', tripId)
-      .single()
-
-    const payloadKg = Number((tripRow as any)?.shipments?.total_weight_kg ?? 10000)
-
-    // 3. Query real OSRM routing
-    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${origin[1]},${origin[0]};${destination[1]},${destination[0]}?overview=full&geometries=geojson&alternatives=true&steps=true`
-
-    let osrmRoutes: any[] = []
-    let usedProvider = 'osrm'
-    let usedFallback = false
-
-    try {
-      const resp = await fetch(osrmUrl, { headers: { 'User-Agent': 'ner-fleet-manager/1.0' } })
-      if (resp.ok) {
-        const data = await resp.json()
-        if (data.code === 'Ok' && Array.isArray(data.routes) && data.routes.length > 0) {
-          osrmRoutes = data.routes
-        }
-      }
-    } catch {
-      // Network failure or blocked
-    }
-
-    // If OSRM returned 1 route for Guwahati -> Jorhat corridor, attempt to find Tezpur alternative corridor
-    if (osrmRoutes.length === 1 && Math.abs(origin[0] - 26.14) < 0.5 && Math.abs(destination[0] - 26.75) < 0.5) {
-      try {
-        const altUrl = `https://router.project-osrm.org/route/v1/driving/${origin[1]},${origin[0]};92.80,26.63;${destination[1]},${destination[0]}?overview=full&geometries=geojson&steps=true`
-        const altResp = await fetch(altUrl, { headers: { 'User-Agent': 'ner-fleet-manager/1.0' } })
-        if (altResp.ok) {
-          const altData = await altResp.json()
-          if (altData.code === 'Ok' && altData.routes?.[0]) {
-            osrmRoutes.push(altData.routes[0])
-          }
-        }
-      } catch {
-        // secondary corridor query optional
-      }
-    }
-
-    // Fallback coordinates if external OSRM query failed completely (e.g. offline/isolated test environment)
-    if (osrmRoutes.length === 0) {
-      usedFallback = true
-      usedProvider = 'cached_corridor'
-      osrmRoutes = [
-        {
-          distance: 305390,
-          duration: 18900,
-          geometry: {
-            type: 'LineString',
-            coordinates: [
-              [origin[1], origin[0]],
-              [91.820, 26.195],
-              [92.050, 26.220],
-              [92.510, 26.250],
-              [92.680, 26.340],
-              [93.170, 26.560],
-              [93.580, 26.650],
-              [destination[1], destination[0]],
-            ],
-          },
-          legs: [{ steps: [] }],
-        },
-      ]
-    }
-
-    // Supersede any old unselected routes
-    await supabase
-      .from('trip_routes')
-      .update({ state: 'SUPERSEDED' })
-      .eq('trip_id', tripId)
-      .in('state', ['PROPOSED'])
-
-    const insertedRoutes: TripRoute[] = []
-
-    for (let i = 0; i < osrmRoutes.length; i++) {
-      const r = osrmRoutes[i]
-      const distKm = Math.round((r.distance / 1000.0) * 100) / 100
-      const durMin = Math.round(r.duration / 60.0)
-      // CMEM physics-inspired consumption: baseline 24 L / 100km + payload factor (0.008 L / 100km per kg/1000)
-      const fuelL = Math.round((distKm * (0.24 + (payloadKg / 1000) * 0.008)) * 10) / 10
-      const kind = i === 0 ? 'PRIMARY' : 'EMERGENCY_BACKUP'
-
-      const rawGeoJson = r.geometry
-      const maneuvers = (r.legs?.[0]?.steps ?? []).map((s: any, sIdx: number) => ({
-        type: s.maneuver?.type ?? 'turn',
-        modifier: s.maneuver?.modifier ?? null,
-        lat: s.maneuver?.location?.[1] ?? 0,
-        lon: s.maneuver?.location?.[0] ?? 0,
-        geometry_index: sIdx,
-        step_distance_m: Math.round(s.distance ?? 0),
-        name: s.name || 'Highway',
-      }))
-
-      const { data: inserted, error: insErr } = await supabase
-        .from('trip_routes')
-        .insert({
-          trip_id: tripId,
-          kind,
-          state: 'PROPOSED',
-          geometry: rawGeoJson,
-          distance_km: distKm,
-          estimated_duration_min: durMin,
-          estimated_fuel_litres: fuelL,
-          routing_provider: usedProvider,
-          maneuvers: maneuvers.length > 0 ? maneuvers : null,
-        })
-        .select()
-        .single()
-
-      if (!insErr && inserted) {
-        insertedRoutes.push({
-          ...inserted,
-          is_current: false,
-          geometry: rawGeoJson.coordinates.map(([lon, lat]: [number, number]) => [lat, lon]),
-        } as TripRoute)
-      }
-    }
-
-    if (insertedRoutes.length === 0) {
-      throw new Error('Failed to persist proposed routes.')
-    }
-
-    return {
-      route: insertedRoutes[0],
-      provider: usedProvider,
-      used_fallback: usedFallback,
-      providers_attempted: [usedProvider],
-    }
-  },
+  /** Proposed routes for a trip, from the intelligence plane's routing
+   *  chain: never the browser (see PLANNING_NEEDS_PLANE). `detailed=true` so a
+   *  route planned here carries its turn steps, as on the REST transport. */
+  planRoute: (tripId: string): Promise<RoutePlanResult> =>
+    planOnPlane<RoutePlanResult>('planRoute', `/api/trips/${tripId}/routes/recalculate?detailed=true`),
 
   /**
    * Atomic route selection via public.select_route.
@@ -951,11 +841,21 @@ export const supabaseManagerApi = {
       })
     }
 
+    // The denominator for utilisation. RLS scopes this read the same way
+    // it scopes every other one, so a caller who may not see the fleet
+    // gets a count of what they may see - or null if the read fails,
+    // never a zero that would render as 0% utilisation.
+    const { count: trucksTotal } = await supabase
+      .from('trucks')
+      .select('id', { count: 'exact', head: true })
+      .neq('status', 'RETIRED')
+
     return {
       trips: fleetTrips,
       fresh_seconds: 30,
       stale_seconds: 120,
       server_time: now.toISOString(),
+      trucks_total: trucksTotal ?? null,
     }
   },
 

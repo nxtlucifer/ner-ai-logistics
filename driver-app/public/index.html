@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="%LANG_ISO_CODE%">
+  <head>
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <title>%WEB_TITLE%</title>
+    <!-- Expo's default web template, plus the boot script below. -->
+    <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
+    <style id="expo-reset">
+      /* These styles make the body full-height */
+      html,
+      body {
+        height: 100%;
+      }
+      /* These styles disable body scrolling if you are using <ScrollView> */
+      body {
+        overflow: hidden;
+      }
+      /* These styles make the root element full-height */
+      #root {
+        display: flex;
+        height: 100%;
+        flex: 1;
+      }
+    </style>
+    <!-- THEME BOOT. Paints the page ground of the theme the app is about to
+         open in, before the bundle loads, so a stored Dark does not open on a
+         white page. Same rule as ThemeProvider (src/theme-context.tsx): the
+         stored 'rasta:theme', else the system scheme. The two grounds are
+         LIGHT.bg and DARK.bg from src/theme.ts; src/themePersistence.test.tsx
+         runs this script against both. -->
+    <script>
+      (function () {
+        var t = null
+        try { t = localStorage.getItem('rasta:theme') } catch (e) {}
+        if (t !== 'light' && t !== 'dark') t = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        var s = document.documentElement.style
+        s.background = t === 'dark' ? '#070808' : '#EEF3ED'
+        s.colorScheme = t
+      })()
+    </script>
+  </head>
+
+  <body>
+    <!-- Use static rendering with Expo Router to support running without JavaScript. -->
+    <noscript>
+      You need to enable JavaScript to run this app.
+    </noscript>
+    <!-- The root element for your Expo app. -->
+    <div id="root"></div>
+  </body>
+</html>

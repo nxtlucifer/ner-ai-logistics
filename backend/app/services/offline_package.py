@@ -46,6 +46,7 @@ On a single-road corridor - most of this region - `backup_route` is null and
 an escape road that does not exist, at the moment they most need it to.
 """
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -57,6 +58,7 @@ from typing import Final
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.domain.route_risk import RouteRisk
 from app.domain.routing import parse_wkt_linestring, parse_wkt_point
 from app.models.enums import RouteKind, RouteState
@@ -293,8 +295,16 @@ async def build_for_trip(db: AsyncSession, trip: Trip) -> OfflinePackage:
     if selected is not None:
         try:
             # LAST, and after every other read: this ends the transaction.
-            risk = await route_risk_service.assess_route(db, selected.route_id)
+            # Bounded: the geometry is what the driver came for, and it must
+            # not wait on the slowest hazard source.
+            risk = await asyncio.wait_for(
+                route_risk_service.assess_route(db, selected.route_id),
+                get_settings().OFFLINE_RISK_TIMEOUT_SECONDS,
+            )
             risk_captured_at = risk.assessed_at
+        except TimeoutError:
+            logger.warning("risk snapshot timed out for route %s; package returned without it", selected.route_id)
+            codes.append(REASON_RISK_UNAVAILABLE)
         except Exception:  # noqa: BLE001
             # Deliberately broad: the driver's need is the ROUTE, and a risk
             # score that cannot be produced is a missing field rather than a

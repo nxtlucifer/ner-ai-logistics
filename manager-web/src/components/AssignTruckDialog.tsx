@@ -11,9 +11,11 @@
  * transaction. The server still decides; this only stops the dead click.
  */
 import { useEffect, useRef, useState } from 'react'
+import { X } from 'lucide-react'
 
 import { api, type Assignment, type Driver, type Trip, type Truck } from '../api/client'
-import { Button, ErrorState, LoadingState } from './ui'
+import { LoadingState } from './ui'
+import { ActionButton, InlineError } from './pageKit'
 import { useMutation, useResource } from '../hooks/useResource'
 import { licenceHealth } from './DriverProfileDrawer'
 import { wrapTab } from './focusTrap'
@@ -126,26 +128,29 @@ export default function AssignTruckDialog({ driverId, truckId, onClose, onChange
       ref={dialog}
       role="dialog"
       aria-modal="true"
-      aria-label="Assign a truck"
+      aria-labelledby="assign-truck-title"
       // Handled here and stopped: when this dialog sits inside the profile
       // drawer, the drawer's own trap must not also act on the same key.
       onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } else if (e.key === 'Tab') { e.stopPropagation(); wrapTab(e) } }}
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-canvas/80 p-4"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-[var(--overlay)] p-4"
     >
-      <div className="w-full max-w-lg space-y-3 rounded-xl border border-line bg-surface p-5 shadow-2xl">
+      <div className="w-full max-w-lg space-y-4 rounded-[var(--radius-card)] border border-line bg-surface p-5 shadow-[var(--shadow-float)]">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-base font-semibold text-ink">Assign a truck</h2>
-            <p className="text-xs text-muted">One driver holds one truck, one truck one driver. A pairing with a trip under way cannot change.</p>
+            <h2 id="assign-truck-title" className="font-display text-lg font-bold leading-tight text-ink">Assign a Truck</h2>
+            <p className="mt-1 text-[13px] text-muted">One driver holds one truck, one truck one driver. A pairing with a trip under way cannot change.</p>
           </div>
-          <button ref={closeButton} type="button" onClick={onClose} className="rounded-md px-2 py-1 text-sm text-muted hover:text-ink" aria-label="Close">Close</button>
+          <button ref={closeButton} type="button" onClick={onClose} className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-[6px] border border-line bg-surface px-3 text-[13px] font-semibold text-ink hover:border-outline hover:bg-soft" aria-label="Close">
+            <X className="size-4" aria-hidden="true" />
+            Close
+          </button>
         </div>
 
-        {loading ? <LoadingState label="Loading drivers and trucks…" /> : failed ? <ErrorState error={failed.error} onRetry={() => { drivers.reload(); trucks.reload(); assignments.reload(); trips.reload() }} /> : (
+        {loading ? <LoadingState label="Loading drivers and trucks…" /> : failed ? <InlineError what="Drivers and trucks could not be loaded" error={failed.error} onRetry={() => { drivers.reload(); trucks.reload(); assignments.reload(); trips.reload() }} /> : (
           <>
             <label className="block">
-              <span className="text-xs font-medium text-ink">Driver<span className="ml-0.5 text-danger">*</span></span>
-              <select value={pickDriver} onChange={(e) => setPickDriver(e.target.value)} aria-label="Driver" className="mt-1 w-full rounded-[var(--radius-control)] border border-outline bg-surface px-3 py-2 text-sm text-ink">
+              <span className="text-[13px] font-semibold text-ink">Driver<span className="ml-0.5 text-danger">*</span></span>
+              <select value={pickDriver} onChange={(e) => setPickDriver(e.target.value)} aria-label="Driver" className="mt-1.5 w-full rounded-[var(--radius-control)] border border-outline bg-surface px-3 py-2 text-sm text-ink focus:border-route focus:ring-1 focus:ring-route">
                 <option value="">Choose a driver…</option>
                 {driverList.map((d) => {
                   const t = truckOf(d); const trip = tripOf('driver_id', d.id)
@@ -158,15 +163,15 @@ export default function AssignTruckDialog({ driverId, truckId, onClose, onChange
               </select>
             </label>
             {driver ? (
-              <p className="text-xs text-muted">
+              <p className="text-[13px] text-muted">
                 Licence: <span className={licenceHealth(driver.licence_expiry).tone === 'ok' ? 'text-ok' : licenceHealth(driver.licence_expiry).tone === 'warning' ? 'text-warning' : 'text-danger'}>{licenceHealth(driver.licence_expiry).label}</span>
                 {' · '}{driver.login_is_active ? 'can sign in' : 'login inactive'}
               </p>
             ) : null}
 
             <label className="block">
-              <span className="text-xs font-medium text-ink">Truck<span className="ml-0.5 text-danger">*</span></span>
-              <select value={pickTruck} onChange={(e) => setPickTruck(e.target.value)} aria-label="Truck" className="mt-1 w-full rounded-[var(--radius-control)] border border-outline bg-surface px-3 py-2 text-sm text-ink">
+              <span className="text-[13px] font-semibold text-ink">Truck<span className="ml-0.5 text-danger">*</span></span>
+              <select value={pickTruck} onChange={(e) => setPickTruck(e.target.value)} aria-label="Truck" className="mt-1.5 w-full rounded-[var(--radius-control)] border border-outline bg-surface px-3 py-2 text-sm text-ink focus:border-route focus:ring-1 focus:ring-route">
                 <option value="">Choose a truck…</option>
                 {truckList.filter((t) => t.status !== 'RETIRED').map((t) => {
                   const who = holderOf(t); const trip = tripOf('truck_id', t.id)
@@ -181,21 +186,21 @@ export default function AssignTruckDialog({ driverId, truckId, onClose, onChange
 
             {/* The verdict, in words, before the button. */}
             {blocker ? (
-              <p className="text-xs text-warning" role="status" data-testid="assign-blocker">{blocker}</p>
+              <p className="text-[13px] text-warning" role="status" data-testid="assign-blocker">{blocker}</p>
             ) : driver && truck ? (
-              <p className="text-xs text-ink" role="status" data-testid="assign-summary">
+              <p className="text-[13px] text-ink" role="status" data-testid="assign-summary">
                 <span className="font-semibold">{driver.full_name}</span> → <span className="font-mono font-semibold">{truck.registration_number}</span>
                 {ending.length ? <span className="text-muted"> · {ending.join(' and ')}</span> : null}
                 <span className="block text-muted">The driver confirms the physical truck in the app before the first trip can start.</span>
               </p>
             ) : null}
-            {assign.error ? <ErrorState error={assign.error} /> : null}
+            {assign.error ? <InlineError compact error={assign.error} /> : null}
 
-            <div className="flex justify-end gap-2">
-              <Button variant="secondary" onClick={onClose}>Cancel</Button>
-              <Button busy={assign.isSubmitting} disabled={!!blocker || !driver || !truck || assign.isSubmitting} title={blocker ?? undefined} onClick={() => void submit()}>
+            <div className="flex justify-end gap-2 border-t border-line pt-4">
+              <ActionButton onClick={onClose}>Cancel</ActionButton>
+              <ActionButton variant="primary" busy={assign.isSubmitting} disabled={!!blocker || !driver || !truck} title={blocker ?? undefined} onClick={() => void submit()}>
                 {ending.length ? 'Change pairing' : 'Assign truck'}
-              </Button>
+              </ActionButton>
             </div>
           </>
         )}

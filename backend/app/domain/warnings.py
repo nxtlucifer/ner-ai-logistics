@@ -47,6 +47,26 @@ SEVERITY_POINTS: Final[dict[str, int]] = {"Extreme": 20, "Severe": 20, "Moderate
 
 CAP_NS: Final[str] = "urn:oasis:names:tc:emergency:cap:1.2"
 
+#: IMD's North-East offices: the feed's authors (IMD Guwahati, Shillong,
+#: Agartala) and the other state capitals' centres.
+_NE_OFFICES = "Guwahati|Shillong|Agartala|Itanagar|Imphal|Aizawl|Kohima|Gangtok"
+
+#: An issuing office named after its city - "IMD Guwahati has issued ...",
+#: "Regional Meteorological Centre (RMC) Guwahati issued ..." - says who wrote
+#: the alert, not where it applies, so that city is not read as a warned
+#: district. Only an office city, on the token's line, followed by an issuing
+#: verb: "IMD Kamrup Metropolitan nowcast", "As per IMD Guwahati will receive
+#: heavy rain" and "IMD\nGuwahati city" keep the district - an ambiguous
+#: headline keeps the hazard. Only the headline is stripped; areaDesc is the
+#: area and is read whole.
+_ISSUER = re.compile(
+    r"\b(?:IMD|RMC|Indian?[ \t]+Meteorological[ \t]+Department"
+    r"|(?:Regional[ \t]+)?Meteorological[ \t]+Cent(?:re|er)(?:[ \t]*\(RMC\))?)"
+    rf"(?:[ \t]*[,-][ \t]*|[ \t]+)(?:{_NE_OFFICES})"
+    r"(?=[ \t]+(?:has[ \t]+issued|issue[sd])\b)",
+    re.IGNORECASE,
+)
+
 
 @dataclass(frozen=True)
 class RssItem:
@@ -176,7 +196,7 @@ def match_corridor(
     for w in warnings:
         if not _active(w, now):
             continue
-        text = normalise(w.area_desc + " " + w.headline)
+        text = normalise(w.area_desc + " " + _ISSUER.sub(" ", w.headline))
         if any(k and k in text for k in district_keys):
             on_route.append(w)
         elif any(k and k in text for k in state_keys):

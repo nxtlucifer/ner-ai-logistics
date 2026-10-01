@@ -37,7 +37,7 @@ vi.mock('../offline/packageStore', () => ({
 }))
 
 import { ApiError } from '../api/client'
-import { useRouteRisk, type RouteRiskRead } from './useRouteRisk'
+import { RISK_FRESH_MS, resetRouteRiskMemo, useRouteRisk, type RouteRiskRead } from './useRouteRisk'
 
 const RISK = {
   score: 35,
@@ -69,6 +69,7 @@ describe('useRouteRisk', () => {
     latest = null
     routeRisk.mockReset()
     stored.mockReset()
+    resetRouteRiskMemo()
     container = document.createElement('div')
     document.body.appendChild(container)
     root = createRoot(container)
@@ -120,5 +121,36 @@ describe('useRouteRisk', () => {
     await mount('trip-2')
     expect(latest?.state).toBe('NO_TRIP')
     expect(stored).not.toHaveBeenCalled()
+  })
+
+  it('a tab remount inside the freshness window shows the last read at once, without refetching (FE-16)', async () => {
+    routeRisk.mockResolvedValue(RISK)
+    await mount()
+    act(() => root?.unmount())
+    root = createRoot(container!)
+    await act(async () => root?.render(createElement(Probe, { tripId: 'trip-1' })))
+    expect(latest?.state).toBe('READY') // first render, before any effect settles
+    expect(routeRisk).toHaveBeenCalledTimes(1)
+
+    // A manual recheck still asks.
+    await act(async () => latest?.refresh())
+    await flush()
+    expect(routeRisk).toHaveBeenCalledTimes(2)
+  })
+
+  it('refetches on remount once the last read is older than the window', async () => {
+    const now = vi.spyOn(Date, 'now')
+    try {
+      now.mockReturnValue(1_000_000)
+      routeRisk.mockResolvedValue(RISK)
+      await mount()
+      act(() => root?.unmount())
+      now.mockReturnValue(1_000_000 + RISK_FRESH_MS)
+      root = createRoot(container!)
+      await mount()
+      expect(routeRisk).toHaveBeenCalledTimes(2)
+    } finally {
+      now.mockRestore()
+    }
   })
 })

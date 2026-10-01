@@ -12,13 +12,14 @@
 
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 
 import { ApiError, api, type Trip, type TripRoute } from '../api/client'
+import { markOnline } from '../api/connectivity'
 
 // TripsPage reads only `can` from the auth context. Rendering the real
 // provider would pull in a live /api/auth/me round trip that has nothing to do
@@ -41,7 +42,27 @@ vi.mock('../auth/AuthProvider', () => ({
 // The review panel lazy-loads the map; jsdom has no WebGL.
 vi.mock('../components/FleetMap', () => ({ default: () => <div>Map loaded</div> }))
 
-import TripsPage from './TripsPage'
+import TripsPage, { TRIPS_SLOW_POLL_MS, attention } from './TripsPage'
+import { decisionFor } from './OverviewPage'
+import { ATTENTION_FILTERS } from './TripListControls'
+
+/** No pause between keystrokes. user-event's default `delay: 0` waits one
+ *  setTimeout between every key and pointer step, and a Windows timer is a
+ *  ~16 ms tick: the planner tests' 80-odd keystrokes spent seconds idle and
+ *  timed out under the full suite. Every step is still wrapped in act, so
+ *  React renders after each key exactly as before. */
+const setupUser = () => userEvent.setup({ delay: null })
+
+/** A whole value in one input event. These tests are about what is sent and
+ *  what the page says, not about keystrokes, and every keystroke re-renders the
+ *  whole page. In React's development build each element then captures an
+ *  owner stack, which costs ~80 µs once V8 has optimised the render path, so
+ *  the planner filled key by key took 0.7 s alone but over 5 s late in this
+ *  file. The search box below is still typed, key by key. */
+async function fill(user: ReturnType<typeof setupUser>, field: HTMLElement, text: string) {
+  await user.click(field)
+  await user.paste(text)
+}
 
 function trip(overrides: Partial<Trip> = {}): Trip {
   return {
@@ -86,6 +107,9 @@ function conflict(message: string) {
 
 describe('TripsPage', () => {
   beforeEach(() => {
+    // The trip list is cached across reloads (stale-while-revalidate); a test
+    // must not find the previous test's rows before its own answer lands.
+    localStorage.clear()
     vi.spyOn(api, 'listDrivers').mockResolvedValue({ items: [], next_cursor: null })
     vi.spyOn(api, 'listTrucks').mockResolvedValue({ items: [], next_cursor: null })
     // The live driver-truck pairing the planner shows and dispatch requires.
@@ -104,8 +128,69 @@ describe('TripsPage', () => {
     vi.unstubAllGlobals()
   })
 
+  it('polls the visible page often but the planner open list only on the slow cadence', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      vi.spyOn(api, 'listTrips').mockResolvedValue({ items: [trip()], next_cursor: null })
+      render(<TripsPage />)
+      await screen.findByText('TRP-ALPHA')
+      const calls = (planner: boolean) =>
+        vi.mocked(api.listTrips).mock.calls.filter(([q]) => (q?.open_only === true && q?.limit === 100) === planner).length
+      const pageBefore = calls(false)
+      const openBefore = calls(true)
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(TRIPS_SLOW_POLL_MS - 1_000) })
+      expect(calls(false)).toBeGreaterThan(pageBefore + 3)
+      expect(calls(true)).toBe(openBefore)
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_500) })
+      expect(calls(true)).toBe(openBefore + 1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('refreshes driver and truck availability after a terminal action, not just the trip list', async () => {
+    // THE SECOND HALF OF THE DELIVERED-TRIP CONFLICT.
+    //
+    // The backend hands the pair back the moment a trip goes terminal. This
+    // page reads `listDrivers`/`listTrucks`/`listAssignments` to populate the
+    // planner, and it used to reload only `listTrips` — so after a Close the
+    // dropdowns went on advertising the old availability until the next poll
+    // and a dispatcher who acted straight away met a conflict the server no
+    // longer believed in.
+    const user = setupUser()
+    vi.spyOn(api, 'listTrips').mockResolvedValue({
+      items: [trip({ status: 'DELIVERED' })],
+      next_cursor: null,
+    })
+    vi.spyOn(api, 'getTrip').mockResolvedValue(detail('COMPLETED'))
+    const close = vi.spyOn(api, 'closeTrip').mockResolvedValue(trip({ status: 'CLOSED' }))
+
+    render(<TripsPage />)
+    await screen.findByText('TRP-ALPHA')
+
+    const driversBefore = vi.mocked(api.listDrivers).mock.calls.length
+    const trucksBefore = vi.mocked(api.listTrucks).mock.calls.length
+    const assignmentsBefore = vi.mocked(api.listAssignments).mock.calls.length
+    // The planner's "reserved by" labels read the fleet-wide open list.
+    const openListCalls = () =>
+      vi.mocked(api.listTrips).mock.calls.filter(([q]) => q?.open_only === true && q?.limit === 100).length
+    const openBefore = openListCalls()
+
+    await user.click(screen.getByRole('button', { name: /close/i }))
+    await waitFor(() => expect(close).toHaveBeenCalledTimes(1))
+
+    await waitFor(() =>
+      expect(vi.mocked(api.listDrivers).mock.calls.length).toBeGreaterThan(driversBefore),
+    )
+    expect(vi.mocked(api.listTrucks).mock.calls.length).toBeGreaterThan(trucksBefore)
+    expect(vi.mocked(api.listAssignments).mock.calls.length).toBeGreaterThan(assignmentsBefore)
+    expect(openListCalls()).toBeGreaterThan(openBefore)
+  })
+
   it('surfaces a refused Cancel instead of failing silently', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     vi.spyOn(api, 'listTrips').mockResolvedValue({
       items: [trip()],
       next_cursor: null,
@@ -136,7 +221,7 @@ describe('TripsPage', () => {
   })
 
   it('requires a reason and a cargo disposition once the pickup is completed', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     vi.spyOn(api, 'listTrips').mockResolvedValue({ items: [trip()], next_cursor: null })
     vi.spyOn(api, 'getTrip').mockResolvedValue(detail('COMPLETED'))
     const cancel = vi.spyOn(api, 'cancelTrip').mockResolvedValue(trip({ status: 'DELAYED' }))
@@ -152,7 +237,7 @@ describe('TripsPage', () => {
     await user.click(screen.getByRole('radio', { name: /stop \/ cancel trip/i }))
     expect(submit().disabled).toBe(true)
     expect(screen.getByTestId('stop-blocker').textContent).toMatch(/reason of at least 10 characters/i)
-    await user.type(screen.getByLabelText(/^reason/i), 'Customer asked us to wait at the junction')
+    await fill(user, screen.getByLabelText(/^reason/i), 'Customer asked us to wait at the junction')
     expect(screen.getByTestId('stop-blocker').textContent).toMatch(/what happens to the cargo/i)
     await user.selectOptions(screen.getByLabelText(/cargo disposition/i), 'HOLD_FOR_INSTRUCTION')
     expect(submit().disabled).toBe(false)
@@ -167,8 +252,27 @@ describe('TripsPage', () => {
     expect(cancel.mock.calls.every(([, body]) => body?.disposition)).toBe(true)
   })
 
+  it('gives focus back to Change journey when the dialog closes', async () => {
+    const user = setupUser()
+    vi.spyOn(api, 'listTrips').mockResolvedValue({ items: [trip()], next_cursor: null })
+    vi.spyOn(api, 'getTrip').mockResolvedValue(detail('PENDING'))
+    render(<TripsPage />)
+    await screen.findByText('TRP-ALPHA')
+    const opener = screen.getByRole('button', { name: /change journey/i })
+
+    await user.click(opener)
+    await screen.findByRole('dialog')
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(document.activeElement).toBe(opener)
+
+    await user.click(opener)
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: /^close$/i }))
+    expect(document.activeElement).toBe(opener)
+  })
+
   it('surfaces a refused Close instead of failing silently', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     vi.spyOn(api, 'listTrips').mockResolvedValue({
       items: [trip({ status: 'DELIVERED' })],
       next_cursor: null,
@@ -227,7 +331,7 @@ describe('TripsPage', () => {
   })
 
   it('plans a trip in one atomic request, never shipment-then-trip', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     vi.spyOn(api, 'listTrips').mockResolvedValue({ items: [], next_cursor: null })
     vi.spyOn(api, 'listDrivers').mockResolvedValue({
       items: [
@@ -260,9 +364,12 @@ describe('TripsPage', () => {
     render(<TripsPage />)
     await screen.findByText(/plan a trip/i)
 
-    await user.type(screen.getByLabelText(/^client/i), 'Brahmaputra Traders')
-    await user.type(screen.getByLabelText(/pickup address/i), 'Depot, Guwahati')
-    await user.type(screen.getByLabelText(/destination address/i), 'Yard, Jorhat')
+    await fill(user, screen.getByLabelText(/^client/i), 'Brahmaputra Traders')
+    // No invented default: the dispatcher states the weight.
+    expect((screen.getByLabelText(/cargo weight/i) as HTMLInputElement).value).toBe('')
+    await fill(user, screen.getByLabelText(/cargo weight/i), '1000')
+    await fill(user, screen.getByLabelText(/pickup address/i), 'Depot, Guwahati')
+    await fill(user, screen.getByLabelText(/destination address/i), 'Yard, Jorhat')
 
     // An address alone no longer plans a trip: it carries no coordinate, and
     // the form used to substitute a depot default here. With no Google key
@@ -271,16 +378,16 @@ describe('TripsPage', () => {
     const advanced = screen.getAllByRole('button', { name: /^advanced$/i })
     await user.click(advanced[0])
     await user.click(advanced[1])
-    await user.type(screen.getByLabelText(/^latitude$/i, {
+    await fill(user, screen.getByLabelText(/^latitude$/i, {
       selector: '[name="pickup_address_lat"]',
     }), '26.1445')
-    await user.type(screen.getByLabelText(/^longitude$/i, {
+    await fill(user, screen.getByLabelText(/^longitude$/i, {
       selector: '[name="pickup_address_lon"]',
     }), '91.7362')
-    await user.type(screen.getByLabelText(/^latitude$/i, {
+    await fill(user, screen.getByLabelText(/^latitude$/i, {
       selector: '[name="destination_address_lat"]',
     }), '26.7509')
-    await user.type(screen.getByLabelText(/^longitude$/i, {
+    await fill(user, screen.getByLabelText(/^longitude$/i, {
       selector: '[name="destination_address_lon"]',
     }), '94.2037')
 
@@ -309,11 +416,86 @@ describe('TripsPage', () => {
     expect(body.shipment.destination).toEqual({ lat: 26.7509, lon: 94.2037 })
   })
 
+  it.each([
+    [new ApiError(422, { error: { code: 'OUTSIDE_SUPPORTED_COUNTRY', message: 'This location is outside the currently supported country.', details: { field: 'destination' } } }, 'x'),
+      'Outside the supported country', /The destination is outside India/],
+    [new ApiError(422, { error: { code: 'NOT_NER_CONNECTED', message: 'Neither end of this trip is in the North-East Region.', details: { scope_type: 'INDIA_EXTERNAL' } } }, 'x'),
+      'Not connected to the North-East', /must start or end in one of the eight North-East states/],
+    [new ApiError(503, { error: { code: 'GEOGRAPHY_UNAVAILABLE', message: 'Country boundary data is not loaded.' } }, 'x'),
+      'Geography check unavailable', /country boundary data is not loaded/],
+  ])('says in words why the server refused the places (%#, P1R-19)', async (refusal, title, detail) => {
+    // The server is the geography authority; the planner draws no box of its
+    // own, so its refusal is the only answer the manager gets. It must read as
+    // one, not as "Something went wrong".
+    const user = setupUser()
+    vi.spyOn(api, 'listTrips').mockResolvedValue({ items: [], next_cursor: null })
+    vi.spyOn(api, 'listDrivers').mockResolvedValue({
+      items: [{
+        id: '22222222-2222-4222-8222-222222222222', user_id: 'u1', full_name: 'Bipul Das', phone: '9435012345',
+        photo_url: null, licence_number: 'AS-1234', licence_expiry: '2030-01-01', status: 'AVAILABLE',
+        login_is_active: true, created_at: new Date().toISOString(),
+      }],
+      next_cursor: null,
+    })
+    vi.spyOn(api, 'listTrucks').mockResolvedValue({
+      items: [{
+        id: '33333333-3333-4333-8333-333333333333', registration_number: 'AS01AB1234', truck_type: null, make: null,
+        model: null, max_capacity_kg: '16000.00', current_load_kg: '0.00', status: 'AVAILABLE',
+        baseline_mileage_kmpl: null, created_at: new Date().toISOString(),
+      }],
+      next_cursor: null,
+    })
+    const planTrip = vi.spyOn(api, 'planTrip').mockRejectedValue(refusal)
+
+    render(<TripsPage />)
+    await screen.findByText(/plan a trip/i)
+    await fill(user, screen.getByLabelText(/^client/i), 'Brahmaputra Traders')
+    await fill(user, screen.getByLabelText(/cargo weight/i), '1000')
+    await fill(user, screen.getByLabelText(/pickup address/i), 'Depot, Guwahati')
+    await fill(user, screen.getByLabelText(/destination address/i), 'Yard, Dhaka')
+    const advanced = screen.getAllByRole('button', { name: /^advanced$/i })
+    await user.click(advanced[0])
+    await user.click(advanced[1])
+    await fill(user, screen.getByLabelText(/^latitude$/i, { selector: '[name="pickup_address_lat"]' }), '26.1445')
+    await fill(user, screen.getByLabelText(/^longitude$/i, { selector: '[name="pickup_address_lon"]' }), '91.7362')
+    await fill(user, screen.getByLabelText(/^latitude$/i, { selector: '[name="destination_address_lat"]' }), '23.8103')
+    await fill(user, screen.getByLabelText(/^longitude$/i, { selector: '[name="destination_address_lon"]' }), '90.4125')
+    await user.selectOptions(screen.getByRole('combobox', { name: /^driver/i }), '22222222-2222-4222-8222-222222222222')
+    // The client lets a foreign point through: only the server decides WHERE.
+    expect((screen.getByRole('button', { name: /create draft trip/i }) as HTMLButtonElement).disabled).toBe(false)
+    await user.click(screen.getByRole('button', { name: /create draft trip/i }))
+
+    await waitFor(() => expect(planTrip).toHaveBeenCalledTimes(1))
+    const alert = await screen.findByText(title)
+    const box = alert.closest('[role="alert"]') as HTMLElement
+    expect(box.textContent).toMatch(detail)
+    expect(box.textContent).not.toContain('Something went wrong')
+  })
+
+  it("shows the server's trip scope when it sends one, and nothing when it does not", async () => {
+    vi.spyOn(api, 'listTrips').mockResolvedValue({
+      items: [
+        trip({ trip_code: 'TRP-OUT', origin: 'Guwahati', destination: 'Kolkata', trip_scope_type: 'NER_OUTBOUND' }),
+        trip({ id: '11111111-1111-4111-8111-111111111112', trip_code: 'TRP-OLD', origin: 'Guwahati', destination: 'Jorhat' }),
+        trip({ id: '11111111-1111-4111-8111-111111111113', trip_code: 'TRP-UNK', origin: 'Guwahati', destination: 'Somewhere', trip_scope_type: 'UNKNOWN' }),
+      ],
+      next_cursor: null,
+    })
+    render(<TripsPage />)
+    const row = (await screen.findByText('TRP-OUT')).closest('tr') as HTMLElement
+    expect(within(row).getByTestId('trip-scope').textContent).toBe('NER outbound')
+    const old = screen.getByText('TRP-OLD').closest('tr') as HTMLElement
+    expect(within(old).queryByTestId('trip-scope')).toBeNull()
+    // UNKNOWN is said as unknown, never shown as a North-East scope.
+    const unk = screen.getByText('TRP-UNK').closest('tr') as HTMLElement
+    expect(within(unk).getByTestId('trip-scope').textContent).toBe('North-East link unknown')
+  })
+
   it('refuses to plan an endpoint that was never located', async () => {
     // The defect this replaces: the form shipped a pre-filled depot coordinate
     // for any address the manager typed, so a trip to Jorhat routed to
     // Guwahati with "Yard, Jorhat" written on it.
-    const user = userEvent.setup()
+    const user = setupUser()
     vi.spyOn(api, 'listTrips').mockResolvedValue({ items: [], next_cursor: null })
     vi.spyOn(api, 'listDrivers').mockResolvedValue({
       items: [
@@ -343,9 +525,10 @@ describe('TripsPage', () => {
     render(<TripsPage />)
     await screen.findByText(/plan a trip/i)
 
-    await user.type(screen.getByLabelText(/^client/i), 'Brahmaputra Traders')
-    await user.type(screen.getByLabelText(/pickup address/i), 'Depot, Guwahati')
-    await user.type(screen.getByLabelText(/destination address/i), 'Yard, Jorhat')
+    await fill(user, screen.getByLabelText(/^client/i), 'Brahmaputra Traders')
+    await fill(user, screen.getByLabelText(/cargo weight/i), '1000')
+    await fill(user, screen.getByLabelText(/pickup address/i), 'Depot, Guwahati')
+    await fill(user, screen.getByLabelText(/destination address/i), 'Yard, Jorhat')
     await user.selectOptions(
       screen.getByRole('combobox', { name: /^driver/i }),
       '22222222-2222-4222-8222-222222222222',
@@ -361,6 +544,32 @@ describe('TripsPage', () => {
     expect(planTrip).not.toHaveBeenCalled()
   })
 
+  it('swaps pickup and destination, and says why it cannot while both are empty', async () => {
+    const user = setupUser()
+    vi.spyOn(api, 'listTrips').mockResolvedValue({ items: [], next_cursor: null })
+    render(<TripsPage />)
+    await screen.findByText(/plan a trip/i)
+    const swap = screen.getByRole('button', { name: /swap pickup and destination/i }) as HTMLButtonElement
+    const pickup = screen.getByLabelText(/pickup address/i) as HTMLInputElement
+    const destination = screen.getByLabelText(/destination address/i) as HTMLInputElement
+
+    // Nothing to exchange: a click that does nothing must say why it cannot.
+    expect(swap.disabled).toBe(true)
+    expect(swap.title).toMatch(/pickup or a destination first/i)
+
+    // One side filled: it moves to the other.
+    await fill(user, pickup, 'Depot, Guwahati')
+    await user.click(swap)
+    expect(pickup.value).toBe('')
+    expect(destination.value).toBe('Depot, Guwahati')
+
+    // Both filled: they trade places.
+    await fill(user, pickup, 'Yard, Jorhat')
+    await user.click(swap)
+    expect(pickup.value).toBe('Depot, Guwahati')
+    expect(destination.value).toBe('Yard, Jorhat')
+  })
+
   it('will not offer Dispatch for a draft with no selected route', async () => {
     vi.spyOn(api, 'listTrips').mockResolvedValue({
       items: [trip({ status: 'DRAFT', selected_route_id: null })],
@@ -372,10 +581,14 @@ describe('TripsPage', () => {
     expect(dispatch.disabled).toBe(true)
     expect(dispatch.title).toMatch(/select a route/i)
     expect(within(screen.getByRole('table')).getByText(/needs a route/i)).toBeDefined()
+    // Shut at half strength, and the reason is words on screen that the
+    // control points at, not only a tooltip.
+    expect(dispatch.getAttribute('aria-disabled')).toBe('true')
+    expect(document.getElementById(dispatch.getAttribute('aria-describedby') ?? '')?.textContent).toMatch(/needs a route/i)
   })
 
   it('a route selected in the review panel moves the row from Not selected to Selected and opens Dispatch', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     vi.stubGlobal('scrollTo', vi.fn())
     const draft = trip({ status: 'DRAFT', selected_route_id: null })
     const road: TripRoute = { id: 'road', kind: 'PRIMARY', state: 'PROPOSED', distance_km: '98.8', estimated_duration_min: 150, routing_provider: 'test provider', created_at: new Date().toISOString(), geometry: [[26, 91], [25.5, 91.9]], is_current: false }
@@ -409,7 +622,7 @@ describe('TripsPage', () => {
   })
 
   it('still surfaces a refused Dispatch', async () => {
-    const user = userEvent.setup()
+    const user = setupUser()
     vi.spyOn(api, 'listTrips').mockResolvedValue({
       items: [trip({ status: 'DRAFT', selected_route_id: 'r-1' })],
       next_cursor: null,
@@ -453,7 +666,7 @@ describe('TripsPage list controls', () => {
 
   it('asks the SERVER for the filter, not the browser', async () => {
     const list = vi.spyOn(api, 'listTrips').mockResolvedValue(page([trip()], 1))
-    const user = userEvent.setup()
+    const user = setupUser()
     render(<MemoryRouter><TripsPage /></MemoryRouter>)
     await screen.findByText('TRP-ALPHA')
     await waitFor(() => expect(list).toHaveBeenCalled())
@@ -478,17 +691,44 @@ describe('TripsPage list controls', () => {
         ? page([trip({ id: 't2', trip_code: 'TRP-BETA' })], 40)
         : page([trip()], 40, 'cursor-2'),
     )
-    const user = userEvent.setup()
+    const user = setupUser()
     render(<MemoryRouter><TripsPage /></MemoryRouter>)
     await screen.findByText('TRP-ALPHA')
     expect(screen.getByTestId('trip-count').textContent).toMatch(/of 40 matching · page 1 of 2/)
+    // A greyed pager says why, like every other disabled control.
+    expect((screen.getByRole('button', { name: /^previous$/i }) as HTMLButtonElement).title).toBe('Already on the first page')
 
     await user.click(screen.getByRole('button', { name: /^next$/i }))
     await screen.findByText('TRP-BETA')
     expect(list.mock.calls.at(-1)?.[0]).toMatchObject({ cursor: 'cursor-2' })
+    await waitFor(() => expect((screen.getByRole('button', { name: /^next$/i }) as HTMLButtonElement).title).toBe('This is the last page'))
 
     await user.click(screen.getByRole('button', { name: /^previous$/i }))
     await screen.findByText('TRP-ALPHA')
+  })
+
+  it('walks every page when switching from 100 rows to All, and stops walking on the way back', async () => {
+    // 100 and All send the same query; only whether the fetcher walks differs.
+    const list = vi.spyOn(api, 'listTrips').mockImplementation(async (params) =>
+      params?.cursor
+        ? page([trip({ id: 't2', trip_code: 'TRP-BETA' })], 2)
+        : page([trip()], 2, 'cursor-2'),
+    )
+    const user = setupUser()
+    render(<MemoryRouter><TripsPage /></MemoryRouter>)
+    await screen.findByText('TRP-ALPHA')
+    const size = screen.getByRole('combobox', { name: /rows per page/i })
+
+    await user.selectOptions(size, '100')
+    await waitFor(() => expect(list.mock.calls.at(-1)?.[0]).toMatchObject({ limit: 100 }))
+    expect(screen.queryByText('TRP-BETA')).toBeNull()
+
+    await user.selectOptions(size, 'ALL')
+    await screen.findByText('TRP-BETA')
+    expect(list.mock.calls.some(([q]) => q?.cursor === 'cursor-2')).toBe(true)
+
+    await user.selectOptions(size, '100')
+    await waitFor(() => expect(screen.queryByText('TRP-BETA')).toBeNull())
   })
 
   it('exports every row the filter matches, not the page on screen, and says so', async () => {
@@ -499,7 +739,7 @@ describe('TripsPage list controls', () => {
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { clicked.push(this) })
     URL.createObjectURL = vi.fn(() => 'blob:x')
     URL.revokeObjectURL = vi.fn()
-    const user = userEvent.setup()
+    const user = setupUser()
     render(<MemoryRouter><TripsPage /></MemoryRouter>)
     await screen.findByText('TRP-ALPHA')
 
@@ -540,7 +780,7 @@ describe('TripsPage list controls', () => {
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
     URL.createObjectURL = vi.fn((blob: Blob) => { void (blob as Blob & { text(): Promise<string> }).text().then((t) => { csv = t }); return 'blob:x' })
     URL.revokeObjectURL = vi.fn()
-    const user = userEvent.setup()
+    const user = setupUser()
     render(<MemoryRouter><TripsPage /></MemoryRouter>)
     await screen.findByText('TRP-ALPHA')
 
@@ -551,6 +791,87 @@ describe('TripsPage list controls', () => {
     expect(csv).not.toMatch(/22222222|33333333/)
   })
 
+  it("puts a driver's reroute request on the row and opens the trip on Fleet's Route tab (E2E-R2)", async () => {
+    const asked = trip({ status: 'ACTIVE', selected_route_id: 'r1', proposed_reroute: { route_id: 'backup', proposed_at: '2026-09-28T10:00:00Z', distance_km: 75.05 } })
+    vi.spyOn(api, 'listTrips').mockResolvedValue(page([asked], 1))
+    function FleetProbe() {
+      return <p data-testid="fleet-probe">{JSON.stringify(useLocation().state)}</p>
+    }
+    const user = setupUser()
+    render(
+      <MemoryRouter>
+        <Routes>
+          <Route path="/" element={<TripsPage />} />
+          <Route path="/fleet" element={<FleetProbe />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    await screen.findByText('TRP-ALPHA')
+    const cell = document.getElementById(`attention-${asked.id}`)!
+    expect(cell.textContent).toBe('Driver asked for a new road')
+    expect(cell.className).toContain('text-warning')
+    const go = screen.getByRole('button', { name: 'Review new road' })
+    expect(go.getAttribute('aria-describedby')).toBe(cell.id)
+    await user.click(go)
+    expect(JSON.parse((await screen.findByTestId('fleet-probe')).textContent!)).toEqual({ tripId: asked.id, tab: 'route' })
+  })
+
+  it('an open review is fed the polled row, so a driver request shows in it without reopening (FV-E2E-1)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    // An earlier test's refused request may have marked the console offline,
+    // and the poll never runs offline; nor may a cached list answer first.
+    markOnline()
+    localStorage.clear()
+    try {
+      const moving = trip({ status: 'ACTIVE', selected_route_id: 'r1' })
+      const shipment = { id: 'sh1', reference_code: 'SHP-1', client_name: 'Client', total_weight_kg: '1000.00', priority: 'NORMAL' as const }
+      const listTrips = vi.spyOn(api, 'listTrips').mockResolvedValue(page([moving], 1))
+      const getTrip = vi.spyOn(api, 'getTrip').mockResolvedValue({ ...moving, stops: [], shipment })
+      vi.spyOn(api, 'listRoutes').mockResolvedValue([])
+      vi.spyOn(api, 'reviewAuthorization').mockResolvedValue(null)
+      const user = userEvent.setup({ delay: null, advanceTimers: vi.advanceTimersByTime })
+      render(<MemoryRouter><TripsPage /></MemoryRouter>)
+      await screen.findByText('TRP-ALPHA')
+      await user.click(screen.getByRole('button', { name: 'Open' }))
+      await screen.findByText('Client · 1,000 kg')
+      expect(screen.queryByTestId('reroute-asked')).toBeNull()
+      const asked = { ...moving, proposed_reroute: { route_id: 'backup', proposed_at: '2026-09-28T10:00:00Z', distance_km: 12 } }
+      listTrips.mockResolvedValue(page([asked], 1))
+      getTrip.mockResolvedValue({ ...asked, stops: [], shipment })
+      await act(async () => { await vi.advanceTimersByTimeAsync(6_000) })
+      expect((await screen.findByTestId('reroute-asked')).textContent).toMatch(/Driver asked for a new road/)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('an open review of a draft cancelled elsewhere drops Plan route once the row leaves Open Trips (FV-E2E-1)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    markOnline()
+    localStorage.clear()
+    try {
+      const draft = trip({ status: 'DRAFT', selected_route_id: null })
+      const shipment = { id: 'sh1', reference_code: 'SHP-1', client_name: 'Client', total_weight_kg: '1000.00', priority: 'NORMAL' as const }
+      const listTrips = vi.spyOn(api, 'listTrips').mockResolvedValue(page([draft], 1))
+      const getTrip = vi.spyOn(api, 'getTrip').mockResolvedValue({ ...draft, stops: [], shipment })
+      vi.spyOn(api, 'listRoutes').mockResolvedValue([])
+      vi.spyOn(api, 'reviewAuthorization').mockResolvedValue(null)
+      const user = userEvent.setup({ delay: null, advanceTimers: vi.advanceTimersByTime })
+      render(<MemoryRouter><TripsPage /></MemoryRouter>)
+      await screen.findByText('TRP-ALPHA')
+      await user.click(screen.getByRole('button', { name: 'Review route' }))
+      await screen.findByRole('button', { name: 'Plan route' })
+      // Someone else cancels it: the open-only list no longer carries it.
+      listTrips.mockResolvedValue(page([], 0))
+      getTrip.mockResolvedValue({ ...draft, status: 'CANCELLED', stops: [], shipment })
+      await act(async () => { await vi.advanceTimersByTimeAsync(6_000) })
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Plan route' })).toBeNull())
+      expect(within(screen.getByTestId('trip-review')).getAllByText('CANCELLED').length).toBeGreaterThan(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('offers Add a stop only for a trip that is under way, and sends the confirmed point', async () => {
     vi.spyOn(api, 'listTrips').mockResolvedValue(page([trip({ status: 'ACTIVE', selected_route_id: 'r1' })], 1))
     vi.spyOn(api, 'getTrip').mockResolvedValue({
@@ -559,7 +880,7 @@ describe('TripsPage list controls', () => {
       shipment: { id: 's', reference_code: 'SHP', client_name: 'Traders', total_weight_kg: '1000', priority: 'NORMAL' },
     } as never)
     const add = vi.spyOn(api, 'addStop').mockResolvedValue({} as never)
-    const user = userEvent.setup()
+    const user = setupUser()
     render(<MemoryRouter><TripsPage /></MemoryRouter>)
     await screen.findByText('TRP-ALPHA')
 
@@ -569,8 +890,41 @@ describe('TripsPage list controls', () => {
     // Nothing to press until the reason and a confirmed point are both given.
     const submit = () => screen.getByRole('button', { name: /^add stop$/i }) as HTMLButtonElement
     expect(submit().disabled).toBe(true)
-    await user.type(screen.getByLabelText(/^reason/i), 'Consignee asked for a drop at the weighbridge')
+    await fill(user, screen.getByLabelText(/^reason/i), 'Consignee asked for a drop at the weighbridge')
     expect(screen.getByTestId('stop-blocker').textContent).toMatch(/confirm the new stop location/i)
     expect(add).not.toHaveBeenCalled()
+  })
+})
+
+describe('attention', () => {
+  it("says a driver's reroute request as a warning while the trip is under way, never success (E2E-R2)", () => {
+    const proposal = { route_id: 'backup', proposed_at: '2026-09-28T10:00:00Z', distance_km: 75.05 }
+    for (const status of ['ACTIVE', 'DELAYED'] as const) {
+      expect(attention(trip({ status, proposed_reroute: proposal }))).toEqual({ text: 'Driver asked for a new road', tone: 'text-warning' })
+    }
+    // No request, or a server that does not send the field: as before.
+    expect(attention(trip({ status: 'ACTIVE', selected_route_id: 'r1', proposed_reroute: null })).text).toBe('On the road')
+    expect(attention(trip({ status: 'ACTIVE', selected_route_id: 'r1' })).text).toBe('On the road')
+    // A proposal left on a finished trip asks nothing.
+    expect(attention(trip({ status: 'DELIVERED', proposed_reroute: proposal })).text).toBe('Close to release the truck')
+    expect(ATTENTION_FILTERS).toContain('Driver asked for a new road')
+  })
+
+  it('says a trip under way with no road selected needs a route, as Overview does (A3-02)', () => {
+    for (const status of ['ACTIVE', 'DELAYED'] as const) {
+      expect(attention(trip({ status, selected_route_id: null }))).toEqual({ text: 'Needs a route', tone: 'text-warning' })
+      expect(decisionFor(trip({ status, selected_route_id: null }))?.text).toBe('Needs a route')
+    }
+    expect(attention(trip({ status: 'DELAYED', selected_route_id: 'r1' })).text).toBe('Delayed')
+  })
+
+  it('says an accepted assignment waits to start, not on the driver (E2E-D4)', () => {
+    expect(attention(trip({ status: 'ASSIGNED' })).text).toBe('Awaiting driver')
+    expect(attention(trip({ status: 'ASSIGNED', driver_accepted_at: null })).text).toBe('Awaiting driver')
+    const accepted = attention(trip({ status: 'ASSIGNED', driver_accepted_at: '2026-09-28T03:00:00Z' }))
+    // Neutral: nothing is wrong, it is simply not moving yet.
+    expect(accepted).toEqual({ text: 'Accepted — awaiting start', tone: 'text-muted' })
+    // The filter bar can narrow to it.
+    expect(ATTENTION_FILTERS).toContain(accepted.text)
   })
 })

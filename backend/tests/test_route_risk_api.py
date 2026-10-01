@@ -20,7 +20,9 @@ from app.services import routes as route_service
 from tests import factories
 from tests.conftest import auth_headers
 
-pytestmark = pytest.mark.requires_db
+# Route planning checks every candidate against the India outline and fails
+# closed without one (routes.plan), so a planning test needs the SYNTHETIC one.
+pytestmark = [pytest.mark.requires_db, pytest.mark.usefixtures("fixture_india")]
 
 GEOMETRY = [(26.1445, 91.7362), (26.4, 92.9), (26.7509, 94.2037)]
 

@@ -114,10 +114,17 @@ const BASE = intelligenceConfigured ? RAW_BASE.replace(/\/$/, '') : ''
 
 export class IntelligenceUnavailableError extends Error {
   readonly reason: string
-  constructor(reason: string) {
+  /** When the plane answered with an error: its HTTP status and body (the
+   *  `{error: {code, message}}` envelope), so a caller can show the server's
+   *  own refusal - OUTSIDE_SUPPORTED_COUNTRY is not "unavailable". */
+  readonly status?: number
+  readonly body?: unknown
+  constructor(reason: string, status?: number, body?: unknown) {
     super(`Accessibility intelligence is unavailable: ${reason}`)
     this.name = 'IntelligenceUnavailableError'
     this.reason = reason
+    this.status = status
+    this.body = body
   }
 }
 
@@ -160,7 +167,8 @@ export async function intelligenceFetch<T>(
   }
 
   if (!response.ok) {
-    throw new IntelligenceUnavailableError(`service returned ${response.status}`)
+    const body: unknown = await response.json().catch(() => null)
+    throw new IntelligenceUnavailableError(`service returned ${response.status}`, response.status, body)
   }
   return (await response.json()) as T
 }

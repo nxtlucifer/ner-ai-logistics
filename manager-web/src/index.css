@@ -1,4 +1,13 @@
-@import 'tailwindcss';
+/* Classes are looked for in src/ only (PERF-6). Scanning the whole package
+   read the old untracked build in dist-cert/ and emitted 75 utilities no
+   source file names (5.5 kB of the entry CSS). Every class the app uses is a
+   whole string under src/: no class name is assembled from parts. */
+@import 'tailwindcss' source('.');
+
+/* A desktop window too short for the sign-in compositions at full size - a
+   1366x768 laptop. `short:` tightens their vertical rhythm so the whole
+   screen still fits; phones scroll as they always did. */
+@custom-variant short (@media (min-width: 1024px) and (max-height: 820px));
 
 /* ---------------------------------------------------------------------------
    NER Fleet Intelligence — TERRAIN design language.
@@ -25,55 +34,381 @@
      muted   #52615A on canvas  #F6F8F7 ->  4.6:1  (AA body text)
      primary #087F5B on surface #FFFFFF ->  5.0:1  (AA), white on it -> 5.0:1
      warning #B45309 on surface #FFFFFF ->  5.0:1  (AA)
-     danger  #B42318 on surface #FFFFFF ->  6.7:1  (AA)
-     route   #2563EB on surface #FFFFFF ->  5.2:1  (AA)
+     Re-measured against the redesign palette (surface #FDFDFB):
+     ink     #101820 -> 17.6:1  (AAA)
+     muted   #4C5A51 -> 7.1:1  (AA)
+     primary #14382E -> 12.6:1  (AAA)
+     warning #8A4B09 -> 6.7:1  (AA)
+     danger  #A9271D -> 6.9:1  (AA)
+     route   #2563EB -> 5.1:1  (AA)
+     white on the shell #062621 -> 16.1:1  (AAA)
    `-strong` variants are the saturated fills for map strokes and dots, where
    the colour sits under white rather than carrying text.
    --------------------------------------------------------------------------- */
+/* ---------------------------------------------------------------------------
+   THEME. Light and Dark share one set of semantic names; only the values move.
+
+   The values live on `:root` as plain variables and `:root[data-theme='dark']`
+   overrides them. The pre-paint script in index.html sets `data-theme` from
+   the stored choice before the first frame, so there is no flash, and a
+   switch is an attribute change: no request, no reload.
+
+   Light is the console as it was before the theme existed, value for value -
+   a Light screenshot taken before and after this block must not differ.
+
+   Dark is black and charcoal, never forest. Green is an accent (the primary
+   action, an active state, a data colour), never a page, card, rail, modal or
+   dialog neutral. Contrast and neutrality of both columns are pinned by
+   src/theme.test.tsx.
+
+   Components never ask which theme is on. They name a slot (`bg-surface`,
+   `text-muted`) and the slot changes underneath them. The one consumer that
+   cannot read a CSS variable - MapLibre paint - reads the computed tokens
+   instead (src/theme.ts, components/mapSetup.ts).
+   --------------------------------------------------------------------------- */
+:root {
+  color-scheme: light;
+
+  /* Neutrals */
+  --bg: #EEF3ED;
+  --surface: #FDFDFB;
+  --surface-raised: #FFFFFF;
+  --surface-soft: #E4EDE4;
+  --border: #D3DED2;
+  /* Control outline: a border that has to read as "you may type here". */
+  --border-strong: #75847D;
+  --text: #101820;
+  --text-muted: #4C5A51;
+  --text-faint: #5E6D64;
+
+  /* Action. `on-primary` is whatever reads on the primary fill: white on
+     forest here, near-black on mint in Dark (white on #39D8A0 is 1.8:1). */
+  --primary: #14382E;
+  --primary-hover: #0C2A21;
+  --on-primary: #FFFFFF;
+  /* Accent text and marks, the name the driver app uses too (audit 9.2). */
+  --accent: #1B6E52;
+  --accent-soft: #DFEFE4;
+
+  /* Status. -soft = tint behind text, -strong = saturated fill or map dot. */
+  /* #08704F, not the #087F5B it was: 5.1:1 on its own tint and on the soft
+     surface, where a status pill and an evidence tile put it (was 4.2). */
+  --success: #08704F;
+  --success-soft: #DFEFE4;
+  --success-strong: #10B981;
+  --warning: #8A4B09;
+  --warning-soft: #F7EBD8;
+  --warning-strong: #F59E0B;
+  --danger: #A9271D;
+  --danger-soft: #F9DDDC;
+  /* The SOS fill. It carries white text in both themes. */
+  --danger-strong: #DC2626;
+  --info: #1D4ED8;
+  --info-soft: #E0F1FF;
+
+  /* Route geometry and keyboard focus - blue, reserved. */
+  --route: #2563EB;
+  --route-soft: #EAF0FE;
+  --focus: #2563EB;
+
+  /* The shell: the sidebar and the login brand panel. Forest in Light, from
+     the references; charcoal in Dark. */
+  --shell: #062621;
+  --shell-surface: #0C302A;
+  --shell-raised: #14382E;
+  --shell-border: #18463B;
+  --shell-ring: #1F5748;
+  /* The active nav item's filled pill (manager_03 #18453B). */
+  --shell-active: #18453B;
+  --shell-gradient: linear-gradient(180deg, #0B3A30 0%, #062621 46%, #041A16 100%);
+  --shell-panel: radial-gradient(120% 90% at 8% 0%, rgb(52 211 153 / 0.12) 0%, transparent 55%),
+    linear-gradient(160deg, #0C3B31 0%, #062621 55%, #041A16 100%);
+  /* Brand eyebrow and the active-nav bar, ON THE SHELL ONLY: 9.2:1 on the
+     forest, 1.9:1 on white. */
+  --shell-accent: #34D399;
+  --on-shell: #F5F8F6;
+  --on-shell-soft: #C7D4CC;
+  --on-shell-body: #B4C2BA;
+  --on-shell-muted: #9FB0A8;
+  --on-shell-hint: #9FB4A8;
+  --on-shell-faint: #8FA79B;
+  --on-shell-dim: #7E8F86;
+  --on-shell-accent: #8CE8C8;
+  --on-shell-gold: #E3C77A;
+  --brand-gold: #C9A227;
+
+  /* Scrims: the modal backdrop, and the wash that keeps text legible on a
+     photograph - forest in Light, neutral black in Dark. */
+  --overlay: rgb(7 12 10 / 0.48);
+  /* Light through the top of the band (the valley under the map), then at
+     least 0.68 from 46% down: on a phone the photo is shown full height and
+     the white figures sit from 47% of it, over the bright horizon. */
+  --image-scrim: linear-gradient(180deg, rgb(2 33 27 / 0.06) 0%, rgb(2 33 27 / 0.2) 30%, rgb(2 33 27 / 0.68) 46%, rgb(2 33 27 / 0.8) 100%);
+  /* The login photo panel: near-opaque behind the text column on the left,
+     clear by the middle, with weight at the top and bottom edges where the
+     corner copy and the credit sit (manager_02). The top band holds 0.74 to
+     12% of the height: the corner copy sits on the photo's sky there. The
+     side stops never fall short of the text column (about 440px): on the
+     622px panel at 1024 wide, percentages alone left the lede on bare sky. */
+  --image-scrim-side: linear-gradient(90deg, rgb(1 32 26 / 0.94) 0%, rgb(1 32 26 / 0.86) max(30%, 360px), rgb(1 32 26 / 0.42) max(48%, 480px), rgb(1 32 26 / 0) max(64%, 600px)),
+    linear-gradient(180deg, rgb(1 32 26 / 0.82) 0%, rgb(1 32 26 / 0.74) 12%, rgb(1 32 26 / 0.3) 34%, rgb(1 32 26 / 0.18) 62%, rgb(1 32 26 / 0.66) 100%);
+  /* Text and marks ON a photograph, under one of the scrims above, and the
+     chip behind a photo credit: 0.6 black keeps white 11px text at 5.7:1
+     even over a white sky. Same in both themes - a photo is not themed. */
+  --on-image: #FFFFFF;
+  --on-image-muted: rgb(255 255 255 / 0.82);
+  --image-credit-bg: rgb(0 0 0 / 0.6);
+  /* The filled discs behind the login's capability icons. */
+  --image-disc: #0C4731;
+
+  /* Decoration: the region picker's unselected states. */
+  --region-fill: #B5CEBA;
+  --region-label: #2F4438;
+  /* The chosen state(s): the reference's mid forest in Light; in Dark a
+     quieter mint than the CTA, so eight selected states are not one glaring
+     block. Its label is 5:1 or better on it in both (theme.test.tsx). */
+  --region-selected: #397961;
+  --on-region-selected: #FFFFFF;
+  /* Every state at once (North-East). Light: the same forest. */
+  --region-all: #397961;
+  --on-region-all: #FFFFFF;
+  /* The chosen state's outline. Light marks the choice by its fill, as the
+     reference does; Dark by an accent outline over a neutral fill. */
+  --region-edge: transparent;
+  /* Roadside-service pins on the fleet map: fixed data hues, the same in
+     both themes (a pin sits on the tiles, not on a surface). None is green:
+     green is the accent, never a category. White glyphs are 4.5:1 or more. */
+  --poi-fuel: #6D28D9;
+  --poi-emergency: #A9271D;
+  --poi-tyres: #475569;
+  --poi-rest: #8A4B09;
+  --poi-hotel: #2563EB;
+  /* Fleet map truck markers (REG-1): the server's freshness as a data hue on
+     a dark chip, every hue 4.5:1 or more on it at 11 px; selection is the
+     light edge and ring. Pickup and Destination pins, and the white edge and
+     shadow every pin on the tiles carries. */
+  --marker-bg: #0F172A;
+  --marker-live: #34D399;
+  --marker-stale: #FBBF24;
+  --marker-no-contact: #F87171;
+  --marker-none: #64748B;
+  --marker-selected: #F1F5F9;
+  --marker-selected-ring: rgb(241 245 249 / 0.25);
+  --pin-destination: #2457D6;
+  --on-pin-destination: #FFFFFF;
+  --pin-pickup: #FFFFFF;
+  --on-pin-pickup: #14282F;
+  --pin-edge: #FFFFFF;
+  --pin-shadow: rgb(0 0 0 / 0.35);
+  /* The login's drawn pines and ridges (manager_02, bottom right). */
+  --scene-pine: #88AA95;
+
+  /* MapLibre paint, read through getComputedStyle. The raster set is the
+     identity in Light (the OSM tiles as published) and a neutral dark
+     basemap in Dark: brightness inverted, hue turned half way round so water
+     stays blue, colour almost removed - 0% green-dominant pixels in the
+     probe (.runtime/redesign/current/theme-arch-dark-map-probe-v2.png). */
+  --map-raster-brightness-min: 0;
+  --map-raster-brightness-max: 1;
+  --map-raster-hue-rotate: 0;
+  --map-raster-saturation: 0;
+  --map-raster-contrast: 0;
+  /* The planned route line. Light keeps the 0.7 it always drew. */
+  --map-route-opacity: 0.7;
+  --map-hillshade-shadow: #4A5A52;
+  --map-hillshade-highlight: #FFFFFF;
+  --map-steep: #B42318;
+  --map-hilly: #B45309;
+  --map-congested: #DC2626;
+  --map-slow: #D97706;
+  --map-flowing: #16A34A;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #070808;
+  --surface: #0E1110;
+  --surface-raised: #151918;
+  --surface-soft: #1B201E;
+  --border: #2A302D;
+  --border-strong: #6E7471;
+  --text: #F5F6F2;
+  --text-muted: #AAB2AD;
+  --text-faint: #8C958F;
+
+  --primary: #39D8A0;
+  --primary-hover: #19B97F;
+  --on-primary: #070808;
+  --accent: #39D8A0;
+  --accent-soft: #13291F;
+
+  --success: #39D8A0;
+  --success-soft: #12241C;
+  --success-strong: #39D8A0;
+  --warning: #E6AE4A;
+  --warning-soft: #2A2111;
+  --warning-strong: #E6AE4A;
+  --danger: #FF5D67;
+  --danger-soft: #2E1517;
+  --danger-strong: #C62A2F;
+  --info: #62A8FF;
+  --info-soft: #0F1D2E;
+
+  --route: #62A8FF;
+  --route-soft: #0F1D2E;
+  --focus: #62A8FF;
+
+  --shell: #0A0C0B;
+  --shell-surface: #151918;
+  --shell-raised: #1B201E;
+  --shell-border: #222826;
+  --shell-ring: #2A302D;
+  --shell-active: #1B201E;
+  --shell-gradient: linear-gradient(180deg, #111413 0%, #0A0C0B 46%, #070808 100%);
+  --shell-panel: linear-gradient(160deg, #121514 0%, #0A0C0B 55%, #070808 100%);
+  --shell-accent: #39D8A0;
+  --on-shell: #F5F6F2;
+  --on-shell-soft: #D3D8D5;
+  --on-shell-body: #BCC3BF;
+  --on-shell-muted: #AAB2AD;
+  --on-shell-hint: #AAB2AD;
+  --on-shell-faint: #9AA29D;
+  --on-shell-dim: #8C958F;
+  --on-shell-accent: #39D8A0;
+  --on-shell-gold: #E3C77A;
+  --brand-gold: #E3C77A;
+
+  --overlay: rgb(0 0 0 / 0.64);
+  --image-scrim: linear-gradient(180deg, rgb(0 0 0 / 0.35), rgb(0 0 0 / 0.8));
+  --image-scrim-side: linear-gradient(90deg, rgb(0 0 0 / 0.9) 0%, rgb(0 0 0 / 0.82) max(30%, 360px), rgb(0 0 0 / 0.5) max(48%, 480px), rgb(0 0 0 / 0.3) max(64%, 600px)),
+    linear-gradient(180deg, rgb(0 0 0 / 0.72) 0%, rgb(0 0 0 / 0.36) 34%, rgb(0 0 0 / 0.3) 62%, rgb(0 0 0 / 0.72) 100%);
+  --on-image: #FFFFFF;
+  --on-image-muted: rgb(255 255 255 / 0.82);
+  --image-credit-bg: rgb(0 0 0 / 0.6);
+  --image-disc: #1B201E;
+
+  --region-fill: #262C29;
+  --region-label: #C9CFCB;
+  /* Green is the accent only (DK-1): a chosen state is a lighter neutral
+     with a mint outline, never a green surface - one state or all eight. */
+  --region-selected: #383E3B;
+  --on-region-selected: #F5F6F2;
+  --region-all: #383E3B;
+  --on-region-all: #F5F6F2;
+  --region-edge: #39D8A0;
+  /* The pins' data hues are the same in both themes (see :root). */
+  --poi-fuel: #6D28D9;
+  --poi-emergency: #A9271D;
+  --poi-tyres: #475569;
+  --poi-rest: #8A4B09;
+  --poi-hotel: #2563EB;
+  /* The markers sit on a black chip, and LIVE is the accent itself: no green
+     of its own in Dark. The other hues and the pins are the Light ones. */
+  --marker-bg: #151918;
+  --marker-live: #39D8A0;
+  --marker-stale: #FBBF24;
+  --marker-no-contact: #F87171;
+  --marker-none: #64748B;
+  --marker-selected: #F1F5F9;
+  --marker-selected-ring: rgb(241 245 249 / 0.25);
+  --pin-destination: #2457D6;
+  --on-pin-destination: #FFFFFF;
+  --pin-pickup: #FFFFFF;
+  --on-pin-pickup: #14282F;
+  --pin-edge: #FFFFFF;
+  --pin-shadow: rgb(0 0 0 / 0.35);
+  --scene-pine: #202523;
+
+  /* 0.8, not the probe's 1: the inversion turns OSM forest - half of the
+     North-East at these zooms - into the lightest large grey on the map, and
+     at 1 the route on it was 3.0:1 with no margin. At 0.8 that grey drops
+     from #535752 to #464944 (3.7:1 under a full-opacity route); labels go
+     from white to #D6D6D6. Pinned in src/theme.test.tsx. */
+  --map-raster-brightness-min: 0.8;
+  --map-raster-brightness-max: 0.08;
+  --map-raster-hue-rotate: 180;
+  --map-raster-saturation: -0.9;
+  --map-raster-contrast: 0.1;
+  --map-route-opacity: 1;
+  --map-hillshade-shadow: #000000;
+  --map-hillshade-highlight: #3A403D;
+  --map-steep: #FF5D67;
+  --map-hilly: #E6AE4A;
+  --map-congested: #FF5D67;
+  --map-slow: #F2C46D;
+  --map-flowing: #39D8A0;
+}
+
+/* The utility names the components already use (~1,000 call sites), aliased
+   onto the semantic variables. `inline` makes each utility carry
+   `var(--surface)` itself rather than a `--color-surface` copy resolved once
+   on :root, so a utility follows the theme wherever it is used. Some names
+   are historical - `navy` is the shell, `aqua` its accent, `ok` is success -
+   and stay, because renaming them would touch every page to say the same
+   thing. */
+@theme inline {
+  --color-canvas: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-soft: var(--surface-soft);
+  --color-ink: var(--text);
+  --color-muted: var(--text-muted);
+  /* A third text level, for the one-line explainer under a number: 5.4:1 on
+     surface and 4.9:1 on canvas in Light. */
+  --color-faint: var(--text-faint);
+  --color-line: var(--border);
+  --color-outline: var(--border-strong);
+
+  --color-navy: var(--shell);
+  --color-navy-surface: var(--shell-surface);
+  --color-navy-line: var(--shell-border);
+  --color-aqua: var(--shell-accent);
+  --color-shell-raised: var(--shell-raised);
+  --color-shell-ring: var(--shell-ring);
+  --color-on-shell: var(--on-shell);
+  --color-on-shell-soft: var(--on-shell-soft);
+  --color-on-shell-body: var(--on-shell-body);
+  --color-on-shell-muted: var(--on-shell-muted);
+  --color-on-shell-hint: var(--on-shell-hint);
+  --color-on-shell-faint: var(--on-shell-faint);
+  --color-on-shell-dim: var(--on-shell-dim);
+  --color-on-shell-accent: var(--on-shell-accent);
+  --color-on-shell-gold: var(--on-shell-gold);
+  --color-brand-gold: var(--brand-gold);
+  --color-on-image: var(--on-image);
+  --color-on-image-muted: var(--on-image-muted);
+  --color-image-disc: var(--image-disc);
+
+  /* Action - the redesign's forest green in Light. In the mockups every
+     primary button is nearly the colour of the shell, which is what makes a
+     single green accent read as one brand rather than two. */
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-soft: var(--accent-soft);
+  --color-accent: var(--accent);
+  --color-on-primary: var(--on-primary);
+
+  --color-route: var(--route);
+  --color-route-soft: var(--route-soft);
+
+  --color-ok: var(--success);
+  --color-ok-soft: var(--success-soft);
+  --color-ok-strong: var(--success-strong);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-strong: var(--warning-strong);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-strong: var(--danger-strong);
+}
+
 @theme {
-  /* Neutral ground — warm-grey, not blue-grey. The console reads calmer for
-     it, and it stops the canvas competing with the route blue drawn on it. */
-  --color-canvas: #F6F8F7;
-  --color-surface: #FFFFFF;
-  --color-soft: #EEF3F0;
-  --color-ink: #101820;
-  --color-muted: #52615A;
-  --color-line: #D5DEDA;
-  /* Control outline. Darker than --color-line: a border that has to read as
-     "you may type here" needs more weight than one merely dividing two cards. */
-  --color-outline: #75847D;
-
-  /* Charcoal shell. Named `navy` for continuity with existing call sites. */
-  --color-navy: #101820;
-  --color-navy-surface: #1D2A32;
-  --color-navy-line: #2C3B44;
-  /* Brand eyebrow / quiet emphasis ON DARK ONLY. 9.2:1 on the charcoal shell,
-     1.9:1 on white — never put this on a light surface. */
-  --color-aqua: #34D399;
-
-  /* Action — green. */
-  --color-primary: #087F5B;
-  --color-primary-hover: #066449;
-  --color-primary-soft: #E7F1EC;
-
-  /* Route geometry and focus — blue, reserved. */
-  --color-route: #2563EB;
-  --color-route-soft: #EAF0FE;
-
-  /* Semantic status. -soft = tint behind text, -strong = saturated fill. */
-  --color-ok: #087F5B;
-  --color-ok-soft: #E7F1EC;
-  --color-ok-strong: #10B981;
-  --color-warning: #B45309;
-  --color-warning-soft: #FBF1E3;
-  --color-warning-strong: #F59E0B;
-  --color-danger: #B42318;
-  --color-danger-soft: #FCEFED;
-  --color-danger-strong: #DC2626;
-
   /* Type */
   --font-display: Sora, 'Segoe UI', system-ui, sans-serif;
   --font-sans: Inter, 'Segoe UI', system-ui, sans-serif;
+  /* Decorative taglines only (Ms Madi, OFL, Google Fonts). Never data. */
+  --font-script: 'Ms Madi', 'Segoe Script', cursive;
 
   /* Radii — Terrain: controls 8, cards/panels 12. The scale's third step
      (sheets, 20) is not declared here: this console has no bottom sheet, and
@@ -93,10 +428,24 @@
   --shadow-float: 0 2px 4px rgb(16 24 32 / 0.06), 0 16px 40px -12px rgb(16 24 32 / 0.18);
 }
 
-html { color-scheme: light; background: var(--color-canvas); }
+/* A browser without color-mix (Chrome before 111, Safari before 16.2) gets
+   the plain variable for an opacity utility: `bg-danger/20` paints solid
+   danger and the `text-danger` on it vanishes. A hex token used to fall back
+   to the hex with the alpha baked in; a variable cannot, so these tinted
+   fills fall back to their soft token. Neutral fills, borders and text just
+   turn opaque, which still reads. src/theme.test.tsx fails when a coloured
+   `bg-x/NN` is used without a line here. */
+@supports not (color: color-mix(in lab, red, red)) {
+  .bg-primary\/10 { background-color: var(--accent-soft); }
+  .bg-route\/10 { background-color: var(--route-soft); }
+  .bg-danger\/20 { background-color: var(--danger-soft); }
+  .bg-warning-strong\/10 { background-color: var(--warning-soft); }
+}
+
+html { background: var(--bg); }
 body {
   margin: 0;
-  color: var(--color-ink);
+  color: var(--text);
   /* Indian-script glyphs are picked up from the platform families below when a
      localised string has no cover in Inter. Listing them here rather than
      shipping the fonts keeps the bundle unchanged and avoids a network font on
@@ -136,86 +485,105 @@ h1, h2, .font-display { font-family: var(--font-display); letter-spacing: -0.02e
   }
 }
 
-input, select, textarea { min-height: 44px; }
+/* 44px fields; a checkbox or radio keeps its own size (its label row is the target). */
+input:not([type='checkbox']):not([type='radio']), select, textarea { min-height: 44px; }
 input, select, button, textarea { max-width: 100%; }
 table th, table td { padding-right: 16px; }
 
 /* --- Shell ---------------------------------------------------------------- */
 
-.app-shell { min-height: 100dvh; display: grid; grid-template-columns: 216px minmax(0, 1fr); background: var(--color-canvas); }
+.app-shell { min-height: 100dvh; display: grid; grid-template-columns: 216px minmax(0, 1fr); background: var(--bg); }
 
 /* The rail is one continuous charcoal plane with a barely-there vertical
    gradient. Flat #101820 across 1024px of height reads as a dead slab; the
    small lift at the top gives it a light source without becoming "a gradient". */
 .app-rail {
-  background: linear-gradient(180deg, #16212A 0%, var(--color-navy) 42%, #0C131A 100%);
-  color: #F5F8F6;
+  /* Forest, top to bottom. The endpoints used to be charcoal-blue
+     (#16212A / #0C131A) while `--color-navy` had already been retuned to
+     forest, so the rail faded from slate into green and back - two brands
+     down one 1000px edge. */
+  background: var(--shell-gradient);
+  color: var(--on-shell);
   /* Hairline seam. Sharper than a border and it costs no grid pixel. */
   box-shadow: inset -1px 0 0 rgb(255 255 255 / 0.06);
 }
-.rail-inner { position: sticky; top: 0; display: flex; flex-direction: column; min-height: 100dvh; padding: 32px 16px 20px; gap: 32px; }
-.brand { padding: 0 12px; }
-.brand-mark { display: block; width: 44px; height: 44px; margin-bottom: 12px; border-radius: 10px; }
-.nav-icon { width: 18px; height: 18px; flex-shrink: 0; margin-right: 10px; }
-.rail-account button { display: inline-flex; align-items: center; justify-content: center; }
-.rail-account .nav-icon { width: 16px; height: 16px; margin-right: 8px; }
-.brand-title { display: block; font-family: var(--font-display); font-size: 22px; font-weight: 800; line-height: 1.2; letter-spacing: 1px; }
-.brand-caption { display: block; color: var(--color-aqua); font-size: 10px; font-weight: 600; letter-spacing: 1.7px; margin-top: 6px; }
-.brand > span:last-child { display: inline-block; margin: 12px 0 0; }
-.main-nav { display: flex; flex-direction: column; gap: 4px; }
+/* The rail scrolls itself when the window is shorter than it, so the region
+   card is never out of reach on a 768px laptop; the page does not carry it. */
+.rail-inner { position: sticky; top: 0; display: flex; flex-direction: column; height: 100dvh; overflow-y: auto; scrollbar-width: none; padding: 16px 12px 0; }
+.brand { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; padding-bottom: 14px; }
+.brand-mark { display: block; width: 36px; height: 36px; margin-bottom: 7px; border-radius: 9px; }
+.brand-title { display: block; font-family: var(--font-display); font-size: 22px; font-weight: 800; line-height: 1.15; letter-spacing: 1.5px; }
+.brand-caption { display: block; color: var(--on-shell-soft); font-size: 10px; font-weight: 600; letter-spacing: 1.8px; text-transform: uppercase; margin-top: 4px; }
+/* Dev builds only; out of the flow so the brand block measures the same. */
+.brand-dev { position: absolute; top: -8px; left: 0; border-radius: 999px; background: var(--warning-soft); color: var(--warning); padding: 1px 7px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+/* Phones only (the 800px block below); the desktop rail always shows its nav. */
+.rail-menu { display: none; }
+.nav-icon { width: 20px; height: 20px; flex-shrink: 0; margin-right: 12px; }
+.main-nav { display: flex; flex-direction: column; margin: 0 -7px; }
+/* A rule between groups, the reference's divider. */
+.nav-group { display: flex; flex-direction: column; gap: 1px; }
+.nav-group + .nav-group { margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--shell-border); }
 
-/* 3px inset accent bar rather than a left border on the link box: a border
-   shifts the label 3px when a tab activates, and that jump, repeated down a
-   nav of seven items, is the most obvious "unfinished" tell a sidebar has. */
+/* The active item is a FILLED PILL with a ~4px gold edge (audit 16.1): the
+   edge is inside the pill, so nothing shifts when an item activates. */
 .nav-link {
   position: relative;
   display: flex;
   align-items: center;
-  min-height: 48px;
-  padding: 12px 16px;
-  border-radius: var(--radius-control);
-  font-size: 14px;
+  min-height: 42px;
+  padding: 0 12px 0 16px;
+  border-radius: 10px;
+  font-size: 15px;
   transition: background-color 140ms ease, color 140ms ease;
 }
 .nav-link::before {
   content: '';
   position: absolute;
   left: 0;
-  top: 50%;
-  width: 3px;
-  height: 0;
-  border-radius: 0 3px 3px 0;
-  background: var(--color-aqua);
-  transform: translateY(-50%);
-  transition: height 160ms ease;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-radius: 10px 0 0 10px;
+  background: var(--brand-gold);
+  transition: width 160ms ease;
 }
-.nav-idle { color: #9FB0A8; }
-.nav-idle:hover { background: var(--color-navy-surface); color: #F5F8F6; }
-.nav-active { background: var(--color-navy-surface); font-weight: 700; color: #F5F8F6; }
-.nav-active::before { height: 22px; }
+.nav-idle { color: var(--on-shell-soft); }
+.nav-idle:hover { background: var(--shell-surface); color: var(--on-shell); }
+.nav-active { background: var(--shell-active); font-weight: 600; color: var(--on-shell); }
+.nav-active::before { width: 4px; }
 
-.rail-account { margin-top: auto; padding: 16px 8px 0; border-top: 1px solid var(--color-navy-line); display: flex; flex-direction: column; gap: 12px; overflow-wrap: anywhere; }
-.account-name { color: #F5F8F6; font-size: 13px; font-weight: 600; }
-.account-role { color: #8B9C93; font-size: 11px; margin-top: 4px; }
-.rail-account button { color: #F5F8F6; border-color: var(--color-navy-line); background: transparent; }
-.rail-account button:hover { background: var(--color-navy-surface); }
+/* The rail's region card. It STATES the scope; it does not offer to change
+   it, because the scope is the account's and a button that cannot do what
+   it says is worse than no button. */
+.rail-region { margin: 14px 2px 0; padding: 12px 12px 10px; border-radius: var(--radius-card); background: var(--shell-surface); border: 1px solid var(--shell-border); flex-shrink: 0; }
+.rail-region b { display: block; font-size: 14px; font-weight: 600; line-height: 1.3; color: var(--on-shell); overflow-wrap: anywhere; }
+.rail-region-pin { display: grid; place-items: center; width: 32px; height: 32px; flex-shrink: 0; border-radius: 50%; background: var(--shell-raised); color: var(--shell-accent); }
+.rail-region-sub { display: block; margin-top: 2px; font-size: 12.5px; color: var(--on-shell-muted); }
+.rail-region-note { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--shell-border); text-align: center; font-size: 12px; color: var(--on-shell-muted); }
+
+/* Pines and the tagline fill whatever height is left at the foot. */
+.rail-scenery { position: relative; flex: 1 0 128px; margin: 12px -12px 0; min-height: 128px; overflow: hidden; }
+.rail-pines { position: absolute; inset: auto 0 0 0; width: 100%; height: 150px; }
+.rail-scenery p { position: absolute; left: 30px; bottom: 34px; font-size: 13px; font-weight: 500; line-height: 1.45; color: var(--on-shell); }
+/* Not enough height left under the region card for the pines to read. */
+@media (max-height: 859px) { .rail-scenery { display: none; } }
 
 /* `margin: 0 auto`, never `auto`: in a grid cell `auto` centres VERTICALLY too, floating a short page mid-screen. */
-.workspace { min-width: 0; padding: 32px; max-width: 1800px; width: 100%; margin: 0 auto; }
+.workspace { min-width: 0; padding: 18px 20px 28px; max-width: 1800px; width: 100%; margin: 0 auto; }
 /* AN OPERATIONAL PAGE FILLS AN ULTRA-WIDE CANVAS.
    Measured on the hosted console: at a 3840 CSS-px viewport - a 1920 screen at
    50% browser zoom, which is how a dispatcher sees more rows at once - the
    1800px cap left 1128px of dead gutter on the left and 912px on the right,
    using 53% of the screen for a twelve-column table that was wrapping.
-   The table earns that width. The planner/review grid does NOT: a 1500px-wide
-   form field and a 1500px line of evidence prose are not more readable, so
-   they keep the reading cap and the page stays balanced. */
+   The table earns that width. The trip planner and the route review do NOT:
+   past 2400px a form field and a line of evidence prose are not more
+   readable, so they keep a reading cap (`.reading-cap`). It sits above a
+   2560 screen's workspace, so there every card still shares one right edge. */
 .workspace--wide { max-width: none; }
-.workspace--wide .dispatch-grid { max-width: 1800px; }
-.workspace h1 { font-family: var(--font-display); font-size: 28px; font-weight: 700; letter-spacing: -.8px; }
+.reading-cap { max-width: 2400px; }
+/* The page-header system rule (audit 4): a 24px bold title. */
+.workspace h1 { font-family: var(--font-display); font-size: 24px; font-weight: 700; letter-spacing: -.6px; }
 
-.dispatch-grid { display: grid; grid-template-columns: minmax(320px, .85fr) minmax(0, 1.15fr); gap: 24px; align-items: start; }
-.dispatch-review { min-width: 0; }
 
 /* Map-first. 2.4fr : 1fr puts the GIS canvas at ~70% of the workspace, inside
    the 65-75% the design calls for, with the inspector never below 320px where
@@ -224,31 +592,150 @@ table th, table td { padding-right: 16px; }
    and the route cards inside it wrapped word by word. */
 .fleet-layout { display: grid; grid-template-columns: minmax(0, 3fr) minmax(380px, 2fr); gap: 20px; align-items: start; }
 .fleet-main { min-width: 0; display: grid; gap: 20px; }
+/* A GRID ITEM DEFAULTS TO `min-width: auto`, NOT 0.
+   `.fleet-main` was already min-width:0, but its children were not, so the
+   trip table's min-content width (385px) pushed the whole page 81px wider
+   than a 320px phone - the console scrolled sideways and the sidebar went
+   with it. The table already has its own overflow-x container; it simply
+   never got the chance to use it, because its grid parent refused to
+   narrow. Same default, same bug, in every grid here. */
+.fleet-main > *,
+.fleet-layout > * { min-width: 0; }
 /* Matches the map clamp so the two panes read as one instrument rather than a
    tall map beside a short card. The inspector scrolls internally when a
    selected truck fills it; the min-height only governs the empty state. */
-.fleet-detail { min-width: 0; min-height: clamp(420px, calc(100dvh - 300px), 760px); max-height: calc(100dvh - 80px); overflow: auto; position: sticky; top: 24px; }
+/* Parked under the sticky topbar, not behind it (RESP-1): --topbar-h is the
+   bar's measured height, set by the Topbar itself. */
+.fleet-detail { min-width: 0; min-height: clamp(376px, calc(100dvh - 378px), 856px); max-height: calc(100dvh - var(--topbar-h, 104px) - 32px); overflow: auto; position: sticky; top: calc(var(--topbar-h, 104px) + 16px); }
 .fleet-detail > section { min-height: 100%; }
+.fleet-detail--empty { min-height: 0; }
+.fleet-detail--empty > section { min-height: 0; }
 @media (max-width: 1100px) { .fleet-layout { grid-template-columns: minmax(0,1fr); } .fleet-detail { max-height: none; position: static; } }
 
-.skip-link { position: absolute; left: 12px; top: -100px; z-index: 9999; padding: 12px; background: var(--color-surface); color: var(--color-primary); border-radius: var(--radius-control); box-shadow: var(--shadow-float); }
+.app-main { display: flex; flex-direction: column; min-width: 0; }
+
+/* --- Topbar ---------------------------------------------------------------
+   What it carries is deliberately short: the scope this console is showing,
+   how fresh that is, and who is signed in. The reference puts a global
+   search here; there is no cross-entity search endpoint behind it, and a box
+   that quietly searches only open trips is worse than no box - so Trips,
+   Drivers and Trucks keep their own real server-side search instead. */
+.topbar {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  min-height: 104px;
+  /* The reference hangs the account row from the top and sets the greeting
+     lower, on the band's middle. */
+  align-items: flex-start;
+  padding: 12px 20px 12px clamp(20px, 3.6vw, 58px);
+  /* A borderless band on the surface token (audit 16.1), not the canvas. */
+  background: var(--surface);
+  /* No overflow clip: the account menu opens below the bar. */
+}
+.topbar-ridge { position: absolute; right: 150px; bottom: 0; width: 300px; height: 56px; pointer-events: none; }
+.topbar-scope { position: relative; z-index: 1; min-width: 0; padding-top: 22px; }
+.topbar-greeting { font-family: var(--font-display); font-size: 24px; font-weight: 700; letter-spacing: -.3px; line-height: 1.25; color: var(--text); overflow-wrap: anywhere; }
+.topbar-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 6px; font-size: 14px; color: var(--text-muted); }
+.topbar-meta strong { font-weight: 500; color: var(--text-muted); }
+.topbar-sep { color: var(--border-strong); }
+/* On a narrow phone "Last synced" wraps and the bar would dangle (RESP-5). */
+@media (max-width: 399px) { .topbar-sep { display: none; } }
+.topbar-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success-strong); flex-shrink: 0; }
+.topbar-dot--off { background: var(--warning-strong); }
+.topbar-actions { position: relative; z-index: 1; display: flex; align-items: center; gap: 12px; }
+.topbar-icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: var(--radius-control); color: var(--text-muted); }
+.topbar-icon:hover { background: var(--surface-soft); color: var(--text); }
+.topbar-avatar { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: var(--accent-soft); color: var(--primary); box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px var(--border-strong); font-weight: 700; font-size: 16px; flex-shrink: 0; }
+.topbar-who { min-width: 0; line-height: 1.25; }
+.topbar-who b { display: block; font-size: 14px; font-weight: 600; color: var(--text); }
+.topbar-who span { display: block; font-size: 12px; color: var(--text-muted); }
+@media (max-width: 1100px) { .topbar-ridge { display: none; } }
+@media (max-width: 800px) {
+  .topbar { min-height: 0; padding: 12px 16px; align-items: center; }
+  .topbar-scope { padding-top: 0; }
+  .topbar-greeting { font-size: 20px; }
+}
+/* A short laptop window: the band gives some height back to the page. */
+@media (min-width: 801px) and (max-height: 820px) {
+  .topbar { min-height: 84px; padding-top: 10px; padding-bottom: 10px; }
+  .topbar-scope { padding-top: 12px; }
+  .topbar-greeting { font-size: 22px; }
+}
+/* On a desktop the topbar stays in view, so the global SOS badge is seen
+   whatever the page's scroll position. Not on phones: there the stacked nav
+   already takes most of the first screen. */
+@media (min-width: 801px) {
+  .topbar { position: sticky; top: 0; z-index: 30; }
+  /* WCAG 2.4.11 (A11Y-1): a control scrolled into view by focus lands below
+     the sticky bar, not under it. --topbar-h is the bar's measured height. */
+  html { scroll-padding-top: calc(var(--topbar-h, 104px) + 12px); }
+}
+
+.skip-link { position: absolute; left: 12px; top: -100px; z-index: 9999; padding: 12px; background: var(--surface); color: var(--primary); border-radius: var(--radius-control); box-shadow: var(--shadow-float); }
 .skip-link:focus { top: 12px; }
 .maplibregl-ctrl-group button { min-height: 36px; min-width: 36px; }
+/* WCAG 1.4.11: the zoom group's edge at 3:1 or more against the map and its
+   own fill, in both themes, and the rule between its buttons at 3:1 against
+   the fill. MapLibre ships a 10% black halo and a #ddd rule: 1.3:1 on white.
+   Two rings, ink inside and a halo outside: whatever the tiles under it, one
+   of the two clears 3:1 (a single mid-grey ring fell to 2:1 on dark roads).
+   :root raises these over MapLibre's own sheet, which loads after this one. */
+:root .maplibregl-ctrl-group:not(:empty) { box-shadow: 0 0 0 1px var(--text), 0 0 0 2px var(--surface-raised); }
+:root .maplibregl-ctrl-group button + button { border-top-color: var(--border-strong); }
 
-@media (max-width: 1150px) { .dispatch-grid { grid-template-columns: minmax(0,1fr); } .workspace { padding: 24px; } }
+/* MapLibre's own chrome - controls, attribution, popups - ships a white
+   stylesheet. Light keeps it as published but for the zoom group's edge
+   (above); Dark retints it from the tokens. The basemap and the overlays are painted in code (mapSetup.ts),
+   never by a CSS filter on the canvas, which would recolour the route and
+   the markers along with the tiles. */
+:root[data-theme='dark'] .maplibregl-ctrl-group { background: var(--surface-raised); }
+:root[data-theme='dark'] .maplibregl-ctrl-group:not(:empty) { box-shadow: 0 0 0 1px var(--text-muted), 0 0 0 2px var(--bg); }
+:root[data-theme='dark'] .maplibregl-ctrl-group button + button { border-top-color: var(--text-muted); }
+:root[data-theme='dark'] .maplibregl-ctrl button .maplibregl-ctrl-icon { filter: invert(1) hue-rotate(180deg); }
+/* The attribution toggle IS its icon: a filter on it inverted its focus ring
+   too (A11Y-3), so Dark redraws the glyph light (--text, #F5F6F2) instead. */
+:root[data-theme='dark'] .maplibregl-ctrl-attrib-button { background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' fill='%23F5F6F2' fill-rule='evenodd' viewBox='0 0 20 20'%3E%3Cpath d='M4 10a6 6 0 1 0 12 0 6 6 0 1 0-12 0m5-3a1 1 0 1 0 2 0 1 1 0 1 0-2 0m0 3a1 1 0 1 1 2 0v3a1 1 0 1 1-2 0'/%3E%3C/svg%3E"); }
+:root[data-theme='dark'] .maplibregl-ctrl button:not(:disabled):hover { background-color: var(--surface-soft); }
+:root[data-theme='dark'] .maplibregl-ctrl.maplibregl-ctrl-attrib,
+:root[data-theme='dark'] .maplibregl-ctrl-attrib.maplibregl-compact { background-color: var(--surface-raised); color: var(--text-muted); }
+:root[data-theme='dark'] .maplibregl-ctrl-attrib-button { background-color: transparent; }
+:root[data-theme='dark'] .maplibregl-ctrl-attrib a { color: var(--text-muted); }
+:root[data-theme='dark'] .maplibregl-popup-content { background: var(--surface-raised); color: var(--text); box-shadow: 0 0 0 1px var(--border); }
+:root[data-theme='dark'] :is(.maplibregl-popup-anchor-top, .maplibregl-popup-anchor-top-left, .maplibregl-popup-anchor-top-right) .maplibregl-popup-tip { border-bottom-color: var(--surface-raised); }
+:root[data-theme='dark'] :is(.maplibregl-popup-anchor-bottom, .maplibregl-popup-anchor-bottom-left, .maplibregl-popup-anchor-bottom-right) .maplibregl-popup-tip { border-top-color: var(--surface-raised); }
+:root[data-theme='dark'] .maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: var(--surface-raised); }
+:root[data-theme='dark'] .maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: var(--surface-raised); }
+
+@media (max-width: 1150px) { .workspace { padding: 24px; } }
 @media (max-width: 800px) {
  .app-shell { display: block; }
  .app-rail { box-shadow: inset 0 -1px 0 rgb(255 255 255 / 0.06); }
- .rail-inner { position: static; min-height: 0; padding: 16px; gap: 16px; }
- .brand { padding: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; } .brand-mark { width: 32px; height: 32px; margin: 0; } .brand-title { font-size: 19px; }
- .brand-caption { display: inline-block; margin-top: 4px; margin-right: 8px; }
- .main-nav { flex-direction: row; flex-wrap: wrap; gap: 4px; }
- .nav-link { min-height: 44px; padding: 8px 12px; }
- /* Horizontal rail: the accent reads as an underline, not a left bar. */
- .nav-link::before { left: 12px; right: 12px; top: auto; bottom: 4px; width: auto; height: 0; transform: none; border-radius: 3px; }
- .nav-active::before { height: 2px; }
- .rail-account { margin: 0; padding-top: 12px; flex-direction: row; align-items: center; justify-content: space-between; }
- .workspace { padding: 20px 16px; }
+ .rail-inner { position: static; height: auto; overflow: visible; padding: 14px 16px; gap: 12px; }
+ .brand { padding: 0; flex-direction: row; gap: 10px; flex-wrap: wrap; text-align: left; } .brand-mark { width: 32px; height: 32px; margin: 0; } .brand-title { font-size: 19px; }
+ .brand-caption { margin-top: 2px; }
+ .brand-dev { position: static; }
+ .main-nav { flex-direction: row; flex-wrap: wrap; gap: 4px; margin: 0; }
+ .nav-group { flex-direction: row; flex-wrap: wrap; gap: 4px; }
+ .nav-group + .nav-group { margin-top: 0; padding-top: 0; border-top: 0; }
+ .nav-link { min-height: 44px; padding: 8px 12px; font-size: 14px; }
+ .nav-icon { width: 18px; height: 18px; margin-right: 8px; }
+ /* Horizontal rail: the gold edge reads as an underline. */
+ .nav-link::before { left: 12px; right: 12px; top: auto; bottom: 4px; width: auto; height: 0; border-radius: 3px; transition: height 160ms ease; }
+ .nav-active::before { width: auto; height: 3px; }
+ .rail-region { margin: 0; }
+ .rail-scenery { display: none; }
+ .workspace { padding: 16px 16px 24px; }
+ /* The nav folds under Menu (RESP-4): at 200% zoom the stacked nav filled
+    the whole first screen. */
+ .rail-menu { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--shell-border); color: var(--on-shell); font-size: 14px; font-weight: 600; }
+ .rail-menu[aria-expanded='true'] { background: var(--shell-active); }
+ /* Title and Menu on one row down to 320px; "Manager console" is the tab's title too. */
+ @media (max-width: 480px) { .brand-caption { display: none; } }
+ .rail-inner:not(.menu-open) :is(.main-nav, .rail-region) { display: none; }
 }
 
 /* ---------------------------------------------------------------------------
@@ -269,9 +756,47 @@ table th, table td { padding-right: 16px; }
    per Terrain: focus and route are the two things blue is allowed to mean, and
    it stays legible on the charcoal rail as well as on the light canvas. */
 :focus-visible {
-  outline: 3px solid var(--color-route);
+  outline: 3px solid var(--focus);
   outline-offset: 2px;
   border-radius: 2px;
+}
+
+/* On the forest rail the blue ring is about 2.6:1 (WCAG 1.4.11 asks 3:1 of
+   a focus indicator); the rail's own ink is 9:1 or better on it and on the
+   active pill, in both themes. */
+.app-rail :focus-visible { outline-color: var(--on-shell); }
+
+/* A ring on a photograph (A11Y-2): white inside a black halo, so one of the
+   two clears 3:1 against whatever the photo is doing under it. */
+.on-image-focus:focus-visible { outline: 2px solid var(--on-image); outline-offset: 2px; box-shadow: 0 0 0 5px rgb(0 0 0 / 0.8); }
+
+/* The map clips its own edges (A11Y-3): MapLibre's controls, its attribution
+   toggle (a <summary>, not a button) and the canvas draw their ring inside
+   themselves, on their own fill, not outside it. MapLibre's sheet loads later
+   and sets `outline: none` plus an outer glow the frame cut off; these
+   selectors outrank its. */
+:root .maplibregl-map :is(.maplibregl-ctrl button, .maplibregl-ctrl-attrib-button, .maplibregl-canvas):focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: -3px;
+  box-shadow: none;
+}
+
+/* A region focus is sent to (the trip review, opened from a row) is not a
+   control: it takes focus so the keyboard lands where the eye is sent. Its
+   ring is 2px and drawn over the card's own border, not 3px outside it, so
+   the keyboard user sees where they landed without a frame round the page. */
+.focus-target { border-radius: var(--radius-card); }
+.focus-target:focus-visible { outline-width: 2px; outline-offset: -1px; border-radius: var(--radius-card); }
+
+/* A table wider than its card says so: a soft edge on the side that still
+   scrolls, covered once that edge is reached (the `local` layers move with
+   the content, the `scroll` shadows do not). CSS only, no listener. */
+.scroll-x-hint {
+  background:
+    linear-gradient(to right, var(--surface) 30%, transparent) left center / 40px 100% no-repeat local,
+    linear-gradient(to left, var(--surface) 30%, transparent) right center / 40px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, color-mix(in srgb, var(--text) 20%, transparent), transparent) left center / 14px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, color-mix(in srgb, var(--text) 20%, transparent), transparent) right center / 14px 100% no-repeat scroll;
 }
 
 /* Browsers default <button> to an arrow cursor. On a console where almost

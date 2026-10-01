@@ -31,7 +31,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import CurrentUser, DbSession, rate_limit
 from app.core import permissions as perm
 from app.core.errors import APIError, NotFoundError, PermissionDeniedError
 from app.core.permissions import has_permission
@@ -77,7 +77,14 @@ async def _driver_of(db, user) -> Driver | None:
     return (await db.execute(select(Driver).where(Driver.user_id == user.id))).scalar_one_or_none()
 
 
-@router.post("", response_model=FileRead, status_code=201, summary="Upload one private file (raw body)")
+@router.post(
+    "",
+    response_model=FileRead,
+    status_code=201,
+    summary="Upload one private file (raw body)",
+    # Up to 5 MB into Postgres per call; counted before the body is read.
+    dependencies=[rate_limit("upload")],
+)
 async def upload(
     request: Request,
     db: DbSession,
@@ -86,9 +93,19 @@ async def upload(
     truck_id: Annotated[uuid.UUID | None, Query()] = None,
     driver_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> FileRead:
-    data = await request.body()
-    if len(data) > MAX_BYTES:
-        raise APIError("File is larger than 5 MB.", code="FILE_TOO_LARGE", status_code=413)
+    # Read at most MAX_BYTES + 1 and stop. `request.body()` would buffer the
+    # whole upload before the size check ran, so a 500 MB body cost 500 MB of
+    # memory to be told "too large". A declared Content-Length is refused
+    # before a single byte is read; a chunked body is cut off at the cap.
+    too_large = APIError("File is larger than 5 MB.", code="FILE_TOO_LARGE", status_code=413)
+    if int(request.headers.get("content-length") or 0) > MAX_BYTES:
+        raise too_large
+    buf = bytearray()
+    async for chunk in request.stream():
+        buf.extend(chunk)
+        if len(buf) > MAX_BYTES:
+            raise too_large
+    data = bytes(buf)
     if kind == "PROFILE_PHOTO" and len(data) > MAX_PROFILE_PHOTO_BYTES:
         raise APIError(
             f"A profile photo must be under {MAX_PROFILE_PHOTO_BYTES // 1024} KB; "
