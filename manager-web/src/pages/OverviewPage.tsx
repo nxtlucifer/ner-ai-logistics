@@ -30,7 +30,7 @@
  * THE LIVE MAP WAITS TO BE ASKED. It is the one thing here that polls every
  * ten seconds and pulls most of a megabyte, so the landing page does not
  * start it (audit 16.2 network gate): the card opens on the count and a
- * schematic of the area, and "Show live map" starts Fleet's own poll.
+ * map of the area, and "Show live map" starts Fleet's own poll.
  */
 
 import {
@@ -336,7 +336,7 @@ function LiveMap() {
 }
 
 /**
- * The card before the map is asked for: a schematic of this account's area
+ * The card before the map is asked for: a map of this account's area
  * (the same drawing as the sign-in step, which already ships in this bundle)
  * and what the button will do. It places no truck, so it claims no position.
  */
@@ -353,7 +353,7 @@ function AreaSketch({ canLocate }: { canLocate: boolean }) {
         highlight={scoped ? state?.name ?? null : 'all'}
         callout={district?.name}
         // Height-bound, so the drawing grows with the inset (18.9vw) instead of staying 340px wide.
-        className="hidden aspect-[976/790] h-full max-w-[45%] shrink-0 sm:block"
+        className="hidden aspect-[1002/810] h-full max-w-[45%] shrink-0 sm:block"
       />
       <div className="min-w-0">
         <p className="text-base font-semibold text-ink">
@@ -364,7 +364,7 @@ function AreaSketch({ canLocate }: { canLocate: boolean }) {
             ? 'Show live map places each truck at its last reported position and refreshes every 10 seconds. Fleet has the full map and its tools.'
             : 'The count above is from your overview. Truck positions need the fleet map permission.'}
         </p>
-        <p className="mt-3 text-xs text-faint">Schematic of your area. State outlines are approximate; no truck is placed on it.</p>
+        <p className="mt-3 text-xs text-faint">Your area: Survey of India state boundaries. No truck is placed on it.</p>
       </div>
     </div>
   )

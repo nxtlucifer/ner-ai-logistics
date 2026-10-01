@@ -139,7 +139,8 @@ export function ImageCreditsDialog({ onClose }: { onClose: () => void }) {
           <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer" className="font-medium text-accent underline">
             OpenStreetMap contributors
           </a>{' '}
-          (ODbL), drawn with MapLibre GL JS.
+          (ODbL), drawn with MapLibre GL JS. North-East state outlines on the sign-in and Overview pages:
+          Survey of India, Administrative Boundary Database OVSF/1M/7.
         </p>
         <ul className="mt-3 space-y-3">
           {Object.values(PHOTOS).map((photo) => (

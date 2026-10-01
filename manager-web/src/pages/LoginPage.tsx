@@ -726,7 +726,7 @@ function ScopeScreen({
         <div className="relative min-w-0 lg:-mt-[74px] xl:pr-[134px] short:-mt-[40px]">
           <div className="relative mx-auto w-full max-w-[640px] pt-10 lg:mx-0 lg:w-[84%] lg:max-w-[75vh] lg:pt-4 xl:mx-auto xl:w-full">
             <p className="absolute left-0 top-0 z-10 max-w-[240px] text-[11.5px] leading-snug text-faint lg:top-[38px]">
-              Schematic. Shapes are indicative, not survey boundaries.
+              North-East state boundaries shown for operational selection.
               {described ? ` Highlighted: ${described}.` : ''}
             </p>
             <NorthEastMap highlight={highlight} callout={callout} />

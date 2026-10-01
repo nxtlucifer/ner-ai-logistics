@@ -240,7 +240,7 @@ describe('the scope step', () => {
     await screen.findByTestId('scope-step')
     const filled = (token = /^var\(--region-(selected|all)\)$/) =>
       [...container.querySelectorAll('svg path')].filter((p) => token.test((p as SVGElement).style.fill)).length
-    const caption = () => screen.getByText(/^Schematic\./).textContent
+    const caption = () => screen.getByText(/^North-East state boundaries shown/).textContent
 
     // A fresh device: the whole region, in the all-states fill (quieter in Dark).
     expect(filled(/^var\(--region-all\)$/)).toBe(8)
@@ -267,7 +267,7 @@ describe('the scope step', () => {
     await waitFor(() => expect(stateSelect().disabled).toBe(false))
     await user.selectOptions(stateSelect(), 's-assam')
     // The map's drawing (the wordmark's mountain line is an svg too).
-    const map = [...container.querySelectorAll('svg')].find((s) => s.getAttribute('viewBox')?.startsWith('24 6'))!.parentElement!
+    const map = container.querySelector('[data-testid="ner-map"]')!.parentElement!
     // A state alone is named by its own label; no callout repeats it.
     expect(map.querySelector(':scope > span')).toBeNull()
 
