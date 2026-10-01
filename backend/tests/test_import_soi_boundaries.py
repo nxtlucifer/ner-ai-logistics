@@ -97,6 +97,13 @@ class TestPureParts:
             soi.require_local("postgresql+psycopg://u:p@db.example.supabase.co:5432/postgres")
         soi.require_local("postgresql+psycopg://u:p@127.0.0.1:55432/x")
 
+    def test_only_the_exact_named_host_is_allowed(self):
+        hosted = "postgresql+psycopg://u:p@db.example.supabase.co:5432/postgres"
+        soi.require_local(hosted, allow_host="db.example.supabase.co")
+        for wrong in ("example.supabase.co", "db.example.supabase.co.evil", "", None):
+            with pytest.raises(soi.ImportRefused, match="local"):
+                soi.require_local(hosted, allow_host=wrong)
+
 
 def _shapefile(ogr2ogr: str, folder: Path, name: str, features: list[tuple[str, str]]) -> Path:
     """Write a synthetic shapefile from (NAME, WKT) pairs through ogr2ogr."""

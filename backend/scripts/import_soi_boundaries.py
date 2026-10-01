@@ -89,9 +89,12 @@ def slugify(raw: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", normalise_name(raw)).strip("-")
 
 
-def require_local(url: str) -> None:
+def require_local(url: str, allow_host: str | None = None) -> None:
+    """Local targets only, unless the operator names THIS target's exact host
+    (`--allow-host`): a deliberate, visible act for a reviewed hosted import,
+    never a default and never a pattern."""
     host = _host_of(url)
-    if host not in LOCAL_HOSTS:
+    if host not in LOCAL_HOSTS and host != allow_host:
         raise ImportRefused(
             f"Refusing to import into database host '{host}': boundary imports are "
             "for local, isolated and cert databases only."
@@ -152,6 +155,7 @@ def run(
     source: str = SOURCE,
     source_name: str = SOURCE_NAME,
     database_url: str | None = None,
+    allow_host: str | None = None,
 ) -> dict:
     fields = {**FIELDS, **(fields or {})}
     missing = [k for k, v in fields.items() if not v]
@@ -161,7 +165,7 @@ def run(
             "real shapefiles with `ogrinfo -so -al` and pass --field."
         )
     url = database_url or get_settings().effective_database_url
-    require_local(url)
+    require_local(url, allow_host)
 
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
@@ -341,6 +345,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--states", required=True, type=Path)
     parser.add_argument("--districts", required=True, type=Path)
     parser.add_argument("--source-version", required=True)
+    parser.add_argument("--allow-host", default=None,
+                        help="import into this exact non-local database host (reviewed hosted import only)")
     parser.add_argument("--ogr2ogr", default=shutil.which("ogr2ogr"))
     parser.add_argument("--field", action="append", default=[], metavar="KEY=ATTR",
                         help=f"attribute mapping, keys: {', '.join(FIELDS)}")
@@ -353,6 +359,7 @@ def main(argv: list[str] | None = None) -> int:
         summary = run(
             country_shp=args.country, states_shp=args.states, districts_shp=args.districts,
             source_version=args.source_version, ogr2ogr=args.ogr2ogr, fields=fields,
+            allow_host=args.allow_host,
         )
     except (ImportRefused, ValueError) as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
